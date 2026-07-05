@@ -1,3 +1,4 @@
+mod imports;
 mod interpreter;
 mod module;
 mod name;
@@ -5,6 +6,13 @@ mod parse;
 mod path_eval;
 mod search_paths;
 
+pub(crate) use imports::ImportPathResolutionError;
+pub(crate) use imports::ImportTable;
+#[cfg(test)]
+pub(crate) use imports::ModuleKind;
+#[cfg(test)]
+pub(crate) use imports::extract_import_table_for_source;
+pub(crate) use imports::import_table;
 pub use interpreter::Interpreter;
 pub use module::CandidateKind;
 pub use module::CandidateLocation;

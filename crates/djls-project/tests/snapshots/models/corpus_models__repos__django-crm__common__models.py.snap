@@ -11,14 +11,18 @@ models:
       - field_name: owner
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_owner_related"
       - field_name: modified_by
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_modified_by_related"
     kind: abstract
   common.models.Base1:
@@ -29,14 +33,18 @@ models:
       - field_name: owner
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_owner_related"
       - field_name: modified_by
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_modified_by_related"
       - field_name: department
         relation_type: ForeignKey
@@ -77,8 +85,10 @@ models:
       - field_name: owner
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_owner_related"
     kind: concrete
   common.models.StageBase:
@@ -118,7 +128,9 @@ models:
       - field_name: user
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: profile
     kind: concrete

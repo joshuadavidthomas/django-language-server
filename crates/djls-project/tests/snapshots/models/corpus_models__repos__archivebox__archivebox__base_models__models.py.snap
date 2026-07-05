@@ -29,8 +29,10 @@ models:
       - field_name: created_by
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
     kind: abstract
   archivebox.base_models.models.ModelWithUUID:
@@ -41,7 +43,9 @@ models:
       - field_name: created_by
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
     kind: abstract

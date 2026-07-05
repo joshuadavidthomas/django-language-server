@@ -17,8 +17,10 @@ models:
       - field_name: contact
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
     kind: concrete
   geonode.base.models.ExtraMetadata:
@@ -180,8 +182,10 @@ models:
       - field_name: user
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
       - field_name: resource
         relation_type: ForeignKey

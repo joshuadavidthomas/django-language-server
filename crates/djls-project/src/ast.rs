@@ -1,10 +1,13 @@
 use std::marker::PhantomData;
 use std::ops::ControlFlow;
 
+use djls_source::Span;
+use ruff_python_ast::Alias;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::ExprUnaryOp;
+use ruff_python_ast::Identifier;
 use ruff_python_ast::Number;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::UnaryOp;
@@ -110,6 +113,9 @@ pub(crate) trait ExprExt {
     /// Extract the identifier from a name expression.
     fn name_target(&self) -> Option<&str>;
 
+    /// Extract the dotted attribute path from a name or attribute expression.
+    fn path_segments(&self) -> Option<Vec<String>>;
+
     /// Extract a boolean literal.
     fn bool_literal(&self) -> Option<bool>;
 
@@ -150,6 +156,20 @@ impl ExprExt for Expr {
             return Some(name.id.as_str());
         }
         None
+    }
+
+    fn path_segments(&self) -> Option<Vec<String>> {
+        if let Some(name) = self.name_target() {
+            return Some(vec![name.to_string()]);
+        }
+
+        let Expr::Attribute(attr) = self else {
+            return None;
+        };
+
+        let mut path = attr.value.path_segments()?;
+        path.push(attr.attr.to_string());
+        Some(path)
     }
 
     fn bool_literal(&self) -> Option<bool> {
@@ -193,6 +213,33 @@ impl ExprExt for Expr {
             values.push(f(elt)?);
         }
         Some(values)
+    }
+}
+
+pub(crate) trait IdentifierExt {
+    /// Span covering the identifier in the source file.
+    fn span(&self) -> Span;
+}
+
+impl IdentifierExt for Identifier {
+    fn span(&self) -> Span {
+        let range = self.range;
+        Span::new(range.start().to_u32(), range.len().to_u32())
+    }
+}
+
+pub(crate) trait AliasExt {
+    /// Span of the local binding for an unaliased import: the leading
+    /// `local_name` portion of the alias name.
+    fn unaliased_binding_span(&self, local_name: &str) -> Span;
+}
+
+impl AliasExt for Alias {
+    fn unaliased_binding_span(&self, local_name: &str) -> Span {
+        Span::new(
+            self.name.range.start().to_u32(),
+            u32::try_from(local_name.len()).unwrap_or(u32::MAX),
+        )
     }
 }
 

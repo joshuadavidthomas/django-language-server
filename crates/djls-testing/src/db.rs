@@ -17,6 +17,35 @@ use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
 use djls_source::SourceFiles;
 
+#[derive(Clone, Default)]
+pub struct SalsaEventLog {
+    events: Arc<Mutex<Vec<salsa::Event>>>,
+}
+
+impl SalsaEventLog {
+    /// Drain and return all captured Salsa events.
+    ///
+    /// # Panics
+    ///
+    /// Panics if another test has poisoned the event log lock.
+    #[must_use]
+    pub fn take(&self) -> Vec<salsa::Event> {
+        std::mem::take(
+            &mut *self
+                .events
+                .lock()
+                .expect("salsa event log lock should not be poisoned"),
+        )
+    }
+
+    fn push(&self, event: salsa::Event) {
+        self.events
+            .lock()
+            .expect("salsa event log lock should not be poisoned")
+            .push(event);
+    }
+}
+
 #[salsa::db]
 #[derive(Clone)]
 pub struct TestDatabase {
@@ -39,6 +68,17 @@ impl Default for TestDatabase {
 impl TestDatabase {
     #[must_use]
     pub fn new() -> Self {
+        Self::with_storage(salsa::Storage::default())
+    }
+
+    #[must_use]
+    pub fn with_event_log(event_log: SalsaEventLog) -> Self {
+        Self::with_storage(salsa::Storage::new(Some(Box::new(move |event| {
+            event_log.push(event);
+        }))))
+    }
+
+    fn with_storage(storage: salsa::Storage<Self>) -> Self {
         Self {
             fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
             files: SourceFiles::default(),
@@ -47,7 +87,7 @@ impl TestDatabase {
             template_libraries: TemplateLibraries::default(),
             diagnostics_config: djls_conf::DiagnosticsConfig::default(),
             project: None,
-            storage: salsa::Storage::default(),
+            storage,
         }
     }
 

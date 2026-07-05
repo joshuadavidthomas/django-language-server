@@ -11,8 +11,10 @@ models:
       - field_name: uploaded_by_user
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
     kind: abstract
   wagtail.images.models.AbstractRendition:
@@ -29,8 +31,10 @@ models:
       - field_name: uploaded_by_user
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
     kind: concrete
   wagtail.images.models.Rendition:

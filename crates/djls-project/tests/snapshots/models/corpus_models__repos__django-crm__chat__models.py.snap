@@ -21,8 +21,10 @@ models:
       - field_name: owner
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_owner_related"
       - field_name: answer_to
         relation_type: ForeignKey
@@ -37,13 +39,17 @@ models:
       - field_name: recipients
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_recipients_related"
       - field_name: to
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_to_related"
     kind: concrete

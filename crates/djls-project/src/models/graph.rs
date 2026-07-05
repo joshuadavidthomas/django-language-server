@@ -7,7 +7,12 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::db::Db as ProjectDb;
+use crate::project::Project;
+use crate::python::ImportPathResolutionError;
+use crate::python::ImportTable;
 use crate::python::PythonModuleName;
+use crate::python::resolve_prefix;
 
 macro_rules! string_newtype {
     ($(#[doc = $doc:literal])* $vis:vis struct $Name:ident) => {
@@ -127,6 +132,69 @@ pub(crate) enum RelationTarget {
     SelfRef,
     Qualified { app_label: String, name: ModelName },
     Bare { name: ModelName },
+    Attribute { path: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) enum RelationTargetResolution {
+    Resolved(ModelId),
+    Ambiguous {
+        candidates: Vec<ModelId>,
+        app_label: String,
+        name: ModelName,
+    },
+    Partial {
+        resolved_prefix: PythonModuleName,
+        unresolved_tail: Vec<String>,
+    },
+    Unresolved {
+        reason: RelationTargetUnresolvedReason,
+    },
+}
+
+impl RelationTargetResolution {
+    fn file_local_placeholder() -> Self {
+        Self::Unresolved {
+            reason: RelationTargetUnresolvedReason::FileLocal,
+        }
+    }
+
+    fn is_file_local_placeholder(&self) -> bool {
+        matches!(
+            self,
+            Self::Unresolved {
+                reason: RelationTargetUnresolvedReason::FileLocal
+            }
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) enum RelationTargetUnresolvedReason {
+    /// per-file extraction cannot resolve targets; the project pass overwrites this placeholder
+    FileLocal,
+    /// relation has no statically-derivable target, e.g. `GenericForeignKey`
+    NoStaticTarget,
+    MissingImportBinding {
+        binding: String,
+    },
+    InvalidImportedTarget {
+        target: String,
+    },
+    ImportNotFound {
+        requested: PythonModuleName,
+    },
+    ImportedTargetIsModule {
+        module: PythonModuleName,
+    },
+    SameAppTargetNotFound {
+        app_label: String,
+        name: ModelName,
+    },
+    AppLabelTargetNotFound {
+        app_label: String,
+        name: ModelName,
+    },
 }
 
 /// The kind of relation a Django model field represents.
@@ -206,13 +274,29 @@ pub(crate) enum ModelKind {
 /// concrete relations (FK, O2O, M2M) carry a `target` and optional
 /// `related_name`, while `GenericForeignKey` carries `ct_field`/`fk_field`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// `relation_type` is serialized fact schema across corpus snapshots.
+#[allow(clippy::struct_field_names)]
 pub(crate) struct Relation {
     pub(crate) field_name: FieldName,
     #[serde(flatten)]
     pub(crate) relation_type: RelationType,
+    #[serde(
+        default = "RelationTargetResolution::file_local_placeholder",
+        skip_serializing_if = "RelationTargetResolution::is_file_local_placeholder"
+    )]
+    resolution: RelationTargetResolution,
 }
 
 impl Relation {
+    #[must_use]
+    pub(crate) fn new(field_name: FieldName, relation_type: RelationType) -> Self {
+        Self {
+            field_name,
+            relation_type,
+            resolution: RelationTargetResolution::file_local_placeholder(),
+        }
+    }
+
     /// Get the target model if this is a concrete relation (FK, O2O, M2M).
     ///
     /// Returns `None` for `GenericForeignKey` since its target is determined
@@ -354,6 +438,24 @@ fn django_name_matches(candidate: &str, query: &str) -> bool {
         || candidate.to_lowercase() == query.to_lowercase()
 }
 
+fn unresolved_import_path_reason(
+    error: ImportPathResolutionError,
+) -> RelationTargetUnresolvedReason {
+    match error {
+        ImportPathResolutionError::EmptyPath => {
+            RelationTargetUnresolvedReason::InvalidImportedTarget {
+                target: String::new(),
+            }
+        }
+        ImportPathResolutionError::MissingBinding { binding } => {
+            RelationTargetUnresolvedReason::MissingImportBinding { binding }
+        }
+        ImportPathResolutionError::InvalidTarget { target } => {
+            RelationTargetUnresolvedReason::InvalidImportedTarget { target }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDef {
     pub(crate) name: ModelName,
@@ -402,6 +504,33 @@ impl ModelGraph {
         Self::default()
     }
 
+    #[cfg(debug_assertions)]
+    pub(super) fn debug_assert_no_file_local_placeholders(&self) {
+        let placeholders: Vec<String> = self
+            .models
+            .iter()
+            .flat_map(|(id, model)| {
+                model
+                    .relations
+                    .iter()
+                    .filter(|&relation| relation.resolution.is_file_local_placeholder())
+                    .map(|relation| {
+                        format!(
+                            "{}.{}.{}",
+                            id.module_name.as_str(),
+                            id.name.as_str(),
+                            relation.field_name.as_str()
+                        )
+                    })
+            })
+            .collect();
+        debug_assert!(
+            placeholders.is_empty(),
+            "model graph still has file-local relation target placeholders: {}",
+            placeholders.join(", ")
+        );
+    }
+
     pub(crate) fn add_model(&mut self, model: ModelDef) {
         self.models.insert(model.id(), model);
     }
@@ -411,6 +540,7 @@ impl ModelGraph {
         self.models.get(id)
     }
 
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn models_named<'a>(
         &'a self,
         name: &'a str,
@@ -479,8 +609,9 @@ impl ModelGraph {
     /// Skips `GenericForeignKey` relations (no static target).
     #[must_use]
     pub fn resolve_forward(&self, scope: &ModelId, field_name: &str) -> Option<&ModelDef> {
-        let target = self.forward_relation(scope, field_name)?.target_model()?;
-        self.resolve_target(scope, target)
+        let relation = self.forward_relation(scope, field_name)?;
+        self.resolve_relation_target_entry(scope, relation)
+            .map(|(_id, model)| model)
     }
 
     fn forward_relation(&self, scope: &ModelId, field_name: &str) -> Option<&Relation> {
@@ -491,9 +622,22 @@ impl ModelGraph {
             .find(|relation| relation.field_name.as_str() == field_name)
     }
 
-    fn resolve_target(&self, scope: &ModelId, target: &RelationTarget) -> Option<&ModelDef> {
-        self.resolve_target_entry(scope, target)
-            .map(|(_id, model)| model)
+    fn resolve_relation_target_entry(
+        &self,
+        scope: &ModelId,
+        relation: &Relation,
+    ) -> Option<(&ModelId, &ModelDef)> {
+        match &relation.resolution {
+            RelationTargetResolution::Resolved(id) => self.models.get_key_value(id),
+            RelationTargetResolution::Unresolved {
+                reason: RelationTargetUnresolvedReason::FileLocal,
+            } => relation
+                .target_model()
+                .and_then(|target| self.resolve_target_entry(scope, target)),
+            RelationTargetResolution::Ambiguous { .. }
+            | RelationTargetResolution::Partial { .. }
+            | RelationTargetResolution::Unresolved { .. } => None,
+        }
     }
 
     fn resolve_target_entry(
@@ -510,6 +654,7 @@ impl ModelGraph {
             RelationTarget::Qualified { app_label, name } => {
                 self.lookup_entry(app_label, name.as_str())
             }
+            RelationTarget::Attribute { .. } => None,
         }
     }
 
@@ -524,8 +669,8 @@ impl ModelGraph {
     ) -> impl Iterator<Item = (&'a ModelId, String)> + 'a {
         self.models.iter().flat_map(move |(source_id, model)| {
             model.relations.iter().filter_map(move |relation| {
-                let target = relation.target_model()?;
-                let (target_id, _target_model) = self.resolve_target_entry(source_id, target)?;
+                let (target_id, _target_model) =
+                    self.resolve_relation_target_entry(source_id, relation)?;
                 if target_id != scope {
                     return None;
                 }
@@ -546,8 +691,9 @@ impl ModelGraph {
         field_name: &str,
     ) -> Option<&'a ModelDef> {
         if let Some(relation) = self.forward_relation(scope, field_name) {
-            let target = relation.target_model()?;
-            return self.resolve_target(scope, target);
+            return self
+                .resolve_relation_target_entry(scope, relation)
+                .map(|(_id, model)| model);
         }
 
         self.resolve_reverse_relation(scope, field_name)
@@ -557,10 +703,8 @@ impl ModelGraph {
     fn resolve_reverse_relation(&self, scope: &ModelId, field_name: &str) -> Option<&ModelId> {
         for (source_id, model) in &self.models {
             for relation in &model.relations {
-                let Some(target) = relation.target_model() else {
-                    continue;
-                };
-                let Some((target_id, _target_model)) = self.resolve_target_entry(source_id, target)
+                let Some((target_id, _target_model)) =
+                    self.resolve_relation_target_entry(source_id, relation)
                 else {
                     continue;
                 };
@@ -577,6 +721,191 @@ impl ModelGraph {
         }
 
         None
+    }
+
+    pub(crate) fn resolve_relation_targets(
+        &mut self,
+        db: &dyn ProjectDb,
+        project: Project,
+        import_tables: &BTreeMap<PythonModuleName, &ImportTable>,
+    ) {
+        let mut updates = Vec::new();
+        for (scope, model) in &self.models {
+            for (index, relation) in model.relations.iter().enumerate() {
+                updates.push((
+                    scope.clone(),
+                    index,
+                    self.resolve_relation_target(db, project, scope, relation, import_tables),
+                ));
+            }
+        }
+
+        for (scope, index, resolution) in updates {
+            if let Some(model) = self.models.get_mut(&scope)
+                && let Some(relation) = model.relations.get_mut(index)
+            {
+                relation.resolution = resolution;
+            }
+        }
+    }
+
+    fn resolve_relation_target(
+        &self,
+        db: &dyn ProjectDb,
+        project: Project,
+        scope: &ModelId,
+        relation: &Relation,
+        import_tables: &BTreeMap<PythonModuleName, &ImportTable>,
+    ) -> RelationTargetResolution {
+        let Some(target) = relation.target_model() else {
+            return RelationTargetResolution::Unresolved {
+                reason: RelationTargetUnresolvedReason::NoStaticTarget,
+            };
+        };
+
+        match target {
+            RelationTarget::SelfRef => RelationTargetResolution::Resolved(scope.clone()),
+            RelationTarget::Qualified { app_label, name } => self.resolve_app_label_target(
+                app_label,
+                name,
+                RelationTargetUnresolvedReason::AppLabelTargetNotFound {
+                    app_label: app_label.clone(),
+                    name: name.clone(),
+                },
+            ),
+            RelationTarget::Bare { name } => {
+                let Some(import_table) = import_tables.get(&scope.module_name) else {
+                    return self.resolve_same_app_target(scope, name);
+                };
+                match import_table.resolve_qualified_path(std::iter::once(name.as_str())) {
+                    Ok(target) => self.resolve_imported_relation_target(db, project, &target),
+                    Err(ImportPathResolutionError::MissingBinding { .. }) => {
+                        self.resolve_same_app_target(scope, name)
+                    }
+                    Err(error) => RelationTargetResolution::Unresolved {
+                        reason: unresolved_import_path_reason(error),
+                    },
+                }
+            }
+            RelationTarget::Attribute { path } => {
+                let Some(root) = path.first() else {
+                    return RelationTargetResolution::Unresolved {
+                        reason: RelationTargetUnresolvedReason::InvalidImportedTarget {
+                            target: String::new(),
+                        },
+                    };
+                };
+                let Some(import_table) = import_tables.get(&scope.module_name) else {
+                    return RelationTargetResolution::Unresolved {
+                        reason: RelationTargetUnresolvedReason::MissingImportBinding {
+                            binding: root.clone(),
+                        },
+                    };
+                };
+                match import_table.resolve_qualified_path(path.iter().map(String::as_str)) {
+                    Ok(target) => self.resolve_imported_relation_target(db, project, &target),
+                    Err(error) => RelationTargetResolution::Unresolved {
+                        reason: unresolved_import_path_reason(error),
+                    },
+                }
+            }
+        }
+    }
+
+    fn resolve_same_app_target(
+        &self,
+        scope: &ModelId,
+        name: &ModelName,
+    ) -> RelationTargetResolution {
+        let Some(app_label) = app_label_from_module_name(scope.module_name.as_str()) else {
+            return RelationTargetResolution::Unresolved {
+                reason: RelationTargetUnresolvedReason::SameAppTargetNotFound {
+                    app_label: String::new(),
+                    name: name.clone(),
+                },
+            };
+        };
+
+        self.resolve_app_label_target(
+            app_label,
+            name,
+            RelationTargetUnresolvedReason::SameAppTargetNotFound {
+                app_label: app_label.to_string(),
+                name: name.clone(),
+            },
+        )
+    }
+
+    fn resolve_app_label_target(
+        &self,
+        app_label: &str,
+        name: &ModelName,
+        not_found: RelationTargetUnresolvedReason,
+    ) -> RelationTargetResolution {
+        if let Some((id, _model)) = self.lookup_entry_exact(app_label, name.as_str()) {
+            return RelationTargetResolution::Resolved(id.clone());
+        }
+
+        let candidates: Vec<ModelId> = self
+            .models
+            .iter()
+            .filter(|(id, _model)| {
+                django_name_matches(id.name.as_str(), name.as_str())
+                    && app_label_from_module_name(id.module_name.as_str())
+                        .is_some_and(|candidate| django_name_matches(candidate, app_label))
+            })
+            .map(|(id, _model)| id.clone())
+            .collect();
+
+        match candidates.as_slice() {
+            [candidate] => RelationTargetResolution::Resolved(candidate.clone()),
+            [] => RelationTargetResolution::Unresolved { reason: not_found },
+            _ => RelationTargetResolution::Ambiguous {
+                candidates,
+                app_label: app_label.to_string(),
+                name: name.clone(),
+            },
+        }
+    }
+
+    fn resolve_imported_relation_target(
+        &self,
+        db: &dyn ProjectDb,
+        project: Project,
+        target: &PythonModuleName,
+    ) -> RelationTargetResolution {
+        let resolved = resolve_prefix(db, project, target.as_str());
+        let Some(module) = resolved.module else {
+            return RelationTargetResolution::Unresolved {
+                reason: RelationTargetUnresolvedReason::ImportNotFound {
+                    requested: target.clone(),
+                },
+            };
+        };
+
+        if resolved.unresolved_tail.is_empty() {
+            return RelationTargetResolution::Unresolved {
+                reason: RelationTargetUnresolvedReason::ImportedTargetIsModule {
+                    module: module.name().clone(),
+                },
+            };
+        }
+
+        let unresolved_tail = resolved.unresolved_tail;
+        if unresolved_tail.len() == 1 {
+            let candidate = ModelId::new(
+                module.name().clone(),
+                ModelName::new(unresolved_tail[0].clone()),
+            );
+            if self.models.contains_key(&candidate) {
+                return RelationTargetResolution::Resolved(candidate);
+            }
+        }
+
+        RelationTargetResolution::Partial {
+            resolved_prefix: module.name().clone(),
+            unresolved_tail,
+        }
     }
 
     /// Merge another graph into this one.
@@ -603,38 +932,34 @@ mod tests {
             .expect("model should exist")
     }
 
-    fn resolved_model_name(model: Option<&ModelDef>) -> Option<&str> {
-        model.map(|model| model.name.as_str())
-    }
-
     fn user_order_graph() -> ModelGraph {
         let mut graph = ModelGraph::new();
 
         let user = ModelDef::new("User", module_name("auth.models"), 1);
 
         let mut order = ModelDef::new("Order", module_name("shop.models"), 1);
-        order.relations.push(Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::ForeignKey {
+        order.relations.push(Relation::new(
+            "user".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Qualified {
                     app_label: "auth".into(),
                     name: ModelName::new("User"),
                 },
                 related_name: Some("orders".into()),
             },
-        });
+        ));
 
         let mut profile = ModelDef::new("Profile", module_name("accounts.models"), 1);
-        profile.relations.push(Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::OneToOne {
+        profile.relations.push(Relation::new(
+            "user".into(),
+            RelationType::OneToOne {
                 target: RelationTarget::Qualified {
                     app_label: "auth".into(),
                     name: ModelName::new("User"),
                 },
                 related_name: None,
             },
-        });
+        ));
 
         graph.add_model(user);
         graph.add_model(order);
@@ -646,15 +971,21 @@ mod tests {
     fn forward_lookup() {
         let graph = user_order_graph();
         assert_eq!(
-            resolved_model_name(graph.resolve_forward(model_id(&graph, "Order"), "user")),
+            graph
+                .resolve_forward(model_id(&graph, "Order"), "user")
+                .map(|model| model.name.as_str()),
             Some("User")
         );
         assert_eq!(
-            resolved_model_name(graph.resolve_forward(model_id(&graph, "Profile"), "user")),
+            graph
+                .resolve_forward(model_id(&graph, "Profile"), "user")
+                .map(|model| model.name.as_str()),
             Some("User")
         );
         assert_eq!(
-            resolved_model_name(graph.resolve_forward(model_id(&graph, "User"), "user")),
+            graph
+                .resolve_forward(model_id(&graph, "User"), "user")
+                .map(|model| model.name.as_str()),
             None
         );
     }
@@ -674,15 +1005,21 @@ mod tests {
     fn resolve_relation_forward_and_reverse() {
         let graph = user_order_graph();
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "Order"), "user")),
+            graph
+                .resolve_relation(model_id(&graph, "Order"), "user")
+                .map(|model| model.name.as_str()),
             Some("User")
         );
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "orders")),
+            graph
+                .resolve_relation(model_id(&graph, "User"), "orders")
+                .map(|model| model.name.as_str()),
             Some("Order")
         );
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "profile")),
+            graph
+                .resolve_relation(model_id(&graph, "User"), "profile")
+                .map(|model| model.name.as_str()),
             Some("Profile")
         );
     }
@@ -692,49 +1029,51 @@ mod tests {
         let mut graph = ModelGraph::new();
 
         let mut user = ModelDef::new("User", module_name("auth.models"), 1);
-        user.relations.push(Relation {
-            field_name: "orders".into(),
-            relation_type: RelationType::ForeignKey {
+        user.relations.push(Relation::new(
+            "orders".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Qualified {
                     app_label: "missing".into(),
                     name: ModelName::new("Order"),
                 },
                 related_name: None,
             },
-        });
+        ));
 
         let mut order = ModelDef::new("Order", module_name("shop.models"), 1);
-        order.relations.push(Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::ForeignKey {
+        order.relations.push(Relation::new(
+            "user".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Qualified {
                     app_label: "auth".into(),
                     name: ModelName::new("User"),
                 },
                 related_name: Some("orders".into()),
             },
-        });
+        ));
 
         graph.add_model(user);
         graph.add_model(order);
 
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "orders")),
+            graph
+                .resolve_relation(model_id(&graph, "User"), "orders")
+                .map(|model| model.name.as_str()),
             None
         );
     }
 
     #[test]
     fn default_related_name_fk() {
-        let rel = Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::ForeignKey {
+        let rel = Relation::new(
+            "user".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Bare {
                     name: ModelName::new("User"),
                 },
                 related_name: None,
             },
-        };
+        );
         assert_eq!(
             rel.effective_related_name("Order", "shop.models"),
             Some("order_set".into())
@@ -743,15 +1082,15 @@ mod tests {
 
     #[test]
     fn default_related_name_o2o() {
-        let rel = Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::OneToOne {
+        let rel = Relation::new(
+            "user".into(),
+            RelationType::OneToOne {
                 target: RelationTarget::Bare {
                     name: ModelName::new("User"),
                 },
                 related_name: None,
             },
-        };
+        );
         assert_eq!(
             rel.effective_related_name("Profile", "accounts.models"),
             Some("profile".into())
@@ -760,15 +1099,15 @@ mod tests {
 
     #[test]
     fn class_substitution_in_related_name() {
-        let rel = Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::ForeignKey {
+        let rel = Relation::new(
+            "user".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Bare {
                     name: ModelName::new("User"),
                 },
                 related_name: Some("%(class)s_orders".into()),
             },
-        };
+        );
         assert_eq!(
             rel.effective_related_name("SpecialOrder", "shop.models"),
             Some("specialorder_orders".into())
@@ -777,15 +1116,15 @@ mod tests {
 
     #[test]
     fn app_label_substitution_in_related_name() {
-        let rel = Relation {
-            field_name: "title".into(),
-            relation_type: RelationType::ForeignKey {
+        let rel = Relation::new(
+            "title".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Bare {
                     name: ModelName::new("Title"),
                 },
                 related_name: Some("attached_%(app_label)s_%(class)s_set".into()),
             },
-        };
+        );
         assert_eq!(
             rel.effective_related_name("Article", "blog.models"),
             Some("attached_blog_article_set".into())
@@ -794,15 +1133,15 @@ mod tests {
 
     #[test]
     fn app_label_from_nested_module_name() {
-        let rel = Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::ForeignKey {
+        let rel = Relation::new(
+            "user".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Bare {
                     name: ModelName::new("User"),
                 },
                 related_name: Some("%(app_label)s_%(class)s_set".into()),
             },
-        };
+        );
         assert_eq!(
             rel.effective_related_name("Permission", "django.contrib.auth.models"),
             Some("auth_permission_set".into())
@@ -813,15 +1152,15 @@ mod tests {
     fn app_label_bare_models_path() {
         // A bare "models" module name has no valid app label — %(app_label)s
         // should substitute as empty rather than producing "models".
-        let rel = Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::ForeignKey {
+        let rel = Relation::new(
+            "user".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Bare {
                     name: ModelName::new("User"),
                 },
                 related_name: Some("%(app_label)s_%(class)s_set".into()),
             },
-        };
+        );
         assert_eq!(
             rel.effective_related_name("Order", "models"),
             Some("_order_set".into())
@@ -831,15 +1170,15 @@ mod tests {
     #[test]
     fn app_label_no_models_component() {
         // When "models" doesn't appear, falls back to first component.
-        let rel = Relation {
-            field_name: "user".into(),
-            relation_type: RelationType::ForeignKey {
+        let rel = Relation::new(
+            "user".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Bare {
                     name: ModelName::new("User"),
                 },
                 related_name: Some("%(app_label)s_set".into()),
             },
-        };
+        );
         assert_eq!(
             rel.effective_related_name("Order", "myapp"),
             Some("myapp_set".into())
@@ -865,32 +1204,32 @@ mod tests {
         graph.add_model(ModelDef::new("User", module_name("blog.models"), 1));
 
         let mut post = ModelDef::new("Post", module_name("blog.models"), 1);
-        post.relations.push(Relation {
-            field_name: "author".into(),
-            relation_type: RelationType::ForeignKey {
+        post.relations.push(Relation::new(
+            "author".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Bare {
                     name: ModelName::new("User"),
                 },
                 related_name: None,
             },
-        });
-        post.relations.push(Relation {
-            field_name: "account_author".into(),
-            relation_type: RelationType::ForeignKey {
+        ));
+        post.relations.push(Relation::new(
+            "account_author".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::Qualified {
                     app_label: "accounts".into(),
                     name: ModelName::new("User"),
                 },
                 related_name: None,
             },
-        });
-        post.relations.push(Relation {
-            field_name: "parent".into(),
-            relation_type: RelationType::ForeignKey {
+        ));
+        post.relations.push(Relation::new(
+            "parent".into(),
+            RelationType::ForeignKey {
                 target: RelationTarget::SelfRef,
                 related_name: None,
             },
-        });
+        ));
         graph.add_model(post);
 
         let post_id = model_id(&graph, "Post");
@@ -916,13 +1255,13 @@ mod tests {
 
     #[test]
     fn generic_foreign_key_has_no_related_name() {
-        let rel = Relation {
-            field_name: "content_object".into(),
-            relation_type: RelationType::GenericForeignKey {
+        let rel = Relation::new(
+            "content_object".into(),
+            RelationType::GenericForeignKey {
                 ct_field: "content_type".into(),
                 fk_field: "object_id".into(),
             },
-        };
+        );
         assert_eq!(
             rel.effective_related_name("TaggedItem", "tagging.models"),
             None
@@ -934,13 +1273,13 @@ mod tests {
     fn generic_foreign_key_skipped_in_forward_lookup() {
         let mut graph = ModelGraph::new();
         let mut model = ModelDef::new("TaggedItem", module_name("tagging.models"), 1);
-        model.relations.push(Relation {
-            field_name: "content_object".into(),
-            relation_type: RelationType::GenericForeignKey {
+        model.relations.push(Relation::new(
+            "content_object".into(),
+            RelationType::GenericForeignKey {
                 ct_field: "content_type".into(),
                 fk_field: "object_id".into(),
             },
-        });
+        ));
         graph.add_model(model);
 
         assert_eq!(

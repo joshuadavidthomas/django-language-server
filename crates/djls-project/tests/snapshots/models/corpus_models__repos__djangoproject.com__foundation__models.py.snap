@@ -59,8 +59,10 @@ models:
       - field_name: account
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
       - field_name: office
         relation_type: ForeignKey

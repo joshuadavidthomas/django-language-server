@@ -95,6 +95,7 @@ pub mod testing {
     pub use crate::discovery::compute_django_discovery;
     pub use crate::models::extract_model_graph;
     pub use crate::models::model_modules;
+    pub use crate::models::resolve_model_graph_from_modules;
 
     pub fn settings_module_file(
         db: &dyn super::Db,
