@@ -13,6 +13,7 @@ use ruff_python_ast::StmtMatch;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
+use crate::templates::tags::analysis::exceptions::direct_raise_exception;
 use crate::templates::tags::analysis::expressions::eval_expr;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
@@ -39,8 +40,10 @@ pub(super) fn extract_match_constraints(
     let mut min_variable_length: Option<usize> = None;
 
     for case in &match_stmt.cases {
-        if any_path_raises_exception(&case.body) {
-            continue;
+        match classify_case_body(&case.body) {
+            CaseBody::UnconditionalRaise => continue,
+            CaseBody::MixedRaise => return None,
+            CaseBody::NeverRaises => {}
         }
 
         match analyze_case_pattern(&case.pattern) {
@@ -165,7 +168,7 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
         std::collections::HashMap::new();
 
     for case in cases {
-        if any_path_raises_exception(&case.body) {
+        if !matches!(classify_case_body(&case.body), CaseBody::NeverRaises) {
             continue;
         }
         if let Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) = &case.pattern {
@@ -222,11 +225,29 @@ fn pattern_literal(pattern: &Pattern) -> Option<String> {
     }
 }
 
+enum CaseBody {
+    UnconditionalRaise,
+    MixedRaise,
+    NeverRaises,
+}
+
+fn classify_case_body(body: &[Stmt]) -> CaseBody {
+    if direct_raise_exception(body).is_some() {
+        return CaseBody::UnconditionalRaise;
+    }
+
+    if any_path_raises_exception(body) {
+        CaseBody::MixedRaise
+    } else {
+        CaseBody::NeverRaises
+    }
+}
+
 /// Check if any code path in a body contains a `raise` with an exception.
 ///
 /// Unlike `exceptions::direct_raise_exception` (which only checks direct raises),
 /// this recurses into control flow branches. Used for match case classification
-/// where any raise in any branch means the case can error. Any exception type
+/// where a nested raise means only some paths can error. Any exception type
 /// counts — `TemplateSyntaxError`, `ValueError`, etc.
 fn any_path_raises_exception(body: &[Stmt]) -> bool {
     let mut found = false;
@@ -246,4 +267,77 @@ fn any_path_raises_exception(body: &[Stmt]) -> bool {
         ControlFlow::Continue(())
     });
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use ruff_python_parser::parse_module;
+
+    use super::*;
+
+    fn parse_match(source: &str) -> StmtMatch {
+        let parsed = parse_module(source).expect("valid Python");
+        let module = parsed.into_syntax();
+        for stmt in module.body {
+            if let Stmt::FunctionDef(func) = stmt {
+                for stmt in func.body {
+                    if let Stmt::Match(match_stmt) = stmt {
+                        return match_stmt;
+                    }
+                }
+            }
+        }
+        panic!("no match statement found in source");
+    }
+
+    #[test]
+    fn unconditional_raise_arms_are_skipped() {
+        let match_stmt = parse_match(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case "tag":
+            raise TemplateSyntaxError("bad")
+        case "tag", name:
+            pass
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+        let constraints = extract_match_constraints(
+            &match_stmt,
+            &mut Env::for_compile_function("parser", "token"),
+        )
+        .expect("valid arm should produce constraints");
+
+        assert_eq!(
+            constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+    }
+
+    #[test]
+    fn mixed_raise_arm_bails_out_of_match_extraction() {
+        let match_stmt = parse_match(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case "tag", name:
+            if name == "bad":
+                raise TemplateSyntaxError("bad")
+        case "tag", name, value:
+            pass
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+
+        assert!(
+            extract_match_constraints(
+                &match_stmt,
+                &mut Env::for_compile_function("parser", "token")
+            )
+            .is_none()
+        );
+    }
 }

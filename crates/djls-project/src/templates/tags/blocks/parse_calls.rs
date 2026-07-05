@@ -152,16 +152,7 @@ fn classify_stop_tokens(
             if tokens.len() == 1 {
                 end_tags.push(tokens[0].clone());
             } else {
-                for token in tokens {
-                    if token.starts_with("end") {
-                        end_tags.push(token.clone());
-                    } else {
-                        intermediates.push(token.clone());
-                    }
-                }
-                if end_tags.is_empty() {
-                    return None;
-                }
+                return None;
             }
         }
     }

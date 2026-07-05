@@ -260,10 +260,9 @@ def do_block(self, token):
         assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
     }
 
-    // Fabricated: tests convention tie-breaker when a single parse() call has
-    // both "end*" and non-"end*" tokens with no control flow. Real Django
-    // functions always have multiple parse calls or control flow that the
-    // classifier uses — this tests the fallback convention path.
+    // Fabricated: a single parse() call with both "end*" and non-"end*"
+    // tokens has no control-flow evidence. Convention alone is not evidence,
+    // so ambiguous single-call multi-token shapes are conservatively skipped.
     #[test]
     fn convention_tiebreaker_single_call_multi_token() {
         let source = r#"
@@ -272,9 +271,7 @@ def do_if(parser, token):
     return IfNode(nodelist)
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endif"));
-        assert_eq!(spec.intermediates, vec!["else".to_string()]);
+        assert!(extract_block_spec(&func).is_none());
     }
 
     // Corpus: do_block in loader_tags.py — parse(("endblock",)) with next_token

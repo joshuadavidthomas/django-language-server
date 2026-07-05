@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: sorted_snapshot(&bundle)
 ---
 tag_rules:
   "django.templatetags.i18n::tag::blocktrans":
@@ -250,12 +250,12 @@ filter_arities:
     arg_optional: false
 block_specs:
   "django.templatetags.i18n::tag::blocktrans":
-    end_tag: endblocktrans
+    end_tag: ~
     intermediates:
       - plural
     opaque: false
   "django.templatetags.i18n::tag::blocktranslate":
-    end_tag: endblocktranslate
+    end_tag: ~
     intermediates:
       - plural
     opaque: false

@@ -7,8 +7,12 @@ use djls_project::FilterArity;
 use djls_project::SymbolKey;
 use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
+use djls_project::template_libraries;
+use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::ValidationError;
+use djls_semantic::compute_tag_specs;
+use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use djls_testing::available_library_filter;
 use djls_testing::available_library_tag;
@@ -223,6 +227,62 @@ fn crispy_available_filters() -> Vec<serde_json::Value> {
 
 fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
     collect_errors(db, "test.html", source)
+}
+
+fn extracted_unknown_block_db() -> TestDatabase {
+    let source = r#"
+from django import template
+
+register = template.Library()
+
+@register.tag("mystery")
+def do_mystery(parser, token):
+    tag_name = token.split_contents()[0]
+    nodelist = parser.parse((f"end{tag_name}",))
+    return MysteryNode(nodelist)
+"#;
+
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/blog/templatetags/__init__.py", "")
+        .file("/proj/blog/templatetags/ambiguous.py", source)
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+        )
+        .install(&mut db);
+
+    let libraries = template_libraries(&db, project).clone();
+    db = db.with_template_libraries(libraries);
+    let specs = compute_tag_specs(&db, project).clone();
+    db.with_specs(specs)
+}
+
+#[test]
+fn extracted_unknown_block_does_not_require_synthesized_end_tag() {
+    let db = extracted_unknown_block_db();
+    assert_eq!(
+        db.tag_specs()
+            .get("mystery")
+            .and_then(|spec| spec.end_tag.as_ref())
+            .map(|end_tag| end_tag.name.as_ref()),
+        None::<&str>,
+        "ambiguous extracted closer must stay unknown, not be synthesized"
+    );
+
+    let errors = collect_all_errors(&db, "{% load ambiguous %}\n{% mystery %}\n");
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnclosedTag { tag, .. } if tag == "mystery"
+        ) || matches!(
+            error,
+            ValidationError::UnbalancedStructure { opening_tag, .. } if opening_tag == "mystery"
+        )),
+        "extracted dynamic block tags should not require a synthesized closer: {errors:?}"
+    );
 }
 
 #[test]

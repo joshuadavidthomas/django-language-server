@@ -92,12 +92,12 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "django.templatetags.i18n::tag::blocktrans":
-    end_tag: endblocktrans
+    end_tag: ~
     intermediates:
       - plural
     opaque: false
   "django.templatetags.i18n::tag::blocktranslate":
-    end_tag: endblocktranslate
+    end_tag: ~
     intermediates:
       - plural
     opaque: false

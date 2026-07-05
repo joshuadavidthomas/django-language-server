@@ -7,6 +7,7 @@ use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
 use djls_testing::sorted_snapshot;
 
+const ALLAUTH_TAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/allauth_tags.py");
 const CUSTOM_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_custom.py");
 const DEFAULTFILTERS_SOURCE: &str =
     include_str!("../src/templates/tags/testdata/django_defaultfilters.py");
@@ -17,6 +18,10 @@ const INCLUSION_SOURCE: &str = include_str!("../src/templates/tags/testdata/djan
 const LOADER_TAGS_SOURCE: &str =
     include_str!("../src/templates/tags/testdata/django_loader_tags.py");
 const TESTTAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_testtags.py");
+const TZ_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_tz.py");
+const ADMIN_URLS_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_admin_urls.py");
+const WAGTAILADMIN_TAGS_SOURCE: &str =
+    include_str!("../src/templates/tags/testdata/wagtailadmin_tags.py");
 
 fn extract_source(source: &str, module_name: &str) -> ExtractionBundle {
     let db = TestDatabase::new();
@@ -208,6 +213,45 @@ fn golden_testtags() {
     let result = extract_source(
         TESTTAGS_SOURCE,
         "tests.template_tests.templatetags.testtags",
+    );
+    insta::assert_yaml_snapshot!(sorted_snapshot(&result));
+}
+
+// Corpus: django-allauth/allauth/templatetags/allauth.py — custom block tag.
+// Exercises helper-based argument parsing and explicit end tag extraction.
+#[test]
+fn golden_allauth_tags() {
+    let result = extract_source(ALLAUTH_TAGS_SOURCE, "allauth.templatetags.allauth");
+    insta::assert_yaml_snapshot!(sorted_snapshot(&result));
+}
+
+// Corpus: wagtail/admin/templatetags/wagtailadmin_tags.py — call-style
+// registrations. Exercises register.tag("name", Class.handle) and
+// register.filter("name", func) without local function definitions.
+#[test]
+fn golden_wagtailadmin_tags() {
+    let result = extract_source(
+        WAGTAILADMIN_TAGS_SOURCE,
+        "wagtail.admin.templatetags.wagtailadmin_tags",
+    );
+    insta::assert_yaml_snapshot!(sorted_snapshot(&result));
+}
+
+// Corpus: django/templatetags/tz.py — timezone tags.
+// Exercises simple tags and block tags with conventional end tags.
+#[test]
+fn golden_django_tz() {
+    let result = extract_source(TZ_SOURCE, "django.templatetags.tz");
+    insta::assert_yaml_snapshot!(sorted_snapshot(&result));
+}
+
+// Corpus: django/contrib/admin/templatetags/admin_urls.py — admin URL helpers.
+// Exercises simple_tag with takes_context and optional function parameters.
+#[test]
+fn golden_django_admin_urls() {
+    let result = extract_source(
+        ADMIN_URLS_SOURCE,
+        "django.contrib.admin.templatetags.admin_urls",
     );
     insta::assert_yaml_snapshot!(sorted_snapshot(&result));
 }
@@ -487,17 +531,37 @@ fn corpus_non_opaque_no_split_contents() {
     assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
 }
 
-// Corpus: `spaceless` in defaulttags.py — uses `token.split_contents()[0]`
-// in f-string for dynamic end tag name.
+// Corpus: `spaceless` in defaulttags.py — uses parser.parse(("endspaceless",))
+// with a literal end tag.
 #[test]
-fn corpus_dynamic_end_tag() {
+fn corpus_literal_end_tag() {
     let result = extract_source(DEFAULTTAGS_SOURCE, "django.template.defaulttags");
     let key = SymbolKey::tag("django.template.defaulttags", "spaceless");
     assert!(result.block_specs.as_map().contains_key(&key));
     let spec = &result.block_specs.as_map()[&key];
-    // Dynamic end-tag detected as None (computed at runtime), but
-    // extract_block_specs() fills it with "end{name}" as fallback
-    assert!(spec.end_tag.is_some());
+    assert_eq!(spec.end_tag.as_deref(), Some("endspaceless"));
+}
+
+// Edge case — dynamic f-string end tag through the full extraction path.
+// Ensures ambiguous closers remain unknown instead of being re-synthesized from
+// the registered tag name.
+#[test]
+fn ambiguous_closer_stays_unknown_after_extraction() {
+    let source = r#"
+from django import template
+register = template.Library()
+
+@register.tag("mystery")
+def do_block(parser, token):
+    tag_name, *rest = token.split_contents()
+    nodelist = parser.parse((f"end{tag_name}",))
+    parser.delete_first_token()
+    return BlockNode(tag_name, nodelist)
+"#;
+    let result = extract_source(source, "app.templatetags.custom");
+    let key = SymbolKey::tag("app.templatetags.custom", "mystery");
+    let spec = &result.block_specs.as_map()[&key];
+    assert!(spec.end_tag.is_none());
 }
 
 // Corpus: `do_block` in loader_tags.py — simple block tag with endblock.

@@ -172,9 +172,7 @@ pub fn extract_block_specs(
         let mut block_specs = BlockSpecs::default();
 
         for_each_registration(body, &registration_module, |reg, func, key| {
-            if let Some(block_spec) =
-                normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
-            {
+            if let Some(block_spec) = reg.kind.extract_block_spec(func) {
                 block_specs.insert(key, block_spec);
             }
         });
@@ -193,15 +191,6 @@ fn with_parsed_body<M: Default>(
     };
 
     f(parsed.body(db))
-}
-
-fn normalize_block_spec(block_spec: Option<BlockSpec>, tag_name: &str) -> Option<BlockSpec> {
-    block_spec.map(|mut block_spec| {
-        if block_spec.end_tag.is_none() {
-            block_spec.end_tag = Some(format!("end{tag_name}"));
-        }
-        block_spec
-    })
 }
 
 #[cfg(test)]
