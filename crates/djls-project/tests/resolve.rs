@@ -101,7 +101,7 @@ fn django_template_settings(installed_apps: &[&str], builtins: &[&str]) -> Strin
 }
 
 #[test]
-fn search_paths_detect_top_level_src_after_project_root() {
+fn search_paths_detect_top_level_src_before_project_root() {
     let mut fs = InMemoryFileSystem::new();
     fs.add_file("/project/src/app.py".into(), String::new());
 
@@ -112,8 +112,8 @@ fn search_paths_detect_top_level_src_after_project_root() {
     assert_eq!(
         paths,
         vec![
-            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
             SearchPath::FirstParty(Utf8PathBuf::from("/project/src")),
+            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
         ]
     );
 }
@@ -122,6 +122,22 @@ fn search_paths_detect_top_level_src_after_project_root() {
 fn search_paths_do_not_detect_top_level_src_when_absent() {
     let mut fs = InMemoryFileSystem::new();
     fs.add_file("/project/app.py".into(), String::new());
+
+    let search_paths =
+        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let paths: Vec<_> = search_paths.iter().cloned().collect();
+
+    assert_eq!(
+        paths,
+        vec![SearchPath::FirstParty(Utf8PathBuf::from("/project"))]
+    );
+}
+
+#[test]
+fn search_paths_do_not_detect_top_level_src_when_src_is_package() {
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file("/project/src/__init__.py".into(), String::new());
+    fs.add_file("/project/src/app.py".into(), String::new());
 
     let search_paths =
         SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
@@ -189,8 +205,8 @@ fn search_paths_skip_pth_entries_that_duplicate_existing_roots() {
     assert_eq!(
         paths,
         vec![
-            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
             SearchPath::FirstParty(Utf8PathBuf::from("/project/src")),
+            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
             SearchPath::SitePackages(Utf8PathBuf::from(
                 "/project/.venv/lib/python3.12/site-packages"
             )),
@@ -224,8 +240,8 @@ fn search_paths_keep_site_packages_external_inside_project_root() {
     assert_eq!(
         paths,
         vec![
-            Utf8Path::new("/project"),
             Utf8Path::new("/project/src"),
+            Utf8Path::new("/project"),
             Utf8Path::new("/outside"),
             Utf8Path::new("/project/.venv/lib/python3.12/site-packages"),
         ]
@@ -286,16 +302,12 @@ fn model_modules_use_first_party_search_path_relative_names() {
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
     let modules = model_modules(&db, project);
-    assert!(
-        modules
-            .iter()
-            .any(|module| module.name().as_str() == "blog.models")
-    );
-    assert!(
-        !modules
-            .iter()
-            .any(|module| module.name().as_str() == "src.blog.models")
-    );
+    let module_names: Vec<_> = modules
+        .iter()
+        .map(|module| module.name().as_str())
+        .collect();
+    assert!(module_names.contains(&"blog.models"));
+    assert!(!module_names.contains(&"src.blog.models"));
 }
 
 #[test]
@@ -1153,6 +1165,254 @@ fn resolve_package_dirs_returns_empty_for_file_module() {
     let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("app").unwrap());
 
     assert!(dirs.dirs.is_empty());
+}
+
+#[test]
+fn file_to_module_returns_unique_module_for_source_and_init_files() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/__init__.py", "")
+        .file("/project/app/models.py", "")
+        .build(&db);
+
+    let models = file_to_module(&db, project, Utf8PathBuf::from("/project/app/models.py"))
+        .expect("models.py should have one module name");
+    assert_eq!(models.name().as_str(), "app.models");
+    assert_eq!(models.path(), Utf8Path::new("/project/app/models.py"));
+
+    let app = file_to_module(&db, project, Utf8PathBuf::from("/project/app/__init__.py"))
+        .expect("__init__.py should map to its package name");
+    assert_eq!(app.name().as_str(), "app");
+    assert_eq!(app.path(), Utf8Path::new("/project/app/__init__.py"));
+
+    let detail = file_to_module_detail(&db, project, Utf8PathBuf::from("/project/app/models.py"));
+    assert_eq!(detail.selected_module, Some(models));
+    assert_eq!(detail.unresolved_reason, None);
+    assert_eq!(
+        detail.derivations,
+        vec![FileModuleDerivation {
+            root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+            name: PythonModuleName::parse("app.models").unwrap(),
+            resolved_path: Some(Utf8PathBuf::from("/project/app/models.py")),
+            status: FileModuleDerivationStatus::RoundTrips,
+        }]
+    );
+}
+
+#[test]
+fn file_to_module_uses_first_containing_root_for_nested_first_party_paths() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/lib/__init__.py", "");
+    db.add_file("/project/lib/pkg/__init__.py", "");
+    db.add_file("/project/lib/pkg/mod.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/project/lib")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let source_path = Utf8PathBuf::from("/project/lib/pkg/mod.py");
+
+    let module = file_to_module(&db, project, source_path.clone())
+        .expect("first containing root should define the file identity");
+    assert_eq!(module.name().as_str(), "lib.pkg.mod");
+    assert_eq!(module.path(), Utf8Path::new("/project/lib/pkg/mod.py"));
+
+    let expected = vec![
+        FileModuleDerivation {
+            root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+            name: PythonModuleName::parse("lib.pkg.mod").unwrap(),
+            resolved_path: Some(source_path.clone()),
+            status: FileModuleDerivationStatus::RoundTrips,
+        },
+        FileModuleDerivation {
+            root: SearchPath::FirstParty(Utf8PathBuf::from("/project/lib")),
+            name: PythonModuleName::parse("pkg.mod").unwrap(),
+            resolved_path: Some(source_path.clone()),
+            status: FileModuleDerivationStatus::RoundTrips,
+        },
+    ];
+    let detail = file_to_module_detail(&db, project, source_path);
+
+    assert_eq!(detail.selected_module, Some(module));
+    assert_eq!(detail.derivations, expected);
+    assert_eq!(detail.unresolved_reason, None);
+}
+
+#[test]
+fn file_to_module_uses_src_layout_root_first() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/src/blog/__init__.py", "");
+    db.add_file("/project/src/blog/models.py", "");
+
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let source_path = Utf8PathBuf::from("/project/src/blog/models.py");
+
+    let module = file_to_module(&db, project, source_path.clone())
+        .expect("src layout file should use the src-relative module name");
+    assert_eq!(module.name().as_str(), "blog.models");
+    assert_eq!(module.path(), Utf8Path::new("/project/src/blog/models.py"));
+
+    let detail = file_to_module_detail(&db, project, source_path);
+    assert_eq!(detail.selected_module, Some(module));
+    assert_eq!(detail.unresolved_reason, None);
+    assert_eq!(
+        detail.derivations,
+        vec![
+            FileModuleDerivation {
+                root: SearchPath::FirstParty(Utf8PathBuf::from("/project/src")),
+                name: PythonModuleName::parse("blog.models").unwrap(),
+                resolved_path: Some(Utf8PathBuf::from("/project/src/blog/models.py")),
+                status: FileModuleDerivationStatus::RoundTrips,
+            },
+            FileModuleDerivation {
+                root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+                name: PythonModuleName::parse("src.blog.models").unwrap(),
+                resolved_path: Some(Utf8PathBuf::from("/project/src/blog/models.py")),
+                status: FileModuleDerivationStatus::RoundTrips,
+            },
+        ]
+    );
+}
+
+#[test]
+fn file_to_module_reports_shadowed_cross_root_file() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/app.py", "");
+    db.add_file("/vendor/app.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/vendor")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let source_path = Utf8PathBuf::from("/vendor/app.py");
+
+    assert_eq!(file_to_module(&db, project, source_path.clone()), None);
+
+    let detail = file_to_module_detail(&db, project, source_path);
+    assert_eq!(detail.selected_module, None);
+    assert_eq!(
+        detail.derivations,
+        vec![FileModuleDerivation {
+            root: SearchPath::Extra(Utf8PathBuf::from("/vendor")),
+            name: PythonModuleName::parse("app").unwrap(),
+            resolved_path: Some(Utf8PathBuf::from("/project/app.py")),
+            status: FileModuleDerivationStatus::Shadowed,
+        }]
+    );
+    assert_eq!(
+        detail.unresolved_reason,
+        Some(FileUnresolvedReason::Shadowed {
+            winner: Utf8PathBuf::from("/project/app.py"),
+        })
+    );
+}
+
+#[test]
+fn file_to_module_reports_shadowed_sibling_precedence_file() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app.py", "")
+        .file("/project/app/__init__.py", "")
+        .build(&db);
+    let source_path = Utf8PathBuf::from("/project/app.py");
+
+    assert_eq!(file_to_module(&db, project, source_path.clone()), None);
+
+    let detail = file_to_module_detail(&db, project, source_path);
+    assert_eq!(detail.selected_module, None);
+    assert_eq!(
+        detail.derivations,
+        vec![FileModuleDerivation {
+            root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+            name: PythonModuleName::parse("app").unwrap(),
+            resolved_path: Some(Utf8PathBuf::from("/project/app/__init__.py")),
+            status: FileModuleDerivationStatus::Shadowed,
+        }]
+    );
+    assert_eq!(
+        detail.unresolved_reason,
+        Some(FileUnresolvedReason::Shadowed {
+            winner: Utf8PathBuf::from("/project/app/__init__.py"),
+        })
+    );
+}
+
+#[test]
+fn file_to_module_reports_not_under_any_root() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project").build(&db);
+    let source_path = Utf8PathBuf::from("/outside/app.py");
+
+    assert_eq!(file_to_module(&db, project, source_path.clone()), None);
+
+    let detail = file_to_module_detail(&db, project, source_path);
+    assert_eq!(detail.selected_module, None);
+    assert!(detail.derivations.is_empty());
+    assert_eq!(
+        detail.unresolved_reason,
+        Some(FileUnresolvedReason::NotUnderAnyRoot)
+    );
+}
+
+#[test]
+fn file_to_module_reports_no_valid_derivation() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app.txt", "")
+        .build(&db);
+    let source_path = Utf8PathBuf::from("/project/app.txt");
+
+    assert_eq!(file_to_module(&db, project, source_path.clone()), None);
+
+    let detail = file_to_module_detail(&db, project, source_path);
+    assert_eq!(detail.selected_module, None);
+    assert!(detail.derivations.is_empty());
+    assert_eq!(
+        detail.unresolved_reason,
+        Some(FileUnresolvedReason::NoValidDerivation)
+    );
+}
+
+#[test]
+fn file_to_module_reports_not_found_for_missing_source_file() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project").build(&db);
+    let source_path = Utf8PathBuf::from("/project/missing.py");
+
+    assert_eq!(file_to_module(&db, project, source_path.clone()), None);
+
+    let detail = file_to_module_detail(&db, project, source_path);
+    assert_eq!(detail.selected_module, None);
+    assert_eq!(
+        detail.derivations,
+        vec![FileModuleDerivation {
+            root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+            name: PythonModuleName::parse("missing").unwrap(),
+            resolved_path: None,
+            status: FileModuleDerivationStatus::Unresolved,
+        }]
+    );
+    assert_eq!(
+        detail.unresolved_reason,
+        Some(FileUnresolvedReason::NotFound)
+    );
 }
 
 #[test]
