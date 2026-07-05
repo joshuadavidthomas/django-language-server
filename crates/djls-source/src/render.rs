@@ -23,7 +23,7 @@ pub enum Severity {
 /// The `primary` flag controls whether it gets `^^^` (primary) or `---` (context)
 /// underline treatment.
 #[derive(Debug, Clone)]
-pub struct DiagnosticAnnotation<'a> {
+pub(crate) struct DiagnosticAnnotation<'a> {
     span: Span,
     label: &'a str,
     primary: bool,

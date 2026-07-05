@@ -34,6 +34,5 @@ pub use position::Range;
 pub use position::Span;
 pub use protocol::PositionEncoding;
 pub use render::Diagnostic;
-pub use render::DiagnosticAnnotation;
 pub use render::DiagnosticRenderer;
 pub use render::Severity;

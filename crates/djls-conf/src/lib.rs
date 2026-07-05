@@ -26,7 +26,6 @@ pub use crate::tagspecs::ArgKindDef;
 pub use crate::tagspecs::ArgTypeDef;
 pub use crate::tagspecs::EndTagDef;
 pub use crate::tagspecs::IntermediateTagDef;
-pub use crate::tagspecs::PositionDef;
 pub use crate::tagspecs::TagArgDef;
 pub use crate::tagspecs::TagDef;
 pub use crate::tagspecs::TagLibraryDef;
