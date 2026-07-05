@@ -213,6 +213,9 @@ mod invalidation_tests {
     use djls_conf::Settings;
     use djls_project::Db as ProjectDb;
     use djls_project::Project;
+    use djls_project::PythonModule;
+    use djls_project::PythonModuleName;
+    use djls_project::resolve_module_detail;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::template_inheritance;
@@ -736,6 +739,137 @@ mod invalidation_tests {
         assert!(
             !was_executed(&db, &events, "template_dirs"),
             "template_dirs should stay cached after an unrelated file revision changes"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn module_detail_perturbations_do_not_recompute_settings_identity_consumers() {
+        let event_log = EventLog::default();
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let vendor = root.join("vendor");
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            format!("django_settings_module = \"unrelated\"\npythonpath = [\"{vendor}\"]\n"),
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let unrelated_path = root.join("unrelated.py");
+
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(
+                unrelated_path.clone(),
+                "INSTALLED_APPS = []\nTEMPLATES = []\n".to_string(),
+            );
+            fs.add_file(vendor.join("anchor.py"), String::new());
+        }
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+        let name = PythonModuleName::parse("unrelated").unwrap();
+
+        let module = PythonModule::resolve(&db, project, name.clone())
+            .expect("unrelated should resolve from the project root");
+        assert_eq!(module.path(), unrelated_path.as_path());
+        assert_eq!(
+            resolve_module_detail(&db, project, name.clone())
+                .candidates
+                .len(),
+            1
+        );
+        assert_eq!(
+            djls_project::testing::settings_module_file(&db, project)
+                .expect("settings module should resolve")
+                .path(&db),
+            unrelated_path.as_path()
+        );
+        assert_eq!(
+            djls_project::testing::django_settings_template_backend_count(&db, project),
+            0
+        );
+        let vendor_root = db
+            .files()
+            .root(&db, vendor.as_path())
+            .expect("vendor search path root should be registered");
+        event_log.take();
+
+        fs.lock()
+            .unwrap()
+            .add_file(vendor.join("unrelated/marker.txt"), String::new());
+        db.bump_file_root_revision(vendor_root);
+
+        let detail = resolve_module_detail(&db, project, name.clone());
+        assert_eq!(detail.candidates.len(), 2);
+        assert_eq!(
+            djls_project::testing::settings_module_file(&db, project)
+                .expect("settings module should stay resolved")
+                .path(&db),
+            unrelated_path.as_path()
+        );
+        assert_eq!(
+            djls_project::testing::django_settings_template_backend_count(&db, project),
+            0
+        );
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "resolve_module_detail"),
+            "resolve_module_detail should re-execute after a lower-priority namespace portion appears"
+        );
+        assert!(
+            !was_executed(&db, &events, "settings_module_file"),
+            "settings_module_file should backdate through unchanged module identity"
+        );
+        assert!(
+            !was_executed(&db, &events, "django_settings"),
+            "django_settings should not recompute for detail-only module candidate churn"
+        );
+
+        fs.lock()
+            .unwrap()
+            .add_file(vendor.join("unrelated.py"), String::new());
+        db.bump_file_root_revision(vendor_root);
+
+        let detail = resolve_module_detail(&db, project, name);
+        assert_eq!(detail.candidates.len(), 2);
+        assert_eq!(
+            djls_project::testing::settings_module_file(&db, project)
+                .expect("settings module should stay resolved")
+                .path(&db),
+            unrelated_path.as_path()
+        );
+        assert_eq!(
+            djls_project::testing::django_settings_template_backend_count(&db, project),
+            0
+        );
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "resolve_module_detail"),
+            "resolve_module_detail should re-execute after a lower-priority regular module appears"
+        );
+        assert!(
+            !was_executed(&db, &events, "settings_module_file"),
+            "settings_module_file should backdate through unchanged first-root identity"
+        );
+        assert!(
+            !was_executed(&db, &events, "django_settings"),
+            "django_settings should not recompute when the selected module identity is unchanged"
         );
     }
 

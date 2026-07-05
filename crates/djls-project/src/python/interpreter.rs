@@ -14,8 +14,6 @@ pub enum Interpreter {
     Auto,
     /// Use specific virtual environment path
     VenvPath(Utf8PathBuf),
-    /// Use specific interpreter executable path
-    InterpreterPath(Utf8PathBuf),
 }
 
 impl Interpreter {
@@ -47,7 +45,6 @@ impl Interpreter {
                         .then(|| Self::site_packages_path_in_venv(fs, &venv))
                         .flatten()
                 }),
-            Self::InterpreterPath(_) => None,
         }
     }
 
