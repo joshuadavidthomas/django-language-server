@@ -15,8 +15,10 @@ use crate::settings::extraction::env::EvalEnv;
 use crate::settings::extraction::installed_apps;
 use crate::settings::extraction::templates;
 use crate::settings::types::InstalledAppsSetting;
+use crate::settings::types::LocalListBinding;
+use crate::settings::types::SettingExtraction;
+use crate::settings::types::SettingsImport;
 use crate::settings::types::SettingsSourceResolver;
-use crate::settings::types::SettingsStarImport;
 use crate::settings::types::TemplateDirPath;
 use crate::settings::types::TemplateSettings;
 
@@ -166,6 +168,10 @@ impl<'a> SettingsBindingsCollector<'a> {
 
         if attribute.value.name_target() == Some(INSTALLED_APPS) {
             self.apply_installed_apps_call(attribute.attr.as_str(), &call.arguments);
+        } else if let Some(name) = attribute.value.name_target()
+            && self.bindings.locals.list_binding(name).is_some()
+        {
+            self.bindings.locals.clear_name(name);
         } else if let Some(index) = templates_dirs_target(&attribute.value) {
             match attribute.attr.as_str() {
                 "append"
@@ -200,20 +206,21 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn walk_import_from(&mut self, import: &ast::StmtImportFrom) {
+        let source_import = SettingsImport {
+            level: import.level,
+            module: import.module.as_ref().map(ToString::to_string),
+        };
+
         let is_star_import = import.names.iter().any(|alias| alias.name.as_str() == "*");
         if is_star_import {
-            let star_import = SettingsStarImport {
-                level: import.level,
-                module: import.module.as_ref().map(ToString::to_string),
-            };
-            if let Some(bindings) = self
+            let imported_bindings = self
                 .resolver
-                .resolve_star_import(&star_import, self.module_path)
+                .resolve_star_import(&source_import, self.module_path)
                 .and_then(|resolved| {
                     self.extraction
-                        .extract_star_import(&resolved, self.resolver)
-                })
-            {
+                        .extract_import_source(&resolved, self.resolver)
+                });
+            if let Some(bindings) = imported_bindings {
                 self.bindings.merge_star_import(&bindings);
             } else {
                 self.bindings.mark_installed_apps_partial();
@@ -222,12 +229,30 @@ impl<'a> SettingsBindingsCollector<'a> {
             return;
         }
 
-        for alias in &import.names {
-            let bound_name = alias
-                .asname
-                .as_ref()
-                .map_or_else(|| alias.name.as_str(), |asname| asname.as_str());
-            self.mark_definition_name(bound_name);
+        let imported_bindings = self
+            .resolver
+            .resolve_named_import(&source_import, self.module_path)
+            .and_then(|resolved| {
+                self.extraction
+                    .extract_import_source(&resolved, self.resolver)
+            });
+        if let Some(imported_bindings) = imported_bindings {
+            for alias in &import.names {
+                let imported_name = alias.name.as_str();
+                let bound_name = alias
+                    .asname
+                    .as_ref()
+                    .map_or_else(|| imported_name, |asname| asname.as_str());
+                self.bind_imported_name(imported_name, bound_name, &imported_bindings);
+            }
+        } else {
+            for alias in &import.names {
+                let bound_name = alias
+                    .asname
+                    .as_ref()
+                    .map_or_else(|| alias.name.as_str(), |asname| asname.as_str());
+                self.mark_definition_name(bound_name);
+            }
         }
     }
 
@@ -236,7 +261,21 @@ impl<'a> SettingsBindingsCollector<'a> {
             Truthiness::AlwaysTrue => self.walk_body(&stmt_if.body),
             Truthiness::AlwaysFalse => self.walk_false_if_clauses(&stmt_if.elif_else_clauses),
             Truthiness::Ambiguous => {
-                let arms = ambiguous_if_arms(&stmt_if.body, &stmt_if.elif_else_clauses);
+                let mut arms = Vec::with_capacity(stmt_if.elif_else_clauses.len() + 2);
+                arms.push(stmt_if.body.as_slice());
+                arms.extend(
+                    stmt_if
+                        .elif_else_clauses
+                        .iter()
+                        .map(|clause| clause.body.as_slice()),
+                );
+                if !stmt_if
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| clause.test.is_none())
+                {
+                    arms.push(&[]);
+                }
                 self.walk_ambiguous_arms(&arms);
             }
         }
@@ -256,7 +295,14 @@ impl<'a> SettingsBindingsCollector<'a> {
                 }
                 Truthiness::AlwaysFalse => {}
                 Truthiness::Ambiguous => {
-                    let arms = ambiguous_clause_arms(&clauses[index..]);
+                    let ambiguous_clauses = &clauses[index..];
+                    let mut arms: Vec<&[ast::Stmt]> = ambiguous_clauses
+                        .iter()
+                        .map(|clause| clause.body.as_slice())
+                        .collect();
+                    if !ambiguous_clauses.iter().any(|clause| clause.test.is_none()) {
+                        arms.push(&[]);
+                    }
                     self.walk_ambiguous_arms(&arms);
                     return;
                 }
@@ -306,7 +352,61 @@ impl<'a> SettingsBindingsCollector<'a> {
         }
     }
 
+    fn bind_imported_name(
+        &mut self,
+        imported_name: &str,
+        bound_name: &str,
+        imported_bindings: &SettingsBindings,
+    ) {
+        match imported_name {
+            INSTALLED_APPS => {
+                let Some(setting) = &imported_bindings.installed_apps else {
+                    self.mark_definition_name(bound_name);
+                    return;
+                };
+                if matches!(setting.extraction, SettingExtraction::Unsupported) {
+                    self.mark_definition_name(bound_name);
+                } else if bound_name == INSTALLED_APPS {
+                    self.bindings.installed_apps = Some(setting.clone());
+                } else {
+                    let list = if setting.is_fully_extracted() {
+                        LocalListBinding::full(setting.values.clone())
+                    } else {
+                        LocalListBinding::partial(setting.values.clone())
+                    };
+                    self.bindings.locals.set_list(bound_name, list);
+                }
+            }
+            TEMPLATES => {
+                if bound_name == TEMPLATES {
+                    if let Some(templates) = &imported_bindings.templates {
+                        self.bindings.templates = Some(templates.clone());
+                    } else {
+                        self.mark_definition_name(bound_name);
+                    }
+                } else {
+                    self.mark_definition_name(bound_name);
+                }
+            }
+            _ => {
+                if !self.bindings.locals.bind_imported_local(
+                    &imported_bindings.locals,
+                    imported_name,
+                    bound_name,
+                ) {
+                    self.mark_definition_name(bound_name);
+                }
+            }
+        }
+    }
+
     fn assign_aux(&mut self, name: &str, value: &ast::Expr) {
+        let env = EvalEnv::new(self.module_path, &self.bindings);
+        match installed_apps::evaluate_local_list_assignment(value, &env) {
+            Some(extracted) => self.bindings.locals.set_list(name, extracted.into()),
+            None => self.bindings.locals.remove_list(name),
+        }
+
         match value.bool_literal() {
             Some(value) => self.bindings.locals.set_bool(name, value),
             None => self.bindings.locals.remove_bool(name),
@@ -461,13 +561,14 @@ impl<'a> SettingsBindingsCollector<'a> {
         if target_touches_name(target, TEMPLATES) {
             self.bindings.mark_templates_unsupported();
         }
+        clear_local_target_names(target, &mut |name| self.bindings.locals.clear_name(name));
     }
 
     fn mark_definition_name(&mut self, name: &str) {
         match name {
             INSTALLED_APPS => self.bindings.mark_installed_apps_unsupported(),
             TEMPLATES => self.bindings.mark_templates_unsupported(),
-            _ => {}
+            _ => self.bindings.locals.clear_name(name),
         }
     }
 }
@@ -495,30 +596,6 @@ impl Truthiness {
             Self::Ambiguous => Self::Ambiguous,
         }
     }
-}
-
-fn ambiguous_if_arms<'a>(
-    body: &'a [ast::Stmt],
-    clauses: &'a [ast::ElifElseClause],
-) -> Vec<&'a [ast::Stmt]> {
-    let mut arms = Vec::with_capacity(clauses.len() + 2);
-    arms.push(body);
-    arms.extend(clauses.iter().map(|clause| clause.body.as_slice()));
-    if !clauses.iter().any(|clause| clause.test.is_none()) {
-        arms.push(&[]);
-    }
-    arms
-}
-
-fn ambiguous_clause_arms(clauses: &[ast::ElifElseClause]) -> Vec<&[ast::Stmt]> {
-    let mut arms: Vec<&[ast::Stmt]> = clauses
-        .iter()
-        .map(|clause| clause.body.as_slice())
-        .collect();
-    if !clauses.iter().any(|clause| clause.test.is_none()) {
-        arms.push(&[]);
-    }
-    arms
 }
 
 /// Deliberately a separate pass from the collector walk: the walk skips
@@ -586,6 +663,7 @@ fn record_stmt_writes(stmt: &ast::Stmt, writes: &mut TouchedBindings) {
             if expr_touches_name(&expr.value, TEMPLATES) {
                 writes.templates = true;
             }
+            record_expr_local_mutations(&expr.value, writes);
         }
         ast::Stmt::Import(import) => {
             for alias in &import.names {
@@ -633,13 +711,54 @@ fn record_target_writes(target: &ast::Expr, writes: &mut TouchedBindings) {
     if target_touches_name(target, TEMPLATES) {
         writes.templates = true;
     }
+    record_local_target_writes(target, writes);
+}
+
+fn record_local_target_writes(target: &ast::Expr, writes: &mut TouchedBindings) {
+    if let Some(name) = target.name_target() {
+        if !matches!(name, INSTALLED_APPS | TEMPLATES) {
+            writes.record_local(name);
+        }
+        return;
+    }
+
+    match target {
+        ast::Expr::Attribute(attribute) => record_local_target_writes(&attribute.value, writes),
+        ast::Expr::Subscript(subscript) => record_local_target_writes(&subscript.value, writes),
+        ast::Expr::Tuple(tuple) => {
+            for expr in &tuple.elts {
+                record_local_target_writes(expr, writes);
+            }
+        }
+        ast::Expr::List(list) => {
+            for expr in &list.elts {
+                record_local_target_writes(expr, writes);
+            }
+        }
+        ast::Expr::Starred(starred) => record_local_target_writes(&starred.value, writes),
+        _ => {}
+    }
+}
+
+fn record_expr_local_mutations(expr: &ast::Expr, writes: &mut TouchedBindings) {
+    let ast::Expr::Call(call) = expr else {
+        return;
+    };
+    let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
+        return;
+    };
+    if let Some(name) = attribute.value.name_target()
+        && !matches!(name, INSTALLED_APPS | TEMPLATES)
+    {
+        writes.record_local(name);
+    }
 }
 
 fn record_name_write(name: &str, writes: &mut TouchedBindings) {
     match name {
         INSTALLED_APPS => writes.installed_apps = true,
         TEMPLATES => writes.templates = true,
-        _ => {}
+        _ => writes.record_local(name),
     }
 }
 
@@ -657,6 +776,32 @@ fn templates_dirs_target(expr: &ast::Expr) -> Option<usize> {
         return None;
     }
     inner.slice.non_negative_integer()
+}
+
+fn clear_local_target_names(target: &ast::Expr, clear: &mut impl FnMut(&str)) {
+    if let Some(name) = target.name_target() {
+        if !matches!(name, INSTALLED_APPS | TEMPLATES) {
+            clear(name);
+        }
+        return;
+    }
+
+    match target {
+        ast::Expr::Attribute(attribute) => clear_local_target_names(&attribute.value, clear),
+        ast::Expr::Subscript(subscript) => clear_local_target_names(&subscript.value, clear),
+        ast::Expr::Tuple(tuple) => {
+            for expr in &tuple.elts {
+                clear_local_target_names(expr, clear);
+            }
+        }
+        ast::Expr::List(list) => {
+            for expr in &list.elts {
+                clear_local_target_names(expr, clear);
+            }
+        }
+        ast::Expr::Starred(starred) => clear_local_target_names(&starred.value, clear),
+        _ => {}
+    }
 }
 
 fn target_touches_name(target: &ast::Expr, expected: &str) -> bool {

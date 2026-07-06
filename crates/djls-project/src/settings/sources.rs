@@ -7,10 +7,12 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonImport;
 use crate::python::PythonModule;
+use crate::python::SearchPath;
+use crate::python::resolve_module_detail;
 use crate::settings::DjangoSettings;
+use crate::settings::SettingsImport;
 use crate::settings::SettingsSource;
 use crate::settings::SettingsSourceResolver;
-use crate::settings::SettingsStarImport;
 use crate::settings::extract_settings;
 
 pub(super) fn django_settings_from_file(
@@ -118,15 +120,47 @@ impl<'db, R> ReaderResolver<'db, R> {
 impl<R: SettingsSourceReader> SettingsSourceResolver for ReaderResolver<'_, R> {
     fn resolve_star_import(
         &mut self,
-        import: &SettingsStarImport,
+        import: &SettingsImport,
         importer: &Utf8Path,
     ) -> Option<SettingsSource> {
+        let module = self.resolve_python_import(import, importer)?;
+        self.read_resolved_module(&module)
+    }
+
+    fn resolve_named_import(
+        &mut self,
+        import: &SettingsImport,
+        importer: &Utf8Path,
+    ) -> Option<SettingsSource> {
+        let module = self.resolve_python_import(import, importer)?;
+        let detail = resolve_module_detail(self.db, self.project, module.name().clone());
+        if !detail
+            .selected_root
+            .as_ref()
+            .is_some_and(SearchPath::is_first_party)
+        {
+            return None;
+        }
+
+        self.read_resolved_module(&module)
+    }
+}
+
+impl<R: SettingsSourceReader> ReaderResolver<'_, R> {
+    fn resolve_python_import(
+        &mut self,
+        import: &SettingsImport,
+        importer: &Utf8Path,
+    ) -> Option<PythonModule> {
         let import = PythonImport {
             level: import.level,
             module: import.module.as_deref(),
             importer,
         };
-        let module = PythonModule::resolve_import(self.db, self.project, import).ok()??;
+        PythonModule::resolve_import(self.db, self.project, import).ok()?
+    }
+
+    fn read_resolved_module(&mut self, module: &PythonModule) -> Option<SettingsSource> {
         let file = module.file();
         self.resolved.push(file);
         self.reader.read_source(file)

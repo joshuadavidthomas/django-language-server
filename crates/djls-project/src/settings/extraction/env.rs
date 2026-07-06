@@ -5,6 +5,7 @@ use crate::python::evaluate_path;
 use crate::settings::extraction::bindings::SettingsBindings;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
+use crate::settings::types::LocalListBinding;
 use crate::settings::types::TemplateDirPath;
 
 pub(super) struct EvalEnv<'a> {
@@ -24,6 +25,10 @@ impl<'a> EvalEnv<'a> {
 
     pub(super) fn installed_apps(&self) -> Option<&'a InstalledAppsSetting> {
         self.installed_apps
+    }
+
+    pub(super) fn local_list_binding(&self, name: &str) -> Option<&'a LocalListBinding> {
+        self.locals.list_binding(name)
     }
 
     pub(super) fn evaluate_template_dir_path(&self, expr: &ast::Expr) -> TemplateDirPath {

@@ -27,7 +27,7 @@ impl PythonPathBindings {
         self.paths.remove(name);
     }
 
-    fn get(&self, name: &str) -> Option<&Utf8PathBuf> {
+    pub(crate) fn get(&self, name: &str) -> Option<&Utf8PathBuf> {
         self.paths.get(name)
     }
 }

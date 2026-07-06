@@ -7,9 +7,9 @@ pub(crate) use extraction::extract_settings;
 pub(crate) use sources::DjangoSettingsSources;
 pub(crate) use sources::settings_sources;
 pub(crate) use types::DjangoSettings;
+pub(crate) use types::SettingsImport;
 pub(crate) use types::SettingsSource;
 pub(crate) use types::SettingsSourceResolver;
-pub(crate) use types::SettingsStarImport;
 pub(crate) use types::TemplateDirPath;
 
 use crate::db::Db as ProjectDb;

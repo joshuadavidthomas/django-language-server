@@ -78,15 +78,15 @@ impl SettingsExtraction {
         bindings
     }
 
-    fn extract_star_import(
+    fn extract_import_source(
         &mut self,
         imported: &SettingsSource,
-        star_imports: &mut dyn SettingsSourceResolver,
+        resolver: &mut dyn SettingsSourceResolver,
     ) -> Option<Arc<SettingsBindings>> {
         if self.active.contains(&imported.path) {
             return None;
         }
-        Some(self.extract_module(&imported.source, &imported.path, star_imports))
+        Some(self.extract_module(&imported.source, &imported.path, resolver))
     }
 }
 
@@ -98,7 +98,7 @@ mod tests {
 
     use super::*;
     use crate::settings::types::SettingExtraction;
-    use crate::settings::types::SettingsStarImport;
+    use crate::settings::types::SettingsImport;
     use crate::settings::types::TemplateDirPath;
 
     #[derive(Default)]
@@ -116,7 +116,25 @@ mod tests {
     impl SettingsSourceResolver for MapResolver {
         fn resolve_star_import(
             &mut self,
-            import: &SettingsStarImport,
+            import: &SettingsImport,
+            importer: &Utf8Path,
+        ) -> Option<SettingsSource> {
+            self.resolve_mapped_import(import, importer)
+        }
+
+        fn resolve_named_import(
+            &mut self,
+            import: &SettingsImport,
+            importer: &Utf8Path,
+        ) -> Option<SettingsSource> {
+            self.resolve_mapped_import(import, importer)
+        }
+    }
+
+    impl MapResolver {
+        fn resolve_mapped_import(
+            &mut self,
+            import: &SettingsImport,
             _importer: &Utf8Path,
         ) -> Option<SettingsSource> {
             let module = import.module.as_ref()?;
@@ -128,6 +146,36 @@ mod tests {
                     module.replace('.', "/")
                 )),
             })
+        }
+    }
+
+    struct RefusingNamedResolver {
+        inner: MapResolver,
+    }
+
+    impl RefusingNamedResolver {
+        fn with_module(name: &str, source: &str) -> Self {
+            Self {
+                inner: MapResolver::default().with_module(name, source),
+            }
+        }
+    }
+
+    impl SettingsSourceResolver for RefusingNamedResolver {
+        fn resolve_star_import(
+            &mut self,
+            import: &SettingsImport,
+            importer: &Utf8Path,
+        ) -> Option<SettingsSource> {
+            self.inner.resolve_star_import(import, importer)
+        }
+
+        fn resolve_named_import(
+            &mut self,
+            _import: &SettingsImport,
+            _importer: &Utf8Path,
+        ) -> Option<SettingsSource> {
+            None
         }
     }
 
@@ -356,6 +404,125 @@ mod tests {
     }
 
     #[test]
+    fn aliased_non_star_imported_installed_apps_can_feed_assignment() {
+        let mut resolver = MapResolver::default().with_module("base", "INSTALLED_APPS = ['base']");
+        let settings = extract_settings(
+            "from base import INSTALLED_APPS as IA\nINSTALLED_APPS = IA + ['local']",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(settings.installed_apps.values, ["base", "local"]);
+    }
+
+    #[test]
+    fn refused_non_star_import_falls_back_to_definition_write() {
+        let mut resolver = RefusingNamedResolver::with_module("base", "INSTALLED_APPS = ['base']");
+        let settings = extract_settings(
+            "from base import INSTALLED_APPS",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(
+            settings.installed_apps.extraction,
+            SettingExtraction::Unsupported
+        );
+        assert!(settings.installed_apps.values.is_empty());
+    }
+
+    #[test]
+    fn pathlib_named_import_does_not_affect_extraction_when_unresolved() {
+        let settings = extract(
+            "from pathlib import Path\n\
+             BASE_DIR = Path(__file__).resolve().parent.parent\n\
+             TEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
+        );
+
+        assert_eq!(settings.templates.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.templates.backends[0].dirs,
+            [TemplateDirPath::Resolved(Utf8PathBuf::from(
+                "/project/templates"
+            ))]
+        );
+    }
+
+    #[test]
+    fn aliased_non_star_imported_path_can_feed_template_dirs() {
+        let mut resolver = MapResolver::default()
+            .with_module("base", "BASE_DIR = Path(__file__).resolve().parent.parent");
+        let settings = extract_settings(
+            "from base import BASE_DIR as BD\nTEMPLATES = [{'DIRS': [BD / 'templates']}]",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(settings.templates.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.templates.backends[0].dirs,
+            [TemplateDirPath::Resolved(Utf8PathBuf::from(
+                "/project/templates"
+            ))]
+        );
+    }
+
+    #[test]
+    fn non_star_import_chain_reuses_extracted_imported_bindings() {
+        let mut resolver = MapResolver::default()
+            .with_module("common", "COMMON_APPS = ['common']")
+            .with_module(
+                "base",
+                "from common import COMMON_APPS\nINSTALLED_APPS = COMMON_APPS + ['base']",
+            );
+        let settings = extract_settings(
+            "from base import INSTALLED_APPS",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(settings.installed_apps.values, ["common", "base"]);
+    }
+
+    #[test]
+    fn cyclic_non_star_import_does_not_recurse_forever() {
+        let mut resolver = MapResolver::default().with_module(
+            "cycle",
+            "from cycle import INSTALLED_APPS\nINSTALLED_APPS = ['local']",
+        );
+        let settings = extract_settings(
+            "from cycle import INSTALLED_APPS",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(settings.installed_apps.values, ["local"]);
+    }
+
+    #[test]
+    fn tuple_literal_local_can_feed_installed_apps() {
+        let settings = extract("LOCAL_APPS = ('a', 'b')\nINSTALLED_APPS = LOCAL_APPS");
+
+        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(settings.installed_apps.values, ["a", "b"]);
+    }
+
+    #[test]
+    fn local_list_unknown_write_invalidates_stale_values() {
+        let settings =
+            extract("LOCAL_APPS = ['stale']\nLOCAL_APPS = get_apps()\nINSTALLED_APPS = LOCAL_APPS");
+
+        assert_eq!(
+            settings.installed_apps.extraction,
+            SettingExtraction::Partial
+        );
+        assert!(settings.installed_apps.values.is_empty());
+    }
+
+    #[test]
     fn templates_dirs_append_mutates_existing_backend() {
         let settings = extract(
             "from pathlib import Path\n\
@@ -398,6 +565,18 @@ mod tests {
     }
 
     #[test]
+    fn template_backend_spread_then_reset_keeps_later_key_fact() {
+        let settings = extract("TEMPLATES = [{'DIRS': ['a'], **extra, 'DIRS': ['b']}]");
+
+        assert_eq!(settings.templates.extraction, SettingExtraction::Partial);
+        assert_eq!(settings.templates.backends[0].dirs.len(), 1);
+        assert_eq!(
+            settings.templates.backends[0].dirs[0],
+            TemplateDirPath::Resolved(Utf8PathBuf::from("/project/config/b"))
+        );
+    }
+
+    #[test]
     fn os_path_join_resolves_relative_to_base_dir() {
         let settings = extract(
             "from pathlib import Path\n\
@@ -432,6 +611,19 @@ mod tests {
             SettingExtraction::Partial
         );
         assert_eq!(settings.installed_apps.values, ["debug", "base"]);
+    }
+
+    #[test]
+    fn ambiguous_branch_local_alias_preserves_possible_values() {
+        let settings = extract(
+            "if FLAG:\n    LOCAL_APPS = ['a']\nelse:\n    LOCAL_APPS = ['b']\nINSTALLED_APPS = LOCAL_APPS",
+        );
+
+        assert_eq!(
+            settings.installed_apps.extraction,
+            SettingExtraction::Partial
+        );
+        assert_eq!(settings.installed_apps.values, ["a", "b"]);
     }
 
     #[test]
