@@ -2,10 +2,11 @@
 source: crates/djls-project/tests/settings_extraction.rs
 expression: "django_settings(&db, project)"
 ---
+parse_status: parsed
 installed_apps:
   values:
     - blog
-  extraction: full
+  extraction: complete
 templates:
   backends:
     - backend: django.template.backends.django.DjangoTemplates
@@ -14,5 +15,5 @@ templates:
       app_dirs: true
       libraries: []
       builtins: []
-      extraction: full
-  extraction: full
+      extraction: complete
+  extraction: complete

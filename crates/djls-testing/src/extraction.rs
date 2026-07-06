@@ -34,7 +34,9 @@ pub fn extract_bundle(
     let tag_rules =
         djls_project::extract_tag_rules(db, file, registration_module.clone()).to_owned();
     let filter_arities =
-        djls_project::extract_filter_arities(db, file, registration_module.clone()).to_owned();
+        djls_project::extract_filter_arities(db, file, registration_module.clone())
+            .arities()
+            .to_owned();
     let block_specs = djls_project::extract_block_specs(db, file, registration_module).to_owned();
 
     ExtractionBundle {

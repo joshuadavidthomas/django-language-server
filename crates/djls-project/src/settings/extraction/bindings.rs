@@ -1,10 +1,11 @@
 use rustc_hash::FxHashSet;
 
+use crate::ExtractionStatus;
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
 use crate::settings::types::LocalListBinding;
-use crate::settings::types::SettingExtraction;
+use crate::settings::types::SettingsParseStatus;
 use crate::settings::types::TemplateBackend;
 use crate::settings::types::TemplateSettings;
 
@@ -18,14 +19,15 @@ pub(super) struct SettingsBindings {
 impl SettingsBindings {
     pub(super) fn to_settings(&self) -> DjangoSettings {
         DjangoSettings {
+            parse_status: SettingsParseStatus::default(),
             installed_apps: self
                 .installed_apps
                 .clone()
-                .unwrap_or_else(InstalledAppsSetting::unsupported),
+                .unwrap_or_else(InstalledAppsSetting::partial),
             templates: self
                 .templates
                 .clone()
-                .unwrap_or_else(TemplateSettings::unsupported),
+                .unwrap_or_else(TemplateSettings::partial),
         }
     }
 
@@ -50,13 +52,11 @@ impl SettingsBindings {
         let setting = self
             .installed_apps
             .get_or_insert_with(InstalledAppsSetting::partial);
-        setting.mark_unsupported();
+        setting.clear_to_partial();
     }
 
     pub(super) fn can_mutate_installed_apps(&self) -> bool {
-        self.installed_apps
-            .as_ref()
-            .is_some_and(InstalledAppsSetting::is_usable_for_app_scan)
+        self.installed_apps.is_some()
     }
 
     pub(super) fn mark_templates_partial(&mut self) {
@@ -68,7 +68,7 @@ impl SettingsBindings {
 
     pub(super) fn mark_templates_unsupported(&mut self) {
         let templates = self.templates.get_or_insert_with(TemplateSettings::partial);
-        templates.mark_unsupported();
+        templates.clear_to_partial();
     }
 
     pub(super) fn join_ambiguous(
@@ -82,7 +82,7 @@ impl SettingsBindings {
         if writes.templates {
             self.templates = Some(TemplateSettings {
                 backends: join_template_backends(branch_bindings),
-                extraction: SettingExtraction::Partial,
+                extraction: ExtractionStatus::Partial,
             });
         }
         join_local_lists(&mut self, branch_bindings, &writes.locals);
@@ -163,7 +163,7 @@ fn join_installed_apps(branch_bindings: &[SettingsBindings]) -> InstalledAppsSet
 
     InstalledAppsSetting {
         values,
-        extraction: SettingExtraction::Partial,
+        extraction: ExtractionStatus::Partial,
     }
 }
 

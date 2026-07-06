@@ -16,7 +16,6 @@ use crate::settings::extraction::installed_apps;
 use crate::settings::extraction::templates;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalListBinding;
-use crate::settings::types::SettingExtraction;
 use crate::settings::types::SettingsImport;
 use crate::settings::types::SettingsSourceResolver;
 use crate::settings::types::TemplateDirPath;
@@ -364,9 +363,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                     self.mark_definition_name(bound_name);
                     return;
                 };
-                if matches!(setting.extraction, SettingExtraction::Unsupported) {
-                    self.mark_definition_name(bound_name);
-                } else if bound_name == INSTALLED_APPS {
+                if bound_name == INSTALLED_APPS {
                     self.bindings.installed_apps = Some(setting.clone());
                 } else {
                     let list = if setting.is_fully_extracted() {

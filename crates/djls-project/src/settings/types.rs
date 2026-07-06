@@ -3,30 +3,30 @@ use camino::Utf8PathBuf;
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 
+use crate::ExtractionStatus;
 use crate::python::PythonModuleName;
 use crate::python::PythonPathBindings;
 
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 
-/// How completely a watched settings value was extracted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum SettingExtraction {
-    Full,
-    Partial,
-    Unsupported,
+pub(crate) enum SettingsParseStatus {
+    #[default]
+    Parsed,
+    Unparseable,
 }
 
 /// A best-effort string list setting such as `INSTALLED_APPS`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct InstalledAppsSetting {
     pub(crate) values: Vec<String>,
-    pub(crate) extraction: SettingExtraction,
+    pub(crate) extraction: ExtractionStatus,
 }
 
 impl Default for InstalledAppsSetting {
     fn default() -> Self {
-        Self::unsupported()
+        Self::partial()
     }
 }
 
@@ -34,43 +34,29 @@ impl InstalledAppsSetting {
     pub(crate) fn full(values: Vec<String>) -> Self {
         Self {
             values,
-            extraction: SettingExtraction::Full,
+            extraction: ExtractionStatus::Complete,
         }
     }
 
     pub(crate) fn partial() -> Self {
         Self {
             values: Vec::new(),
-            extraction: SettingExtraction::Partial,
-        }
-    }
-
-    pub(crate) fn unsupported() -> Self {
-        Self {
-            values: Vec::new(),
-            extraction: SettingExtraction::Unsupported,
+            extraction: ExtractionStatus::Partial,
         }
     }
 
     #[must_use]
     pub(crate) fn is_fully_extracted(&self) -> bool {
-        matches!(self.extraction, SettingExtraction::Full)
-    }
-
-    #[must_use]
-    pub(crate) fn is_usable_for_app_scan(&self) -> bool {
-        !matches!(self.extraction, SettingExtraction::Unsupported)
+        self.extraction == ExtractionStatus::Complete
     }
 
     pub(crate) fn mark_partial(&mut self) {
-        if !matches!(self.extraction, SettingExtraction::Unsupported) {
-            self.extraction = SettingExtraction::Partial;
-        }
+        self.extraction = ExtractionStatus::Partial;
     }
 
-    pub(crate) fn mark_unsupported(&mut self) {
+    pub(crate) fn clear_to_partial(&mut self) {
         self.values.clear();
-        self.extraction = SettingExtraction::Unsupported;
+        self.extraction = ExtractionStatus::Partial;
     }
 }
 
@@ -78,12 +64,12 @@ impl InstalledAppsSetting {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct TemplateSettings {
     pub(crate) backends: Vec<TemplateBackend>,
-    pub(crate) extraction: SettingExtraction,
+    pub(crate) extraction: ExtractionStatus,
 }
 
 impl Default for TemplateSettings {
     fn default() -> Self {
-        Self::unsupported()
+        Self::partial()
     }
 }
 
@@ -91,38 +77,29 @@ impl TemplateSettings {
     pub(crate) fn full(backends: Vec<TemplateBackend>) -> Self {
         Self {
             backends,
-            extraction: SettingExtraction::Full,
+            extraction: ExtractionStatus::Complete,
         }
     }
 
     pub(crate) fn partial() -> Self {
         Self {
             backends: Vec::new(),
-            extraction: SettingExtraction::Partial,
-        }
-    }
-
-    pub(crate) fn unsupported() -> Self {
-        Self {
-            backends: Vec::new(),
-            extraction: SettingExtraction::Unsupported,
+            extraction: ExtractionStatus::Partial,
         }
     }
 
     #[must_use]
     pub(crate) fn is_fully_extracted(&self) -> bool {
-        matches!(self.extraction, SettingExtraction::Full)
+        self.extraction == ExtractionStatus::Complete
     }
 
     pub(crate) fn mark_partial(&mut self) {
-        if !matches!(self.extraction, SettingExtraction::Unsupported) {
-            self.extraction = SettingExtraction::Partial;
-        }
+        self.extraction = ExtractionStatus::Partial;
     }
 
-    pub(crate) fn mark_unsupported(&mut self) {
+    pub(crate) fn clear_to_partial(&mut self) {
         self.backends.clear();
-        self.extraction = SettingExtraction::Unsupported;
+        self.extraction = ExtractionStatus::Partial;
     }
 }
 
@@ -134,7 +111,7 @@ pub(crate) struct TemplateBackend {
     pub(crate) app_dirs: Option<bool>,
     pub(crate) libraries: Vec<(String, PythonModuleName)>,
     pub(crate) builtins: Vec<PythonModuleName>,
-    pub(crate) extraction: SettingExtraction,
+    pub(crate) extraction: ExtractionStatus,
 }
 
 impl Default for TemplateBackend {
@@ -145,7 +122,7 @@ impl Default for TemplateBackend {
             app_dirs: None,
             libraries: Vec::new(),
             builtins: Vec::new(),
-            extraction: SettingExtraction::Full,
+            extraction: ExtractionStatus::Complete,
         }
     }
 }
@@ -153,7 +130,7 @@ impl Default for TemplateBackend {
 impl TemplateBackend {
     #[must_use]
     pub(crate) fn is_fully_extracted(&self) -> bool {
-        matches!(self.extraction, SettingExtraction::Full)
+        self.extraction == ExtractionStatus::Complete
     }
 
     #[must_use]
@@ -166,15 +143,14 @@ impl TemplateBackend {
     }
 
     pub(crate) fn mark_partial(&mut self) {
-        if !matches!(self.extraction, SettingExtraction::Unsupported) {
-            self.extraction = SettingExtraction::Partial;
-        }
+        self.extraction = ExtractionStatus::Partial;
     }
 }
 
 /// The statically extracted subset of a Django settings module.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub(crate) struct DjangoSettings {
+    pub(crate) parse_status: SettingsParseStatus,
     pub(crate) installed_apps: InstalledAppsSetting,
     pub(crate) templates: TemplateSettings,
 }
@@ -221,27 +197,27 @@ pub(crate) trait SettingsSourceResolver {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LocalListBinding {
     pub(crate) values: Vec<String>,
-    pub(crate) extraction: SettingExtraction,
+    extraction: ExtractionStatus,
 }
 
 impl LocalListBinding {
     pub(crate) fn full(values: Vec<String>) -> Self {
         Self {
             values,
-            extraction: SettingExtraction::Full,
+            extraction: ExtractionStatus::Complete,
         }
     }
 
     pub(crate) fn partial(values: Vec<String>) -> Self {
         Self {
             values,
-            extraction: SettingExtraction::Partial,
+            extraction: ExtractionStatus::Partial,
         }
     }
 
     #[must_use]
     pub(crate) fn is_fully_extracted(&self) -> bool {
-        matches!(self.extraction, SettingExtraction::Full)
+        self.extraction == ExtractionStatus::Complete
     }
 }
 
