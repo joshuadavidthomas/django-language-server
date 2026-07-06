@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   debug_toolbar.models.HistoryEntry:
-    name: HistoryEntry
+    name:
+      value: HistoryEntry
+      span:
+        start: 92
+        length: 12
     module_name: debug_toolbar.models
-    line: 5
     relations: []
     kind: concrete

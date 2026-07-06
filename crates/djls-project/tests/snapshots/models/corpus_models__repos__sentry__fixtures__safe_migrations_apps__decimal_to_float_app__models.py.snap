@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   fixtures.safe_migrations_apps.decimal_to_float_app.models.Value:
-    name: Value
+    name:
+      value: Value
+      span:
+        start: 37
+        length: 5
     module_name: fixtures.safe_migrations_apps.decimal_to_float_app.models
-    line: 4
     relations: []
     kind: concrete

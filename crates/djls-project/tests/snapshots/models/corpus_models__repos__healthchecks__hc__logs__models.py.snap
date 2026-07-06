@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   hc.logs.models.Record:
-    name: Record
+    name:
+      value: Record
+      span:
+        start: 331
+        length: 6
     module_name: hc.logs.models
-    line: 18
     relations: []
     kind: concrete

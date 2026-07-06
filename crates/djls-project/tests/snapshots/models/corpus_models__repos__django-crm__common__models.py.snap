@@ -4,133 +4,250 @@ expression: graph
 ---
 models:
   common.models.Base:
-    name: Base
+    name:
+      value: Base
+      span:
+        start: 624
+        length: 4
     module_name: common.models
-    line: 19
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 914
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 949
+            length: 24
         related_name: "%(app_label)s_%(class)s_owner_related"
-      - field_name: modified_by
+      - field_name:
+          value: modified_by
+          span:
+            start: 1129
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1170
+            length: 24
         related_name: "%(app_label)s_%(class)s_modified_by_related"
     kind: abstract
   common.models.Base1:
-    name: Base1
+    name:
+      value: Base1
+      span:
+        start: 2387
+        length: 5
     module_name: common.models
-    line: 67
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 914
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 949
+            length: 24
         related_name: "%(app_label)s_%(class)s_owner_related"
-      - field_name: modified_by
+      - field_name:
+          value: modified_by
+          span:
+            start: 1129
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1170
+            length: 24
         related_name: "%(app_label)s_%(class)s_modified_by_related"
-      - field_name: department
+      - field_name:
+          value: department
+          span:
+            start: 2445
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: auth
-          name: Group
+          value:
+            kind: Qualified
+            app_label: auth
+            name: Group
+          span:
+            start: 2485
+            length: 12
         related_name: "%(app_label)s_%(class)s_department_related"
     kind: abstract
   common.models.Base2:
-    name: Base2
+    name:
+      value: Base2
+      span:
+        start: 3466
+        length: 5
     module_name: common.models
-    line: 99
     relations:
-      - field_name: department
+      - field_name:
+          value: department
+          span:
+            start: 3600
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: auth
-          name: Group
+          value:
+            kind: Qualified
+            app_label: auth
+            name: Group
+          span:
+            start: 3640
+            length: 12
         related_name: "%(app_label)s_%(class)s_department_related"
     kind: abstract
   common.models.Reminder:
-    name: Reminder
+    name:
+      value: Reminder
+      span:
+        start: 4553
+        length: 8
     module_name: common.models
-    line: 142
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 4680
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 4722
+            length: 11
         related_name: reminders
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 4871
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 5679
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 5714
+            length: 24
         related_name: "%(app_label)s_%(class)s_owner_related"
     kind: concrete
   common.models.StageBase:
-    name: StageBase
+    name:
+      value: StageBase
+      span:
+        start: 6908
+        length: 9
     module_name: common.models
-    line: 224
     relations:
-      - field_name: department
+      - field_name:
+          value: department
+          span:
+            start: 3600
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: auth
-          name: Group
+          value:
+            kind: Qualified
+            app_label: auth
+            name: Group
+          span:
+            start: 3640
+            length: 12
         related_name: "%(app_label)s_%(class)s_department_related"
     kind: abstract
   common.models.TheFile:
-    name: TheFile
+    name:
+      value: TheFile
+      span:
+        start: 5966
+        length: 7
     module_name: common.models
-    line: 193
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 6376
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 6409
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 6498
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
     kind: concrete
   common.models.UserProfile:
-    name: UserProfile
+    name:
+      value: UserProfile
+      span:
+        start: 7533
+        length: 11
     module_name: common.models
-    line: 248
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 9136
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 9173
+            length: 24
         related_name: profile
     kind: concrete

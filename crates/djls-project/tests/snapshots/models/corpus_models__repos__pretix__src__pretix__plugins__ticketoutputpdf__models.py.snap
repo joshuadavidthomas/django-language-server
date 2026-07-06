@@ -4,28 +4,55 @@ expression: graph
 ---
 models:
   src.pretix.plugins.ticketoutputpdf.models.TicketLayoutItem:
-    name: TicketLayoutItem
+    name:
+      value: TicketLayoutItem
+      span:
+        start: 8785
+        length: 16
     module_name: src.pretix.plugins.ticketoutputpdf.models
-    line: 347
     relations:
-      - field_name: item
+      - field_name:
+          value: item
+          span:
+            start: 8821
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Item
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Item
+          span:
+            start: 8846
+            length: 17
         related_name: ticketlayout_assignments
-      - field_name: layout
+      - field_name:
+          value: layout
+          span:
+            start: 8988
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: TicketLayout
+          value:
+            kind: Bare
+            name: TicketLayout
+          span:
+            start: 9015
+            length: 14
         related_name: item_assignments
-      - field_name: sales_channel
+      - field_name:
+          value: sales_channel
+          span:
+            start: 9094
+            length: 13
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: SalesChannel
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: SalesChannel
+          span:
+            start: 9137
+            length: 25
         related_name: ~
     kind: concrete

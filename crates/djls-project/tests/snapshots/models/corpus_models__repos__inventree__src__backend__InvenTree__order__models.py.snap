@@ -4,81 +4,160 @@ expression: graph
 ---
 models:
   src.backend.InvenTree.order.models.PurchaseOrder:
-    name: PurchaseOrder
+    name:
+      value: PurchaseOrder
+      span:
+        start: 17707
+        length: 13
     module_name: src.backend.InvenTree.order.models
-    line: 536
     relations:
-      - field_name: supplier
+      - field_name:
+          value: supplier
+          span:
+            start: 21237
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Company
+          value:
+            kind: Bare
+            name: Company
+          span:
+            start: 21275
+            length: 7
         related_name: purchase_orders
-      - field_name: received_by
+      - field_name:
+          value: received_by
+          span:
+            start: 21856
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 21897
+            length: 4
         related_name: +
     kind: concrete
   src.backend.InvenTree.order.models.ReturnOrder:
-    name: ReturnOrder
+    name:
+      value: ReturnOrder
+      span:
+        start: 87890
+        length: 11
     module_name: src.backend.InvenTree.order.models
-    line: 2633
     relations:
-      - field_name: customer
+      - field_name:
+          value: customer
+          span:
+            start: 90922
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Company
+          value:
+            kind: Bare
+            name: Company
+          span:
+            start: 90960
+            length: 7
         related_name: sales_orders
     kind: concrete
   src.backend.InvenTree.order.models.SalesOrder:
-    name: SalesOrder
+    name:
+      value: SalesOrder
+      span:
+        start: 43186
+        length: 10
     module_name: src.backend.InvenTree.order.models
-    line: 1242
     relations:
-      - field_name: customer
+      - field_name:
+          value: customer
+          span:
+            start: 45868
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Company
+          value:
+            kind: Bare
+            name: Company
+          span:
+            start: 45906
+            length: 7
         related_name: return_orders
-      - field_name: shipped_by
+      - field_name:
+          value: shipped_by
+          span:
+            start: 47007
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 47047
+            length: 4
         related_name: +
     kind: concrete
   src.backend.InvenTree.order.models.SalesOrderAllocation:
-    name: SalesOrderAllocation
+    name:
+      value: SalesOrderAllocation
+      span:
+        start: 82579
+        length: 20
     module_name: src.backend.InvenTree.order.models
-    line: 2483
     relations:
-      - field_name: line
+      - field_name:
+          value: line
+          span:
+            start: 85685
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SalesOrderLineItem
+          value:
+            kind: Bare
+            name: SalesOrderLineItem
+          span:
+            start: 85719
+            length: 18
         related_name: allocations
-      - field_name: shipment
+      - field_name:
+          value: shipment
+          span:
+            start: 85852
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SalesOrderShipment
+          value:
+            kind: Bare
+            name: SalesOrderShipment
+          span:
+            start: 85890
+            length: 18
         related_name: allocations
-      - field_name: item
+      - field_name:
+          value: item
+          span:
+            start: 86121
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: stock
-          name: StockItem
+          value:
+            kind: Qualified
+            app_label: stock
+            name: StockItem
+          span:
+            start: 86155
+            length: 17
         related_name: sales_order_allocations
     kind: concrete
   src.backend.InvenTree.order.models.TotalPriceMixin:
-    name: TotalPriceMixin
+    name:
+      value: TotalPriceMixin
+      span:
+        start: 2187
+        length: 15
     module_name: src.backend.InvenTree.order.models
-    line: 65
     relations: []
     kind: abstract

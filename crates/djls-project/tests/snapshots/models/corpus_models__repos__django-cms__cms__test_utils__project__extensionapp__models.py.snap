@@ -4,26 +4,38 @@ expression: graph
 ---
 models:
   cms.test_utils.project.extensionapp.models.MultiTableContentExtensionParent:
-    name: MultiTableContentExtensionParent
+    name:
+      value: MultiTableContentExtensionParent
+      span:
+        start: 1209
+        length: 32
     module_name: cms.test_utils.project.extensionapp.models
-    line: 39
     relations: []
     kind: concrete
   cms.test_utils.project.extensionapp.models.MultiTablePageContentExtension:
-    name: MultiTablePageContentExtension
+    name:
+      value: MultiTablePageContentExtension
+      span:
+        start: 1359
+        length: 30
     module_name: cms.test_utils.project.extensionapp.models
-    line: 43
     relations: []
     kind: concrete
   cms.test_utils.project.extensionapp.models.MultiTablePageExtension:
-    name: MultiTablePageExtension
+    name:
+      value: MultiTablePageExtension
+      span:
+        start: 999
+        length: 23
     module_name: cms.test_utils.project.extensionapp.models
-    line: 32
     relations: []
     kind: concrete
   cms.test_utils.project.extensionapp.models.MultiTablePageExtensionParent:
-    name: MultiTablePageExtensionParent
+    name:
+      value: MultiTablePageExtensionParent
+      span:
+        start: 860
+        length: 29
     module_name: cms.test_utils.project.extensionapp.models
-    line: 28
     relations: []
     kind: concrete

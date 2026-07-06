@@ -4,17 +4,32 @@ expression: graph
 ---
 models:
   readthedocs.integrations.models.HttpExchange:
-    name: HttpExchange
+    name:
+      value: HttpExchange
+      span:
+        start: 5211
+        length: 12
     module_name: readthedocs.integrations.models
-    line: 139
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 5367
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 5400
+            length: 11
         related_name: ~
-      - field_name: related_object
+      - field_name:
+          value: related_object
+          span:
+            start: 5489
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id

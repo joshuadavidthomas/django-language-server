@@ -8,7 +8,10 @@ use djls_project::ModelId;
 use djls_project::Project;
 use djls_project::SearchPaths;
 use djls_project::compute_model_graph;
+use djls_project::testing::model_location;
+use djls_project::testing::model_relation_locations;
 use djls_source::Db as SourceDb;
+use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
@@ -34,7 +37,7 @@ fn relation_value<'a>(graph: &'a Value, model: &str, field: &str) -> &'a Value {
         .and_then(|relations| {
             relations
                 .iter()
-                .find(|relation| relation["field_name"] == field)
+                .find(|relation| relation["field_name"]["value"] == field)
         })
         .expect("relation should exist")
 }
@@ -55,6 +58,364 @@ fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str)
             _ => false,
         })
         .count()
+}
+
+fn expected_span(source: &str, needle: &str) -> Span {
+    let start = source
+        .find(needle)
+        .unwrap_or_else(|| panic!("expected source to contain {needle:?}"));
+    Span::saturating_from_parts_usize(start, needle.len())
+}
+
+fn assert_relation_location(
+    actual: &(String, djls_source::File, Span, Option<Span>),
+    field: &str,
+    file: djls_source::File,
+    field_span: Span,
+    target_span: Option<Span>,
+) {
+    assert_eq!(actual.0, field);
+    assert_eq!(actual.1, file);
+    assert_eq!(actual.2, field_span);
+    assert_eq!(actual.3, target_span);
+}
+
+#[salsa::tracked]
+#[allow(clippy::needless_pass_by_value)]
+fn model_graph_span_probe(
+    db: &dyn djls_project::Db,
+    project: Project,
+    module_name: String,
+    model_name: String,
+) -> u32 {
+    let graph = compute_model_graph(db, project);
+    let mut checksum = u32::try_from(graph.len()).expect("test model graph should fit in u32");
+
+    if let Some((_file, span)) = model_location(graph, module_name.as_str(), model_name.as_str()) {
+        checksum = checksum
+            .wrapping_add(span.start())
+            .wrapping_add(span.length());
+    }
+
+    for (_field_name, _file, field_span, target_span) in
+        model_relation_locations(graph, module_name.as_str(), model_name.as_str())
+    {
+        checksum = checksum
+            .wrapping_add(field_span.start())
+            .wrapping_add(field_span.length());
+        if let Some(target_span) = target_span {
+            checksum = checksum
+                .wrapping_add(target_span.start())
+                .wrapping_add(target_span.length());
+        }
+    }
+
+    checksum
+}
+
+fn probe_model(db: &TestDatabase, project: Project, module_name: &str, model_name: &str) -> u32 {
+    model_graph_span_probe(db, project, module_name.to_string(), model_name.to_string())
+}
+
+#[test]
+fn model_graph_span_probe_reexecutes_when_model_span_shifts() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let initial = include_str!(
+        "testdata/model_relations/model_graph_span_probe_reexecutes_when_model_span_shifts/accounts/models_initial.py"
+    );
+    let project = ProjectFixture::new("/project")
+        .file("/project/accounts/models.py", initial)
+        .build(&db);
+
+    let before = probe_model(&db, project, "accounts.models", "User");
+    let _ = event_log.take();
+
+    update_file(
+        &mut db,
+        "/project/accounts/models.py",
+        include_str!(
+            "testdata/model_relations/model_graph_span_probe_reexecutes_when_model_span_shifts/accounts/models_updated.py"
+        ),
+    );
+    let after = probe_model(&db, project, "accounts.models", "User");
+    let events = event_log.take();
+
+    assert_ne!(after, before);
+    assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
+}
+
+#[test]
+fn model_graph_span_probe_reexecutes_when_relation_is_added() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            include_str!(
+                "testdata/model_relations/model_graph_span_probe_reexecutes_when_relation_is_added/accounts/models.py"
+            ),
+        )
+        .file(
+            "/project/blog/models.py",
+            include_str!(
+                "testdata/model_relations/model_graph_span_probe_reexecutes_when_relation_is_added/blog/models_initial.py"
+            ),
+        )
+        .build(&db);
+
+    let before = probe_model(&db, project, "blog.models", "Post");
+    let _ = event_log.take();
+
+    update_file(
+        &mut db,
+        "/project/blog/models.py",
+        include_str!(
+            "testdata/model_relations/model_graph_span_probe_reexecutes_when_relation_is_added/blog/models_updated.py"
+        ),
+    );
+    let after = probe_model(&db, project, "blog.models", "Post");
+    let events = event_log.take();
+
+    assert_ne!(after, before);
+    assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
+}
+
+#[test]
+fn model_graph_span_probe_backdates_for_trailing_whitespace() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            include_str!(
+                "testdata/model_relations/model_graph_span_probe_backdates_for_trailing_whitespace/accounts/models_initial.py"
+            ),
+        )
+        .build(&db);
+
+    let before = probe_model(&db, project, "accounts.models", "User");
+    let _ = event_log.take();
+
+    update_file(
+        &mut db,
+        "/project/accounts/models.py",
+        concat!(
+            include_str!(
+                "testdata/model_relations/model_graph_span_probe_backdates_for_trailing_whitespace/accounts/models_initial.py"
+            ),
+            "   \n"
+        ),
+    );
+    let after = probe_model(&db, project, "accounts.models", "User");
+    let events = event_log.take();
+
+    assert_eq!(after, before);
+    assert_eq!(execution_count(&db, &events, "model_graph_span_probe"), 0);
+}
+
+#[test]
+fn model_graph_span_probe_backdates_for_span_shift_in_file_without_model_facts() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/empty/models.py",
+            include_str!(
+                "testdata/model_relations/model_graph_span_probe_backdates_for_span_shift_in_file_without_model_facts/empty/models_initial.py"
+            ),
+        )
+        .build(&db);
+
+    let before = probe_model(&db, project, "empty.models", "Missing");
+    let _ = event_log.take();
+
+    update_file(
+        &mut db,
+        "/project/empty/models.py",
+        include_str!(
+            "testdata/model_relations/model_graph_span_probe_backdates_for_span_shift_in_file_without_model_facts/empty/models_updated.py"
+        ),
+    );
+    let after = probe_model(&db, project, "empty.models", "Missing");
+    let events = event_log.take();
+
+    assert_eq!(after, before);
+    assert_eq!(execution_count(&db, &events, "model_graph_span_probe"), 0);
+}
+
+#[test]
+fn model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relation_span() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let base_initial = include_str!(
+        "testdata/model_relations/model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relation_span/base/models_initial.py"
+    );
+    let project = ProjectFixture::new("/project")
+        .file("/project/base/models.py", base_initial)
+        .file(
+            "/project/blog/models.py",
+            include_str!(
+                "testdata/model_relations/model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relation_span/blog/models.py"
+            ),
+        )
+        .build(&db);
+
+    let before = probe_model(&db, project, "blog.models", "Article");
+    let _ = event_log.take();
+
+    update_file(
+        &mut db,
+        "/project/base/models.py",
+        include_str!(
+            "testdata/model_relations/model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relation_span/base/models_updated.py"
+        ),
+    );
+    let after = probe_model(&db, project, "blog.models", "Article");
+    let events = event_log.take();
+
+    assert_ne!(after, before);
+    assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
+}
+
+#[test]
+fn model_graph_records_model_and_relation_provenance_for_relation_forms() {
+    let db = TestDatabase::new();
+    let source = include_str!(
+        "testdata/model_relations/model_graph_records_model_and_relation_provenance_for_relation_forms/blog/models.py"
+    );
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            include_str!(
+                "testdata/model_relations/model_graph_records_model_and_relation_provenance_for_relation_forms/accounts/models.py"
+            ),
+        )
+        .file("/project/blog/models.py", source)
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    let blog_file = db.get_or_create_file(Utf8Path::new("/project/blog/models.py"));
+    let (model_file, model_span) =
+        model_location(graph, "blog.models", "Post").expect("Post model should have location");
+    assert_eq!(model_file, blog_file);
+    assert_eq!(model_span, expected_span(source, "Post"));
+
+    let locations = model_relation_locations(graph, "blog.models", "Post");
+    let location = |field: &str| {
+        locations
+            .iter()
+            .find(|(name, ..)| name == field)
+            .unwrap_or_else(|| panic!("expected relation location for {field}"))
+    };
+
+    assert_relation_location(
+        location("author"),
+        "author",
+        blog_file,
+        expected_span(source, "author"),
+        Some(expected_span(source, "\"accounts.User\"")),
+    );
+    assert_relation_location(
+        location("editor"),
+        "editor",
+        blog_file,
+        expected_span(source, "editor"),
+        Some(expected_span(source, "account_models.User")),
+    );
+    assert_relation_location(
+        location("parent"),
+        "parent",
+        blog_file,
+        expected_span(source, "parent"),
+        Some(expected_span(source, "\"self\"")),
+    );
+    assert_relation_location(
+        location("tags"),
+        "tags",
+        blog_file,
+        expected_span(source, "tags"),
+        Some(expected_span(source, "\"Tag\"")),
+    );
+    assert_relation_location(
+        location("content_object"),
+        "content_object",
+        blog_file,
+        expected_span(source, "content_object"),
+        None,
+    );
+}
+
+#[test]
+fn model_graph_records_inherited_relation_provenance() {
+    let db = TestDatabase::new();
+    let same_file_source = include_str!(
+        "testdata/model_relations/model_graph_records_inherited_relation_provenance/inheritance/models.py"
+    );
+    let base_source = include_str!(
+        "testdata/model_relations/model_graph_records_inherited_relation_provenance/base/models.py"
+    );
+    let child_source = include_str!(
+        "testdata/model_relations/model_graph_records_inherited_relation_provenance/child/models.py"
+    );
+    let project = ProjectFixture::new("/project")
+        .file("/project/inheritance/models.py", same_file_source)
+        .file("/project/base/models.py", base_source)
+        .file("/project/child/models.py", child_source)
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    let same_file = db.get_or_create_file(Utf8Path::new("/project/inheritance/models.py"));
+    let base_file = db.get_or_create_file(Utf8Path::new("/project/base/models.py"));
+
+    for child in ["SameFileChild", "SameFileSibling"] {
+        let locations = model_relation_locations(graph, "inheritance.models", child);
+        let location = |field: &str| {
+            locations
+                .iter()
+                .find(|(name, ..)| name == field)
+                .unwrap_or_else(|| panic!("expected relation location for {child}.{field}"))
+        };
+
+        assert_relation_location(
+            location("grand_owner"),
+            "grand_owner",
+            same_file,
+            expected_span(same_file_source, "grand_owner"),
+            Some(expected_span(
+                same_file_source,
+                "\"inheritance.GrandTarget\"",
+            )),
+        );
+        assert_relation_location(
+            location("parent_owner"),
+            "parent_owner",
+            same_file,
+            expected_span(same_file_source, "parent_owner"),
+            Some(expected_span(
+                same_file_source,
+                "\"inheritance.ParentTarget\"",
+            )),
+        );
+    }
+
+    for child in ["CrossChild", "CrossSibling"] {
+        let locations = model_relation_locations(graph, "child.models", child);
+        let location = |field: &str| {
+            locations
+                .iter()
+                .find(|(name, ..)| name == field)
+                .unwrap_or_else(|| panic!("expected relation location for {child}.{field}"))
+        };
+
+        assert_relation_location(
+            location("base_owner"),
+            "base_owner",
+            base_file,
+            expected_span(base_source, "base_owner"),
+            Some(expected_span(base_source, "\"base.BaseTarget\"")),
+        );
+    }
 }
 
 #[test]
@@ -162,7 +523,7 @@ fn imported_foreign_key_resolves_to_imported_model_id() {
     let value = graph_value(graph);
     let relation = relation_value(&value, "blog.models.Post", "author");
     assert_eq!(
-        relation["target"],
+        relation["target"]["value"],
         json!({ "kind": "Bare", "name": "User" })
     );
     assert_eq!(
@@ -199,7 +560,7 @@ fn attribute_qualified_expression_retains_source_path_and_resolves() {
     let value = graph_value(graph);
     let relation = relation_value(&value, "blog.models.Post", "author");
     assert_eq!(
-        relation["target"],
+        relation["target"]["value"],
         json!({ "kind": "Attribute", "path": ["account_models", "User"] })
     );
     assert_eq!(
@@ -288,7 +649,7 @@ fn dotted_string_auth_user_resolves_via_app_label_path() {
     let value = graph_value(graph);
     let relation = relation_value(&value, "shop.models.Order", "user");
     assert_eq!(
-        relation["target"],
+        relation["target"]["value"],
         json!({ "kind": "Qualified", "app_label": "auth", "name": "User" })
     );
 }

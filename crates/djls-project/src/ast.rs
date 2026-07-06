@@ -7,13 +7,13 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::ExprUnaryOp;
-use ruff_python_ast::Identifier;
 use ruff_python_ast::Number;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::UnaryOp;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_body;
 use ruff_python_ast::statement_visitor::walk_stmt;
+use ruff_text_size::Ranged;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Recurse {
@@ -216,17 +216,15 @@ impl ExprExt for Expr {
     }
 }
 
-pub(crate) trait IdentifierExt {
-    /// Span covering the identifier in the source file.
-    fn span(&self) -> Span;
-}
-
-impl IdentifierExt for Identifier {
+pub(crate) trait RangedExt: Ranged {
+    /// Span covering this AST node in the source file.
     fn span(&self) -> Span {
-        let range = self.range;
+        let range = self.range();
         Span::new(range.start().to_u32(), range.len().to_u32())
     }
 }
+
+impl<T> RangedExt for T where T: Ranged {}
 
 pub(crate) trait AliasExt {
     /// Span of the local binding for an unaliased import: the leading
@@ -237,7 +235,7 @@ pub(crate) trait AliasExt {
 impl AliasExt for Alias {
     fn unaliased_binding_span(&self, local_name: &str) -> Span {
         Span::new(
-            self.name.range.start().to_u32(),
+            self.name.span().start(),
             u32::try_from(local_name.len()).unwrap_or(u32::MAX),
         )
     }

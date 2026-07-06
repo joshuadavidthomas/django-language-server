@@ -4,50 +4,99 @@ expression: graph
 ---
 models:
   src.backend.InvenTree.part.models.PartCategoryStar:
-    name: PartCategoryStar
+    name:
+      value: PartCategoryStar
+      span:
+        start: 123504
+        length: 16
     module_name: src.backend.InvenTree.part.models
-    line: 3597
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 123870
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: PartCategory
+          value:
+            kind: Bare
+            name: PartCategory
+          span:
+            start: 123908
+            length: 12
         related_name: starred_users
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 124041
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 124075
+            length: 4
         related_name: starred_categories
     kind: concrete
   src.backend.InvenTree.part.models.PartStar:
-    name: PartStar
+    name:
+      value: PartStar
+      span:
+        start: 122788
+        length: 8
     module_name: src.backend.InvenTree.part.models
-    line: 3567
     relations:
-      - field_name: part
+      - field_name:
+          value: part
+          span:
+            start: 123191
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Part
+          value:
+            kind: Bare
+            name: Part
+          span:
+            start: 123225
+            length: 4
         related_name: starred_users
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 123346
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 123380
+            length: 4
         related_name: starred_parts
     kind: concrete
   src.backend.InvenTree.part.models.PartStocktake:
-    name: PartStocktake
+    name:
+      value: PartStocktake
+      span:
+        start: 119986
+        length: 13
     module_name: src.backend.InvenTree.part.models
-    line: 3471
     relations:
-      - field_name: part
+      - field_name:
+          value: part
+          span:
+            start: 120317
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Part
+          value:
+            kind: Bare
+            name: Part
+          span:
+            start: 120351
+            length: 4
         related_name: stocktakes
     kind: concrete

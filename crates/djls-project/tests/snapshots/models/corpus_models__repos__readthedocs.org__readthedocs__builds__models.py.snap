@@ -4,38 +4,76 @@ expression: graph
 ---
 models:
   readthedocs.builds.models.Build:
-    name: Build
+    name:
+      value: Build
+      span:
+        start: 23647
+        length: 5
     module_name: readthedocs.builds.models
-    line: 645
     relations:
-      - field_name: project
+      - field_name:
+          value: project
+          span:
+            start: 23695
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 23732
+            length: 7
         related_name: builds
-      - field_name: version
+      - field_name:
+          value: version
+          span:
+            start: 23851
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Version
+          value:
+            kind: Bare
+            name: Version
+          span:
+            start: 23888
+            length: 7
         related_name: builds
-      - field_name: readthedocs_yaml_config
+      - field_name:
+          value: readthedocs_yaml_config
+          span:
+            start: 26627
+            length: 23
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: BuildConfig
+          value:
+            kind: Bare
+            name: BuildConfig
+          span:
+            start: 26680
+            length: 13
         related_name: builds
     kind: concrete
   readthedocs.builds.models.BuildCommandResult:
-    name: BuildCommandResult
+    name:
+      value: BuildCommandResult
+      span:
+        start: 37665
+        length: 18
     module_name: readthedocs.builds.models
-    line: 1082
     relations:
-      - field_name: build
+      - field_name:
+          value: build
+          span:
+            start: 37770
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Build
+          value:
+            kind: Bare
+            name: Build
+          span:
+            start: 37805
+            length: 5
         related_name: commands
     kind: concrete

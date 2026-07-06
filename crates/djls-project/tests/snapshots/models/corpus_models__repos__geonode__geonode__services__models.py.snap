@@ -4,22 +4,41 @@ expression: graph
 ---
 models:
   geonode.services.models.ServiceProfileRole:
-    name: ServiceProfileRole
+    name:
+      value: ServiceProfileRole
+      span:
+        start: 5150
+        length: 18
     module_name: geonode.services.models
-    line: 146
     relations:
-      - field_name: profiles
+      - field_name:
+          value: profiles
+          span:
+            start: 5300
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 5329
+            length: 24
         related_name: ~
-      - field_name: service
+      - field_name:
+          value: service
+          span:
+            start: 5385
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Service
+          value:
+            kind: Bare
+            name: Service
+          span:
+            start: 5413
+            length: 7
         related_name: ~
     kind: concrete

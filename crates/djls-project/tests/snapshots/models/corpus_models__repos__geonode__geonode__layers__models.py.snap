@@ -4,20 +4,34 @@ expression: graph
 ---
 models:
   geonode.layers.models.Attribute:
-    name: Attribute
+    name:
+      value: Attribute
+      span:
+        start: 15719
+        length: 9
     module_name: geonode.layers.models
-    line: 448
     relations:
-      - field_name: dataset
+      - field_name:
+          value: dataset
+          span:
+            start: 15965
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Dataset
+          value:
+            kind: Bare
+            name: Dataset
+          span:
+            start: 16002
+            length: 7
         related_name: attribute_set
     kind: concrete
   geonode.layers.models.Style:
-    name: Style
+    name:
+      value: Style
+      span:
+        start: 2110
+        length: 5
     module_name: geonode.layers.models
-    line: 63
     relations: []
     kind: concrete

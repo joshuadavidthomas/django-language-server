@@ -4,148 +4,280 @@ expression: graph
 ---
 models:
   foundation.models.ActionItem:
-    name: ActionItem
+    name:
+      value: ActionItem
+      span:
+        start: 5665
+        length: 10
     module_name: foundation.models
-    line: 227
     relations:
-      - field_name: meeting
+      - field_name:
+          value: meeting
+          span:
+            start: 5860
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Meeting
+          value:
+            kind: Bare
+            name: Meeting
+          span:
+            start: 5897
+            length: 7
         related_name: action_items
     kind: concrete
   foundation.models.ApprovedCorporateMember:
-    name: ApprovedCorporateMember
+    name:
+      value: ApprovedCorporateMember
+      span:
+        start: 4421
+        length: 23
     module_name: foundation.models
-    line: 174
     relations:
-      - field_name: approved_at
+      - field_name:
+          value: approved_at
+          span:
+            start: 4576
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Meeting
+          value:
+            kind: Bare
+            name: Meeting
+          span:
+            start: 4617
+            length: 7
         related_name: corporate_members_approved
     kind: concrete
   foundation.models.ApprovedGrant:
-    name: ApprovedGrant
+    name:
+      value: ApprovedGrant
+      span:
+        start: 3247
+        length: 13
     module_name: foundation.models
-    line: 124
     relations:
-      - field_name: approved_at
+      - field_name:
+          value: approved_at
+          span:
+            start: 3841
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Meeting
+          value:
+            kind: Bare
+            name: Meeting
+          span:
+            start: 3882
+            length: 7
         related_name: grants_approved
     kind: concrete
   foundation.models.ApprovedIndividualMember:
-    name: ApprovedIndividualMember
+    name:
+      value: ApprovedIndividualMember
+      span:
+        start: 4081
+        length: 24
     module_name: foundation.models
-    line: 159
     relations:
-      - field_name: approved_at
+      - field_name:
+          value: approved_at
+          span:
+            start: 4239
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Meeting
+          value:
+            kind: Bare
+            name: Meeting
+          span:
+            start: 4280
+            length: 7
         related_name: individual_members_approved
     kind: concrete
   foundation.models.BoardMember:
-    name: BoardMember
+    name:
+      value: BoardMember
+      span:
+        start: 809
+        length: 11
     module_name: foundation.models
-    line: 39
     relations:
-      - field_name: account
+      - field_name:
+          value: account
+          span:
+            start: 882
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 910
+            length: 24
         related_name: ~
-      - field_name: office
+      - field_name:
+          value: office
+          span:
+            start: 966
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Office
+          value:
+            kind: Bare
+            name: Office
+          span:
+            start: 993
+            length: 6
         related_name: holders
-      - field_name: term
+      - field_name:
+          value: term
+          span:
+            start: 1055
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Term
+          value:
+            kind: Bare
+            name: Term
+          span:
+            start: 1089
+            length: 4
         related_name: board_members
     kind: concrete
   foundation.models.Business:
-    name: Business
+    name:
+      value: Business
+      span:
+        start: 4757
+        length: 8
     module_name: foundation.models
-    line: 189
     relations:
-      - field_name: meeting
+      - field_name:
+          value: meeting
+          span:
+            start: 5159
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Meeting
+          value:
+            kind: Bare
+            name: Meeting
+          span:
+            start: 5196
+            length: 7
         related_name: business
     kind: concrete
   foundation.models.CoreAward:
-    name: CoreAward
+    name:
+      value: CoreAward
+      span:
+        start: 6541
+        length: 9
     module_name: foundation.models
-    line: 263
     relations:
-      - field_name: cohort
+      - field_name:
+          value: cohort
+          span:
+            start: 6643
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: CoreAwardCohort
+          value:
+            kind: Bare
+            name: CoreAwardCohort
+          span:
+            start: 6679
+            length: 15
         related_name: recipients
     kind: concrete
   foundation.models.CoreAwardCohort:
-    name: CoreAwardCohort
+    name:
+      value: CoreAwardCohort
+      span:
+        start: 6023
+        length: 15
     module_name: foundation.models
-    line: 243
     relations: []
     kind: concrete
   foundation.models.Meeting:
-    name: Meeting
+    name:
+      value: Meeting
+      span:
+        start: 1655
+        length: 7
     module_name: foundation.models
-    line: 72
     relations:
-      - field_name: leader
+      - field_name:
+          value: leader
+          span:
+            start: 1837
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: BoardMember
+          value:
+            kind: Bare
+            name: BoardMember
+          span:
+            start: 1873
+            length: 11
         related_name: meetings_led
-      - field_name: board_attendees
+      - field_name:
+          value: board_attendees
+          span:
+            start: 1950
+            length: 15
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: BoardMember
+          value:
+            kind: Bare
+            name: BoardMember
+          span:
+            start: 2000
+            length: 11
         related_name: meetings_attended
-      - field_name: non_board_attendees
+      - field_name:
+          value: non_board_attendees
+          span:
+            start: 2056
+            length: 19
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: NonBoardAttendee
+          value:
+            kind: Bare
+            name: NonBoardAttendee
+          span:
+            start: 2110
+            length: 16
         related_name: meetings_attended
     kind: concrete
   foundation.models.NonBoardAttendee:
-    name: NonBoardAttendee
+    name:
+      value: NonBoardAttendee
+      span:
+        start: 1272
+        length: 16
     module_name: foundation.models
-    line: 55
     relations: []
     kind: concrete
   foundation.models.Office:
-    name: Office
+    name:
+      value: Office
+      span:
+        start: 417
+        length: 6
     module_name: foundation.models
-    line: 15
     relations: []
     kind: concrete
   foundation.models.Term:
-    name: Term
+    name:
+      value: Term
+      span:
+        start: 613
+        length: 4
     module_name: foundation.models
-    line: 27
     relations: []
     kind: concrete

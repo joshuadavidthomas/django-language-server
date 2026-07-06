@@ -4,84 +4,157 @@ expression: graph
 ---
 models:
   dashboard.models.Category:
-    name: Category
+    name:
+      value: Category
+      span:
+        start: 670
+        length: 8
     module_name: dashboard.models
-    line: 25
     relations: []
     kind: concrete
   dashboard.models.Datum:
-    name: Datum
+    name:
+      value: Datum
+      span:
+        start: 8242
+        length: 5
     module_name: dashboard.models
-    line: 252
     relations:
-      - field_name: metric
+      - field_name:
+          value: metric
+          span:
+            start: 8267
+            length: 6
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 8300
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 8342
+            length: 11
         related_name: +
     kind: concrete
   dashboard.models.GitHubSearchCountMetric:
-    name: GitHubSearchCountMetric
+    name:
+      value: GitHubSearchCountMetric
+      span:
+        start: 5196
+        length: 23
     module_name: dashboard.models
-    line: 161
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 1017
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 1055
+            length: 8
         related_name: ~
     kind: concrete
   dashboard.models.GithubItemCountMetric:
-    name: GithubItemCountMetric
+    name:
+      value: GithubItemCountMetric
+      span:
+        start: 4401
+        length: 21
     module_name: dashboard.models
-    line: 136
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 1017
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 1055
+            length: 8
         related_name: ~
     kind: concrete
   dashboard.models.JenkinsFailuresMetric:
-    name: JenkinsFailuresMetric
+    name:
+      value: JenkinsFailuresMetric
+      span:
+        start: 5865
+        length: 21
     module_name: dashboard.models
-    line: 180
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 1017
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 1055
+            length: 8
         related_name: ~
     kind: concrete
   dashboard.models.Metric:
-    name: Metric
+    name:
+      value: Metric
+      span:
+        start: 917
+        length: 6
     module_name: dashboard.models
-    line: 36
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 1017
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 1055
+            length: 8
         related_name: ~
     kind: abstract
   dashboard.models.TracTicketMetric:
-    name: TracTicketMetric
+    name:
+      value: TracTicketMetric
+      span:
+        start: 4157
+        length: 16
     module_name: dashboard.models
-    line: 125
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 1017
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 1055
+            length: 8
         related_name: ~
     kind: concrete

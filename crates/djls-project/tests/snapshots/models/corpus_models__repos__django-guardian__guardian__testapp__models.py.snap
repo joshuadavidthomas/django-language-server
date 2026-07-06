@@ -4,70 +4,113 @@ expression: graph
 ---
 models:
   guardian.testapp.models.CharPKModel:
-    name: CharPKModel
+    name:
+      value: CharPKModel
+      span:
+        start: 3008
+        length: 11
     module_name: guardian.testapp.models
-    line: 109
     relations: []
     kind: concrete
   guardian.testapp.models.ChildTestModel:
-    name: ChildTestModel
+    name:
+      value: ChildTestModel
+      span:
+        start: 4004
+        length: 14
     module_name: guardian.testapp.models
-    line: 150
     relations:
-      - field_name: parent_id
+      - field_name:
+          value: parent_id
+          span:
+            start: 4041
+            length: 9
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: ParentTestModel
+          value:
+            kind: Bare
+            name: ParentTestModel
+          span:
+            start: 4074
+            length: 15
         related_name: ~
     kind: concrete
   guardian.testapp.models.Mixed:
-    name: Mixed
+    name:
+      value: Mixed
+      span:
+        start: 2130
+        length: 5
     module_name: guardian.testapp.models
-    line: 75
     relations: []
     kind: concrete
   guardian.testapp.models.ParentTestModel:
-    name: ParentTestModel
+    name:
+      value: ParentTestModel
+      span:
+        start: 3908
+        length: 15
     module_name: guardian.testapp.models
-    line: 146
     relations: []
     kind: concrete
   guardian.testapp.models.Post:
-    name: Post
+    name:
+      value: Post
+      span:
+        start: 394
+        length: 4
     module_name: guardian.testapp.models
-    line: 13
     relations: []
     kind: concrete
   guardian.testapp.models.Project:
-    name: Project
+    name:
+      value: Project
+      span:
+        start: 1079
+        length: 7
     module_name: guardian.testapp.models
-    line: 41
     relations: []
     kind: concrete
   guardian.testapp.models.ReverseMixed:
-    name: ReverseMixed
+    name:
+      value: ReverseMixed
+      span:
+        start: 2558
+        length: 12
     module_name: guardian.testapp.models
-    line: 91
     relations: []
     kind: concrete
   guardian.testapp.models.UUIDPKModel:
-    name: UUIDPKModel
+    name:
+      value: UUIDPKModel
+      span:
+        start: 3249
+        length: 11
     module_name: guardian.testapp.models
-    line: 118
     relations: []
     kind: concrete
   guardian.testapp.models.UserProfile:
-    name: UserProfile
+    name:
+      value: UserProfile
+      span:
+        start: 1440
+        length: 11
     module_name: guardian.testapp.models
-    line: 56
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 1561
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1589
+            length: 24
         related_name: profile
     kind: concrete

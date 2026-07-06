@@ -4,33 +4,58 @@ expression: graph
 ---
 models:
   blog.models.Entry:
-    name: Entry
+    name:
+      value: Entry
+      span:
+        start: 3788
+        length: 5
     module_name: blog.models
-    line: 122
     relations:
-      - field_name: social_media_card
+      - field_name:
+          value: social_media_card
+          span:
+            start: 4920
+            length: 17
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ImageUpload
+          value:
+            kind: Bare
+            name: ImageUpload
+          span:
+            start: 4967
+            length: 11
         related_name: ~
     kind: concrete
   blog.models.Event:
-    name: Event
+    name:
+      value: Event
+      span:
+        start: 8167
+        length: 5
     module_name: blog.models
-    line: 255
     relations: []
     kind: concrete
   blog.models.ImageUpload:
-    name: ImageUpload
+    name:
+      value: ImageUpload
+      span:
+        start: 2732
+        length: 11
     module_name: blog.models
-    line: 86
     relations:
-      - field_name: uploaded_by
+      - field_name:
+          value: uploaded_by
+          span:
+            start: 3176
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: auth
-          name: User
+          value:
+            kind: Qualified
+            app_label: auth
+            name: User
+          span:
+            start: 3217
+            length: 11
         related_name: ~
     kind: concrete

@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   benchmarks.models.TestDirectModel:
-    name: TestDirectModel
+    name:
+      value: TestDirectModel
+      span:
+        start: 457
+        length: 15
     module_name: benchmarks.models
-    line: 18
     relations: []
     kind: concrete
   benchmarks.models.TestModel:
-    name: TestModel
+    name:
+      value: TestModel
+      span:
+        start: 118
+        length: 9
     module_name: benchmarks.models
-    line: 6
     relations: []
     kind: concrete

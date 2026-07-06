@@ -4,122 +4,237 @@ expression: graph
 ---
 models:
   bookmarks.models.ApiToken:
-    name: ApiToken
+    name:
+      value: ApiToken
+      span:
+        start: 16687
+        length: 8
     module_name: bookmarks.models
-    line: 490
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 16770
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 16804
+            length: 4
         related_name: api_tokens
     kind: concrete
   bookmarks.models.Bookmark:
-    name: Bookmark
+    name:
+      value: Bookmark
+      span:
+        start: 1410
+        length: 8
     module_name: bookmarks.models
-    line: 53
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 2545
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 2571
+            length: 4
         related_name: ~
-      - field_name: tags
+      - field_name:
+          value: tags
+          span:
+            start: 2607
+            length: 4
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 2637
+            length: 3
         related_name: ~
-      - field_name: latest_snapshot
+      - field_name:
+          value: latest_snapshot
+          span:
+            start: 2646
+            length: 15
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: BookmarkAsset
+          value:
+            kind: Bare
+            name: BookmarkAsset
+          span:
+            start: 2691
+            length: 15
         related_name: latest_snapshot
     kind: concrete
   bookmarks.models.BookmarkAsset:
-    name: BookmarkAsset
+    name:
+      value: BookmarkAsset
+      span:
+        start: 4312
+        length: 13
     module_name: bookmarks.models
-    line: 129
     relations:
-      - field_name: bookmark
+      - field_name:
+          value: bookmark
+          span:
+            start: 4578
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Bookmark
+          value:
+            kind: Bare
+            name: Bookmark
+          span:
+            start: 4607
+            length: 8
         related_name: ~
     kind: concrete
   bookmarks.models.BookmarkBundle:
-    name: BookmarkBundle
+    name:
+      value: BookmarkBundle
+      span:
+        start: 6354
+        length: 14
     module_name: bookmarks.models
-    line: 183
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 6885
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 6911
+            length: 4
         related_name: ~
     kind: concrete
   bookmarks.models.FeedToken:
-    name: FeedToken
+    name:
+      value: FeedToken
+      span:
+        start: 16060
+        length: 9
     module_name: bookmarks.models
-    line: 464
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 16206
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 16243
+            length: 4
         related_name: feed_token
     kind: concrete
   bookmarks.models.GlobalSettings:
-    name: GlobalSettings
+    name:
+      value: GlobalSettings
+      span:
+        start: 17334
+        length: 14
     module_name: bookmarks.models
-    line: 513
     relations:
-      - field_name: guest_profile_user
+      - field_name:
+          value: guest_profile_user
+          span:
+            start: 17753
+            length: 18
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 17801
+            length: 4
         related_name: ~
     kind: concrete
   bookmarks.models.Tag:
-    name: Tag
+    name:
+      value: Tag
+      span:
+        start: 529
+        length: 3
     module_name: bookmarks.models
-    line: 21
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 635
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 661
+            length: 4
         related_name: ~
     kind: concrete
   bookmarks.models.Toast:
-    name: Toast
+    name:
+      value: Toast
+      span:
+        start: 15840
+        length: 5
     module_name: bookmarks.models
-    line: 457
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 15994
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 16020
+            length: 4
         related_name: ~
     kind: concrete
   bookmarks.models.UserProfile:
-    name: UserProfile
+    name:
+      value: UserProfile
+      span:
+        start: 10520
+        length: 11
     module_name: bookmarks.models
-    line: 320
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 12225
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 12253
+            length: 4
         related_name: profile
     kind: concrete

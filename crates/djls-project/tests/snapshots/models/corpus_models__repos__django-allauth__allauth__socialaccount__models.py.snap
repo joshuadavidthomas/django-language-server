@@ -4,40 +4,73 @@ expression: graph
 ---
 models:
   allauth.socialaccount.models.SocialAccount:
-    name: SocialAccount
+    name:
+      value: SocialAccount
+      span:
+        start: 3266
+        length: 13
     module_name: allauth.socialaccount.models
-    line: 93
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 3299
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 3324
+            length: 24
         related_name: ~
     kind: concrete
   allauth.socialaccount.models.SocialApp:
-    name: SocialApp
+    name:
+      value: SocialApp
+      span:
+        start: 1336
+        length: 9
     module_name: allauth.socialaccount.models
-    line: 40
     relations: []
     kind: concrete
   allauth.socialaccount.models.SocialToken:
-    name: SocialToken
+    name:
+      value: SocialToken
+      span:
+        start: 5728
+        length: 11
     module_name: allauth.socialaccount.models
-    line: 157
     relations:
-      - field_name: app
+      - field_name:
+          value: app
+          span:
+            start: 5759
+            length: 3
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SocialApp
+          value:
+            kind: Bare
+            name: SocialApp
+          span:
+            start: 5783
+            length: 9
         related_name: ~
-      - field_name: account
+      - field_name:
+          value: account
+          span:
+            start: 5848
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SocialAccount
+          value:
+            kind: Bare
+            name: SocialAccount
+          span:
+            start: 5876
+            length: 13
         related_name: ~
     kind: concrete

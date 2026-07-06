@@ -4,14 +4,25 @@ expression: graph
 ---
 models:
   geonode.indexing.models.ResourceIndex:
-    name: ResourceIndex
+    name:
+      value: ResourceIndex
+      span:
+        start: 197
+        length: 13
     module_name: geonode.indexing.models
-    line: 8
     relations:
-      - field_name: resource
+      - field_name:
+          value: resource
+          span:
+            start: 270
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 299
+            length: 12
         related_name: ~
     kind: concrete

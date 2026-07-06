@@ -4,31 +4,66 @@ expression: graph
 ---
 models:
   archivebox.machine.models.Process:
-    name: Process
+    name:
+      value: Process
+      span:
+        start: 26313
+        length: 7
     module_name: archivebox.machine.models
-    line: 659
     relations:
-      - field_name: machine
+      - field_name:
+          value: machine
+          span:
+            start: 27639
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Machine
+          value:
+            kind: Bare
+            name: Machine
+          span:
+            start: 27676
+            length: 7
         related_name: process_set
-      - field_name: parent
+      - field_name:
+          value: parent
+          span:
+            start: 27874
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 27910
+            length: 6
         related_name: children
-      - field_name: binary
+      - field_name:
+          value: binary
+          span:
+            start: 29986
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Binary
+          value:
+            kind: Bare
+            name: Binary
+          span:
+            start: 30022
+            length: 6
         related_name: process_set
-      - field_name: iface
+      - field_name:
+          value: iface
+          span:
+            start: 30190
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: NetworkInterface
+          value:
+            kind: Bare
+            name: NetworkInterface
+          span:
+            start: 30225
+            length: 16
         related_name: process_set
     kind: concrete

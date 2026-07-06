@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   menus.models.CacheKey:
-    name: CacheKey
+    name:
+      value: CacheKey
+      span:
+        start: 892
+        length: 8
     module_name: menus.models
-    line: 29
     relations: []
     kind: concrete

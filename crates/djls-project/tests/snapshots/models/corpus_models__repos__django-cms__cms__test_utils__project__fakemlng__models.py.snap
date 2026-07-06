@@ -4,20 +4,34 @@ expression: graph
 ---
 models:
   cms.test_utils.project.fakemlng.models.MainModel:
-    name: MainModel
+    name:
+      value: MainModel
+      span:
+        start: 85
+        length: 9
     module_name: cms.test_utils.project.fakemlng.models
-    line: 6
     relations: []
     kind: concrete
   cms.test_utils.project.fakemlng.models.Translations:
-    name: Translations
+    name:
+      value: Translations
+      span:
+        start: 127
+        length: 12
     module_name: cms.test_utils.project.fakemlng.models
-    line: 10
     relations:
-      - field_name: master
+      - field_name:
+          value: master
+          span:
+            start: 159
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: MainModel
+          value:
+            kind: Bare
+            name: MainModel
+          span:
+            start: 186
+            length: 9
         related_name: ~
     kind: concrete

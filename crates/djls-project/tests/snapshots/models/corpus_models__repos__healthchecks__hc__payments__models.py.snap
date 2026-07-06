@@ -4,14 +4,25 @@ expression: graph
 ---
 models:
   hc.payments.models.Subscription:
-    name: Subscription
+    name:
+      value: Subscription
+      span:
+        start: 117
+        length: 12
     module_name: hc.payments.models
-    line: 7
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 149
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 177
+            length: 4
         related_name: ~
     kind: concrete

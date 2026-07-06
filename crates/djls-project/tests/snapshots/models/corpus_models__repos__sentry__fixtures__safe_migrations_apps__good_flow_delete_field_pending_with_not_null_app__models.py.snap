@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_app.models.TestTable:
-    name: TestTable
+    name:
+      value: TestTable
+      span:
+        start: 37
+        length: 9
     module_name: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_app.models
-    line: 4
     relations: []
     kind: concrete

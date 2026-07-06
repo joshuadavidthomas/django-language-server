@@ -4,50 +4,84 @@ expression: graph
 ---
 models:
   fundraising.models.DjangoHero:
-    name: DjangoHero
+    name:
+      value: DjangoHero
+      span:
+        start: 1813
+        length: 10
     module_name: fundraising.models
-    line: 61
     relations: []
     kind: concrete
   fundraising.models.Donation:
-    name: Donation
+    name:
+      value: Donation
+      span:
+        start: 3259
+        length: 8
     module_name: fundraising.models
-    line: 105
     relations:
-      - field_name: donor
+      - field_name:
+          value: donor
+          span:
+            start: 3491
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: DjangoHero
+          value:
+            kind: Bare
+            name: DjangoHero
+          span:
+            start: 3517
+            length: 10
         related_name: ~
     kind: concrete
   fundraising.models.FundraisingModel:
-    name: FundraisingModel
+    name:
+      value: FundraisingModel
+      span:
+        start: 1369
+        length: 16
     module_name: fundraising.models
-    line: 46
     relations: []
     kind: abstract
   fundraising.models.InKindDonor:
-    name: InKindDonor
+    name:
+      value: InKindDonor
+      span:
+        start: 4738
+        length: 11
     module_name: fundraising.models
-    line: 149
     relations: []
     kind: concrete
   fundraising.models.Payment:
-    name: Payment
+    name:
+      value: Payment
+      span:
+        start: 4173
+        length: 7
     module_name: fundraising.models
-    line: 130
     relations:
-      - field_name: donation
+      - field_name:
+          value: donation
+          span:
+            start: 4200
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Donation
+          value:
+            kind: Bare
+            name: Donation
+          span:
+            start: 4229
+            length: 8
         related_name: ~
     kind: concrete
   fundraising.models.Testimonial:
-    name: Testimonial
+    name:
+      value: Testimonial
+      span:
+        start: 4526
+        length: 11
     module_name: fundraising.models
-    line: 140
     relations: []
     kind: concrete

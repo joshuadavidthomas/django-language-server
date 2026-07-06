@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   wagtail.contrib.simple_translation.models.SimpleTranslation:
-    name: SimpleTranslation
+    name:
+      value: SimpleTranslation
+      span:
+        start: 192
+        length: 17
     module_name: wagtail.contrib.simple_translation.models
-    line: 9
     relations: []
     kind: concrete

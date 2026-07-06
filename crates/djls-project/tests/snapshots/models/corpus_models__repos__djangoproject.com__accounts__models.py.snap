@@ -4,14 +4,25 @@ expression: graph
 ---
 models:
   accounts.models.Profile:
-    name: Profile
+    name:
+      value: Profile
+      span:
+        start: 81
+        length: 7
     module_name: accounts.models
-    line: 5
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 108
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 136
+            length: 4
         related_name: ~
     kind: concrete

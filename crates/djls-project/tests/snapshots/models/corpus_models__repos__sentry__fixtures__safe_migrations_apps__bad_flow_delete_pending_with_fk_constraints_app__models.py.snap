@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   fixtures.safe_migrations_apps.bad_flow_delete_pending_with_fk_constraints_app.models.FkTable:
-    name: FkTable
+    name:
+      value: FkTable
+      span:
+        start: 86
+        length: 7
     module_name: fixtures.safe_migrations_apps.bad_flow_delete_pending_with_fk_constraints_app.models
-    line: 6
     relations: []
     kind: concrete
   fixtures.safe_migrations_apps.bad_flow_delete_pending_with_fk_constraints_app.models.TestTable:
-    name: TestTable
+    name:
+      value: TestTable
+      span:
+        start: 172
+        length: 9
     module_name: fixtures.safe_migrations_apps.bad_flow_delete_pending_with_fk_constraints_app.models
-    line: 10
     relations: []
     kind: concrete

@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   misago.plugins.models.PluginDataModel:
-    name: PluginDataModel
+    name:
+      value: PluginDataModel
+      span:
+        start: 90
+        length: 15
     module_name: misago.plugins.models
-    line: 5
     relations: []
     kind: abstract

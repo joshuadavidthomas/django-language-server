@@ -4,32 +4,62 @@ expression: graph
 ---
 models:
   help.models.Page:
-    name: Page
+    name:
+      value: Page
+      span:
+        start: 477
+        length: 4
     module_name: help.models
-    line: 22
     relations: []
     kind: concrete
   help.models.Paragraph:
-    name: Paragraph
+    name:
+      value: Paragraph
+      span:
+        start: 2549
+        length: 9
     module_name: help.models
-    line: 89
     relations:
-      - field_name: document
+      - field_name:
+          value: document
+          span:
+            start: 2715
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Page
+          value:
+            kind: Bare
+            name: Page
+          span:
+            start: 2753
+            length: 4
         related_name: ~
-      - field_name: groups
+      - field_name:
+          value: groups
+          span:
+            start: 2803
+            length: 6
         relation_type: ManyToMany
         target:
-          kind: Qualified
-          app_label: auth
-          name: Group
+          value:
+            kind: Qualified
+            app_label: auth
+            name: Group
+          span:
+            start: 2844
+            length: 12
         related_name: ~
-      - field_name: link1
+      - field_name:
+          value: link1
+          span:
+            start: 4044
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 4079
+            length: 6
         related_name: ~
     kind: concrete

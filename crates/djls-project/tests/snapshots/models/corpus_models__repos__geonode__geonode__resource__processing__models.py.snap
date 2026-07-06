@@ -4,32 +4,62 @@ expression: graph
 ---
 models:
   geonode.resource.processing.models.ProcessingWorkflow:
-    name: ProcessingWorkflow
+    name:
+      value: ProcessingWorkflow
+      span:
+        start: 1842
+        length: 18
     module_name: geonode.resource.processing.models
-    line: 55
     relations:
-      - field_name: processing_tasks
+      - field_name:
+          value: processing_tasks
+          span:
+            start: 1938
+            length: 16
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: AbstractProcessingTask
+          value:
+            kind: Bare
+            name: AbstractProcessingTask
+          span:
+            start: 1980
+            length: 22
         related_name: ~
     kind: concrete
   geonode.resource.processing.models.ProcessingWorkflowTasks:
-    name: ProcessingWorkflowTasks
+    name:
+      value: ProcessingWorkflowTasks
+      span:
+        start: 2491
+        length: 23
     module_name: geonode.resource.processing.models
-    line: 73
     relations:
-      - field_name: workflow
+      - field_name:
+          value: workflow
+          span:
+            start: 2534
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ProcessingWorkflow
+          value:
+            kind: Bare
+            name: ProcessingWorkflow
+          span:
+            start: 2563
+            length: 18
         related_name: ~
-      - field_name: task
+      - field_name:
+          value: task
+          span:
+            start: 2616
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AbstractProcessingTask
+          value:
+            kind: Bare
+            name: AbstractProcessingTask
+          span:
+            start: 2641
+            length: 22
         related_name: link_to_workflow
     kind: concrete

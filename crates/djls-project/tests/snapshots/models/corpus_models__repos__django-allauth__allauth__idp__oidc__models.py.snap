@@ -4,36 +4,66 @@ expression: graph
 ---
 models:
   allauth.idp.oidc.models.Client:
-    name: Client
+    name:
+      value: Client
+      span:
+        start: 877
+        length: 6
     module_name: allauth.idp.oidc.models
-    line: 35
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 3478
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 3513
+            length: 24
         related_name: ~
     kind: concrete
   allauth.idp.oidc.models.Token:
-    name: Token
+    name:
+      value: Token
+      span:
+        start: 6578
+        length: 5
     module_name: allauth.idp.oidc.models
-    line: 198
     relations:
-      - field_name: client
+      - field_name:
+          value: client
+          span:
+            start: 6996
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Client
+          value:
+            kind: Bare
+            name: Client
+          span:
+            start: 7023
+            length: 6
         related_name: ~
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 7084
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 7118
+            length: 24
         related_name: ~
     kind: concrete

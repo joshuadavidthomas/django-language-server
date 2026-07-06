@@ -4,27 +4,54 @@ expression: graph
 ---
 models:
   misago.categories.models.RoleCategoryACL:
-    name: RoleCategoryACL
+    name:
+      value: RoleCategoryACL
+      span:
+        start: 5839
+        length: 15
     module_name: misago.categories.models
-    line: 164
     relations:
-      - field_name: role
+      - field_name:
+          value: role
+          span:
+            start: 5874
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_acl
-          name: Role
+          value:
+            kind: Qualified
+            app_label: misago_acl
+            name: Role
+          span:
+            start: 5908
+            length: 17
         related_name: categories_acls
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 5994
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 6032
+            length: 10
         related_name: category_role_set
-      - field_name: category_role
+      - field_name:
+          value: category_role
+          span:
+            start: 6113
+            length: 13
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: CategoryRole
+          value:
+            kind: Bare
+            name: CategoryRole
+          span:
+            start: 6147
+            length: 12
         related_name: ~
     kind: concrete

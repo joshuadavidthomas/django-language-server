@@ -4,17 +4,32 @@ expression: graph
 ---
 models:
   wagtail.search.models.BaseIndexEntry:
-    name: BaseIndexEntry
+    name:
+      value: BaseIndexEntry
+      span:
+        start: 1556
+        length: 14
     module_name: wagtail.search.models
-    line: 41
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 1762
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 1804
+            length: 11
         related_name: +
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 1998
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id

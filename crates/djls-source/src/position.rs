@@ -134,6 +134,29 @@ pub struct Span {
     length: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct Spanned<T> {
+    value: T,
+    span: Span,
+}
+
+impl<T> Spanned<T> {
+    #[must_use]
+    pub fn new(value: T, span: Span) -> Self {
+        Self { value, span }
+    }
+
+    #[must_use]
+    pub fn value(&self) -> &T {
+        &self.value
+    }
+
+    #[must_use]
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 impl Span {
     #[must_use]
     pub fn new(start: u32, length: u32) -> Self {

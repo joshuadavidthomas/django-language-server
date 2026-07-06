@@ -4,80 +4,154 @@ expression: graph
 ---
 models:
   hc.api.models.Channel:
-    name: Channel
+    name:
+      value: Channel
+      span:
+        start: 35556
+        length: 7
     module_name: hc.api.models
-    line: 967
     relations:
-      - field_name: project
+      - field_name:
+          value: project
+          span:
+            start: 35716
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 35744
+            length: 7
         related_name: ~
-      - field_name: checks
+      - field_name:
+          value: checks
+          span:
+            start: 36229
+            length: 6
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Check
+          value:
+            kind: Bare
+            name: Check
+          span:
+            start: 36261
+            length: 5
         related_name: ~
     kind: concrete
   hc.api.models.Check:
-    name: Check
+    name:
+      value: Check
+      span:
+        start: 6864
+        length: 5
     module_name: hc.api.models
-    line: 184
     relations:
-      - field_name: project
+      - field_name:
+          value: project
+          span:
+            start: 7174
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 7202
+            length: 7
         related_name: ~
     kind: concrete
   hc.api.models.Flip:
-    name: Flip
+    name:
+      value: Flip
+      span:
+        start: 45822
+        length: 4
     module_name: hc.api.models
-    line: 1282
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 45846
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Check
+          value:
+            kind: Bare
+            name: Check
+          span:
+            start: 45872
+            length: 5
         related_name: ~
     kind: concrete
   hc.api.models.Notification:
-    name: Notification
+    name:
+      value: Notification
+      span:
+        start: 45102
+        length: 12
     module_name: hc.api.models
-    line: 1260
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 45317
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Check
+          value:
+            kind: Bare
+            name: Check
+          span:
+            start: 45343
+            length: 5
         related_name: ~
-      - field_name: channel
+      - field_name:
+          value: channel
+          span:
+            start: 45431
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Channel
+          value:
+            kind: Bare
+            name: Channel
+          span:
+            start: 45459
+            length: 7
         related_name: ~
     kind: concrete
   hc.api.models.Ping:
-    name: Ping
+    name:
+      value: Ping
+      span:
+        start: 26020
+        length: 4
     module_name: hc.api.models
-    line: 666
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 26130
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Check
+          value:
+            kind: Bare
+            name: Check
+          span:
+            start: 26156
+            length: 5
         related_name: ~
     kind: concrete
   hc.api.models.TokenBucket:
-    name: TokenBucket
+    name:
+      value: TokenBucket
+      span:
+        start: 48083
+        length: 11
     module_name: hc.api.models
-    line: 1340
     relations: []
     kind: concrete

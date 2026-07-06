@@ -3,11 +3,14 @@ use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
 
+use djls_source::File;
+use djls_source::Spanned;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 
 use crate::ast::ExprExt;
+use crate::ast::RangedExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::models::graph::FieldName;
@@ -72,17 +75,17 @@ impl<'a> DeferredCandidate<'a> {
 
 struct ModelCollector<'a> {
     module_name: PythonModuleName,
-    source: &'a str,
+    file: File,
     imports: &'a ImportTable,
     graph: ModelGraph,
     children: Vec<&'a StmtClassDef>,
 }
 
 impl<'a> ModelCollector<'a> {
-    fn new(module_name: PythonModuleName, source: &'a str, imports: &'a ImportTable) -> Self {
+    fn new(module_name: PythonModuleName, file: File, imports: &'a ImportTable) -> Self {
         Self {
             module_name,
-            source,
+            file,
             imports,
             graph: ModelGraph::new(),
             children: Vec::new(),
@@ -96,12 +99,15 @@ impl<'a> ModelCollector<'a> {
             };
 
             if is_django_model(args.args.iter(), self.imports) {
-                let line = line_number(self.source, class.range.start().to_usize());
-                let mut model =
-                    ModelDef::new(class.name.to_string(), self.module_name.clone(), line);
+                let mut model = ModelDef::new(
+                    class.name.to_string(),
+                    self.module_name.clone(),
+                    self.file,
+                    class.name.span(),
+                );
 
                 walk_stmts(&class.body, Recurse::Flat, |stmt| {
-                    process_class_body(stmt, &mut model);
+                    process_class_body(stmt, self.file, &mut model);
                     ControlFlow::Continue(())
                 });
 
@@ -117,7 +123,7 @@ fn resolve_children<'a>(
     graph: &mut ModelGraph,
     children: &[&'a StmtClassDef],
     module_name: &PythonModuleName,
-    source: &str,
+    file: File,
 ) -> Vec<&'a StmtClassDef> {
     let mut remaining: Vec<&StmtClassDef> = children.to_vec();
 
@@ -133,9 +139,9 @@ fn resolve_children<'a>(
         let abstract_data: Vec<(ModelName, Vec<Relation>)> = graph
             .models()
             .filter(|m| m.kind == ModelKind::Abstract)
-            .map(|m| (m.name.clone(), m.relations.clone()))
+            .map(|m| (m.name.value().clone(), m.relations.clone()))
             .collect();
-        let known_names: Vec<ModelName> = graph.models().map(|m| m.name.clone()).collect();
+        let known_names: Vec<ModelName> = graph.models().map(|m| m.name.value().clone()).collect();
 
         for class in &remaining {
             let Some(ref args) = class.arguments else {
@@ -154,8 +160,12 @@ fn resolve_children<'a>(
                 continue;
             }
 
-            let line = line_number(source, class.range.start().to_usize());
-            let mut model = ModelDef::new(class.name.to_string(), module_name.clone(), line);
+            let mut model = ModelDef::new(
+                class.name.to_string(),
+                module_name.clone(),
+                file,
+                class.name.span(),
+            );
 
             // Copy relations from ALL abstract parents
             for arg in &args.args {
@@ -171,7 +181,7 @@ fn resolve_children<'a>(
             }
 
             walk_stmts(&class.body, Recurse::Flat, |stmt| {
-                process_class_body(stmt, &mut model);
+                process_class_body(stmt, file, &mut model);
                 ControlFlow::Continue(())
             });
 
@@ -188,12 +198,12 @@ fn resolve_children<'a>(
 }
 
 pub(super) fn extract_models_impl(
-    source: &str,
     stmts: &[Stmt],
     module_name: PythonModuleName,
+    file: File,
     imports: &ImportTable,
 ) -> ModelExtraction {
-    let mut collector = ModelCollector::new(module_name, source, imports);
+    let mut collector = ModelCollector::new(module_name, file, imports);
     walk_stmts(stmts, Recurse::Flat, |stmt| {
         collector.scan_stmt(stmt);
         ControlFlow::Continue(())
@@ -202,7 +212,7 @@ pub(super) fn extract_models_impl(
         &mut collector.graph,
         &collector.children,
         &collector.module_name,
-        source,
+        file,
     );
     let candidates: Vec<_> = remaining
         .into_iter()
@@ -210,7 +220,7 @@ pub(super) fn extract_models_impl(
         .collect();
     let deferred = viable_deferred_candidates(candidates)
         .into_iter()
-        .map(|candidate| DeferredModel::from_candidate(candidate, &collector.module_name, source))
+        .map(|candidate| DeferredModel::from_candidate(candidate, &collector.module_name, file))
         .collect();
     ModelExtraction {
         graph: collector.graph,
@@ -273,12 +283,16 @@ impl DeferredModel {
     fn from_candidate(
         candidate: DeferredCandidate<'_>,
         module_name: &PythonModuleName,
-        source: &str,
+        file: File,
     ) -> Self {
-        let line = line_number(source, candidate.class.range.start().to_usize());
-        let mut model = ModelDef::new(candidate.class.name.to_string(), module_name.clone(), line);
+        let mut model = ModelDef::new(
+            candidate.class.name.to_string(),
+            module_name.clone(),
+            file,
+            candidate.class.name.span(),
+        );
         walk_stmts(&candidate.class.body, Recurse::Flat, |stmt| {
-            process_class_body(stmt, &mut model);
+            process_class_body(stmt, file, &mut model);
             ControlFlow::Continue(())
         });
 
@@ -331,7 +345,7 @@ fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, imports: &ImportTa
         })
 }
 
-fn process_class_body(stmt: &Stmt, model: &mut ModelDef) {
+fn process_class_body(stmt: &Stmt, file: File, model: &mut ModelDef) {
     // Check for Meta.abstract
     if let Stmt::ClassDef(meta) = stmt
         && meta.name.as_str() == "Meta"
@@ -345,13 +359,13 @@ fn process_class_body(stmt: &Stmt, model: &mut ModelDef) {
     }
 
     // Extract relation fields (FK, O2O, M2M)
-    if let Some(relation) = extract_relation(stmt) {
+    if let Some(relation) = extract_relation(stmt, file) {
         model.relations.push(relation);
         return;
     }
 
     // Extract GenericForeignKey fields
-    if let Some(gfk) = extract_generic_foreign_key(stmt) {
+    if let Some(gfk) = extract_generic_foreign_key(stmt, file) {
         model.relations.push(gfk);
     }
 }
@@ -369,12 +383,15 @@ fn is_abstract_assignment(stmt: &Stmt) -> bool {
     matches!(assign.value.as_ref(), Expr::BooleanLiteral(b) if b.value)
 }
 
-fn extract_relation(stmt: &Stmt) -> Option<Relation> {
+fn extract_relation(stmt: &Stmt, file: File) -> Option<Relation> {
     let Stmt::Assign(assign) = stmt else {
         return None;
     };
 
-    let target_name = assign.targets.first()?.name_target()?;
+    let target_expr = assign.targets.first()?;
+    let Expr::Name(target_name) = target_expr else {
+        return None;
+    };
 
     let Expr::Call(call) = assign.value.as_ref() else {
         return None;
@@ -415,9 +432,20 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
     };
     let related_name = extract_related_name(call);
 
-    let relation_type = RelationType::from_field_class(field_class_name, target, related_name)?;
+    let relation_type = RelationType::from_field_class(
+        field_class_name,
+        Spanned::new(target, first_arg.span()),
+        related_name,
+    )?;
 
-    Some(Relation::new(FieldName::new(target_name), relation_type))
+    Some(Relation::new(
+        file,
+        Spanned::new(
+            FieldName::new(target_name.id.to_string()),
+            target_name.span(),
+        ),
+        relation_type,
+    ))
 }
 
 fn extract_related_name(call: &ruff_python_ast::ExprCall) -> Option<String> {
@@ -435,12 +463,15 @@ fn extract_related_name(call: &ruff_python_ast::ExprCall) -> Option<String> {
         })
 }
 
-fn extract_generic_foreign_key(stmt: &Stmt) -> Option<Relation> {
+fn extract_generic_foreign_key(stmt: &Stmt, file: File) -> Option<Relation> {
     let Stmt::Assign(assign) = stmt else {
         return None;
     };
 
-    let target_name = assign.targets.first()?.name_target()?;
+    let target_expr = assign.targets.first()?;
+    let Expr::Name(target_name) = target_expr else {
+        return None;
+    };
 
     let Expr::Call(call) = assign.value.as_ref() else {
         return None;
@@ -460,7 +491,11 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<Relation> {
     let fk_field = extract_gfk_arg(call, 1, "fk_field").unwrap_or_else(|| "object_id".to_string());
 
     Some(Relation::new(
-        FieldName::new(target_name),
+        file,
+        Spanned::new(
+            FieldName::new(target_name.id.to_string()),
+            target_name.span(),
+        ),
         RelationType::GenericForeignKey {
             ct_field: FieldName::new(ct_field),
             fk_field: FieldName::new(fk_field),
@@ -492,17 +527,18 @@ fn extract_gfk_arg(call: &ruff_python_ast::ExprCall, pos: usize, keyword: &str) 
     })
 }
 
-fn line_number(source: &str, offset: usize) -> usize {
-    let offset = offset.min(source.len());
-    source[..offset].bytes().filter(|&b| b == b'\n').count() + 1
-}
-
 #[cfg(test)]
 mod tests {
+    use camino::Utf8Path;
+    use djls_source::Span;
+    use djls_testing::TestDatabase;
+
     use super::*;
     use crate::models::graph::ModelId;
 
     fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
+        let db = TestDatabase::new();
+        let file = db.get_or_create_file(Utf8Path::new("/test.py"));
         let module_name = PythonModuleName::parse(module_name).unwrap();
         let imports = crate::python::extract_import_table_for_source(
             source,
@@ -513,7 +549,7 @@ mod tests {
             return ModelGraph::default();
         };
         let module = parsed.into_syntax();
-        super::extract_models_impl(source, &module.body, module_name, &imports).graph
+        super::extract_models_impl(&module.body, module_name, file, &imports).graph
     }
 
     fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {
@@ -571,7 +607,7 @@ mod tests {
 
         let user = model(&graph, "User");
         assert_eq!(user.module_name.as_str(), "auth.models");
-        assert_eq!(user.line, 2);
+        assert_eq!(user.name.span(), Span::new(35, 4));
         assert!(user.relations.is_empty());
         assert_eq!(user.kind, ModelKind::Concrete);
     }
@@ -711,7 +747,7 @@ class Order(models.Model):
         assert_eq!(order.relations.len(), 1);
 
         let rel = &order.relations[0];
-        assert_eq!(rel.field_name.as_str(), "user");
+        assert_eq!(rel.field_name.value().as_str(), "user");
         assert_eq!(bare_target_name(rel), Some("User"));
         assert!(matches!(
             rel.relation_type,
@@ -895,7 +931,7 @@ class Order(models.Model):
         assert_eq!(
             graph
                 .resolve_forward(model_id(&graph, "Order"), "user")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("User")
         );
 
@@ -903,7 +939,7 @@ class Order(models.Model):
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "User"), "orders")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("Order")
         );
 
@@ -911,7 +947,7 @@ class Order(models.Model):
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "User"), "nope")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             None
         );
     }
@@ -933,7 +969,7 @@ class Order(models.Model):
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "User"), "order_set")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("Order")
         );
     }
@@ -964,19 +1000,19 @@ class Comment(models.Model):
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "User"), "posts")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("Post")
         );
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "Post"), "comments")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("Comment")
         );
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "Comment"), "author")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("User")
         );
     }
@@ -1035,7 +1071,7 @@ class Restaurant(Place):
 
         let restaurant = model(&graph, "Restaurant");
         assert_eq!(restaurant.relations.len(), 1);
-        assert_eq!(restaurant.relations[0].field_name.as_str(), "owner");
+        assert_eq!(restaurant.relations[0].field_name.value().as_str(), "owner");
         assert_eq!(bare_target_name(&restaurant.relations[0]), Some("User"));
     }
 
@@ -1116,14 +1152,20 @@ class TaggedItem(models.Model):
         assert_eq!(tagged.relations.len(), 2);
 
         // First relation: FK to ContentType
-        assert_eq!(tagged.relations[0].field_name.as_str(), "content_type");
+        assert_eq!(
+            tagged.relations[0].field_name.value().as_str(),
+            "content_type"
+        );
         assert!(matches!(
             tagged.relations[0].relation_type,
             RelationType::ForeignKey { .. }
         ));
 
         // Second relation: GFK
-        assert_eq!(tagged.relations[1].field_name.as_str(), "content_object");
+        assert_eq!(
+            tagged.relations[1].field_name.value().as_str(),
+            "content_object"
+        );
         assert!(matches!(
             tagged.relations[1].relation_type,
             RelationType::GenericForeignKey {
@@ -1144,7 +1186,7 @@ class TaggedItem(models.Model):
         let graph = extract_model_graph(source, "tagging.models");
 
         let rel = &model(&graph, "TaggedItem").relations[0];
-        assert_eq!(rel.field_name.as_str(), "content_object");
+        assert_eq!(rel.field_name.value().as_str(), "content_object");
         assert!(matches!(
             rel.relation_type,
             RelationType::GenericForeignKey {
@@ -1165,7 +1207,7 @@ class ObjectLog(models.Model):
         let graph = extract_model_graph(source, "logs.models");
 
         let rel = &model(&graph, "ObjectLog").relations[0];
-        assert_eq!(rel.field_name.as_str(), "parent");
+        assert_eq!(rel.field_name.value().as_str(), "parent");
         assert!(matches!(
             rel.relation_type,
             RelationType::GenericForeignKey {
@@ -1211,7 +1253,10 @@ class TaggedItem(GenericMixin):
 
         let tagged = model(&graph, "TaggedItem");
         assert_eq!(tagged.relations.len(), 1);
-        assert_eq!(tagged.relations[0].field_name.as_str(), "content_object");
+        assert_eq!(
+            tagged.relations[0].field_name.value().as_str(),
+            "content_object"
+        );
         assert!(matches!(
             tagged.relations[0].relation_type,
             RelationType::GenericForeignKey { .. }
@@ -1231,7 +1276,7 @@ class Action(models.Model):
 
         let action = model(&graph, "Action");
         assert_eq!(action.relations.len(), 2);
-        assert_eq!(action.relations[0].field_name.as_str(), "actor");
+        assert_eq!(action.relations[0].field_name.value().as_str(), "actor");
         assert!(matches!(
             action.relations[0].relation_type,
             RelationType::GenericForeignKey {
@@ -1239,7 +1284,7 @@ class Action(models.Model):
                 ..
             } if ct_field.as_str() == "actor_content_type"
         ));
-        assert_eq!(action.relations[1].field_name.as_str(), "target");
+        assert_eq!(action.relations[1].field_name.value().as_str(), "target");
         assert!(matches!(
             action.relations[1].relation_type,
             RelationType::GenericForeignKey {

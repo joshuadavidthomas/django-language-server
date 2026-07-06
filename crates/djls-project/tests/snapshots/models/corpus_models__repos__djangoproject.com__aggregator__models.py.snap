@@ -4,44 +4,80 @@ expression: graph
 ---
 models:
   aggregator.models.Feed:
-    name: Feed
+    name:
+      value: Feed
+      span:
+        start: 1064
+        length: 4
     module_name: aggregator.models
-    line: 44
     relations:
-      - field_name: feed_type
+      - field_name:
+          value: feed_type
+          span:
+            start: 1356
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: FeedType
+          value:
+            kind: Bare
+            name: FeedType
+          span:
+            start: 1386
+            length: 8
         related_name: ~
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 1426
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 1461
+            length: 4
         related_name: owned_feeds
     kind: concrete
   aggregator.models.FeedItem:
-    name: FeedItem
+    name:
+      value: FeedItem
+      span:
+        start: 3499
+        length: 8
     module_name: aggregator.models
-    line: 123
     relations:
-      - field_name: feed
+      - field_name:
+          value: feed
+          span:
+            start: 3527
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Feed
+          value:
+            kind: Bare
+            name: Feed
+          span:
+            start: 3552
+            length: 4
         related_name: ~
     kind: concrete
   aggregator.models.FeedType:
-    name: FeedType
+    name:
+      value: FeedType
+      span:
+        start: 468
+        length: 8
     module_name: aggregator.models
-    line: 17
     relations: []
     kind: concrete
   aggregator.models.LocalDjangoCommunity:
-    name: LocalDjangoCommunity
+    name:
+      value: LocalDjangoCommunity
+      span:
+        start: 6257
+        length: 20
     module_name: aggregator.models
-    line: 214
     relations: []
     kind: concrete

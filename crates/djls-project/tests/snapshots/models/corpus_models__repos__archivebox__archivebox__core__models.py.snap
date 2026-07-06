@@ -4,20 +4,39 @@ expression: graph
 ---
 models:
   archivebox.core.models.SnapshotTag:
-    name: SnapshotTag
+    name:
+      value: SnapshotTag
+      span:
+        start: 4477
+        length: 11
     module_name: archivebox.core.models
-    line: 132
     relations:
-      - field_name: snapshot
+      - field_name:
+          value: snapshot
+          span:
+            start: 4552
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Snapshot
+          value:
+            kind: Bare
+            name: Snapshot
+          span:
+            start: 4581
+            length: 10
         related_name: ~
-      - field_name: tag
+      - field_name:
+          value: tag
+          span:
+            start: 4663
+            length: 3
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 4687
+            length: 3
         related_name: ~
     kind: concrete

@@ -4,30 +4,56 @@ expression: graph
 ---
 models:
   src.backend.InvenTree.users.models.Owner:
-    name: Owner
+    name:
+      value: Owner
+      span:
+        start: 9421
+        length: 5
     module_name: src.backend.InvenTree.users.models
-    line: 296
     relations:
-      - field_name: owner_type
+      - field_name:
+          value: owner_type
+          span:
+            start: 11045
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 11085
+            length: 11
         related_name: ~
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 11224
+            length: 5
         relation_type: GenericForeignKey
         ct_field: owner_type
         fk_field: owner_id
     kind: concrete
   src.backend.InvenTree.users.models.RuleSet:
-    name: RuleSet
+    name:
+      value: RuleSet
+      span:
+        start: 6415
+        length: 7
     module_name: src.backend.InvenTree.users.models
-    line: 201
     relations:
-      - field_name: group
+      - field_name:
+          value: group
+          span:
+            start: 7409
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Group
+          value:
+            kind: Bare
+            name: Group
+          span:
+            start: 7444
+            length: 5
         related_name: rule_sets
     kind: concrete

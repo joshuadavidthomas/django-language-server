@@ -4,75 +4,148 @@ expression: graph
 ---
 models:
   src.pretix.plugins.banktransfer.models.BankImportJob:
-    name: BankImportJob
+    name:
+      value: BankImportJob
+      span:
+        start: 1335
+        length: 13
     module_name: src.pretix.plugins.banktransfer.models
-    line: 31
     relations:
-      - field_name: event
+      - field_name:
+          value: event
+          span:
+            start: 1654
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Event
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Event
+          span:
+            start: 1680
+            length: 18
         related_name: ~
-      - field_name: organizer
+      - field_name:
+          value: organizer
+          span:
+            start: 1741
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Organizer
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Organizer
+          span:
+            start: 1771
+            length: 22
         related_name: ~
     kind: concrete
   src.pretix.plugins.banktransfer.models.BankTransaction:
-    name: BankTransaction
+    name:
+      value: BankTransaction
+      span:
+        start: 2249
+        length: 15
     module_name: src.pretix.plugins.banktransfer.models
-    line: 60
     relations:
-      - field_name: event
+      - field_name:
+          value: event
+          span:
+            start: 2806
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Event
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Event
+          span:
+            start: 2832
+            length: 18
         related_name: ~
-      - field_name: organizer
+      - field_name:
+          value: organizer
+          span:
+            start: 2893
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Organizer
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Organizer
+          span:
+            start: 2923
+            length: 22
         related_name: ~
-      - field_name: import_job
+      - field_name:
+          value: import_job
+          span:
+            start: 2988
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: BankImportJob
+          value:
+            kind: Bare
+            name: BankImportJob
+          span:
+            start: 3019
+            length: 15
         related_name: transactions
-      - field_name: order
+      - field_name:
+          value: order
+          span:
+            start: 3775
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Order
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Order
+          span:
+            start: 3801
+            length: 18
         related_name: ~
     kind: concrete
   src.pretix.plugins.banktransfer.models.RefundExport:
-    name: RefundExport
+    name:
+      value: RefundExport
+      span:
+        start: 4572
+        length: 12
     module_name: src.pretix.plugins.banktransfer.models
-    line: 115
     relations:
-      - field_name: event
+      - field_name:
+          value: event
+          span:
+            start: 4604
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Event
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Event
+          span:
+            start: 4630
+            length: 18
         related_name: banktransfer_refund_exports
-      - field_name: organizer
+      - field_name:
+          value: organizer
+          span:
+            start: 4747
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Organizer
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Organizer
+          span:
+            start: 4777
+            length: 22
         related_name: banktransfer_refund_exports
     kind: concrete

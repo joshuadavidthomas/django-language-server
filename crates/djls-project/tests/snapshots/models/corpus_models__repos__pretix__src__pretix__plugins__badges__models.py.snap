@@ -4,21 +4,40 @@ expression: graph
 ---
 models:
   src.pretix.plugins.badges.models.BadgeItem:
-    name: BadgeItem
+    name:
+      value: BadgeItem
+      span:
+        start: 2575
+        length: 9
     module_name: src.pretix.plugins.badges.models
-    line: 69
     relations:
-      - field_name: item
+      - field_name:
+          value: item
+          span:
+            start: 2706
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Item
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Item
+          span:
+            start: 2734
+            length: 17
         related_name: badge_assignment
-      - field_name: layout
+      - field_name:
+          value: layout
+          span:
+            start: 2871
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: BadgeLayout
+          value:
+            kind: Bare
+            name: BadgeLayout
+          span:
+            start: 2898
+            length: 13
         related_name: item_assignments
     kind: concrete

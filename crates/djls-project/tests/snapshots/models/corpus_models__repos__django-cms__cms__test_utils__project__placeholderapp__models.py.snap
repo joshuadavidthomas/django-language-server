@@ -4,26 +4,38 @@ expression: graph
 ---
 models:
   cms.test_utils.project.placeholderapp.models.CharPksExample:
-    name: CharPksExample
+    name:
+      value: CharPksExample
+      span:
+        start: 2728
+        length: 14
     module_name: cms.test_utils.project.placeholderapp.models
-    line: 81
     relations: []
     kind: concrete
   cms.test_utils.project.placeholderapp.models.DynamicPlaceholderSlotExample:
-    name: DynamicPlaceholderSlotExample
+    name:
+      value: DynamicPlaceholderSlotExample
+      span:
+        start: 2385
+        length: 29
     module_name: cms.test_utils.project.placeholderapp.models
-    line: 74
     relations: []
     kind: concrete
   cms.test_utils.project.placeholderapp.models.Example1:
-    name: Example1
+    name:
+      value: Example1
+      span:
+        start: 510
+        length: 8
     module_name: cms.test_utils.project.placeholderapp.models
-    line: 21
     relations: []
     kind: concrete
   cms.test_utils.project.placeholderapp.models.TwoPlaceholderExample:
-    name: TwoPlaceholderExample
+    name:
+      value: TwoPlaceholderExample
+      span:
+        start: 1970
+        length: 21
     module_name: cms.test_utils.project.placeholderapp.models
-    line: 65
     relations: []
     kind: concrete

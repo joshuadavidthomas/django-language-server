@@ -4,16 +4,27 @@ expression: graph
 ---
 models:
   voip.models.Connection:
-    name: Connection
+    name:
+      value: Connection
+      span:
+        start: 125
+        length: 10
     module_name: voip.models
-    line: 6
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 1263
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1298
+            length: 24
         related_name: "%(app_label)s_%(class)s_owner_related"
     kind: concrete

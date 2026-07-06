@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   misago.acl.models.BaseRole:
-    name: BaseRole
+    name:
+      value: BaseRole
+      span:
+        start: 162
+        length: 8
     module_name: misago.acl.models
-    line: 11
     relations: []
     kind: abstract
   misago.acl.models.Role:
-    name: Role
+    name:
+      value: Role
+      span:
+        start: 736
+        length: 4
     module_name: misago.acl.models
-    line: 32
     relations: []
     kind: concrete

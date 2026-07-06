@@ -4,130 +4,254 @@ expression: graph
 ---
 models:
   guardian.models.models.BaseGenericObjectPermission:
-    name: BaseGenericObjectPermission
+    name:
+      value: BaseGenericObjectPermission
+      span:
+        start: 2097
+        length: 27
     module_name: guardian.models.models
-    line: 54
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 2144
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2177
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 2285
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: abstract
   guardian.models.models.BaseObjectPermission:
-    name: BaseObjectPermission
+    name:
+      value: BaseObjectPermission
+      span:
+        start: 503
+        length: 20
     module_name: guardian.models.models
-    line: 13
     relations:
-      - field_name: permission
+      - field_name:
+          value: permission
+          span:
+            start: 769
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Permission
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 800
+            length: 10
         related_name: ~
     kind: abstract
   guardian.models.models.GroupObjectPermission:
-    name: GroupObjectPermission
+    name:
+      value: GroupObjectPermission
+      span:
+        start: 7220
+        length: 21
     module_name: guardian.models.models
-    line: 179
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 2144
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2177
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 2285
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: concrete
   guardian.models.models.GroupObjectPermissionAbstract:
-    name: GroupObjectPermissionAbstract
+    name:
+      value: GroupObjectPermissionAbstract
+      span:
+        start: 6956
+        length: 29
     module_name: guardian.models.models
-    line: 173
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 2144
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2177
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 2285
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: abstract
   guardian.models.models.GroupObjectPermissionBase:
-    name: GroupObjectPermissionBase
+    name:
+      value: GroupObjectPermissionBase
+      span:
+        start: 5441
+        length: 25
     module_name: guardian.models.models
-    line: 134
     relations:
-      - field_name: permission
+      - field_name:
+          value: permission
+          span:
+            start: 769
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Permission
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 800
+            length: 10
         related_name: ~
-      - field_name: group
+      - field_name:
+          value: group
+          span:
+            start: 6734
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Group
+          value:
+            kind: Bare
+            name: Group
+          span:
+            start: 6760
+            length: 5
         related_name: ~
     kind: abstract
   guardian.models.models.UserObjectPermission:
-    name: UserObjectPermission
+    name:
+      value: UserObjectPermission
+      span:
+        start: 4413
+        length: 20
     module_name: guardian.models.models
-    line: 114
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 2144
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2177
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 2285
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: concrete
   guardian.models.models.UserObjectPermissionAbstract:
-    name: UserObjectPermissionAbstract
+    name:
+      value: UserObjectPermissionAbstract
+      span:
+        start: 4153
+        length: 28
     module_name: guardian.models.models
-    line: 108
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 2144
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2177
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 2285
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: abstract
   guardian.models.models.UserObjectPermissionBase:
-    name: UserObjectPermissionBase
+    name:
+      value: UserObjectPermissionBase
+      span:
+        start: 2485
+        length: 24
     module_name: guardian.models.models
-    line: 66
     relations:
-      - field_name: permission
+      - field_name:
+          value: permission
+          span:
+            start: 769
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Permission
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 800
+            length: 10
         related_name: ~
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 3923
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: user_model_label
+          value:
+            kind: Bare
+            name: user_model_label
+          span:
+            start: 3948
+            length: 16
         related_name: ~
     kind: abstract

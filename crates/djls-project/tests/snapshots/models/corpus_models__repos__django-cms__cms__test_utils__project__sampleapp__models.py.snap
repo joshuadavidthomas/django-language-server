@@ -4,62 +4,107 @@ expression: graph
 ---
 models:
   cms.test_utils.project.sampleapp.models.GrouperModel:
-    name: GrouperModel
+    name:
+      value: GrouperModel
+      span:
+        start: 1155
+        length: 12
     module_name: cms.test_utils.project.sampleapp.models
-    line: 47
     relations: []
     kind: concrete
   cms.test_utils.project.sampleapp.models.GrouperModelContent:
-    name: GrouperModelContent
+    name:
+      value: GrouperModelContent
+      span:
+        start: 1318
+        length: 19
     module_name: cms.test_utils.project.sampleapp.models
-    line: 52
     relations:
-      - field_name: grouper_model
+      - field_name:
+          value: grouper_model
+          span:
+            start: 1410
+            length: 13
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: GrouperModel
+          value:
+            kind: Bare
+            name: GrouperModel
+          span:
+            start: 1453
+            length: 12
         related_name: ~
     kind: concrete
   cms.test_utils.project.sampleapp.models.Picture:
-    name: Picture
+    name:
+      value: Picture
+      span:
+        start: 807
+        length: 7
     module_name: cms.test_utils.project.sampleapp.models
-    line: 30
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 886
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 915
+            length: 8
         related_name: ~
     kind: concrete
   cms.test_utils.project.sampleapp.models.SampleAppConfig:
-    name: SampleAppConfig
+    name:
+      value: SampleAppConfig
+      span:
+        start: 959
+        length: 15
     module_name: cms.test_utils.project.sampleapp.models
-    line: 35
     relations: []
     kind: concrete
   cms.test_utils.project.sampleapp.models.SimpleGrouperModel:
-    name: SimpleGrouperModel
+    name:
+      value: SimpleGrouperModel
+      span:
+        start: 2189
+        length: 18
     module_name: cms.test_utils.project.sampleapp.models
-    line: 91
     relations: []
     kind: concrete
   cms.test_utils.project.sampleapp.models.SimpleGrouperModelContent:
-    name: SimpleGrouperModelContent
+    name:
+      value: SimpleGrouperModelContent
+      span:
+        start: 2296
+        length: 25
     module_name: cms.test_utils.project.sampleapp.models
-    line: 95
     relations:
-      - field_name: simple_grouper_model
+      - field_name:
+          value: simple_grouper_model
+          span:
+            start: 2394
+            length: 20
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SimpleGrouperModel
+          value:
+            kind: Bare
+            name: SimpleGrouperModel
+          span:
+            start: 2444
+            length: 18
         related_name: ~
     kind: concrete
   cms.test_utils.project.sampleapp.models.SomeEditableModel:
-    name: SomeEditableModel
+    name:
+      value: SomeEditableModel
+      span:
+        start: 1105
+        length: 17
     module_name: cms.test_utils.project.sampleapp.models
-    line: 43
     relations: []
     kind: concrete

@@ -4,26 +4,48 @@ expression: graph
 ---
 models:
   src.nomnom.advise.models.Proposal:
-    name: Proposal
+    name:
+      value: Proposal
+      span:
+        start: 990
+        length: 8
     module_name: src.nomnom.advise.models
-    line: 32
     relations: []
     kind: concrete
   src.nomnom.advise.models.Vote:
-    name: Vote
+    name:
+      value: Vote
+      span:
+        start: 3842
+        length: 4
     module_name: src.nomnom.advise.models
-    line: 128
     relations:
-      - field_name: membership
+      - field_name:
+          value: membership
+          span:
+            start: 4025
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: NominatingMemberProfile
+          value:
+            kind: Bare
+            name: NominatingMemberProfile
+          span:
+            start: 4056
+            length: 23
         related_name: ~
-      - field_name: proposal
+      - field_name:
+          value: proposal
+          span:
+            start: 4111
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Proposal
+          value:
+            kind: Bare
+            name: Proposal
+          span:
+            start: 4140
+            length: 8
         related_name: ~
     kind: concrete

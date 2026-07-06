@@ -4,80 +4,159 @@ expression: graph
 ---
 models:
   django.contrib.auth.models.AbstractUser:
-    name: AbstractUser
+    name:
+      value: AbstractUser
+      span:
+        start: 15618
+        length: 12
     module_name: django.contrib.auth.models
-    line: 446
     relations:
-      - field_name: groups
+      - field_name:
+          value: groups
+          span:
+            start: 11376
+            length: 6
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Group
+          value:
+            kind: Bare
+            name: Group
+          span:
+            start: 11417
+            length: 5
         related_name: user_set
-      - field_name: user_permissions
+      - field_name:
+          value: user_permissions
+          span:
+            start: 11715
+            length: 16
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Permission
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 11766
+            length: 10
         related_name: user_set
     kind: abstract
   django.contrib.auth.models.Group:
-    name: Group
+    name:
+      value: Group
+      span:
+        start: 3362
+        length: 5
     module_name: django.contrib.auth.models
-    line: 102
     relations:
-      - field_name: permissions
+      - field_name:
+          value: permissions
+          span:
+            start: 4244
+            length: 11
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Permission
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 4290
+            length: 10
         related_name: ~
     kind: concrete
   django.contrib.auth.models.Permission:
-    name: Permission
+    name:
+      value: Permission
+      span:
+        start: 1170
+        length: 10
     module_name: django.contrib.auth.models
-    line: 39
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 2358
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2400
+            length: 11
         related_name: ~
     kind: concrete
   django.contrib.auth.models.PermissionsMixin:
-    name: PermissionsMixin
+    name:
+      value: PermissionsMixin
+      span:
+        start: 10969
+        length: 16
     module_name: django.contrib.auth.models
-    line: 317
     relations:
-      - field_name: groups
+      - field_name:
+          value: groups
+          span:
+            start: 11376
+            length: 6
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Group
+          value:
+            kind: Bare
+            name: Group
+          span:
+            start: 11417
+            length: 5
         related_name: user_set
-      - field_name: user_permissions
+      - field_name:
+          value: user_permissions
+          span:
+            start: 11715
+            length: 16
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Permission
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 11766
+            length: 10
         related_name: user_set
     kind: abstract
   django.contrib.auth.models.User:
-    name: User
+    name:
+      value: User
+      span:
+        start: 17888
+        length: 4
     module_name: django.contrib.auth.models
-    line: 517
     relations:
-      - field_name: groups
+      - field_name:
+          value: groups
+          span:
+            start: 11376
+            length: 6
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Group
+          value:
+            kind: Bare
+            name: Group
+          span:
+            start: 11417
+            length: 5
         related_name: user_set
-      - field_name: user_permissions
+      - field_name:
+          value: user_permissions
+          span:
+            start: 11715
+            length: 16
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Permission
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 11766
+            length: 10
         related_name: user_set
     kind: concrete

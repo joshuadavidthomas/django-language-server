@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   monthly.models.Newsletter:
-    name: Newsletter
+    name:
+      value: Newsletter
+      span:
+        start: 113
+        length: 10
     module_name: monthly.models
-    line: 6
     relations: []
     kind: concrete

@@ -4,20 +4,39 @@ expression: graph
 ---
 models:
   readthedocs.gold.models.GoldUser:
-    name: GoldUser
+    name:
+      value: GoldUser
+      span:
+        start: 605
+        length: 8
     module_name: readthedocs.gold.models
-    line: 26
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 840
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 874
+            length: 4
         related_name: gold
-      - field_name: projects
+      - field_name:
+          value: projects
+          span:
+            start: 1153
+            length: 8
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 1196
+            length: 7
         related_name: gold_owners
     kind: concrete

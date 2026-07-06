@@ -4,39 +4,72 @@ expression: graph
 ---
 models:
   src.nomnom.hugopacket.models.ElectionPacket:
-    name: ElectionPacket
+    name:
+      value: ElectionPacket
+      span:
+        start: 220
+        length: 14
     module_name: src.nomnom.hugopacket.models
-    line: 9
     relations:
-      - field_name: election
+      - field_name:
+          value: election
+          span:
+            start: 425
+            length: 8
         relation_type: OneToOne
         target:
-          kind: Qualified
-          app_label: nominate
-          name: Election
+          value:
+            kind: Qualified
+            app_label: nominate
+            name: Election
+          span:
+            start: 466
+            length: 19
         related_name: ~
     kind: concrete
   src.nomnom.hugopacket.models.PacketFile:
-    name: PacketFile
+    name:
+      value: PacketFile
+      span:
+        start: 1466
+        length: 10
     module_name: src.nomnom.hugopacket.models
-    line: 51
     relations:
-      - field_name: packet
+      - field_name:
+          value: packet
+          span:
+            start: 1545
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ElectionPacket
+          value:
+            kind: Bare
+            name: ElectionPacket
+          span:
+            start: 1572
+            length: 14
         related_name: ~
-      - field_name: group
+      - field_name:
+          value: group
+          span:
+            start: 1618
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: PacketFileGroup
+          value:
+            kind: Bare
+            name: PacketFileGroup
+          span:
+            start: 1644
+            length: 15
         related_name: ~
     kind: concrete
   src.nomnom.hugopacket.models.PacketFileGroup:
-    name: PacketFileGroup
+    name:
+      value: PacketFileGroup
+      span:
+        start: 1023
+        length: 15
     module_name: src.nomnom.hugopacket.models
-    line: 36
     relations: []
     kind: concrete

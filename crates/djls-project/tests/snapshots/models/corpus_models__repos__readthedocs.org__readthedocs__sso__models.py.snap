@@ -4,35 +4,65 @@ expression: graph
 ---
 models:
   readthedocs.sso.models.SSODomain:
-    name: SSODomain
+    name:
+      value: SSODomain
+      span:
+        start: 1554
+        length: 9
     module_name: readthedocs.sso.models
-    line: 68
     relations: []
     kind: concrete
   readthedocs.sso.models.SSOIntegration:
-    name: SSOIntegration
+    name:
+      value: SSOIntegration
+      span:
+        start: 146
+        length: 14
     module_name: readthedocs.sso.models
-    line: 10
     relations:
-      - field_name: organization
+      - field_name:
+          value: organization
+          span:
+            start: 676
+            length: 12
         relation_type: OneToOne
         target:
-          kind: Qualified
-          app_label: organizations
-          name: Organization
+          value:
+            kind: Qualified
+            app_label: organizations
+            name: Organization
+          span:
+            start: 721
+            length: 28
         related_name: ~
-      - field_name: saml_app
+      - field_name:
+          value: saml_app
+          span:
+            start: 892
+            length: 8
         relation_type: OneToOne
         target:
-          kind: Qualified
-          app_label: socialaccount
-          name: SocialApp
+          value:
+            kind: Qualified
+            app_label: socialaccount
+            name: SocialApp
+          span:
+            start: 933
+            length: 25
         related_name: sso_integration
-      - field_name: domains
+      - field_name:
+          value: domains
+          span:
+            start: 1084
+            length: 7
         relation_type: ManyToMany
         target:
-          kind: Qualified
-          app_label: sso
-          name: SSODomain
+          value:
+            kind: Qualified
+            app_label: sso
+            name: SSODomain
+          span:
+            start: 1126
+            length: 15
         related_name: ssointegrations
     kind: concrete

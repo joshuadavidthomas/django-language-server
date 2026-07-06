@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   django.contrib.gis.db.backends.postgis.models.PostGISGeometryColumns:
-    name: PostGISGeometryColumns
+    name:
+      value: PostGISGeometryColumns
+      span:
+        start: 190
+        length: 22
     module_name: django.contrib.gis.db.backends.postgis.models
-    line: 9
     relations: []
     kind: concrete
   django.contrib.gis.db.backends.postgis.models.PostGISSpatialRefSys:
-    name: PostGISSpatialRefSys
+    name:
+      value: PostGISSpatialRefSys
+      span:
+        start: 1437
+        length: 20
     module_name: django.contrib.gis.db.backends.postgis.models
-    line: 54
     relations: []
     kind: concrete

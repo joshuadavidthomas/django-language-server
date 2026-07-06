@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   django.contrib.contenttypes.models.ContentType:
-    name: ContentType
+    name:
+      value: ContentType
+      span:
+        start: 5017
+        length: 11
     module_name: django.contrib.contenttypes.models
-    line: 134
     relations: []
     kind: concrete

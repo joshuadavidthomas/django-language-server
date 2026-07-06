@@ -4,32 +4,47 @@ expression: graph
 ---
 models:
   settings.models.BannedCompanyName:
-    name: BannedCompanyName
+    name:
+      value: BannedCompanyName
+      span:
+        start: 92
+        length: 17
     module_name: settings.models
-    line: 5
     relations: []
     kind: concrete
   settings.models.MassmailSettings:
-    name: MassmailSettings
+    name:
+      value: MassmailSettings
+      span:
+        start: 924
+        length: 16
     module_name: settings.models
-    line: 34
     relations: []
     kind: concrete
   settings.models.PublicEmailDomain:
-    name: PublicEmailDomain
+    name:
+      value: PublicEmailDomain
+      span:
+        start: 1836
+        length: 17
     module_name: settings.models
-    line: 68
     relations: []
     kind: concrete
   settings.models.Reminders:
-    name: Reminders
+    name:
+      value: Reminders
+      span:
+        start: 2893
+        length: 9
     module_name: settings.models
-    line: 104
     relations: []
     kind: concrete
   settings.models.StopPhrase:
-    name: StopPhrase
+    name:
+      value: StopPhrase
+      span:
+        start: 3755
+        length: 10
     module_name: settings.models
-    line: 134
     relations: []
     kind: concrete

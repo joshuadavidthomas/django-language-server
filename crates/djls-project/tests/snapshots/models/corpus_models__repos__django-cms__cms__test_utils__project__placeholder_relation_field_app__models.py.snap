@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   cms.test_utils.project.placeholder_relation_field_app.models.FancyPoll:
-    name: FancyPoll
+    name:
+      value: FancyPoll
+      span:
+        start: 125
+        length: 9
     module_name: cms.test_utils.project.placeholder_relation_field_app.models
-    line: 7
     relations: []
     kind: concrete

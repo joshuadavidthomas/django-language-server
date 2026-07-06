@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   misago.cache.models.CacheVersion:
-    name: CacheVersion
+    name:
+      value: CacheVersion
+      span:
+        start: 81
+        length: 12
     module_name: misago.cache.models
-    line: 6
     relations: []
     kind: concrete

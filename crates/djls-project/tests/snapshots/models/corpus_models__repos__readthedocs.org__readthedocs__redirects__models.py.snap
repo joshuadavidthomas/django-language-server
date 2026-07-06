@@ -4,14 +4,25 @@ expression: graph
 ---
 models:
   readthedocs.redirects.models.Redirect:
-    name: Redirect
+    name:
+      value: Redirect
+      span:
+        start: 1471
+        length: 8
     module_name: readthedocs.redirects.models
-    line: 40
     relations:
-      - field_name: project
+      - field_name:
+          value: project
+          span:
+            start: 1553
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 1590
+            length: 7
         related_name: redirects
     kind: concrete

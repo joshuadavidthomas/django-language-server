@@ -4,212 +4,398 @@ expression: graph
 ---
 models:
   src.backend.InvenTree.common.models.BaseInvenTreeSetting:
-    name: BaseInvenTreeSetting
+    name:
+      value: BaseInvenTreeSetting
+      span:
+        start: 5610
+        length: 20
     module_name: src.backend.InvenTree.common.models
-    line: 190
     relations: []
     kind: abstract
   src.backend.InvenTree.common.models.CustomUnit:
-    name: CustomUnit
+    name:
+      value: CustomUnit
+      span:
+        start: 56159
+        length: 10
     module_name: src.backend.InvenTree.common.models
-    line: 1790
     relations: []
     kind: concrete
   src.backend.InvenTree.common.models.DataOutput:
-    name: DataOutput
+    name:
+      value: DataOutput
+      span:
+        start: 90666
+        length: 10
     module_name: src.backend.InvenTree.common.models
-    line: 2859
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 91939
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 91973
+            length: 4
         related_name: +
     kind: concrete
   src.backend.InvenTree.common.models.EmailMessage:
-    name: EmailMessage
+    name:
+      value: EmailMessage
+      span:
+        start: 94697
+        length: 12
     module_name: src.backend.InvenTree.common.models
-    line: 2979
     relations:
-      - field_name: thread
+      - field_name:
+          value: thread
+          span:
+            start: 98060
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: EmailThread
+          value:
+            kind: Bare
+            name: EmailThread
+          span:
+            start: 98096
+            length: 13
         related_name: messages
     kind: concrete
   src.backend.InvenTree.common.models.InvenTreeCustomUserStateModel:
-    name: InvenTreeCustomUserStateModel
+    name:
+      value: InvenTreeCustomUserStateModel
+      span:
+        start: 65177
+        length: 29
     module_name: src.backend.InvenTree.common.models
-    line: 2077
     relations:
-      - field_name: model
+      - field_name:
+          value: model
+          span:
+            start: 67274
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 67309
+            length: 11
         related_name: ~
     kind: concrete
   src.backend.InvenTree.common.models.InvenTreeSetting:
-    name: InvenTreeSetting
+    name:
+      value: InvenTreeSetting
+      span:
+        start: 38640
+        length: 16
     module_name: src.backend.InvenTree.common.models
-    line: 1212
     relations: []
     kind: concrete
   src.backend.InvenTree.common.models.InvenTreeUserSetting:
-    name: InvenTreeUserSetting
+    name:
+      value: InvenTreeUserSetting
+      span:
+        start: 41788
+        length: 20
     module_name: src.backend.InvenTree.common.models
-    line: 1307
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 42470
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 42504
+            length: 4
         related_name: ~
     kind: concrete
   src.backend.InvenTree.common.models.MetaMixin:
-    name: MetaMixin
+    name:
+      value: MetaMixin
+      span:
+        start: 3080
+        length: 9
     module_name: src.backend.InvenTree.common.models
-    line: 92
     relations: []
     kind: abstract
   src.backend.InvenTree.common.models.NewsFeedEntry:
-    name: NewsFeedEntry
+    name:
+      value: NewsFeedEntry
+      span:
+        start: 54018
+        length: 13
     module_name: src.backend.InvenTree.common.models
-    line: 1724
     relations: []
     kind: concrete
   src.backend.InvenTree.common.models.NotesImage:
-    name: NotesImage
+    name:
+      value: NotesImage
+      span:
+        start: 55277
+        length: 10
     module_name: src.backend.InvenTree.common.models
-    line: 1760
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 55631
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 55656
+            length: 4
         related_name: ~
     kind: concrete
   src.backend.InvenTree.common.models.NotificationEntry:
-    name: NotificationEntry
+    name:
+      value: NotificationEntry
+      span:
+        start: 50662
+        length: 17
     module_name: src.backend.InvenTree.common.models
-    line: 1615
     relations: []
     kind: concrete
   src.backend.InvenTree.common.models.NotificationMessage:
-    name: NotificationMessage
+    name:
+      value: NotificationMessage
+      span:
+        start: 51870
+        length: 19
     module_name: src.backend.InvenTree.common.models
-    line: 1652
     relations:
-      - field_name: target_content_type
+      - field_name:
+          value: target_content_type
+          span:
+            start: 52276
+            length: 19
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 52325
+            length: 11
         related_name: notification_target
-      - field_name: target_object
+      - field_name:
+          value: target_object
+          span:
+            start: 52464
+            length: 13
         relation_type: GenericForeignKey
         ct_field: target_content_type
         fk_field: target_object_id
-      - field_name: source_content_type
+      - field_name:
+          value: source_content_type
+          span:
+            start: 52575
+            length: 19
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 52624
+            length: 11
         related_name: notification_source
-      - field_name: source_object
+      - field_name:
+          value: source_object
+          span:
+            start: 52841
+            length: 13
         relation_type: GenericForeignKey
         ct_field: source_content_type
         fk_field: source_object_id
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 52965
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 52999
+            length: 4
         related_name: ~
     kind: concrete
   src.backend.InvenTree.common.models.Parameter:
-    name: Parameter
+    name:
+      value: Parameter
+      span:
+        start: 81310
+        length: 9
     module_name: src.backend.InvenTree.common.models
-    line: 2577
     relations:
-      - field_name: updated_by
+      - field_name:
+          value: updated_by
+          span:
+            start: 4235
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 4275
+            length: 4
         related_name: "%(class)s_updated"
-      - field_name: model_type
+      - field_name:
+          value: model_type
+          span:
+            start: 87810
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 87841
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 88038
+            length: 14
         relation_type: GenericForeignKey
         ct_field: model_type
         fk_field: model_id
-      - field_name: template
+      - field_name:
+          value: template
+          span:
+            start: 88104
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ParameterTemplate
+          value:
+            kind: Bare
+            name: ParameterTemplate
+          span:
+            start: 88142
+            length: 17
         related_name: parameters
     kind: concrete
   src.backend.InvenTree.common.models.PriceBreak:
-    name: PriceBreak
+    name:
+      value: PriceBreak
+      span:
+        start: 42844
+        length: 10
     module_name: src.backend.InvenTree.common.models
-    line: 1346
     relations: []
     kind: abstract
   src.backend.InvenTree.common.models.SelectionListEntry:
-    name: SelectionListEntry
+    name:
+      value: SelectionListEntry
+      span:
+        start: 73212
+        length: 18
     module_name: src.backend.InvenTree.common.models
-    line: 2320
     relations:
-      - field_name: list
+      - field_name:
+          value: list
+          span:
+            start: 73846
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SelectionList
+          value:
+            kind: Bare
+            name: SelectionList
+          span:
+            start: 73880
+            length: 13
         related_name: entries
     kind: concrete
   src.backend.InvenTree.common.models.UpdatedUserMixin:
-    name: UpdatedUserMixin
+    name:
+      value: UpdatedUserMixin
+      span:
+        start: 3516
+        length: 16
     module_name: src.backend.InvenTree.common.models
-    line: 112
     relations:
-      - field_name: updated_by
+      - field_name:
+          value: updated_by
+          span:
+            start: 4235
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 4275
+            length: 4
         related_name: "%(class)s_updated"
     kind: abstract
   src.backend.InvenTree.common.models.WebhookEndpoint:
-    name: WebhookEndpoint
+    name:
+      value: WebhookEndpoint
+      span:
+        start: 44205
+        length: 15
     module_name: src.backend.InvenTree.common.models
-    line: 1398
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 45271
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 45305
+            length: 4
         related_name: ~
     kind: concrete
   src.backend.InvenTree.common.models.WebhookMessage:
-    name: WebhookMessage
+    name:
+      value: WebhookMessage
+      span:
+        start: 49063
+        length: 14
     module_name: src.backend.InvenTree.common.models
-    line: 1555
     relations:
-      - field_name: endpoint
+      - field_name:
+          value: endpoint
+          span:
+            start: 50248
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: WebhookEndpoint
+          value:
+            kind: Bare
+            name: WebhookEndpoint
+          span:
+            start: 50286
+            length: 15
         related_name: ~
     kind: concrete

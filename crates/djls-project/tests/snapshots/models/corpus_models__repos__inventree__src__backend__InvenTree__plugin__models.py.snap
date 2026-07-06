@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   src.backend.InvenTree.plugin.models.PluginConfig:
-    name: PluginConfig
+    name:
+      value: PluginConfig
+      span:
+        start: 525
+        length: 12
     module_name: src.backend.InvenTree.plugin.models
-    line: 22
     relations: []
     kind: concrete

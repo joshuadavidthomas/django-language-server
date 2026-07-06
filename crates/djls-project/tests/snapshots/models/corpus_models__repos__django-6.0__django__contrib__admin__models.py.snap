@@ -4,22 +4,41 @@ expression: graph
 ---
 models:
   django.contrib.admin.models.LogEntry:
-    name: LogEntry
+    name:
+      value: LogEntry
+      span:
+        start: 1563
+        length: 8
     module_name: django.contrib.admin.models
-    line: 57
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 1717
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1751
+            length: 24
         related_name: ~
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 1843
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 1885
+            length: 11
         related_name: ~
     kind: concrete

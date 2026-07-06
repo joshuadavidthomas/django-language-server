@@ -4,16 +4,27 @@ expression: graph
 ---
 models:
   archivebox.api.models.APIToken:
-    name: APIToken
+    name:
+      value: APIToken
+      span:
+        start: 468
+        length: 8
     module_name: archivebox.api.models
-    line: 20
     relations:
-      - field_name: created_by
+      - field_name:
+          value: created_by
+          span:
+            start: 584
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 615
+            length: 24
         related_name: ~
     kind: concrete

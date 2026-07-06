@@ -4,131 +4,254 @@ expression: graph
 ---
 models:
   readthedocs.projects.models.APIProject:
-    name: APIProject
+    name:
+      value: APIProject
+      span:
+        start: 55857
+        length: 10
     module_name: readthedocs.projects.models
-    line: 1584
     relations: []
     kind: concrete
   readthedocs.projects.models.EnvironmentVariable:
-    name: EnvironmentVariable
+    name:
+      value: EnvironmentVariable
+      span:
+        start: 75522
+        length: 19
     module_name: readthedocs.projects.models
-    line: 2206
     relations:
-      - field_name: project
+      - field_name:
+          value: project
+          span:
+            start: 75815
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 75852
+            length: 7
         related_name: ~
     kind: concrete
   readthedocs.projects.models.Feature:
-    name: Feature
+    name:
+      value: Feature
+      span:
+        start: 70546
+        length: 7
     module_name: readthedocs.projects.models
-    line: 2056
     relations:
-      - field_name: projects
+      - field_name:
+          value: projects
+          span:
+            start: 74220
+            length: 8
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 74263
+            length: 7
         related_name: ~
     kind: concrete
   readthedocs.projects.models.HTMLFile:
-    name: HTMLFile
+    name:
+      value: HTMLFile
+      span:
+        start: 60120
+        length: 8
     module_name: readthedocs.projects.models
-    line: 1713
     relations: []
     kind: concrete
   readthedocs.projects.models.HTTPHeader:
-    name: HTTPHeader
+    name:
+      value: HTTPHeader
+      span:
+        start: 69111
+        length: 10
     module_name: readthedocs.projects.models
-    line: 2014
     relations:
-      - field_name: domain
+      - field_name:
+          value: domain
+          span:
+            start: 70099
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Domain
+          value:
+            kind: Bare
+            name: Domain
+          span:
+            start: 70135
+            length: 6
         related_name: http_headers
     kind: concrete
   readthedocs.projects.models.ImportedFile:
-    name: ImportedFile
+    name:
+      value: ImportedFile
+      span:
+        start: 58497
+        length: 12
     module_name: readthedocs.projects.models
-    line: 1662
     relations:
-      - field_name: project
+      - field_name:
+          value: project
+          span:
+            start: 58730
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 58767
+            length: 7
         related_name: imported_files
-      - field_name: version
+      - field_name:
+          value: version
+          span:
+            start: 58894
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: builds
-          name: Version
+          value:
+            kind: Qualified
+            app_label: builds
+            name: Version
+          span:
+            start: 58931
+            length: 16
         related_name: imported_files
     kind: concrete
   readthedocs.projects.models.Project:
-    name: Project
+    name:
+      value: Project
+      span:
+        start: 10059
+        length: 7
     module_name: readthedocs.projects.models
-    line: 289
     relations:
-      - field_name: users
+      - field_name:
+          value: users
+          span:
+            start: 10344
+            length: 5
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 10384
+            length: 4
         related_name: projects
-      - field_name: related_projects
+      - field_name:
+          value: related_projects
+          span:
+            start: 19576
+            length: 16
         relation_type: ManyToMany
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 19627
+            length: 6
         related_name: ~
-      - field_name: main_language_project
+      - field_name:
+          value: main_language_project
+          span:
+            start: 20490
+            length: 21
         relation_type: ForeignKey
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 20541
+            length: 6
         related_name: translations
-      - field_name: remote_repository
+      - field_name:
+          value: remote_repository
+          span:
+            start: 21186
+            length: 17
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: oauth
-          name: RemoteRepository
+          value:
+            kind: Qualified
+            app_label: oauth
+            name: RemoteRepository
+          span:
+            start: 21233
+            length: 24
         related_name: projects
-      - field_name: latest_build
+      - field_name:
+          value: latest_build
+          span:
+            start: 22727
+            length: 12
         relation_type: OneToOne
         target:
-          kind: Qualified
-          app_label: builds
-          name: Build
+          value:
+            kind: Qualified
+            app_label: builds
+            name: Build
+          span:
+            start: 22772
+            length: 14
         related_name: +
     kind: concrete
   readthedocs.projects.models.ProjectRelationship:
-    name: ProjectRelationship
+    name:
+      value: ProjectRelationship
+      span:
+        start: 3697
+        length: 19
     module_name: readthedocs.projects.models
-    line: 84
     relations:
-      - field_name: parent
+      - field_name:
+          value: parent
+          span:
+            start: 3954
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: projects
-          name: Project
+          value:
+            kind: Qualified
+            app_label: projects
+            name: Project
+          span:
+            start: 3990
+            length: 18
         related_name: subprojects
-      - field_name: child
+      - field_name:
+          value: child
+          span:
+            start: 4130
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: projects
-          name: Project
+          value:
+            kind: Qualified
+            app_label: projects
+            name: Project
+          span:
+            start: 4165
+            length: 18
         related_name: superprojects
     kind: concrete
   readthedocs.projects.models.WebHookEvent:
-    name: WebHookEvent
+    name:
+      value: WebHookEvent
+      span:
+        start: 61309
+        length: 12
     module_name: readthedocs.projects.models
-    line: 1768
     relations: []
     kind: concrete

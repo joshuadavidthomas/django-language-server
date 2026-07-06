@@ -4,22 +4,41 @@ expression: graph
 ---
 models:
   wagtail.contrib.redirects.models.Redirect:
-    name: Redirect
+    name:
+      value: Redirect
+      span:
+        start: 254
+        length: 8
     module_name: wagtail.contrib.redirects.models
-    line: 11
     relations:
-      - field_name: site
+      - field_name:
+          value: site
+          span:
+            start: 392
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: wagtailcore
-          name: Site
+          value:
+            kind: Qualified
+            app_label: wagtailcore
+            name: Site
+          span:
+            start: 426
+            length: 18
         related_name: redirects
-      - field_name: redirect_page
+      - field_name:
+          value: redirect_page
+          span:
+            start: 913
+            length: 13
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: wagtailcore
-          name: Page
+          value:
+            kind: Qualified
+            app_label: wagtailcore
+            name: Page
+          span:
+            start: 956
+            length: 18
         related_name: ~
     kind: concrete

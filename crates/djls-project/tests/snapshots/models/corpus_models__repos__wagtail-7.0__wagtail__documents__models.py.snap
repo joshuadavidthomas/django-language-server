@@ -4,30 +4,52 @@ expression: graph
 ---
 models:
   wagtail.documents.models.AbstractDocument:
-    name: AbstractDocument
+    name:
+      value: AbstractDocument
+      span:
+        start: 722
+        length: 16
     module_name: wagtail.documents.models
-    line: 25
     relations:
-      - field_name: uploaded_by_user
+      - field_name:
+          value: uploaded_by_user
+          span:
+            start: 1023
+            length: 16
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1069
+            length: 24
         related_name: ~
     kind: abstract
   wagtail.documents.models.Document:
-    name: Document
+    name:
+      value: Document
+      span:
+        start: 6559
+        length: 8
     module_name: wagtail.documents.models
-    line: 213
     relations:
-      - field_name: uploaded_by_user
+      - field_name:
+          value: uploaded_by_user
+          span:
+            start: 1023
+            length: 16
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1069
+            length: 24
         related_name: ~
     kind: concrete

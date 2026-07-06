@@ -4,47 +4,88 @@ expression: graph
 ---
 models:
   geonode.harvesting.models.AsynchronousHarvestingSession:
-    name: AsynchronousHarvestingSession
+    name:
+      value: AsynchronousHarvestingSession
+      span:
+        start: 12768
+        length: 29
     module_name: geonode.harvesting.models
-    line: 293
     relations:
-      - field_name: harvester
+      - field_name:
+          value: harvester
+          span:
+            start: 13997
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Harvester
+          value:
+            kind: Bare
+            name: Harvester
+          span:
+            start: 14027
+            length: 9
         related_name: sessions
     kind: concrete
   geonode.harvesting.models.HarvestableResource:
-    name: HarvestableResource
+    name:
+      value: HarvestableResource
+      span:
+        start: 17515
+        length: 19
     module_name: geonode.harvesting.models
-    line: 393
     relations:
-      - field_name: harvester
+      - field_name:
+          value: harvester
+          span:
+            start: 18656
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Harvester
+          value:
+            kind: Bare
+            name: Harvester
+          span:
+            start: 18686
+            length: 9
         related_name: harvestable_resources
-      - field_name: geonode_resource
+      - field_name:
+          value: geonode_resource
+          span:
+            start: 18765
+            length: 16
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: base
-          name: ResourceBase
+          value:
+            kind: Qualified
+            app_label: base
+            name: ResourceBase
+          span:
+            start: 18802
+            length: 19
         related_name: ~
     kind: concrete
   geonode.harvesting.models.Harvester:
-    name: Harvester
+    name:
+      value: Harvester
+      span:
+        start: 1313
+        length: 9
     module_name: geonode.harvesting.models
-    line: 41
     relations:
-      - field_name: default_owner
+      - field_name:
+          value: default_owner
+          span:
+            start: 3847
+            length: 13
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 3890
+            length: 24
         related_name: ~
     kind: concrete

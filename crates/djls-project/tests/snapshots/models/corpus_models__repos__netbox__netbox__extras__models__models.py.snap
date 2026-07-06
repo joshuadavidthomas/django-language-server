@@ -4,11 +4,18 @@ expression: graph
 ---
 models:
   netbox.extras.models.models.Bookmark:
-    name: Bookmark
+    name:
+      value: Bookmark
+      span:
+        start: 26489
+        length: 8
     module_name: netbox.extras.models.models
-    line: 842
     relations:
-      - field_name: object
+      - field_name:
+          value: object
+          span:
+            start: 26836
+            length: 6
         relation_type: GenericForeignKey
         ct_field: object_type
         fk_field: object_id

@@ -4,66 +4,125 @@ expression: graph
 ---
 models:
   testapp.app.news.models.Activity:
-    name: Activity
+    name:
+      value: Activity
+      span:
+        start: 347
+        length: 8
     module_name: testapp.app.news.models
-    line: 9
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 597
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 622
+            length: 4
         related_name: ~
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 1200
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 1233
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 1322
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
     kind: concrete
   testapp.app.news.models.Attachment:
-    name: Attachment
+    name:
+      value: Attachment
+      span:
+        start: 3336
+        length: 10
     module_name: testapp.app.news.models
-    line: 86
     relations:
-      - field_name: news
+      - field_name:
+          value: news
+          span:
+            start: 3366
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: News
+          value:
+            kind: Bare
+            name: News
+          span:
+            start: 3400
+            length: 4
         related_name: attachments
     kind: concrete
   testapp.app.news.models.Category:
-    name: Category
+    name:
+      value: Category
+      span:
+        start: 1461
+        length: 8
     module_name: testapp.app.news.models
-    line: 38
     relations: []
     kind: concrete
   testapp.app.news.models.News:
-    name: News
+    name:
+      value: News
+      span:
+        start: 1701
+        length: 4
     module_name: testapp.app.news.models
-    line: 49
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 1887
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 1925
+            length: 8
         related_name: news
     kind: concrete
   testapp.app.news.models.Video:
-    name: Video
+    name:
+      value: Video
+      span:
+        start: 3765
+        length: 5
     module_name: testapp.app.news.models
-    line: 104
     relations:
-      - field_name: news
+      - field_name:
+          value: news
+          span:
+            start: 3790
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: News
+          value:
+            kind: Bare
+            name: News
+          span:
+            start: 3824
+            length: 4
         related_name: videos
     kind: concrete

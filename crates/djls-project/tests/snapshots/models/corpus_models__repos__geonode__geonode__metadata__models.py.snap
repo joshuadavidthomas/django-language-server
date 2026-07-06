@@ -4,14 +4,25 @@ expression: graph
 ---
 models:
   geonode.metadata.models.SparseField:
-    name: SparseField
+    name:
+      value: SparseField
+      span:
+        start: 695
+        length: 11
     module_name: geonode.metadata.models
-    line: 26
     relations:
-      - field_name: resource
+      - field_name:
+          value: resource
+          span:
+            start: 786
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 815
+            length: 12
         related_name: ~
     kind: concrete

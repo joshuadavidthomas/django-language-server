@@ -4,50 +4,104 @@ expression: graph
 ---
 models:
   src.pretix.plugins.sendmail.models.Rule:
-    name: Rule
+    name:
+      value: Rule
+      span:
+        start: 9775
+        length: 4
     module_name: src.pretix.plugins.sendmail.models
-    line: 220
     relations:
-      - field_name: event
+      - field_name:
+          value: event
+          span:
+            start: 10429
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Event
+          value:
+            kind: Bare
+            name: Event
+          span:
+            start: 10455
+            length: 5
         related_name: sendmail_rules
-      - field_name: subevent
+      - field_name:
+          value: subevent
+          span:
+            start: 10523
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SubEvent
+          value:
+            kind: Bare
+            name: SubEvent
+          span:
+            start: 10552
+            length: 8
         related_name: ~
-      - field_name: limit_products
+      - field_name:
+          value: limit_products
+          span:
+            start: 10817
+            length: 14
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Item
+          value:
+            kind: Bare
+            name: Item
+          span:
+            start: 10857
+            length: 4
         related_name: ~
     kind: concrete
   src.pretix.plugins.sendmail.models.ScheduledMail:
-    name: ScheduledMail
+    name:
+      value: ScheduledMail
+      span:
+        start: 1903
+        length: 13
     module_name: src.pretix.plugins.sendmail.models
-    line: 43
     relations:
-      - field_name: rule
+      - field_name:
+          value: rule
+          span:
+            start: 2297
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Rule
+          value:
+            kind: Bare
+            name: Rule
+          span:
+            start: 2322
+            length: 6
         related_name: ~
-      - field_name: subevent
+      - field_name:
+          value: subevent
+          span:
+            start: 2360
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SubEvent
+          value:
+            kind: Bare
+            name: SubEvent
+          span:
+            start: 2389
+            length: 8
         related_name: ~
-      - field_name: event
+      - field_name:
+          value: event
+          span:
+            start: 2440
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Event
+          value:
+            kind: Bare
+            name: Event
+          span:
+            start: 2466
+            length: 5
         related_name: ~
     kind: concrete

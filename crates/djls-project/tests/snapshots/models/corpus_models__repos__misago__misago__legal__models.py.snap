@@ -4,44 +4,82 @@ expression: graph
 ---
 models:
   misago.legal.models.Agreement:
-    name: Agreement
+    name:
+      value: Agreement
+      span:
+        start: 1077
+        length: 9
     module_name: misago.legal.models
-    line: 38
     relations:
-      - field_name: created_by
+      - field_name:
+          value: created_by
+          span:
+            start: 1774
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1814
+            length: 24
         related_name: +
-      - field_name: last_modified_by
+      - field_name:
+          value: last_modified_by
+          span:
+            start: 2095
+            length: 16
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 2141
+            length: 24
         related_name: +
     kind: concrete
   misago.legal.models.UserAgreement:
-    name: UserAgreement
+    name:
+      value: UserAgreement
+      span:
+        start: 3011
+        length: 13
     module_name: misago.legal.models
-    line: 98
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 3044
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 3069
+            length: 24
         related_name: ~
-      - field_name: agreement
+      - field_name:
+          value: agreement
+          span:
+            start: 3125
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Agreement
+          value:
+            kind: Bare
+            name: Agreement
+          span:
+            start: 3164
+            length: 9
         related_name: accepted_by
     kind: concrete

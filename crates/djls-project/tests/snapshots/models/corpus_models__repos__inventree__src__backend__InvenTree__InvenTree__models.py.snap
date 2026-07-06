@@ -4,56 +4,83 @@ expression: graph
 ---
 models:
   src.backend.InvenTree.InvenTree.models.InvenTreeBarcodeMixin:
-    name: InvenTreeBarcodeMixin
+    name:
+      value: InvenTreeBarcodeMixin
+      span:
+        start: 43070
+        length: 21
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 1237
     relations: []
     kind: abstract
   src.backend.InvenTree.InvenTree.models.InvenTreeImageMixin:
-    name: InvenTreeImageMixin
+    name:
+      value: InvenTreeImageMixin
+      span:
+        start: 50869
+        length: 19
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 1470
     relations: []
     kind: abstract
   src.backend.InvenTree.InvenTree.models.InvenTreeMetadataModel:
-    name: InvenTreeMetadataModel
+    name:
+      value: InvenTreeMetadataModel
+      span:
+        start: 16406
+        length: 22
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 480
     relations: []
     kind: abstract
   src.backend.InvenTree.InvenTree.models.InvenTreeModel:
-    name: InvenTreeModel
+    name:
+      value: InvenTreeModel
+      span:
+        start: 16029
+        length: 14
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 466
     relations: []
     kind: abstract
   src.backend.InvenTree.InvenTree.models.InvenTreeNotesMixin:
-    name: InvenTreeNotesMixin
+    name:
+      value: InvenTreeNotesMixin
+      span:
+        start: 41784
+        length: 19
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 1192
     relations: []
     kind: abstract
   src.backend.InvenTree.InvenTree.models.InvenTreeParameterMixin:
-    name: InvenTreeParameterMixin
+    name:
+      value: InvenTreeParameterMixin
+      span:
+        start: 17439
+        length: 23
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 510
     relations: []
     kind: abstract
   src.backend.InvenTree.InvenTree.models.MetadataMixin:
-    name: MetadataMixin
+    name:
+      value: MetadataMixin
+      span:
+        start: 5067
+        length: 13
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 155
     relations: []
     kind: abstract
   src.backend.InvenTree.InvenTree.models.PathStringMixin:
-    name: PathStringMixin
+    name:
+      value: PathStringMixin
+      span:
+        start: 35400
+        length: 15
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 998
     relations: []
     kind: abstract
   src.backend.InvenTree.InvenTree.models.ReferenceIndexingMixin:
-    name: ReferenceIndexingMixin
+    name:
+      value: ReferenceIndexingMixin
+      span:
+        start: 8213
+        length: 22
     module_name: src.backend.InvenTree.InvenTree.models
-    line: 240
     relations: []
     kind: abstract

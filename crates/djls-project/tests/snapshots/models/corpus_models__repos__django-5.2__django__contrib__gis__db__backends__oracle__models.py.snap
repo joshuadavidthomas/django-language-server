@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   django.contrib.gis.db.backends.oracle.models.OracleGeometryColumns:
-    name: OracleGeometryColumns
+    name:
+      value: OracleGeometryColumns
+      span:
+        start: 494
+        length: 21
     module_name: django.contrib.gis.db.backends.oracle.models
-    line: 15
     relations: []
     kind: concrete
   django.contrib.gis.db.backends.oracle.models.OracleSpatialRefSys:
-    name: OracleSpatialRefSys
+    name:
+      value: OracleSpatialRefSys
+      span:
+        start: 1427
+        length: 19
     module_name: django.contrib.gis.db.backends.oracle.models
-    line: 48
     relations: []
     kind: concrete

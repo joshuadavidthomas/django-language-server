@@ -4,14 +4,25 @@ expression: graph
 ---
 models:
   news.models.Vote:
-    name: Vote
+    name:
+      value: Vote
+      span:
+        start: 3614
+        length: 4
     module_name: news.models
-    line: 120
     relations:
-      - field_name: item
+      - field_name:
+          value: item
+          span:
+            start: 3828
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Item
+          value:
+            kind: Bare
+            name: Item
+          span:
+            start: 3853
+            length: 4
         related_name: ~
     kind: concrete

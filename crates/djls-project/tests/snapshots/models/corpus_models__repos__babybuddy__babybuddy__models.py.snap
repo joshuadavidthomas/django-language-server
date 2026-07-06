@@ -4,16 +4,27 @@ expression: graph
 ---
 models:
   babybuddy.models.Settings:
-    name: Settings
+    name:
+      value: Settings
+      span:
+        start: 475
+        length: 8
     module_name: babybuddy.models
-    line: 17
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 503
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 531
+            length: 24
         related_name: ~
     kind: concrete

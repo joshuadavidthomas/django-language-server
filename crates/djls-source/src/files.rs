@@ -15,6 +15,7 @@ use crate::position::LineCol;
 use crate::protocol::PositionEncoding;
 
 #[salsa::input]
+#[derive(Debug)]
 pub struct File {
     // TODO(virtual-paths): This will accept synthetic paths for virtual documents
     // e.g., /virtual/untitled/Untitled-1.html derived from untitled:Untitled-1

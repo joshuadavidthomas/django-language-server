@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   django.contrib.gis.db.backends.spatialite.models.SpatialiteGeometryColumns:
-    name: SpatialiteGeometryColumns
+    name:
+      value: SpatialiteGeometryColumns
+      span:
+        start: 193
+        length: 25
     module_name: django.contrib.gis.db.backends.spatialite.models
-    line: 9
     relations: []
     kind: concrete
   django.contrib.gis.db.backends.spatialite.models.SpatialiteSpatialRefSys:
-    name: SpatialiteSpatialRefSys
+    name:
+      value: SpatialiteSpatialRefSys
+      span:
+        start: 1355
+        length: 23
     module_name: django.contrib.gis.db.backends.spatialite.models
-    line: 52
     relations: []
     kind: concrete

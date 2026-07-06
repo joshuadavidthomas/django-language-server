@@ -4,193 +4,356 @@ expression: graph
 ---
 models:
   geonode.base.models.ContactRole:
-    name: ContactRole
+    name:
+      value: ContactRole
+      span:
+        start: 3510
+        length: 11
     module_name: geonode.base.models
-    line: 93
     relations:
-      - field_name: resource
+      - field_name:
+          value: resource
+          span:
+            start: 3658
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 3687
+            length: 14
         related_name: ~
-      - field_name: contact
+      - field_name:
+          value: contact
+          span:
+            start: 3758
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 3786
+            length: 24
         related_name: ~
     kind: concrete
   geonode.base.models.ExtraMetadata:
-    name: ExtraMetadata
+    name:
+      value: ExtraMetadata
+      span:
+        start: 82882
+        length: 13
     module_name: geonode.base.models
-    line: 2140
     relations:
-      - field_name: resource
+      - field_name:
+          value: resource
+          span:
+            start: 82915
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 82944
+            length: 12
         related_name: ~
     kind: concrete
   geonode.base.models.GroupGeoLimit:
-    name: GroupGeoLimit
+    name:
+      value: GroupGeoLimit
+      span:
+        start: 82596
+        length: 13
     module_name: geonode.base.models
-    line: 2134
     relations:
-      - field_name: group
+      - field_name:
+          value: group
+          span:
+            start: 82629
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: GroupProfile
+          value:
+            kind: Bare
+            name: GroupProfile
+          span:
+            start: 82655
+            length: 12
         related_name: ~
-      - field_name: resource
+      - field_name:
+          value: resource
+          span:
+            start: 82724
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 82753
+            length: 12
         related_name: ~
     kind: concrete
   geonode.base.models.License:
-    name: License
+    name:
+      value: License
+      span:
+        start: 8443
+        length: 7
     module_name: geonode.base.models
-    line: 227
     relations: []
     kind: concrete
   geonode.base.models.Link:
-    name: Link
+    name:
+      value: Link
+      span:
+        start: 78924
+        length: 4
     module_name: geonode.base.models
-    line: 2014
     relations:
-      - field_name: resource
+      - field_name:
+          value: resource
+          span:
+            start: 79454
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 79483
+            length: 12
         related_name: ~
-      - field_name: asset
+      - field_name:
+          value: asset
+          span:
+            start: 79955
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: assets
-          name: Asset
+          value:
+            kind: Qualified
+            app_label: assets
+            name: Asset
+          span:
+            start: 79981
+            length: 14
         related_name: ~
     kind: concrete
   geonode.base.models.LinkedResource:
-    name: LinkedResource
+    name:
+      value: LinkedResource
+      span:
+        start: 77282
+        length: 14
     module_name: geonode.base.models
-    line: 1973
     relations:
-      - field_name: source
+      - field_name:
+          value: source
+          span:
+            start: 77316
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 77352
+            length: 12
         related_name: linked_to
-      - field_name: target
+      - field_name:
+          value: target
+          span:
+            start: 77452
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 77479
+            length: 12
         related_name: linked_by
     kind: concrete
   geonode.base.models.Menu:
-    name: Menu
+    name:
+      value: Menu
+      span:
+        start: 80322
+        length: 4
     module_name: geonode.base.models
-    line: 2051
     relations: []
     kind: concrete
   geonode.base.models.MenuItem:
-    name: MenuItem
+    name:
+      value: MenuItem
+      span:
+        start: 80790
+        length: 8
     module_name: geonode.base.models
-    line: 2069
     relations: []
     kind: concrete
   geonode.base.models.MenuPlaceholder:
-    name: MenuPlaceholder
+    name:
+      value: MenuPlaceholder
+      span:
+        start: 80147
+        length: 15
     module_name: geonode.base.models
-    line: 2044
     relations: []
     kind: concrete
   geonode.base.models.RestrictionCodeType:
-    name: RestrictionCodeType
+    name:
+      value: RestrictionCodeType
+      span:
+        start: 7703
+        length: 19
     module_name: geonode.base.models
-    line: 206
     relations: []
     kind: concrete
   geonode.base.models.SpatialRepresentationType:
-    name: SpatialRepresentationType
+    name:
+      value: SpatialRepresentationType
+      span:
+        start: 4859
+        length: 25
     module_name: geonode.base.models
-    line: 130
     relations: []
     kind: concrete
   geonode.base.models.Thesaurus:
-    name: Thesaurus
+    name:
+      value: Thesaurus
+      span:
+        start: 16966
+        length: 9
     module_name: geonode.base.models
-    line: 450
     relations: []
     kind: concrete
   geonode.base.models.ThesaurusKeyword:
-    name: ThesaurusKeyword
+    name:
+      value: ThesaurusKeyword
+      span:
+        start: 18666
+        length: 16
     module_name: geonode.base.models
-    line: 505
     relations:
-      - field_name: thesaurus
+      - field_name:
+          value: thesaurus
+          span:
+            start: 18996
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Thesaurus
+          value:
+            kind: Bare
+            name: Thesaurus
+          span:
+            start: 19026
+            length: 11
         related_name: thesaurus
     kind: concrete
   geonode.base.models.ThesaurusKeywordLabel:
-    name: ThesaurusKeywordLabel
+    name:
+      value: ThesaurusKeywordLabel
+      span:
+        start: 18025
+        length: 21
     module_name: geonode.base.models
-    line: 483
     relations:
-      - field_name: keyword
+      - field_name:
+          value: keyword
+          span:
+            start: 18343
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ThesaurusKeyword
+          value:
+            kind: Bare
+            name: ThesaurusKeyword
+          span:
+            start: 18371
+            length: 18
         related_name: keyword
     kind: concrete
   geonode.base.models.ThesaurusLabel:
-    name: ThesaurusLabel
+    name:
+      value: ThesaurusLabel
+      span:
+        start: 19960
+        length: 14
     module_name: geonode.base.models
-    line: 547
     relations:
-      - field_name: thesaurus
+      - field_name:
+          value: thesaurus
+          span:
+            start: 20212
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Thesaurus
+          value:
+            kind: Bare
+            name: Thesaurus
+          span:
+            start: 20242
+            length: 11
         related_name: rel_thesaurus
     kind: concrete
   geonode.base.models.TopicCategory:
-    name: TopicCategory
+    name:
+      value: TopicCategory
+      span:
+        start: 4066
+        length: 13
     module_name: geonode.base.models
-    line: 108
     relations: []
     kind: concrete
   geonode.base.models.UserGeoLimit:
-    name: UserGeoLimit
+    name:
+      value: UserGeoLimit
+      span:
+        start: 82300
+        length: 12
     module_name: geonode.base.models
-    line: 2128
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 82332
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 82357
+            length: 24
         related_name: ~
-      - field_name: resource
+      - field_name:
+          value: resource
+          span:
+            start: 82438
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 82467
+            length: 12
         related_name: ~
     kind: concrete

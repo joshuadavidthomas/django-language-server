@@ -4,146 +4,298 @@ expression: graph
 ---
 models:
   checklists.models.BugFixRelease:
-    name: BugFixRelease
+    name:
+      value: BugFixRelease
+      span:
+        start: 9344
+        length: 13
     module_name: checklists.models
-    line: 323
     relations:
-      - field_name: releaser
+      - field_name:
+          value: releaser
+          span:
+            start: 3796
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Releaser
+          value:
+            kind: Bare
+            name: Releaser
+          span:
+            start: 3825
+            length: 8
         related_name: ~
-      - field_name: release
+      - field_name:
+          value: release
+          span:
+            start: 9381
+            length: 7
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Release
+          value:
+            kind: Bare
+            name: Release
+          span:
+            start: 9412
+            length: 7
         related_name: ~
     kind: concrete
   checklists.models.FeatureRelease:
-    name: FeatureRelease
+    name:
+      value: FeatureRelease
+      span:
+        start: 7170
+        length: 14
     module_name: checklists.models
-    line: 255
     relations:
-      - field_name: releaser
+      - field_name:
+          value: releaser
+          span:
+            start: 3796
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Releaser
+          value:
+            kind: Bare
+            name: Releaser
+          span:
+            start: 3825
+            length: 8
         related_name: ~
-      - field_name: release
+      - field_name:
+          value: release
+          span:
+            start: 7208
+            length: 7
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Release
+          value:
+            kind: Bare
+            name: Release
+          span:
+            start: 7239
+            length: 7
         related_name: ~
-      - field_name: eom_release
+      - field_name:
+          value: eom_release
+          span:
+            start: 7736
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Release
+          value:
+            kind: Bare
+            name: Release
+          span:
+            start: 7777
+            length: 7
         related_name: +
-      - field_name: eol_release
+      - field_name:
+          value: eol_release
+          span:
+            start: 7863
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Release
+          value:
+            kind: Bare
+            name: Release
+          span:
+            start: 7904
+            length: 7
         related_name: +
     kind: concrete
   checklists.models.PreRelease:
-    name: PreRelease
+    name:
+      value: PreRelease
+      span:
+        start: 8342
+        length: 10
     module_name: checklists.models
-    line: 290
     relations:
-      - field_name: releaser
+      - field_name:
+          value: releaser
+          span:
+            start: 3796
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Releaser
+          value:
+            kind: Bare
+            name: Releaser
+          span:
+            start: 3825
+            length: 8
         related_name: ~
-      - field_name: release
+      - field_name:
+          value: release
+          span:
+            start: 8376
+            length: 7
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Release
+          value:
+            kind: Bare
+            name: Release
+          span:
+            start: 8407
+            length: 7
         related_name: ~
-      - field_name: feature_release
+      - field_name:
+          value: feature_release
+          span:
+            start: 8458
+            length: 15
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: FeatureRelease
+          value:
+            kind: Bare
+            name: FeatureRelease
+          span:
+            start: 8494
+            length: 14
         related_name: ~
     kind: concrete
   checklists.models.ReleaseChecklist:
-    name: ReleaseChecklist
+    name:
+      value: ReleaseChecklist
+      span:
+        start: 3726
+        length: 16
     module_name: checklists.models
-    line: 147
     relations:
-      - field_name: releaser
+      - field_name:
+          value: releaser
+          span:
+            start: 3796
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Releaser
+          value:
+            kind: Bare
+            name: Releaser
+          span:
+            start: 3825
+            length: 8
         related_name: ~
     kind: abstract
   checklists.models.Releaser:
-    name: Releaser
+    name:
+      value: Releaser
+      span:
+        start: 3292
+        length: 8
     module_name: checklists.models
-    line: 131
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 3320
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 3345
+            length: 4
         related_name: ~
     kind: concrete
   checklists.models.SecurityIssue:
-    name: SecurityIssue
+    name:
+      value: SecurityIssue
+      span:
+        start: 14807
+        length: 13
     module_name: checklists.models
-    line: 500
     relations:
-      - field_name: release
+      - field_name:
+          value: release
+          span:
+            start: 22878
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SecurityRelease
+          value:
+            kind: Bare
+            name: SecurityRelease
+          span:
+            start: 22915
+            length: 15
         related_name: ~
-      - field_name: releases
+      - field_name:
+          value: releases
+          span:
+            start: 23079
+            length: 8
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Release
+          value:
+            kind: Bare
+            name: Release
+          span:
+            start: 23113
+            length: 7
         related_name: ~
     kind: concrete
   checklists.models.SecurityIssueReleasesThrough:
-    name: SecurityIssueReleasesThrough
+    name:
+      value: SecurityIssueReleasesThrough
+      span:
+        start: 13717
+        length: 28
     module_name: checklists.models
-    line: 467
     relations:
-      - field_name: securityissue
+      - field_name:
+          value: securityissue
+          span:
+            start: 13765
+            length: 13
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: SecurityIssue
+          value:
+            kind: Bare
+            name: SecurityIssue
+          span:
+            start: 13808
+            length: 15
         related_name: ~
-      - field_name: release
+      - field_name:
+          value: release
+          span:
+            start: 13891
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Release
+          value:
+            kind: Bare
+            name: Release
+          span:
+            start: 13919
+            length: 7
         related_name: ~
     kind: concrete
   checklists.models.SecurityRelease:
-    name: SecurityRelease
+    name:
+      value: SecurityRelease
+      span:
+        start: 10241
+        length: 15
     module_name: checklists.models
-    line: 356
     relations:
-      - field_name: releaser
+      - field_name:
+          value: releaser
+          span:
+            start: 3796
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Releaser
+          value:
+            kind: Bare
+            name: Releaser
+          span:
+            start: 3825
+            length: 8
         related_name: ~
     kind: concrete
