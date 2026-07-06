@@ -1,0 +1,16 @@
+---
+source: crates/djls-project/tests/settings_extraction.rs
+expression: "django_settings(&db, project)"
+---
+installed_apps:
+  values: []
+  extraction: unsupported
+templates:
+  backends:
+    - backend: ~
+      dirs: []
+      app_dirs: true
+      libraries: []
+      builtins: []
+      extraction: full
+  extraction: full

@@ -30,10 +30,6 @@ pub(super) fn django_settings_from_file(
 pub(crate) struct DjangoSettingsSources(Vec<File>);
 
 impl DjangoSettingsSources {
-    fn empty() -> Self {
-        Self(Vec::new())
-    }
-
     fn from_files(db: &dyn ProjectDb, files: impl IntoIterator<Item = File>) -> Self {
         let mut seen = BTreeSet::new();
         let mut deduped = Vec::new();
@@ -57,7 +53,7 @@ impl DjangoSettingsSources {
 
 pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSettingsSources {
     let Some(file) = crate::settings::settings_module_file(db, project) else {
-        return DjangoSettingsSources::empty();
+        return DjangoSettingsSources::from_files(db, []);
     };
 
     // The Django Discovery bump set must cover the same settings source graph
@@ -69,7 +65,7 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
     let mut resolver = ReaderResolver::new(db, project, reader);
     let _ = extract_settings(source.source.as_str(), &source.path, &mut resolver);
 
-    DjangoSettingsSources::from_files(db, std::iter::once(file).chain(resolver.into_resolved()))
+    DjangoSettingsSources::from_files(db, std::iter::once(file).chain(resolver.resolved))
 }
 
 trait SettingsSourceReader {
@@ -116,10 +112,6 @@ impl<'db, R> ReaderResolver<'db, R> {
             reader,
             resolved: Vec::new(),
         }
-    }
-
-    fn into_resolved(self) -> Vec<File> {
-        self.resolved
     }
 }
 
