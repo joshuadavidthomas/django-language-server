@@ -63,11 +63,15 @@ fn qualified_relation_resolves_cross_app() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/accounts/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n",
+            include_str!(
+                "testdata/model_relations/qualified_relation_resolves_cross_app/accounts/models.py"
+            ),
         )
         .file(
             "/project/blog/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n\nclass Post(models.Model):\n    author = models.ForeignKey(\"accounts.User\", on_delete=models.CASCADE)\n",
+            include_str!(
+                "testdata/model_relations/qualified_relation_resolves_cross_app/blog/models.py"
+            ),
         )
         .build(&db);
 
@@ -89,11 +93,11 @@ fn bare_relation_resolves_relative_to_scope_app() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/accounts/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n\nclass Profile(models.Model):\n    user = models.ForeignKey(\"User\", on_delete=models.CASCADE)\n",
+            include_str!("testdata/model_relations/bare_relation_resolves_relative_to_scope_app/accounts/models.py"),
         )
         .file(
             "/project/blog/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n",
+            include_str!("testdata/model_relations/bare_relation_resolves_relative_to_scope_app/blog/models.py"),
         )
         .build(&db);
 
@@ -115,7 +119,9 @@ fn self_relation_resolves_to_scope_model() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/catalog/models.py",
-            "from django.db import models\n\nclass Category(models.Model):\n    parent = models.ForeignKey(\"self\", on_delete=models.CASCADE)\n",
+            include_str!(
+                "testdata/model_relations/self_relation_resolves_to_scope_model/catalog/models.py"
+            ),
         )
         .build(&db);
 
@@ -134,11 +140,11 @@ fn imported_foreign_key_resolves_to_imported_model_id() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/accounts/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n",
+            include_str!("testdata/model_relations/imported_foreign_key_resolves_to_imported_model_id/accounts/models.py"),
         )
         .file(
             "/project/blog/models.py",
-            "from django.db import models\nfrom accounts.models import User\n\nclass User(models.Model):\n    pass\n\nclass Post(models.Model):\n    author = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+            include_str!("testdata/model_relations/imported_foreign_key_resolves_to_imported_model_id/blog/models.py"),
         )
         .build(&db);
 
@@ -171,11 +177,11 @@ fn attribute_qualified_expression_retains_source_path_and_resolves() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/accounts/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n",
+            include_str!("testdata/model_relations/attribute_qualified_expression_retains_source_path_and_resolves/accounts/models.py"),
         )
         .file(
             "/project/blog/models.py",
-            "from django.db import models\nimport accounts.models as account_models\n\nclass User(models.Model):\n    pass\n\nclass Post(models.Model):\n    author = models.ForeignKey(account_models.User, on_delete=models.CASCADE)\n",
+            include_str!("testdata/model_relations/attribute_qualified_expression_retains_source_path_and_resolves/blog/models.py"),
         )
         .build(&db);
 
@@ -208,7 +214,7 @@ fn model_base_import_spellings_are_recognized() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/base_alias/models.py",
-            "from django.db.models import Model as Base\nimport django.db.models as m\n\nclass FromBase(Base):\n    pass\n\nclass FromModule(m.Model):\n    pass\n",
+            include_str!("testdata/model_relations/model_base_import_spellings_are_recognized/base_alias/models.py"),
         )
         .build(&db);
 
@@ -218,16 +224,53 @@ fn model_base_import_spellings_are_recognized() {
 }
 
 #[test]
+fn imported_abstract_base_import_spellings_are_recognized_and_inherit_relations() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/a_app/models.py",
+            include_str!("testdata/model_relations/imported_abstract_base_import_spellings_are_recognized_and_inherit_relations/a_app/models.py"),
+        )
+        .file(
+            "/project/b_app/models.py",
+            include_str!("testdata/model_relations/imported_abstract_base_import_spellings_are_recognized_and_inherit_relations/b_app/models.py"),
+        )
+        .file(
+            "/project/c_app/models.py",
+            include_str!("testdata/model_relations/imported_abstract_base_import_spellings_are_recognized_and_inherit_relations/c_app/models.py"),
+        )
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    let user = model_id(graph, "User", "a_app.models");
+    let article = model_id(graph, "Article", "b_app.models");
+    let story = model_id(graph, "Story", "c_app.models");
+
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(article, "owner")
+            .expect("direct imported abstract base relation should resolve"),
+        graph.get_by_id(user).unwrap()
+    ));
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(story, "owner")
+            .expect("aliased imported abstract base relation should resolve"),
+        graph.get_by_id(user).unwrap()
+    ));
+}
+
+#[test]
 fn dotted_string_auth_user_resolves_via_app_label_path() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file(
             "/project/auth/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n",
+            include_str!("testdata/model_relations/dotted_string_auth_user_resolves_via_app_label_path/auth/models.py"),
         )
         .file(
             "/project/shop/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n\nclass Order(models.Model):\n    user = models.ForeignKey(\"auth.User\", on_delete=models.CASCADE)\n",
+            include_str!("testdata/model_relations/dotted_string_auth_user_resolves_via_app_label_path/shop/models.py"),
         )
         .build(&db);
 
@@ -256,7 +299,7 @@ fn unresolvable_imported_target_records_explicit_reason() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/blog/models.py",
-            "from django.db import models\nfrom missing.models import User\n\nclass Post(models.Model):\n    author = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+            include_str!("testdata/model_relations/unresolvable_imported_target_records_explicit_reason/blog/models.py"),
         )
         .build(&db);
 
@@ -276,10 +319,13 @@ fn unresolvable_imported_target_records_explicit_reason() {
 fn imported_module_target_records_explicit_reason() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
-        .file("/project/accounts/models.py", "class User: ...\n")
+        .file(
+            "/project/accounts/models.py",
+            include_str!("testdata/model_relations/imported_module_target_records_explicit_reason/accounts/models.py"),
+        )
         .file(
             "/project/blog/models.py",
-            "from django.db import models\nimport accounts.models\n\nclass Post(models.Model):\n    author = models.ForeignKey(accounts.models, on_delete=models.CASCADE)\n",
+            include_str!("testdata/model_relations/imported_module_target_records_explicit_reason/blog/models.py"),
         )
         .build(&db);
 
@@ -299,10 +345,13 @@ fn imported_module_target_records_explicit_reason() {
 fn imported_partial_target_is_preserved_when_model_id_is_absent() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
-        .file("/project/accounts/models.py", "VALUE = 1\n")
+        .file(
+            "/project/accounts/models.py",
+            include_str!("testdata/model_relations/imported_partial_target_is_preserved_when_model_id_is_absent/accounts/models.py"),
+        )
         .file(
             "/project/blog/models.py",
-            "from django.db import models\nfrom accounts.models import User\n\nclass Post(models.Model):\n    author = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+            include_str!("testdata/model_relations/imported_partial_target_is_preserved_when_model_id_is_absent/blog/models.py"),
         )
         .build(&db);
 
@@ -329,15 +378,15 @@ fn ambiguous_app_label_fallback_is_preserved_in_relation_resolution() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/News/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n",
+            include_str!("testdata/model_relations/ambiguous_app_label_fallback_is_preserved_in_relation_resolution/news_title/models.py"),
         )
         .file(
             "/project/news/models.py",
-            "from django.db import models\n\nclass User(models.Model):\n    pass\n",
+            include_str!("testdata/model_relations/ambiguous_app_label_fallback_is_preserved_in_relation_resolution/news_lower/models.py"),
         )
         .file(
             "/project/NEWS/models.py",
-            "from django.db import models\n\nclass Post(models.Model):\n    author = models.ForeignKey(\"User\", on_delete=models.CASCADE)\n",
+            include_str!("testdata/model_relations/ambiguous_app_label_fallback_is_preserved_in_relation_resolution/news_upper/models.py"),
         )
         .build(&db);
 
@@ -364,7 +413,7 @@ fn computed_model_graph_does_not_expose_file_local_relation_resolution() {
     let project = ProjectFixture::new("/project")
         .file(
             "/project/blog/models.py",
-            "from django.db import models\nfrom django.contrib.contenttypes.fields import GenericForeignKey\n\nclass TaggedItem(models.Model):\n    target = models.ForeignKey(\"Missing\", on_delete=models.CASCADE)\n    content_object = GenericForeignKey()\n",
+            include_str!("testdata/model_relations/computed_model_graph_does_not_expose_file_local_relation_resolution/blog/models.py"),
         )
         .build(&db);
 
@@ -395,15 +444,15 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
     let mut db = TestDatabase::with_event_log(event_log.clone());
     db.add_file(
         "/project/accounts/models.py",
-        "from django.db import models\n\nclass User(models.Model):\n    pass\n\nclass Profile(models.Model):\n    pass\n",
+        include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/accounts/models.py"),
     );
     db.add_file(
         "/project/blog/models.py",
-        "from django.db import models\nfrom accounts.models import User\n\nclass Post(models.Model):\n    author = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+        include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/blog/models_initial.py"),
     );
     db.add_file(
         "/project/other/models.py",
-        "from django.db import models\n\nclass Tag(models.Model):\n    pass\n",
+        include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/other/models_initial.py"),
     );
 
     let interpreter = Interpreter::Auto;
@@ -440,7 +489,9 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
     update_file(
         &mut db,
         "/project/blog/models.py",
-        "from django.db import models\nfrom accounts.models import Profile\n\nclass Post(models.Model):\n    author = models.ForeignKey(Profile, on_delete=models.CASCADE)\n",
+        include_str!(
+            "testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/blog/models_updated.py"
+        ),
     );
     let graph = compute_model_graph(&db, project);
     let post = model_id(graph, "Post", "blog.models");
@@ -456,9 +507,11 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
     update_file(
         &mut db,
         "/project/other/models.py",
-        "from django.db import models\n\nclass Tag(models.Model):\n    label = models.CharField(max_length=100)\n",
+        include_str!(
+            "testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/other/models_updated.py"
+        ),
     );
     let _graph = compute_model_graph(&db, project);
     let events = event_log.take();
-    assert_eq!(execution_count(&db, &events, "extract_model_graph"), 1);
+    assert_eq!(execution_count(&db, &events, "extract_models"), 1);
 }

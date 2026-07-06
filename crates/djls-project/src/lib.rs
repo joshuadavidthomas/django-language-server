@@ -93,9 +93,16 @@ pub mod testing {
     use camino::Utf8PathBuf;
 
     pub use crate::discovery::compute_django_discovery;
-    pub use crate::models::extract_model_graph;
     pub use crate::models::model_modules;
     pub use crate::models::resolve_model_graph_from_modules;
+
+    pub fn extract_model_graph(
+        db: &dyn djls_source::Db,
+        file: djls_source::File,
+        module_name: super::PythonModuleName,
+    ) -> &super::ModelGraph {
+        crate::models::extract_models(db, file, module_name).graph()
+    }
 
     pub fn settings_module_file(
         db: &dyn super::Db,
