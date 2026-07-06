@@ -1,0 +1,33 @@
+---
+source: crates/djls-project/tests/settings_extraction.rs
+expression: "django_settings(&db, project)"
+---
+parse_status: parsed
+installed_apps:
+  values: []
+  extraction: partial
+templates:
+  backends:
+    - backend: django.template.backends.django.DjangoTemplates
+      dirs: []
+      app_dirs: true
+      libraries: []
+      builtins: []
+      context_processors:
+        - value: project.context_processors.site
+          span:
+            start: 213
+            length: 33
+      extraction: complete
+    - backend: django.template.backends.django.DjangoTemplates
+      dirs: []
+      app_dirs: true
+      libraries: []
+      builtins: []
+      context_processors:
+        - value: project.context_processors.site
+          span:
+            start: 476
+            length: 33
+      extraction: complete
+  extraction: partial

@@ -452,6 +452,107 @@ fn template_dirs_demote_broken_app_config_entry_to_partial() {
 }
 
 #[test]
+fn template_context_processors_complete_settings_mark_inventory_complete() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/django/template/__init__.py", ""),
+            ("/proj/django/template/context_processors.py", ""),
+            (
+                "/proj/myproject/settings.py",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
+            ),
+        ],
+    );
+
+    let processors = template_context_processors(&db, project);
+
+    assert_eq!(processors.status(), TemplateInventoryStatus::Complete);
+}
+
+#[test]
+fn template_context_processors_invalid_entry_marks_inventory_incomplete() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[(
+            "/proj/myproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request', object()]}}]\n",
+        )],
+    );
+
+    let processors = template_context_processors(&db, project);
+
+    assert_eq!(processors.status(), TemplateInventoryStatus::Incomplete);
+}
+
+#[test]
+fn template_context_processors_without_usable_settings_are_not_discovered() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj").install(&mut db);
+
+    let processors = template_context_processors(&db, project);
+
+    assert_eq!(processors.status(), TemplateInventoryStatus::NotDiscovered);
+}
+
+#[test]
+fn template_context_processors_resolve_module_prefix_and_callable_tail() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/django/template/__init__.py", ""),
+            ("/proj/django/template/context_processors.py", ""),
+            (
+                "/proj/myproject/settings.py",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
+            ),
+        ],
+    );
+
+    let processors = template_context_processors(&db, project);
+    let processor = processors.processors().first().unwrap();
+
+    assert_eq!(
+        processor.path_str(),
+        "django.template.context_processors.request"
+    );
+    assert_eq!(
+        processor.module().map(|module| module.name().as_str()),
+        Some("django.template.context_processors")
+    );
+    assert_eq!(processor.unresolved_tail(), ["request"]);
+}
+
+#[test]
+fn template_context_processors_keep_unresolved_facts_with_tail() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[(
+            "/proj/myproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['missing.context.processor']}}]\n",
+        )],
+    );
+
+    let processors = template_context_processors(&db, project);
+    let processor = processors.processors().first().unwrap();
+
+    assert_eq!(processor.path_str(), "missing.context.processor");
+    assert!(processor.module().is_none());
+    assert_eq!(
+        processor.unresolved_tail(),
+        ["missing", "context", "processor"]
+    );
+}
+
+#[test]
 fn template_dirs_resolve_apps_from_site_packages_search_path() {
     let mut db = TestDatabase::new();
     db.add_file("/site/pkg/__init__.py", "");

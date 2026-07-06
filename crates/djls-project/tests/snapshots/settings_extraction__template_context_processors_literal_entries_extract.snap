@@ -1,0 +1,34 @@
+---
+source: crates/djls-project/tests/settings_extraction.rs
+expression: "django_settings(&db, project)"
+---
+parse_status: parsed
+installed_apps:
+  values: []
+  extraction: partial
+templates:
+  backends:
+    - backend: django.template.backends.django.DjangoTemplates
+      dirs: []
+      app_dirs: true
+      libraries: []
+      builtins: []
+      context_processors:
+        - value: django.template.context_processors.debug
+          span:
+            start: 210
+            length: 42
+        - value: django.template.context_processors.request
+          span:
+            start: 270
+            length: 44
+        - value: django.contrib.auth.context_processors.auth
+          span:
+            start: 332
+            length: 45
+        - value: django.contrib.messages.context_processors.messages
+          span:
+            start: 395
+            length: 53
+      extraction: complete
+  extraction: complete

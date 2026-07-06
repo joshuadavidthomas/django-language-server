@@ -4,12 +4,11 @@ expression: "django_settings(&db, project)"
 ---
 parse_status: parsed
 installed_apps:
-  values:
-    - blog
-  extraction: complete
+  values: []
+  extraction: partial
 templates:
   backends:
-    - backend: ~
+    - backend: django.template.backends.django.DjangoTemplates
       dirs: []
       app_dirs: true
       libraries: []
