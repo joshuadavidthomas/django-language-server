@@ -1,6 +1,9 @@
+use rustc_hash::FxHashSet;
+
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
+use crate::settings::types::LocalListBinding;
 use crate::settings::types::SettingExtraction;
 use crate::settings::types::TemplateBackend;
 use crate::settings::types::TemplateSettings;
@@ -82,6 +85,7 @@ impl SettingsBindings {
                 extraction: SettingExtraction::Partial,
             });
         }
+        join_local_lists(&mut self, branch_bindings, &writes.locals);
         self
     }
 }
@@ -128,12 +132,18 @@ impl<T> ExtractedList<T> {
 pub(super) struct TouchedBindings {
     pub(super) installed_apps: bool,
     pub(super) templates: bool,
+    locals: FxHashSet<String>,
 }
 
 impl TouchedBindings {
     pub(super) fn merge(&mut self, other: &Self) {
         self.installed_apps |= other.installed_apps;
         self.templates |= other.templates;
+        self.locals.extend(other.locals.iter().cloned());
+    }
+
+    pub(super) fn record_local(&mut self, name: &str) {
+        self.locals.insert(name.to_string());
     }
 }
 
@@ -170,4 +180,33 @@ fn join_template_backends(branch_bindings: &[SettingsBindings]) -> Vec<TemplateB
         }
     }
     backends
+}
+
+fn join_local_lists(
+    base: &mut SettingsBindings,
+    branch_bindings: &[SettingsBindings],
+    local_writes: &FxHashSet<String>,
+) {
+    for name in local_writes {
+        let Some(binding) = join_local_list(branch_bindings, name) else {
+            base.locals.clear_name(name);
+            continue;
+        };
+        base.locals.set_list(name, binding);
+    }
+}
+
+fn join_local_list(branch_bindings: &[SettingsBindings], name: &str) -> Option<LocalListBinding> {
+    let mut values = Vec::new();
+
+    for bindings in branch_bindings {
+        let binding = bindings.locals.list_binding(name)?;
+        for value in &binding.values {
+            if !values.contains(value) {
+                values.push(value.clone());
+            }
+        }
+    }
+
+    Some(LocalListBinding::partial(values))
 }

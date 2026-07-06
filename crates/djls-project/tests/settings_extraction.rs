@@ -1,4 +1,9 @@
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use djls_project::Interpreter;
+use djls_project::SearchPaths;
 use djls_project::testing::django_settings;
+use djls_source::Db as _;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
@@ -36,7 +41,7 @@ TEMPLATES = [
 }
 
 #[test]
-fn split_settings_non_star_import_degrades_imported_name() {
+fn split_settings_non_star_import_resolves_imported_setting() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings.local")
@@ -53,6 +58,121 @@ INSTALLED_APPS = ["django.contrib.admin", "blog"]
             r#"
 from .base import INSTALLED_APPS
 TEMPLATES = [{"DIRS": ["templates"], "APP_DIRS": True}]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn split_settings_aliased_non_star_import_feeds_installed_apps() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings.local")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings/__init__.py", "")
+        .file(
+            "/proj/myproject/settings/base.py",
+            r#"
+INSTALLED_APPS = ["django.contrib.auth"]
+"#,
+        )
+        .file(
+            "/proj/myproject/settings/local.py",
+            r#"
+from .base import INSTALLED_APPS as BASE_APPS
+INSTALLED_APPS = BASE_APPS + ["blog"]
+TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn split_settings_non_star_import_chain_resolves_imported_setting() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings.local")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings/__init__.py", "")
+        .file(
+            "/proj/myproject/settings/common.py",
+            r#"
+COMMON_APPS = ["django.contrib.auth"]
+"#,
+        )
+        .file(
+            "/proj/myproject/settings/base.py",
+            r#"
+from .common import COMMON_APPS
+INSTALLED_APPS = COMMON_APPS + ["blog"]
+"#,
+        )
+        .file(
+            "/proj/myproject/settings/local.py",
+            r#"
+from .base import INSTALLED_APPS
+TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn split_settings_cyclic_non_star_import_does_not_hang() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings.local")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings/__init__.py", "")
+        .file(
+            "/proj/myproject/settings/base.py",
+            r#"
+from .local import INSTALLED_APPS as LOCAL_APPS
+INSTALLED_APPS = ["django.contrib.auth"]
+"#,
+        )
+        .file(
+            "/proj/myproject/settings/local.py",
+            r#"
+from .base import INSTALLED_APPS
+TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn non_star_import_from_extra_search_path_is_not_followed() {
+    let mut db = TestDatabase::new();
+    db.add_file(
+        "/vendor/vendor_settings.py",
+        r#"
+INSTALLED_APPS = ["vendor"]
+"#,
+    );
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/proj"),
+        &Interpreter::Auto,
+        &[Utf8PathBuf::from("/vendor")],
+    );
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .search_paths(search_paths)
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+from vendor_settings import INSTALLED_APPS
+TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
 "#,
         )
         .install(&mut db);
@@ -90,7 +210,7 @@ TEMPLATES[0]["DIRS"].append(BASE_DIR / "local_templates")
 }
 
 #[test]
-fn composed_app_lists_via_literal_aliases_degrade() {
+fn composed_app_lists_via_literal_aliases_extract() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -110,7 +230,7 @@ TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
 }
 
 #[test]
-fn duplicate_template_dirs_keys_append_values() {
+fn duplicate_template_dirs_keys_use_last_value() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -135,7 +255,7 @@ TEMPLATES = [
 }
 
 #[test]
-fn unknown_template_backend_spread_keeps_surrounding_keys() {
+fn template_backend_spread_erases_prior_keys() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -180,7 +300,7 @@ TEMPLATES[0]["DIRS"].insert(0, "first")
 }
 
 #[test]
-fn ambiguous_branch_alias_degrades_installed_apps() {
+fn ambiguous_branch_alias_extracts_partial_installed_apps() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")

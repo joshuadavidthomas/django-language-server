@@ -187,52 +187,116 @@ pub(crate) enum TemplateDirPath {
     Unknown,
 }
 
-/// `from X import *`; the caller resolves the imported source.
+/// `from X import name`; the caller resolves the imported source.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct SettingsStarImport {
+pub(crate) struct SettingsImport {
     pub(crate) level: u32,
     pub(crate) module: Option<String>,
 }
 
-/// Resolved source for a `from X import *` import.
+/// Resolved source for a settings import.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SettingsSource {
     pub(crate) source: String,
     pub(crate) path: Utf8PathBuf,
 }
 
-/// Caller-supplied source lookup for star imports.
+/// Caller-supplied source lookup for settings imports.
 pub(crate) trait SettingsSourceResolver {
-    /// Return the source for the referenced module, or `None` if it cannot be resolved.
+    /// Return the source for a star-imported module, or `None` if it cannot be resolved.
     fn resolve_star_import(
         &mut self,
-        import: &SettingsStarImport,
+        import: &SettingsImport,
         importer: &Utf8Path,
     ) -> Option<SettingsSource>;
+
+    /// Return the source for a named-imported module, or `None` if it cannot be followed.
+    fn resolve_named_import(
+        &mut self,
+        import: &SettingsImport,
+        importer: &Utf8Path,
+    ) -> Option<SettingsSource>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LocalListBinding {
+    pub(crate) values: Vec<String>,
+    pub(crate) extraction: SettingExtraction,
+}
+
+impl LocalListBinding {
+    pub(crate) fn full(values: Vec<String>) -> Self {
+        Self {
+            values,
+            extraction: SettingExtraction::Full,
+        }
+    }
+
+    pub(crate) fn partial(values: Vec<String>) -> Self {
+        Self {
+            values,
+            extraction: SettingExtraction::Partial,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn is_fully_extracted(&self) -> bool {
+        matches!(self.extraction, SettingExtraction::Full)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct LocalBindings {
     bools: FxHashMap<String, bool>,
     paths: PythonPathBindings,
+    lists: FxHashMap<String, LocalListBinding>,
 }
 
 impl LocalBindings {
     pub(crate) fn extend(&mut self, other: Self) {
         for name in other.bools.keys() {
             self.paths.remove(name.as_str());
+            self.lists.remove(name.as_str());
         }
         for name in other.paths.names() {
             self.bools.remove(name);
+            self.lists.remove(name);
+        }
+        for name in other.lists.keys() {
+            self.bools.remove(name.as_str());
+            self.paths.remove(name.as_str());
         }
 
         self.bools.extend(other.bools);
         self.paths.extend(other.paths);
+        self.lists.extend(other.lists);
+    }
+
+    pub(crate) fn bind_imported_local(
+        &mut self,
+        imported: &Self,
+        imported_name: &str,
+        bound_name: &str,
+    ) -> bool {
+        if let Some(list) = imported.lists.get(imported_name) {
+            self.set_list(bound_name, list.clone());
+            return true;
+        }
+        if let Some(value) = imported.bool_value(imported_name) {
+            self.set_bool(bound_name, value);
+            return true;
+        }
+        if let Some(path) = imported.paths.get(imported_name) {
+            self.set_path(bound_name, path.clone());
+            return true;
+        }
+        false
     }
 
     pub(crate) fn set_bool(&mut self, name: impl Into<String>, value: bool) {
         let name = name.into();
         self.paths.remove(&name);
+        self.lists.remove(&name);
         self.bools.insert(name, value);
     }
 
@@ -247,11 +311,33 @@ impl LocalBindings {
     pub(crate) fn set_path(&mut self, name: impl Into<String>, value: Utf8PathBuf) {
         let name = name.into();
         self.bools.remove(&name);
+        self.lists.remove(&name);
         self.paths.set(name, value);
     }
 
     pub(crate) fn remove_path(&mut self, name: &str) {
         self.paths.remove(name);
+    }
+
+    pub(crate) fn set_list(&mut self, name: impl Into<String>, value: LocalListBinding) {
+        let name = name.into();
+        self.bools.remove(&name);
+        self.paths.remove(&name);
+        self.lists.insert(name, value);
+    }
+
+    pub(crate) fn remove_list(&mut self, name: &str) {
+        self.lists.remove(name);
+    }
+
+    pub(crate) fn list_binding(&self, name: &str) -> Option<&LocalListBinding> {
+        self.lists.get(name)
+    }
+
+    pub(crate) fn clear_name(&mut self, name: &str) {
+        self.bools.remove(name);
+        self.paths.remove(name);
+        self.lists.remove(name);
     }
 
     pub(crate) fn path_bindings(&self) -> &PythonPathBindings {

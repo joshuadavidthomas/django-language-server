@@ -10,9 +10,9 @@ templates:
   backends:
     - backend: django.template.backends.django.DjangoTemplates
       dirs:
-        - resolved: /proj/myproject/templates
+        - resolved: /proj/myproject/second
       app_dirs: true
       libraries: []
       builtins: []
-      extraction: partial
-  extraction: partial
+      extraction: full
+  extraction: full

@@ -60,9 +60,17 @@ pub(super) fn evaluate_dirs_extension(value: &ast::Expr, env: &EvalEnv<'_>) -> D
 
 fn evaluate_template_backend(dict: &ast::ExprDict, env: &EvalEnv<'_>) -> TemplateBackend {
     let mut backend = TemplateBackend::default();
-    for item in &dict.items {
-        let Some(key_expr) = &item.key else {
+    let first_item = dict
+        .items
+        .iter()
+        .rposition(|item| item.key.is_none())
+        .map_or(0, |index| {
             backend.mark_partial();
+            index + 1
+        });
+
+    for item in dict.items.iter().skip(first_item) {
+        let Some(key_expr) = &item.key else {
             continue;
         };
         let Some(key) = key_expr.string_literal() else {
@@ -70,15 +78,23 @@ fn evaluate_template_backend(dict: &ast::ExprDict, env: &EvalEnv<'_>) -> Templat
             continue;
         };
         match key {
-            "BACKEND" => match item.value.string_literal() {
-                Some(value) => backend.backend = Some(value.to_string()),
-                None => backend.mark_partial(),
-            },
+            "BACKEND" => {
+                if let Some(value) = item.value.string_literal() {
+                    backend.backend = Some(value.to_string());
+                } else {
+                    backend.backend = None;
+                    backend.mark_partial();
+                }
+            }
             "DIRS" => evaluate_template_dirs(&item.value, env, &mut backend),
-            "APP_DIRS" => match item.value.bool_literal() {
-                Some(value) => backend.app_dirs = Some(value),
-                None => backend.mark_partial(),
-            },
+            "APP_DIRS" => {
+                if let Some(value) = item.value.bool_literal() {
+                    backend.app_dirs = Some(value);
+                } else {
+                    backend.app_dirs = None;
+                    backend.mark_partial();
+                }
+            }
             "OPTIONS" => evaluate_template_options(&item.value, &mut backend),
             _ => {}
         }
@@ -87,6 +103,7 @@ fn evaluate_template_backend(dict: &ast::ExprDict, env: &EvalEnv<'_>) -> Templat
 }
 
 fn evaluate_template_dirs(value: &ast::Expr, env: &EvalEnv<'_>, backend: &mut TemplateBackend) {
+    backend.dirs.clear();
     let ast::Expr::List(list) = value else {
         backend.mark_partial();
         return;
@@ -101,6 +118,8 @@ fn evaluate_template_dirs(value: &ast::Expr, env: &EvalEnv<'_>, backend: &mut Te
 }
 
 fn evaluate_template_options(value: &ast::Expr, backend: &mut TemplateBackend) {
+    backend.libraries.clear();
+    backend.builtins.clear();
     let ast::Expr::Dict(dict) = value else {
         backend.mark_partial();
         return;
