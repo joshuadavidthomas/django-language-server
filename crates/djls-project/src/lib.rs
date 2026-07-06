@@ -161,6 +161,13 @@ pub mod testing {
             .len()
     }
 
+    pub fn django_settings(
+        db: &dyn super::Db,
+        project: super::Project,
+    ) -> impl serde::Serialize + '_ {
+        crate::settings::django_settings(db, project)
+    }
+
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TemplateLibraryInput {
         Builtin {

@@ -1,0 +1,19 @@
+---
+source: crates/djls-project/tests/settings_extraction.rs
+expression: "django_settings(&db, project)"
+---
+installed_apps:
+  values:
+    - blog
+  extraction: full
+templates:
+  backends:
+    - backend: django.template.backends.django.DjangoTemplates
+      dirs:
+        - resolved: /proj/myproject/first
+        - resolved: /proj/myproject/second
+      app_dirs: true
+      libraries: []
+      builtins: []
+      extraction: full
+  extraction: full

@@ -1,6 +1,7 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use rustc_hash::FxHashMap;
+use serde::Serialize;
 
 use crate::python::PythonModuleName;
 use crate::python::PythonPathBindings;
@@ -8,7 +9,8 @@ use crate::python::PythonPathBindings;
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 
 /// How completely a watched settings value was extracted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum SettingExtraction {
     Full,
     Partial,
@@ -16,7 +18,7 @@ pub(crate) enum SettingExtraction {
 }
 
 /// A best-effort string list setting such as `INSTALLED_APPS`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct InstalledAppsSetting {
     pub(crate) values: Vec<String>,
     pub(crate) extraction: SettingExtraction,
@@ -73,7 +75,7 @@ impl InstalledAppsSetting {
 }
 
 /// The statically extracted subset of Django's `TEMPLATES` setting.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct TemplateSettings {
     pub(crate) backends: Vec<TemplateBackend>,
     pub(crate) extraction: SettingExtraction,
@@ -125,7 +127,7 @@ impl TemplateSettings {
 }
 
 /// One entry in Django's `TEMPLATES` setting.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct TemplateBackend {
     pub(crate) backend: Option<String>,
     pub(crate) dirs: Vec<TemplateDirPath>,
@@ -171,14 +173,15 @@ impl TemplateBackend {
 }
 
 /// The statically extracted subset of a Django settings module.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub(crate) struct DjangoSettings {
     pub(crate) installed_apps: InstalledAppsSetting,
     pub(crate) templates: TemplateSettings,
 }
 
 /// A path expression evaluated against the settings file's own location.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum TemplateDirPath {
     Resolved(Utf8PathBuf),
     Unknown,
