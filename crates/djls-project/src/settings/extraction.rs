@@ -24,6 +24,7 @@ use rustc_hash::FxHashSet;
 use crate::settings::extraction::bindings::SettingsBindings;
 use crate::settings::extraction::traversal::SettingsBindingsCollector;
 use crate::settings::types::DjangoSettings;
+use crate::settings::types::SettingsParseStatus;
 use crate::settings::types::SettingsSource;
 use crate::settings::types::SettingsSourceResolver;
 
@@ -37,9 +38,11 @@ pub(crate) fn extract_settings(
     module_path: &Utf8Path,
     resolver: &mut dyn SettingsSourceResolver,
 ) -> DjangoSettings {
-    SettingsExtraction::default()
-        .extract_module(source, module_path, resolver)
-        .to_settings()
+    let mut extraction = SettingsExtraction::default();
+    let (bindings, parse_status) = extraction.extract_module(source, module_path, resolver);
+    let mut settings = bindings.to_settings();
+    settings.parse_status = parse_status;
+    settings
 }
 
 #[derive(Debug, Default)]
@@ -54,28 +57,33 @@ impl SettingsExtraction {
         source: &str,
         module_path: &Utf8Path,
         resolver: &mut dyn SettingsSourceResolver,
-    ) -> Arc<SettingsBindings> {
+    ) -> (Arc<SettingsBindings>, SettingsParseStatus) {
         let path = module_path.to_path_buf();
         if let Some(cached) = self.cache.get(&path) {
-            return Arc::clone(cached);
+            return (Arc::clone(cached), SettingsParseStatus::Parsed);
         }
         if !self.active.insert(path.clone()) {
-            return Arc::new(SettingsBindings::default());
+            return (
+                Arc::new(SettingsBindings::default()),
+                SettingsParseStatus::Parsed,
+            );
         }
 
         let mut collector = SettingsBindingsCollector::new(module_path, resolver, self);
 
-        if let Ok(parsed) = parse_module(source) {
+        let parse_status = if let Ok(parsed) = parse_module(source) {
             let module = parsed.into_syntax();
             collector.walk_body(&module.body);
+            SettingsParseStatus::Parsed
         } else {
             collector.mark_syntax_error();
-        }
+            SettingsParseStatus::Unparseable
+        };
 
         let bindings = Arc::new(collector.into_bindings());
         self.active.remove(&path);
         self.cache.insert(path, Arc::clone(&bindings));
-        bindings
+        (bindings, parse_status)
     }
 
     fn extract_import_source(
@@ -86,7 +94,10 @@ impl SettingsExtraction {
         if self.active.contains(&imported.path) {
             return None;
         }
-        Some(self.extract_module(&imported.source, &imported.path, resolver))
+        Some(
+            self.extract_module(&imported.source, &imported.path, resolver)
+                .0,
+        )
     }
 }
 
@@ -97,7 +108,7 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
-    use crate::settings::types::SettingExtraction;
+    use crate::ExtractionStatus;
     use crate::settings::types::SettingsImport;
     use crate::settings::types::TemplateDirPath;
 
@@ -190,7 +201,10 @@ mod tests {
     #[test]
     fn literal_tuple_assignment_is_full() {
         let settings = extract("INSTALLED_APPS = ('django.contrib.auth', 'app')");
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(
             settings.installed_apps.values,
             ["django.contrib.auth", "app"]
@@ -200,7 +214,10 @@ mod tests {
     #[test]
     fn annotated_assignment_is_full() {
         let settings = extract("INSTALLED_APPS: list[str] = ['app']");
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(settings.installed_apps.values, ["app"]);
     }
 
@@ -265,7 +282,7 @@ mod tests {
         let settings = extract("INSTALLED_APPS = ['a', env('EXTRA'), 'b']");
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Partial
+            ExtractionStatus::Partial
         );
         assert_eq!(settings.installed_apps.values, ["a", "b"]);
     }
@@ -275,7 +292,7 @@ mod tests {
         let settings = extract("INSTALLED_APPS = get_apps()");
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Unsupported
+            ExtractionStatus::Partial
         );
         assert!(settings.installed_apps.values.is_empty());
     }
@@ -321,7 +338,7 @@ mod tests {
         );
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Partial
+            ExtractionStatus::Partial
         );
         assert_eq!(settings.installed_apps.values, ["base", "debug", "prod"]);
     }
@@ -335,7 +352,10 @@ mod tests {
             Utf8Path::new("/project/config/settings.py"),
             &mut resolver,
         );
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(settings.installed_apps.values, ["local"]);
     }
 
@@ -351,7 +371,7 @@ mod tests {
             &mut resolver,
         );
 
-        assert_eq!(settings.templates.extraction, SettingExtraction::Partial);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
         assert_eq!(
             settings.templates.backends[0].dirs,
             [TemplateDirPath::Unknown]
@@ -370,7 +390,7 @@ mod tests {
             &mut resolver,
         );
 
-        assert_eq!(settings.templates.extraction, SettingExtraction::Full);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
         assert_eq!(
             settings.templates.backends[0].dirs,
             [TemplateDirPath::Resolved(Utf8PathBuf::from(
@@ -389,7 +409,10 @@ mod tests {
             &mut resolver,
         );
 
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(settings.installed_apps.values, ["local"]);
     }
 
@@ -398,9 +421,9 @@ mod tests {
         let settings = extract("from missing import *");
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Partial
+            ExtractionStatus::Partial
         );
-        assert_eq!(settings.templates.extraction, SettingExtraction::Partial);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
     }
 
     #[test]
@@ -412,7 +435,10 @@ mod tests {
             &mut resolver,
         );
 
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(settings.installed_apps.values, ["base", "local"]);
     }
 
@@ -427,7 +453,7 @@ mod tests {
 
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Unsupported
+            ExtractionStatus::Partial
         );
         assert!(settings.installed_apps.values.is_empty());
     }
@@ -440,7 +466,7 @@ mod tests {
              TEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
         );
 
-        assert_eq!(settings.templates.extraction, SettingExtraction::Full);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
         assert_eq!(
             settings.templates.backends[0].dirs,
             [TemplateDirPath::Resolved(Utf8PathBuf::from(
@@ -459,7 +485,7 @@ mod tests {
             &mut resolver,
         );
 
-        assert_eq!(settings.templates.extraction, SettingExtraction::Full);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
         assert_eq!(
             settings.templates.backends[0].dirs,
             [TemplateDirPath::Resolved(Utf8PathBuf::from(
@@ -482,7 +508,10 @@ mod tests {
             &mut resolver,
         );
 
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(settings.installed_apps.values, ["common", "base"]);
     }
 
@@ -498,7 +527,10 @@ mod tests {
             &mut resolver,
         );
 
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(settings.installed_apps.values, ["local"]);
     }
 
@@ -506,7 +538,10 @@ mod tests {
     fn tuple_literal_local_can_feed_installed_apps() {
         let settings = extract("LOCAL_APPS = ('a', 'b')\nINSTALLED_APPS = LOCAL_APPS");
 
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(settings.installed_apps.values, ["a", "b"]);
     }
 
@@ -517,7 +552,7 @@ mod tests {
 
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Partial
+            ExtractionStatus::Partial
         );
         assert!(settings.installed_apps.values.is_empty());
     }
@@ -557,10 +592,10 @@ mod tests {
     #[test]
     fn non_literal_backend_is_partial() {
         let settings = extract("TEMPLATES = [{'BACKEND': backend_name}]");
-        assert_eq!(settings.templates.extraction, SettingExtraction::Partial);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
         assert_eq!(
             settings.templates.backends[0].extraction,
-            SettingExtraction::Partial
+            ExtractionStatus::Partial
         );
     }
 
@@ -568,7 +603,7 @@ mod tests {
     fn template_backend_spread_then_reset_keeps_later_key_fact() {
         let settings = extract("TEMPLATES = [{'DIRS': ['a'], **extra, 'DIRS': ['b']}]");
 
-        assert_eq!(settings.templates.extraction, SettingExtraction::Partial);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
         assert_eq!(settings.templates.backends[0].dirs.len(), 1);
         assert_eq!(
             settings.templates.backends[0].dirs[0],
@@ -595,7 +630,7 @@ mod tests {
     #[test]
     fn unknown_path_call_becomes_unknown_path_value() {
         let settings = extract("TEMPLATES = [{'DIRS': [dynamic_path()]}]");
-        assert_eq!(settings.templates.extraction, SettingExtraction::Partial);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
         assert!(matches!(
             settings.templates.backends[0].dirs[0],
             TemplateDirPath::Unknown
@@ -608,7 +643,7 @@ mod tests {
             extract("INSTALLED_APPS = ['base']\nif FLAG:\n    INSTALLED_APPS = ['debug']");
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Partial
+            ExtractionStatus::Partial
         );
         assert_eq!(settings.installed_apps.values, ["debug", "base"]);
     }
@@ -621,7 +656,7 @@ mod tests {
 
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Partial
+            ExtractionStatus::Partial
         );
         assert_eq!(settings.installed_apps.values, ["a", "b"]);
     }
@@ -629,7 +664,10 @@ mod tests {
     #[test]
     fn unsupported_assignment_then_valid_assignment_is_full() {
         let settings = extract("INSTALLED_APPS = get_apps()\nINSTALLED_APPS = ['blog']");
-        assert_eq!(settings.installed_apps.extraction, SettingExtraction::Full);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
         assert_eq!(settings.installed_apps.values, ["blog"]);
     }
 
@@ -638,7 +676,7 @@ mod tests {
         let settings = extract("INSTALLED_APPS = get_apps()\nfrom missing import *");
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Unsupported
+            ExtractionStatus::Partial
         );
         assert!(settings.installed_apps.values.is_empty());
     }
@@ -648,8 +686,8 @@ mod tests {
         let settings = extract("INSTALLED_APPS = [");
         assert_eq!(
             settings.installed_apps.extraction,
-            SettingExtraction::Partial
+            ExtractionStatus::Partial
         );
-        assert_eq!(settings.templates.extraction, SettingExtraction::Partial);
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
     }
 }

@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 mod ast;
 mod db;
 mod discovery;
@@ -52,6 +54,7 @@ pub use templates::ExtractedDiagnosticMessage;
 pub use templates::ExtractedMessageArg;
 pub use templates::ExtractedMessageTemplate;
 pub use templates::FilterArity;
+pub use templates::FilterArityExtraction;
 pub use templates::FilterArityMap;
 pub use templates::FindTemplateResult;
 pub use templates::InvalidTemplateIdentifier;
@@ -87,6 +90,14 @@ pub use templates::resolve_relative_name;
 pub use templates::template_libraries;
 pub use templates::template_resolution;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ExtractionStatus {
+    Complete,
+    Partial,
+    Unparseable,
+}
+
 // Test and benchmark support only; not part of the stable Project Facts façade.
 #[doc(hidden)]
 pub mod testing {
@@ -104,6 +115,22 @@ pub mod testing {
         module_name: super::PythonModuleName,
     ) -> &super::ModelGraph {
         crate::models::extract_models(db, file, module_name).graph()
+    }
+
+    pub fn model_status(
+        db: &dyn djls_source::Db,
+        file: djls_source::File,
+        module_name: super::PythonModuleName,
+    ) -> impl serde::Serialize {
+        crate::models::extract_models(db, file, module_name).status()
+    }
+
+    pub fn filter_arity_status(
+        db: &dyn djls_source::Db,
+        file: djls_source::File,
+        module_name: super::PythonModuleName,
+    ) -> impl serde::Serialize {
+        crate::templates::extract_filter_arities(db, file, module_name).status()
     }
 
     #[must_use]

@@ -72,7 +72,7 @@ pub fn extract_models(
     module_name: PythonModuleName,
 ) -> ModelExtraction {
     let Some(parsed) = parse_python_module(db, file) else {
-        return ModelExtraction::default();
+        return ModelExtraction::unparseable();
     };
 
     let imports = import_table(db, file, module_name.clone());

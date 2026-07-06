@@ -556,20 +556,17 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
     }
 
-    if settings.installed_apps.is_usable_for_app_scan() {
-        for installed_app in &settings.installed_apps.values {
-            let Some(package_module) = installed_app_package_module(db, project, installed_app)
-            else {
-                inventory_complete = false;
-                continue;
-            };
-            let (scan_complete, discovered_libraries) =
-                templatetag_package_libraries(db, project, &package_module);
-            inventory_complete &= scan_complete;
-            for (load_name, module, symbols) in discovered_libraries {
-                installed_template_library_modules.insert(module.name().clone());
-                libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
-            }
+    for installed_app in &settings.installed_apps.values {
+        let Some(package_module) = installed_app_package_module(db, project, installed_app) else {
+            inventory_complete = false;
+            continue;
+        };
+        let (scan_complete, discovered_libraries) =
+            templatetag_package_libraries(db, project, &package_module);
+        inventory_complete &= scan_complete;
+        for (load_name, module, symbols) in discovered_libraries {
+            installed_template_library_modules.insert(module.name().clone());
+            libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
         }
     }
 

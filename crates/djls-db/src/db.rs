@@ -1180,10 +1180,10 @@ def my_filter(value, arg):
         // Should extract the filter
         let key = djls_project::SymbolKey::filter("test.project.tags", "my_filter");
         assert!(
-            result.contains_key(&key),
+            result.arities().contains_key(&key),
             "should extract filter from file content"
         );
-        assert!(result[&key].expects_arg);
+        assert!(result.arities()[&key].expects_arg);
 
         let other_module_result = djls_project::extract_filter_arities(
             &db,
@@ -1191,8 +1191,8 @@ def my_filter(value, arg):
             djls_project::PythonModuleName::parse("other.project.tags").unwrap(),
         );
         let other_key = djls_project::SymbolKey::filter("other.project.tags", "my_filter");
-        assert!(other_module_result.contains_key(&other_key));
-        assert!(!other_module_result.contains_key(&key));
+        assert!(other_module_result.arities().contains_key(&other_key));
+        assert!(!other_module_result.arities().contains_key(&key));
     }
 
     fn settings_with_custom_library(module_name: &str) -> String {

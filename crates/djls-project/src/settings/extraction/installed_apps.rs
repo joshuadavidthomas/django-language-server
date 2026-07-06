@@ -6,7 +6,6 @@ use crate::settings::extraction::bindings::ExtractedList;
 use crate::settings::extraction::bindings::ExtractedListStatus;
 use crate::settings::extraction::env::EvalEnv;
 use crate::settings::types::LocalListBinding;
-use crate::settings::types::SettingExtraction;
 
 pub(super) enum AssignmentEffect {
     Assign(ExtractedList<String>),
@@ -168,10 +167,7 @@ impl From<ExtractedList<String>> for LocalListBinding {
         if value.status.is_complete() {
             Self::full(value.values)
         } else {
-            Self {
-                values: value.values,
-                extraction: SettingExtraction::Partial,
-            }
+            Self::partial(value.values)
         }
     }
 }

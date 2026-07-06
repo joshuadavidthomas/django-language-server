@@ -9,6 +9,7 @@ mod tags;
 
 pub(crate) use candidates::discover_templatetag_candidate_paths;
 pub use filters::FilterArity;
+pub use filters::FilterArityExtraction;
 pub use filters::FilterArityMap;
 pub use filters::extract_filter_arities;
 pub use libraries::TemplateInventoryStatus;
