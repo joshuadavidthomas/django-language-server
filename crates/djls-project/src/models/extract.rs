@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::VecDeque;
 use std::ops::ControlFlow;
 
 use ruff_python_ast::Expr;
@@ -20,20 +23,63 @@ use crate::python::ImportTable;
 use crate::python::ModuleKind;
 use crate::python::PythonModuleName;
 
-pub(super) struct ModelCollector<'a> {
-    pub(super) module_name: PythonModuleName,
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ModelExtraction {
+    pub(super) graph: ModelGraph,
+    pub(super) deferred: Vec<DeferredModel>,
+}
+
+impl ModelExtraction {
+    #[must_use]
+    pub(crate) fn graph(&self) -> &ModelGraph {
+        &self.graph
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct DeferredModel {
+    pub(super) model: ModelDef,
+    pub(super) bases: Vec<DeferredBaseRef>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum DeferredBaseRef {
+    Qualified(PythonModuleName),
+    SameModule(ModelName),
+}
+
+struct DeferredCandidate<'a> {
+    class: &'a StmtClassDef,
+    bases: Vec<DeferredBaseRef>,
+}
+
+impl<'a> DeferredCandidate<'a> {
+    fn from_class(class: &'a StmtClassDef, imports: &ImportTable) -> Option<Self> {
+        let args = class.arguments.as_ref()?;
+        let bases: Vec<_> = args
+            .args
+            .iter()
+            .filter_map(|arg| DeferredBaseRef::from_expr(arg, imports))
+            .collect();
+
+        if bases.is_empty() {
+            return None;
+        }
+
+        Some(Self { class, bases })
+    }
+}
+
+struct ModelCollector<'a> {
+    module_name: PythonModuleName,
     source: &'a str,
     imports: &'a ImportTable,
-    pub(super) graph: ModelGraph,
-    pub(super) children: Vec<&'a StmtClassDef>,
+    graph: ModelGraph,
+    children: Vec<&'a StmtClassDef>,
 }
 
 impl<'a> ModelCollector<'a> {
-    pub(super) fn new(
-        module_name: PythonModuleName,
-        source: &'a str,
-        imports: &'a ImportTable,
-    ) -> Self {
+    fn new(module_name: PythonModuleName, source: &'a str, imports: &'a ImportTable) -> Self {
         Self {
             module_name,
             source,
@@ -43,7 +89,7 @@ impl<'a> ModelCollector<'a> {
         }
     }
 
-    pub(super) fn scan_stmt(&mut self, stmt: &'a Stmt) {
+    fn scan_stmt(&mut self, stmt: &'a Stmt) {
         if let Stmt::ClassDef(class) = stmt {
             let Some(ref args) = class.arguments else {
                 return;
@@ -67,12 +113,12 @@ impl<'a> ModelCollector<'a> {
     }
 }
 
-pub(super) fn resolve_children(
+fn resolve_children<'a>(
     graph: &mut ModelGraph,
-    children: &[&StmtClassDef],
+    children: &[&'a StmtClassDef],
     module_name: &PythonModuleName,
     source: &str,
-) {
+) -> Vec<&'a StmtClassDef> {
     let mut remaining: Vec<&StmtClassDef> = children.to_vec();
 
     // Fixed-point loop: each iteration may resolve new models, which in turn
@@ -137,6 +183,121 @@ pub(super) fn resolve_children(
             break;
         }
     }
+
+    remaining
+}
+
+pub(super) fn extract_models_impl(
+    source: &str,
+    stmts: &[Stmt],
+    module_name: PythonModuleName,
+    imports: &ImportTable,
+) -> ModelExtraction {
+    let mut collector = ModelCollector::new(module_name, source, imports);
+    walk_stmts(stmts, Recurse::Flat, |stmt| {
+        collector.scan_stmt(stmt);
+        ControlFlow::Continue(())
+    });
+    let remaining = resolve_children(
+        &mut collector.graph,
+        &collector.children,
+        &collector.module_name,
+        source,
+    );
+    let candidates: Vec<_> = remaining
+        .into_iter()
+        .filter_map(|class| DeferredCandidate::from_class(class, imports))
+        .collect();
+    let deferred = viable_deferred_candidates(candidates)
+        .into_iter()
+        .map(|candidate| DeferredModel::from_candidate(candidate, &collector.module_name, source))
+        .collect();
+    ModelExtraction {
+        graph: collector.graph,
+        deferred,
+    }
+}
+
+fn viable_deferred_candidates(
+    candidates: Vec<DeferredCandidate<'_>>,
+) -> Vec<DeferredCandidate<'_>> {
+    let mut viable_names = BTreeSet::new();
+    let mut queue = VecDeque::new();
+    let mut children_by_base: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+
+    // Same-module models can only come from this file, so a deferred child that
+    // reaches no qualified base through the same-file deferred graph can never
+    // resolve during the project pass. Build the reverse same-file inheritance
+    // graph once, then mark viability from qualified-base roots in one walk.
+    for (index, candidate) in candidates.iter().enumerate() {
+        let candidate_name = candidate.class.name.as_str();
+        if candidate
+            .bases
+            .iter()
+            .any(|base| matches!(base, DeferredBaseRef::Qualified(_)))
+            && viable_names.insert(candidate_name)
+        {
+            queue.push_back(candidate_name);
+        }
+
+        for base in &candidate.bases {
+            if let DeferredBaseRef::SameModule(name) = base {
+                children_by_base
+                    .entry(name.as_str())
+                    .or_default()
+                    .push(index);
+            }
+        }
+    }
+
+    while let Some(base_name) = queue.pop_front() {
+        let Some(children) = children_by_base.get(base_name) else {
+            continue;
+        };
+
+        for &index in children {
+            let candidate_name = candidates[index].class.name.as_str();
+            if viable_names.insert(candidate_name) {
+                queue.push_back(candidate_name);
+            }
+        }
+    }
+
+    candidates
+        .into_iter()
+        .filter(|candidate| viable_names.contains(candidate.class.name.as_str()))
+        .collect()
+}
+
+impl DeferredModel {
+    fn from_candidate(
+        candidate: DeferredCandidate<'_>,
+        module_name: &PythonModuleName,
+        source: &str,
+    ) -> Self {
+        let line = line_number(source, candidate.class.range.start().to_usize());
+        let mut model = ModelDef::new(candidate.class.name.to_string(), module_name.clone(), line);
+        walk_stmts(&candidate.class.body, Recurse::Flat, |stmt| {
+            process_class_body(stmt, &mut model);
+            ControlFlow::Continue(())
+        });
+
+        Self {
+            model,
+            bases: candidate.bases,
+        }
+    }
+}
+
+impl DeferredBaseRef {
+    fn from_expr(expr: &Expr, imports: &ImportTable) -> Option<Self> {
+        let path = expr.path_segments()?;
+        if let Ok(path) = imports.resolve_qualified_path(path.iter().map(String::as_str)) {
+            return Some(Self::Qualified(path));
+        }
+
+        base_class_name(expr).map(|name| Self::SameModule(ModelName::new(name)))
+    }
 }
 
 /// Extract the simple class name from a base class expression.
@@ -162,14 +323,12 @@ fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, imports: &ImportTa
                 .resolve_qualified_path(path.iter().map(String::as_str))
                 .ok()
         })
-        .any(|path| is_known_django_model_base(path.as_str()))
-}
-
-fn is_known_django_model_base(path: &str) -> bool {
-    matches!(
-        path,
-        "django.db.models.Model" | "django.contrib.gis.db.models.Model"
-    )
+        .any(|path| {
+            matches!(
+                path.as_str(),
+                "django.db.models.Model" | "django.contrib.gis.db.models.Model"
+            )
+        })
 }
 
 fn process_class_body(stmt: &Stmt, model: &mut ModelDef) {
@@ -354,7 +513,7 @@ mod tests {
             return ModelGraph::default();
         };
         let module = parsed.into_syntax();
-        super::super::extract_model_graph_impl(source, &module.body, module_name, &imports)
+        super::extract_models_impl(source, &module.body, module_name, &imports).graph
     }
 
     fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {

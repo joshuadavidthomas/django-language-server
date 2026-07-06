@@ -1643,7 +1643,7 @@ def my_filter(value, arg):
             .filter(|event| match &event.kind {
                 salsa::EventKind::WillExecute { database_key } => {
                     let name = db.ingredient_debug_name(database_key.ingredient_index());
-                    name.contains("extract_model_graph")
+                    name.contains("extract_models")
                 }
                 _ => false,
             })
@@ -1675,7 +1675,7 @@ def my_filter(value, arg):
             .filter(|event| match &event.kind {
                 salsa::EventKind::WillExecute { database_key } => {
                     let name = db.ingredient_debug_name(database_key.ingredient_index());
-                    name.contains("extract_model_graph")
+                    name.contains("extract_models")
                 }
                 _ => false,
             })

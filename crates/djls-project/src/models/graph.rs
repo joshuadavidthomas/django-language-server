@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::btree_map::Entry;
@@ -181,13 +180,15 @@ pub(crate) enum RelationTargetResolution {
     },
 }
 
-impl RelationTargetResolution {
-    fn file_local_placeholder() -> Self {
+impl Default for RelationTargetResolution {
+    fn default() -> Self {
         Self::Unresolved {
             reason: RelationTargetUnresolvedReason::FileLocal,
         }
     }
+}
 
+impl RelationTargetResolution {
     fn is_file_local_placeholder(&self) -> bool {
         matches!(
             self,
@@ -310,7 +311,7 @@ pub(crate) struct Relation {
     #[serde(flatten)]
     pub(crate) relation_type: RelationType,
     #[serde(
-        default = "RelationTargetResolution::file_local_placeholder",
+        default,
         skip_serializing_if = "RelationTargetResolution::is_file_local_placeholder"
     )]
     resolution: RelationTargetResolution,
@@ -322,7 +323,9 @@ impl Relation {
         Self {
             field_name,
             relation_type,
-            resolution: RelationTargetResolution::file_local_placeholder(),
+            resolution: RelationTargetResolution::Unresolved {
+                reason: RelationTargetUnresolvedReason::FileLocal,
+            },
         }
     }
 
@@ -420,16 +423,10 @@ fn substitute_related_name(template: &str, lower_model: &str, module_name: &str)
         return substituted;
     }
 
-    let app_label = lower_app_label(app_label_from_module_name(module_name).unwrap_or_default());
+    let app_label = app_label_from_module_name(module_name)
+        .unwrap_or_default()
+        .to_lowercase();
     substituted.replace("%(app_label)s", &app_label)
-}
-
-fn lower_app_label(app_label: &str) -> Cow<'_, str> {
-    if app_label.chars().any(char::is_uppercase) {
-        Cow::Owned(app_label.to_lowercase())
-    } else {
-        Cow::Borrowed(app_label)
-    }
 }
 
 /// Derive the app label from a dotted module name.
@@ -608,6 +605,16 @@ impl ModelGraph {
     #[must_use]
     pub fn get_by_id(&self, id: &ModelId) -> Option<&ModelDef> {
         self.models.get(id)
+    }
+
+    pub(crate) fn model_id_in_module(
+        &self,
+        module_name: &PythonModuleName,
+        name: &str,
+    ) -> Option<ModelId> {
+        self.models_named(name)
+            .find(|(id, _model)| id.module_name == *module_name)
+            .map(|(id, _model)| id.clone())
     }
 
     #[must_use = "iterators are lazy and do nothing unless consumed"]
