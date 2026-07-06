@@ -68,6 +68,8 @@ pub use templates::TagArgument;
 pub use templates::TagArgumentKind;
 pub use templates::TagRule;
 pub use templates::TagRuleMap;
+pub use templates::TemplateContextProcessor;
+pub use templates::TemplateContextProcessors;
 pub use templates::TemplateDoesNotExist;
 pub use templates::TemplateInventoryStatus;
 pub use templates::TemplateLibraries;
@@ -87,6 +89,7 @@ pub use templates::extract_block_specs;
 pub use templates::extract_filter_arities;
 pub use templates::extract_tag_rules;
 pub use templates::resolve_relative_name;
+pub use templates::template_context_processors;
 pub use templates::template_libraries;
 pub use templates::template_resolution;
 

@@ -1,9 +1,11 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_source::Spanned;
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 
 use crate::ExtractionStatus;
+use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::PythonPathBindings;
 
@@ -111,6 +113,7 @@ pub(crate) struct TemplateBackend {
     pub(crate) app_dirs: Option<bool>,
     pub(crate) libraries: Vec<(String, PythonModuleName)>,
     pub(crate) builtins: Vec<PythonModuleName>,
+    pub(crate) context_processors: Vec<Spanned<TemplateContextProcessorPath>>,
     pub(crate) extraction: ExtractionStatus,
 }
 
@@ -122,6 +125,7 @@ impl Default for TemplateBackend {
             app_dirs: None,
             libraries: Vec::new(),
             builtins: Vec::new(),
+            context_processors: Vec::new(),
             extraction: ExtractionStatus::Complete,
         }
     }
@@ -144,6 +148,22 @@ impl TemplateBackend {
 
     pub(crate) fn mark_partial(&mut self) {
         self.extraction = ExtractionStatus::Partial;
+    }
+}
+
+/// A dotted context processor callable path from `TEMPLATES[*]["OPTIONS"]`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+pub(crate) struct TemplateContextProcessorPath(String);
+
+impl TemplateContextProcessorPath {
+    pub(crate) fn parse(path: &str) -> Result<Self, InvalidModuleName> {
+        let name = PythonModuleName::parse(path)?;
+        Ok(Self(name.into_string()))
+    }
+
+    #[must_use]
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

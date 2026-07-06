@@ -16,5 +16,6 @@ templates:
       app_dirs: true
       libraries: []
       builtins: []
+      context_processors: []
       extraction: complete
   extraction: complete

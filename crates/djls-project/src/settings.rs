@@ -10,6 +10,7 @@ pub(crate) use types::DjangoSettings;
 pub(crate) use types::SettingsImport;
 pub(crate) use types::SettingsSource;
 pub(crate) use types::SettingsSourceResolver;
+pub(crate) use types::TemplateContextProcessorPath;
 pub(crate) use types::TemplateDirPath;
 
 use crate::db::Db as ProjectDb;

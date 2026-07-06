@@ -20,5 +20,6 @@ templates:
           - blog.templatetags.custom
       builtins:
         - django.templatetags.static
+      context_processors: []
       extraction: complete
   extraction: complete

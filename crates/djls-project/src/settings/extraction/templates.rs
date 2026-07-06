@@ -1,10 +1,13 @@
+use djls_source::Spanned;
 use ruff_python_ast as ast;
 
 use crate::ast::ExprExt;
+use crate::ast::RangedExt;
 use crate::python::PythonModuleName;
 use crate::settings::extraction::bindings::ExtractedList;
 use crate::settings::extraction::env::EvalEnv;
 use crate::settings::types::TemplateBackend;
+use crate::settings::types::TemplateContextProcessorPath;
 use crate::settings::types::TemplateDirPath;
 
 pub(super) enum AssignmentEffect {
@@ -120,6 +123,7 @@ fn evaluate_template_dirs(value: &ast::Expr, env: &EvalEnv<'_>, backend: &mut Te
 fn evaluate_template_options(value: &ast::Expr, backend: &mut TemplateBackend) {
     backend.libraries.clear();
     backend.builtins.clear();
+    backend.context_processors.clear();
     let ast::Expr::Dict(dict) = value else {
         backend.mark_partial();
         return;
@@ -146,6 +150,13 @@ fn evaluate_template_options(value: &ast::Expr, backend: &mut TemplateBackend) {
                 let builtins = extract_python_module_name_list(&item.value);
                 backend.builtins.extend(builtins.values);
                 if !builtins.status.is_complete() {
+                    backend.mark_partial();
+                }
+            }
+            "context_processors" => {
+                let context_processors = extract_context_processor_path_list(&item.value);
+                backend.context_processors.extend(context_processors.values);
+                if !context_processors.status.is_complete() {
                     backend.mark_partial();
                 }
             }
@@ -188,6 +199,27 @@ fn extract_python_module_name_list(value: &ast::Expr) -> ExtractedList<PythonMod
         };
         match PythonModuleName::parse(value) {
             Ok(module_name) => extracted.values.push(module_name),
+            Err(_) => extracted.status.mark_incomplete(),
+        }
+    }
+    extracted
+}
+
+fn extract_context_processor_path_list(
+    value: &ast::Expr,
+) -> ExtractedList<Spanned<TemplateContextProcessorPath>> {
+    let ast::Expr::List(list) = value else {
+        return ExtractedList::incomplete(Vec::new());
+    };
+
+    let mut extracted = ExtractedList::complete(Vec::new());
+    for element in &list.elts {
+        let Some(value) = element.string_literal() else {
+            extracted.status.mark_incomplete();
+            continue;
+        };
+        match TemplateContextProcessorPath::parse(value) {
+            Ok(path) => extracted.values.push(Spanned::new(path, element.span())),
             Err(_) => extracted.status.mark_incomplete(),
         }
     }

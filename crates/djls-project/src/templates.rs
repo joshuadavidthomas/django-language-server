@@ -1,4 +1,5 @@
 mod candidates;
+mod context_processors;
 mod filters;
 mod libraries;
 mod names;
@@ -8,6 +9,9 @@ mod symbols;
 mod tags;
 
 pub(crate) use candidates::discover_templatetag_candidate_paths;
+pub use context_processors::TemplateContextProcessor;
+pub use context_processors::TemplateContextProcessors;
+pub use context_processors::template_context_processors;
 pub use filters::FilterArity;
 pub use filters::FilterArityExtraction;
 pub use filters::FilterArityMap;

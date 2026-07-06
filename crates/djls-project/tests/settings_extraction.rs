@@ -320,3 +320,125 @@ TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
 
     insta::assert_yaml_snapshot!(django_settings(&db, project));
 }
+
+#[test]
+fn template_context_processors_literal_entries_extract() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn template_context_processors_mixed_invalid_entries_extract_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+UNKNOWN_PROCESSOR = "project.context_processors.dynamic"
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "project.context_processors.site",
+                42,
+                UNKNOWN_PROCESSOR,
+                "bad-module.processor",
+                "project.context_processors.request",
+            ],
+        },
+    },
+]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn template_context_processors_non_list_extracts_partial_backend() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {"context_processors": "project.context_processors.site"},
+    },
+]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn template_context_processors_conditional_assignment_keeps_both_branch_facts_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+if FLAG:
+    TEMPLATES = [
+        {
+            "BACKEND": "django.template.backends.django.DjangoTemplates",
+            "DIRS": [],
+            "APP_DIRS": True,
+            "OPTIONS": {"context_processors": ["project.context_processors.site"]},
+        },
+    ]
+else:
+    TEMPLATES = [
+        {
+            "BACKEND": "django.template.backends.django.DjangoTemplates",
+            "DIRS": [],
+            "APP_DIRS": True,
+            "OPTIONS": {"context_processors": ["project.context_processors.site"]},
+        },
+    ]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
