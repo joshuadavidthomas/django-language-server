@@ -4,116 +4,218 @@ expression: graph
 ---
 models:
   src.nomnom.nominate.models.AdminMessage:
-    name: AdminMessage
+    name:
+      value: AdminMessage
+      span:
+        start: 18254
+        length: 12
     module_name: src.nomnom.nominate.models
-    line: 534
     relations: []
     kind: concrete
   src.nomnom.nominate.models.Category:
-    name: Category
+    name:
+      value: Category
+      span:
+        start: 10937
+        length: 8
     module_name: src.nomnom.nominate.models
-    line: 310
     relations:
-      - field_name: election
+      - field_name:
+          value: election
+          span:
+            start: 11097
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Election
+          value:
+            kind: Bare
+            name: Election
+          span:
+            start: 11126
+            length: 8
         related_name: ~
     kind: concrete
   src.nomnom.nominate.models.Election:
-    name: Election
+    name:
+      value: Election
+      span:
+        start: 1834
+        length: 8
     module_name: src.nomnom.nominate.models
-    line: 58
     relations: []
     kind: concrete
   src.nomnom.nominate.models.Finalist:
-    name: Finalist
+    name:
+      value: Finalist
+      span:
+        start: 15711
+        length: 8
     module_name: src.nomnom.nominate.models
-    line: 456
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 16041
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 16070
+            length: 8
         related_name: ~
     kind: concrete
   src.nomnom.nominate.models.NominatingMemberProfile:
-    name: NominatingMemberProfile
+    name:
+      value: NominatingMemberProfile
+      span:
+        start: 915
+        length: 23
     module_name: src.nomnom.nominate.models
-    line: 28
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 1026
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: UserModel
+          value:
+            kind: Bare
+            name: UserModel
+          span:
+            start: 1063
+            length: 9
         related_name: convention_profile
     kind: concrete
   src.nomnom.nominate.models.Nomination:
-    name: Nomination
+    name:
+      value: Nomination
+      span:
+        start: 13004
+        length: 10
     module_name: src.nomnom.nominate.models
-    line: 375
     relations:
-      - field_name: nominator
+      - field_name:
+          value: nominator
+          span:
+            start: 13291
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: NominatingMemberProfile
+          value:
+            kind: Bare
+            name: NominatingMemberProfile
+          span:
+            start: 13330
+            length: 23
         related_name: ~
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 13405
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Category
+          value:
+            kind: Bare
+            name: Category
+          span:
+            start: 13434
+            length: 8
         related_name: ~
     kind: concrete
   src.nomnom.nominate.models.NominationAdminData:
-    name: NominationAdminData
+    name:
+      value: NominationAdminData
+      span:
+        start: 15498
+        length: 19
     module_name: src.nomnom.nominate.models
-    line: 448
     relations:
-      - field_name: nomination
+      - field_name:
+          value: nomination
+          span:
+            start: 15537
+            length: 10
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Nomination
+          value:
+            kind: Bare
+            name: Nomination
+          span:
+            start: 15580
+            length: 10
         related_name: admin
     kind: concrete
   src.nomnom.nominate.models.Rank:
-    name: Rank
+    name:
+      value: Rank
+      span:
+        start: 16816
+        length: 4
     module_name: src.nomnom.nominate.models
-    line: 493
     relations:
-      - field_name: membership
+      - field_name:
+          value: membership
+          span:
+            start: 17215
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: NominatingMemberProfile
+          value:
+            kind: Bare
+            name: NominatingMemberProfile
+          span:
+            start: 17255
+            length: 23
         related_name: ~
-      - field_name: finalist
+      - field_name:
+          value: finalist
+          span:
+            start: 17330
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Finalist
+          value:
+            kind: Bare
+            name: Finalist
+          span:
+            start: 17359
+            length: 8
         related_name: ~
     kind: concrete
   src.nomnom.nominate.models.ReportRecipient:
-    name: ReportRecipient
+    name:
+      value: ReportRecipient
+      span:
+        start: 17918
+        length: 15
     module_name: src.nomnom.nominate.models
-    line: 524
     relations: []
     kind: concrete
   src.nomnom.nominate.models.VotingInformation:
-    name: VotingInformation
+    name:
+      value: VotingInformation
+      span:
+        start: 10741
+        length: 17
     module_name: src.nomnom.nominate.models
-    line: 302
     relations:
-      - field_name: election
+      - field_name:
+          value: election
+          span:
+            start: 10778
+            length: 8
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Election
+          value:
+            kind: Bare
+            name: Election
+          span:
+            start: 10819
+            length: 8
         related_name: voting_info
     kind: concrete

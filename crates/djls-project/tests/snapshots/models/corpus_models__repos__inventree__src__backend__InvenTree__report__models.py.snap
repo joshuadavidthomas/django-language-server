@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   src.backend.InvenTree.report.models.ReportAsset:
-    name: ReportAsset
+    name:
+      value: ReportAsset
+      span:
+        start: 28262
+        length: 11
     module_name: src.backend.InvenTree.report.models
-    line: 820
     relations: []
     kind: concrete
   src.backend.InvenTree.report.models.ReportSnippet:
-    name: ReportSnippet
+    name:
+      value: ReportSnippet
+      span:
+        start: 27576
+        length: 13
     module_name: src.backend.InvenTree.report.models
-    line: 797
     relations: []
     kind: concrete

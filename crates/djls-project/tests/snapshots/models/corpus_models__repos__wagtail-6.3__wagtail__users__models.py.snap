@@ -4,16 +4,27 @@ expression: graph
 ---
 models:
   wagtail.users.models.UserProfile:
-    name: UserProfile
+    name:
+      value: UserProfile
+      span:
+        start: 462
+        length: 11
     module_name: wagtail.users.models
-    line: 20
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 493
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 530
+            length: 24
         related_name: wagtail_userprofile
     kind: concrete

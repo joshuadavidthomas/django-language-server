@@ -6,7 +6,9 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use serde::Deserialize;
+use djls_source::File;
+use djls_source::Span;
+use djls_source::Spanned;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -21,7 +23,7 @@ use crate::python::resolve_prefix;
 macro_rules! string_newtype {
     ($(#[doc = $doc:literal])* $vis:vis struct $Name:ident) => {
         $(#[doc = $doc])*
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
         #[serde(transparent)]
         $vis struct $Name(Arc<str>);
 
@@ -81,8 +83,8 @@ string_newtype! {
 /// found, and the name is the class name within that module. Serde represents
 /// the identity as a qualified import-style string such as
 /// `"django.contrib.auth.models.User"`.
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(into = "String")]
 pub struct ModelId {
     name: ModelName,
     module_name: PythonModuleName,
@@ -154,7 +156,7 @@ impl From<ModelId> for String {
 }
 
 /// A Django model relation reference as it appears in source.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(tag = "kind")]
 pub(crate) enum RelationTarget {
     SelfRef,
@@ -163,7 +165,7 @@ pub(crate) enum RelationTarget {
     Attribute { path: Vec<String> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub(crate) enum RelationTargetResolution {
     Resolved(ModelId),
     Ambiguous {
@@ -199,7 +201,7 @@ impl RelationTargetResolution {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub(crate) enum RelationTargetUnresolvedReason {
     /// per-file extraction cannot resolve targets; the project pass overwrites this placeholder
     FileLocal,
@@ -232,19 +234,19 @@ pub(crate) enum RelationTargetUnresolvedReason {
 /// Each variant carries its own data, so fields that don't apply to a given
 /// relation kind (e.g., `target` on a `GenericForeignKey`) are simply
 /// absent rather than wrapped in `Option`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(tag = "relation_type")]
 pub(crate) enum RelationType {
     ForeignKey {
-        target: RelationTarget,
+        target: Spanned<RelationTarget>,
         related_name: Option<String>,
     },
     OneToOne {
-        target: RelationTarget,
+        target: Spanned<RelationTarget>,
         related_name: Option<String>,
     },
     ManyToMany {
-        target: RelationTarget,
+        target: Spanned<RelationTarget>,
         related_name: Option<String>,
     },
     GenericForeignKey {
@@ -265,7 +267,7 @@ impl RelationType {
     #[must_use]
     pub(crate) fn from_field_class(
         name: &str,
-        target: RelationTarget,
+        target: Spanned<RelationTarget>,
         related_name: Option<String>,
     ) -> Option<Self> {
         match name {
@@ -291,7 +293,7 @@ impl RelationType {
 /// Currently tracks concrete vs. abstract models. An enum (rather than a
 /// boolean) so that future model kinds (e.g., proxy) can be added with
 /// exhaustive match enforcement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ModelKind {
     Concrete,
@@ -303,29 +305,43 @@ pub(crate) enum ModelKind {
 /// The `relation_type` variant determines what data is available:
 /// concrete relations (FK, O2O, M2M) carry a `target` and optional
 /// `related_name`, while `GenericForeignKey` carries `ct_field`/`fk_field`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 // `relation_type` is serialized fact schema across corpus snapshots.
 #[allow(clippy::struct_field_names)]
 pub(crate) struct Relation {
-    pub(crate) field_name: FieldName,
+    #[serde(skip)]
+    pub(crate) file: File,
+    pub(crate) field_name: Spanned<FieldName>,
     #[serde(flatten)]
     pub(crate) relation_type: RelationType,
-    #[serde(
-        default,
-        skip_serializing_if = "RelationTargetResolution::is_file_local_placeholder"
-    )]
+    #[serde(skip_serializing_if = "RelationTargetResolution::is_file_local_placeholder")]
     resolution: RelationTargetResolution,
 }
 
 impl Relation {
     #[must_use]
-    pub(crate) fn new(field_name: FieldName, relation_type: RelationType) -> Self {
+    pub(crate) fn new(
+        file: File,
+        field_name: Spanned<FieldName>,
+        relation_type: RelationType,
+    ) -> Self {
         Self {
+            file,
             field_name,
             relation_type,
             resolution: RelationTargetResolution::Unresolved {
                 reason: RelationTargetUnresolvedReason::FileLocal,
             },
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn target_span(&self) -> Option<Span> {
+        match &self.relation_type {
+            RelationType::ForeignKey { target, .. }
+            | RelationType::OneToOne { target, .. }
+            | RelationType::ManyToMany { target, .. } => Some(target.span()),
+            RelationType::GenericForeignKey { .. } => None,
         }
     }
 
@@ -338,7 +354,7 @@ impl Relation {
         match &self.relation_type {
             RelationType::ForeignKey { target, .. }
             | RelationType::OneToOne { target, .. }
-            | RelationType::ManyToMany { target, .. } => Some(target),
+            | RelationType::ManyToMany { target, .. } => Some(target.value()),
             RelationType::GenericForeignKey { .. } => None,
         }
     }
@@ -482,22 +498,28 @@ fn unresolved_import_path_reason(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ModelDef {
-    pub(crate) name: ModelName,
+    #[serde(skip)]
+    pub(crate) file: File,
+    pub(crate) name: Spanned<ModelName>,
     pub(crate) module_name: PythonModuleName,
-    pub(crate) line: usize,
     pub(crate) relations: Vec<Relation>,
     pub(crate) kind: ModelKind,
 }
 
 impl ModelDef {
     #[must_use]
-    pub fn new(name: impl Into<String>, module_name: PythonModuleName, line: usize) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        module_name: PythonModuleName,
+        file: File,
+        name_span: Span,
+    ) -> Self {
         Self {
-            name: ModelName::new(name),
+            file,
+            name: Spanned::new(ModelName::new(name), name_span),
             module_name,
-            line,
             relations: Vec::new(),
             kind: ModelKind::Concrete,
         }
@@ -524,27 +546,6 @@ impl PartialEq for ModelGraph {
 }
 
 impl Eq for ModelGraph {}
-
-impl<'de> Deserialize<'de> for ModelGraph {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct SerializedModelGraph {
-            models: BTreeMap<ModelId, ModelDef>,
-        }
-
-        let serialized = SerializedModelGraph::deserialize(deserializer)?;
-        let mut graph = Self {
-            models: serialized.models,
-            model_ids_by_name: BTreeMap::new(),
-            overwritten_model_ids: Vec::new(),
-        };
-        graph.rebuild_model_ids_by_name();
-        Ok(graph)
-    }
-}
 
 impl ModelGraph {
     #[must_use]
@@ -573,7 +574,7 @@ impl ModelGraph {
                             "{}.{}.{}",
                             id.module_name.as_str(),
                             id.name.as_str(),
-                            relation.field_name.as_str()
+                            relation.field_name.value().as_str()
                         )
                     })
             })
@@ -586,7 +587,7 @@ impl ModelGraph {
     }
 
     pub(crate) fn add_model(&mut self, model: ModelDef) {
-        let id = ModelId::new(model.module_name.clone(), model.name.clone());
+        let id = ModelId::new(model.module_name.clone(), model.name.value().clone());
         if self.models.insert(id.clone(), model).is_some() {
             self.overwritten_model_ids.push(id.clone());
         }
@@ -690,7 +691,7 @@ impl ModelGraph {
         model
             .relations
             .iter()
-            .find(|relation| relation.field_name.as_str() == field_name)
+            .find(|relation| relation.field_name.value().as_str() == field_name)
     }
 
     fn resolve_relation_target_entry(
@@ -747,7 +748,7 @@ impl ModelGraph {
                 }
 
                 relation
-                    .effective_related_name(model.name.as_str(), model.module_name.as_str())
+                    .effective_related_name(model.name.value().as_str(), model.module_name.as_str())
                     .map(|name| (source_id, name))
             })
         })
@@ -781,7 +782,7 @@ impl ModelGraph {
                 };
                 if target_id == scope
                     && relation.effective_related_name_matches(
-                        model.name.as_str(),
+                        model.name.value().as_str(),
                         model.module_name.as_str(),
                         field_name,
                     )
@@ -979,16 +980,6 @@ impl ModelGraph {
         }
     }
 
-    fn rebuild_model_ids_by_name(&mut self) {
-        self.model_ids_by_name.clear();
-        for id in self.models.keys() {
-            self.model_ids_by_name
-                .entry(id.name.clone())
-                .or_default()
-                .insert(id.clone());
-        }
-    }
-
     /// Merge another graph into this one.
     ///
     /// Models from `other` overwrite models with the same import identity in `self`.
@@ -1020,10 +1011,34 @@ impl ModelGraph {
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8Path;
+    use djls_testing::TestDatabase;
+
     use super::*;
 
     fn module_name(name: &str) -> PythonModuleName {
         PythonModuleName::parse(name).unwrap()
+    }
+
+    fn test_file() -> File {
+        let db = TestDatabase::new();
+        db.get_or_create_file(Utf8Path::new("/test.py"))
+    }
+
+    fn test_span(start: u32) -> Span {
+        Span::new(start, 1)
+    }
+
+    fn model_def(name: &str, module_name: PythonModuleName, line_hint: u32) -> ModelDef {
+        ModelDef::new(name, module_name, test_file(), test_span(line_hint))
+    }
+
+    fn relation(field_name: &str, relation_type: RelationType) -> Relation {
+        Relation::new(
+            test_file(),
+            Spanned::new(FieldName::new(field_name), test_span(0)),
+            relation_type,
+        )
     }
 
     fn model_id<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelId {
@@ -1037,28 +1052,34 @@ mod tests {
     fn user_order_graph() -> ModelGraph {
         let mut graph = ModelGraph::new();
 
-        let user = ModelDef::new("User", module_name("auth.models"), 1);
+        let user = model_def("User", module_name("auth.models"), 1);
 
-        let mut order = ModelDef::new("Order", module_name("shop.models"), 1);
-        order.relations.push(Relation::new(
-            "user".into(),
+        let mut order = model_def("Order", module_name("shop.models"), 1);
+        order.relations.push(relation(
+            "user",
             RelationType::ForeignKey {
-                target: RelationTarget::Qualified {
-                    app_label: "auth".into(),
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Qualified {
+                        app_label: "auth".into(),
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: Some("orders".into()),
             },
         ));
 
-        let mut profile = ModelDef::new("Profile", module_name("accounts.models"), 1);
-        profile.relations.push(Relation::new(
-            "user".into(),
+        let mut profile = model_def("Profile", module_name("accounts.models"), 1);
+        profile.relations.push(relation(
+            "user",
             RelationType::OneToOne {
-                target: RelationTarget::Qualified {
-                    app_label: "auth".into(),
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Qualified {
+                        app_label: "auth".into(),
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: None,
             },
         ));
@@ -1075,19 +1096,19 @@ mod tests {
         assert_eq!(
             graph
                 .resolve_forward(model_id(&graph, "Order"), "user")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("User")
         );
         assert_eq!(
             graph
                 .resolve_forward(model_id(&graph, "Profile"), "user")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("User")
         );
         assert_eq!(
             graph
                 .resolve_forward(model_id(&graph, "User"), "user")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             None
         );
     }
@@ -1109,19 +1130,19 @@ mod tests {
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "Order"), "user")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("User")
         );
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "User"), "orders")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("Order")
         );
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "User"), "profile")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             Some("Profile")
         );
     }
@@ -1130,26 +1151,32 @@ mod tests {
     fn unresolved_forward_relation_does_not_fall_through_to_reverse_lookup() {
         let mut graph = ModelGraph::new();
 
-        let mut user = ModelDef::new("User", module_name("auth.models"), 1);
-        user.relations.push(Relation::new(
-            "orders".into(),
+        let mut user = model_def("User", module_name("auth.models"), 1);
+        user.relations.push(relation(
+            "orders",
             RelationType::ForeignKey {
-                target: RelationTarget::Qualified {
-                    app_label: "missing".into(),
-                    name: ModelName::new("Order"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Qualified {
+                        app_label: "missing".into(),
+                        name: ModelName::new("Order"),
+                    },
+                    test_span(10),
+                ),
                 related_name: None,
             },
         ));
 
-        let mut order = ModelDef::new("Order", module_name("shop.models"), 1);
-        order.relations.push(Relation::new(
-            "user".into(),
+        let mut order = model_def("Order", module_name("shop.models"), 1);
+        order.relations.push(relation(
+            "user",
             RelationType::ForeignKey {
-                target: RelationTarget::Qualified {
-                    app_label: "auth".into(),
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Qualified {
+                        app_label: "auth".into(),
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: Some("orders".into()),
             },
         ));
@@ -1160,19 +1187,22 @@ mod tests {
         assert_eq!(
             graph
                 .resolve_relation(model_id(&graph, "User"), "orders")
-                .map(|model| model.name.as_str()),
+                .map(|model| model.name.value().as_str()),
             None
         );
     }
 
     #[test]
     fn default_related_name_fk() {
-        let rel = Relation::new(
-            "user".into(),
+        let rel = relation(
+            "user",
             RelationType::ForeignKey {
-                target: RelationTarget::Bare {
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: None,
             },
         );
@@ -1184,12 +1214,15 @@ mod tests {
 
     #[test]
     fn default_related_name_o2o() {
-        let rel = Relation::new(
-            "user".into(),
+        let rel = relation(
+            "user",
             RelationType::OneToOne {
-                target: RelationTarget::Bare {
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: None,
             },
         );
@@ -1201,12 +1234,15 @@ mod tests {
 
     #[test]
     fn class_substitution_in_related_name() {
-        let rel = Relation::new(
-            "user".into(),
+        let rel = relation(
+            "user",
             RelationType::ForeignKey {
-                target: RelationTarget::Bare {
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: Some("%(class)s_orders".into()),
             },
         );
@@ -1218,12 +1254,15 @@ mod tests {
 
     #[test]
     fn app_label_substitution_in_related_name() {
-        let rel = Relation::new(
-            "title".into(),
+        let rel = relation(
+            "title",
             RelationType::ForeignKey {
-                target: RelationTarget::Bare {
-                    name: ModelName::new("Title"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("Title"),
+                    },
+                    test_span(10),
+                ),
                 related_name: Some("attached_%(app_label)s_%(class)s_set".into()),
             },
         );
@@ -1235,12 +1274,15 @@ mod tests {
 
     #[test]
     fn app_label_from_nested_module_name() {
-        let rel = Relation::new(
-            "user".into(),
+        let rel = relation(
+            "user",
             RelationType::ForeignKey {
-                target: RelationTarget::Bare {
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: Some("%(app_label)s_%(class)s_set".into()),
             },
         );
@@ -1254,12 +1296,15 @@ mod tests {
     fn app_label_bare_models_path() {
         // A bare "models" module name has no valid app label — %(app_label)s
         // should substitute as empty rather than producing "models".
-        let rel = Relation::new(
-            "user".into(),
+        let rel = relation(
+            "user",
             RelationType::ForeignKey {
-                target: RelationTarget::Bare {
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: Some("%(app_label)s_%(class)s_set".into()),
             },
         );
@@ -1272,12 +1317,15 @@ mod tests {
     #[test]
     fn app_label_no_models_component() {
         // When "models" doesn't appear, falls back to first component.
-        let rel = Relation::new(
-            "user".into(),
+        let rel = relation(
+            "user",
             RelationType::ForeignKey {
-                target: RelationTarget::Bare {
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: Some("%(app_label)s_set".into()),
             },
         );
@@ -1290,13 +1338,19 @@ mod tests {
     #[test]
     fn models_named_returns_same_name_models_in_module_order() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("User", module_name("zeta.models"), 1));
-        graph.add_model(ModelDef::new("Group", module_name("auth.models"), 2));
-        graph.add_model(ModelDef::new("User", module_name("alpha.models"), 3));
+        graph.add_model(model_def("User", module_name("zeta.models"), 1));
+        graph.add_model(model_def("Group", module_name("auth.models"), 2));
+        graph.add_model(model_def("User", module_name("alpha.models"), 3));
 
         let users: Vec<_> = graph
             .models_named("User")
-            .map(|(id, model)| (id.module_name().as_str(), model.name.as_str(), model.line))
+            .map(|(id, model)| {
+                (
+                    id.module_name().as_str(),
+                    model.name.value().as_str(),
+                    model.name.span().start(),
+                )
+            })
             .collect();
 
         assert_eq!(
@@ -1309,17 +1363,19 @@ mod tests {
     #[test]
     fn lookup_entry_exact_requires_exact_app_label_and_model_name() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("User", module_name("auth.models"), 1));
+        graph.add_model(model_def("User", module_name("auth.models"), 1));
 
         let exact = graph
             .lookup_entry_exact("auth", "User")
             .expect("exact lookup should find an exact app label and model name");
-        assert_eq!(exact.1.name.as_str(), "User");
+        assert_eq!(exact.1.name.value().as_str(), "User");
 
         assert!(graph.lookup_entry_exact("auth", "user").is_none());
         assert!(graph.lookup_entry_exact("AUTH", "User").is_none());
         assert_eq!(
-            graph.lookup("auth", "user").map(|model| model.line),
+            graph
+                .lookup("auth", "user")
+                .map(|model| model.name.span().start()),
             Some(1)
         );
     }
@@ -1327,8 +1383,8 @@ mod tests {
     #[test]
     fn lookup_falls_back_to_django_name_matching() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("User", module_name("auth.models"), 1));
-        graph.add_model(ModelDef::new("Éclair", module_name("Café.models"), 2));
+        graph.add_model(model_def("User", module_name("auth.models"), 1));
+        graph.add_model(model_def("Éclair", module_name("Café.models"), 2));
 
         let exact = graph
             .lookup("auth", "User")
@@ -1349,45 +1405,51 @@ mod tests {
     #[test]
     fn lookup_normalizes_app_label_and_model_name() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("User", module_name("accounts.models"), 1));
+        graph.add_model(model_def("User", module_name("accounts.models"), 1));
 
         let model = graph
             .lookup("ACCOUNTS", "user")
             .expect("lookup should normalize app label and model name");
-        assert_eq!(model.name.as_str(), "User");
+        assert_eq!(model.name.value().as_str(), "User");
         assert_eq!(model.module_name.as_str(), "accounts.models");
     }
 
     #[test]
     fn relation_target_policy_resolves_self_bare_and_qualified() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("User", module_name("accounts.models"), 1));
-        graph.add_model(ModelDef::new("User", module_name("blog.models"), 1));
+        graph.add_model(model_def("User", module_name("accounts.models"), 1));
+        graph.add_model(model_def("User", module_name("blog.models"), 1));
 
-        let mut post = ModelDef::new("Post", module_name("blog.models"), 1);
-        post.relations.push(Relation::new(
-            "author".into(),
+        let mut post = model_def("Post", module_name("blog.models"), 1);
+        post.relations.push(relation(
+            "author",
             RelationType::ForeignKey {
-                target: RelationTarget::Bare {
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: None,
             },
         ));
-        post.relations.push(Relation::new(
-            "account_author".into(),
+        post.relations.push(relation(
+            "account_author",
             RelationType::ForeignKey {
-                target: RelationTarget::Qualified {
-                    app_label: "accounts".into(),
-                    name: ModelName::new("User"),
-                },
+                target: Spanned::new(
+                    RelationTarget::Qualified {
+                        app_label: "accounts".into(),
+                        name: ModelName::new("User"),
+                    },
+                    test_span(10),
+                ),
                 related_name: None,
             },
         ));
-        post.relations.push(Relation::new(
-            "parent".into(),
+        post.relations.push(relation(
+            "parent",
             RelationType::ForeignKey {
-                target: RelationTarget::SelfRef,
+                target: Spanned::new(RelationTarget::SelfRef, test_span(10)),
                 related_name: None,
             },
         ));
@@ -1416,8 +1478,8 @@ mod tests {
 
     #[test]
     fn generic_foreign_key_has_no_related_name() {
-        let rel = Relation::new(
-            "content_object".into(),
+        let rel = relation(
+            "content_object",
             RelationType::GenericForeignKey {
                 ct_field: "content_type".into(),
                 fk_field: "object_id".into(),
@@ -1433,9 +1495,9 @@ mod tests {
     #[test]
     fn generic_foreign_key_skipped_in_forward_lookup() {
         let mut graph = ModelGraph::new();
-        let mut model = ModelDef::new("TaggedItem", module_name("tagging.models"), 1);
-        model.relations.push(Relation::new(
-            "content_object".into(),
+        let mut model = model_def("TaggedItem", module_name("tagging.models"), 1);
+        model.relations.push(relation(
+            "content_object",
             RelationType::GenericForeignKey {
                 ct_field: "content_type".into(),
                 fk_field: "object_id".into(),
@@ -1452,8 +1514,8 @@ mod tests {
     #[test]
     fn add_model_overwrites_same_identity() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("User", module_name("auth.models"), 1));
-        graph.add_model(ModelDef::new("User", module_name("auth.models"), 2));
+        graph.add_model(model_def("User", module_name("auth.models"), 1));
+        graph.add_model(model_def("User", module_name("auth.models"), 2));
 
         let expected_id = "auth.models.User".parse::<ModelId>().unwrap();
         let model = graph
@@ -1461,16 +1523,16 @@ mod tests {
             .expect("overwritten model should exist");
         assert_eq!(graph.len(), 1);
         assert_eq!(graph.overwritten_model_ids(), &[expected_id]);
-        assert_eq!(model.line, 2);
+        assert_eq!(model.name.span().start(), 2);
     }
 
     #[test]
     fn merge_overwrites_same_identity() {
         let mut g1 = ModelGraph::new();
-        g1.add_model(ModelDef::new("User", module_name("auth.models"), 1));
+        g1.add_model(model_def("User", module_name("auth.models"), 1));
 
         let mut g2 = ModelGraph::new();
-        g2.add_model(ModelDef::new("User", module_name("auth.models"), 2));
+        g2.add_model(model_def("User", module_name("auth.models"), 2));
 
         g1.merge(g2);
         let expected_id = "auth.models.User".parse::<ModelId>().unwrap();
@@ -1479,16 +1541,16 @@ mod tests {
             .expect("merged model should exist");
         assert_eq!(g1.len(), 1);
         assert_eq!(g1.overwritten_model_ids(), &[expected_id]);
-        assert_eq!(model.line, 2);
+        assert_eq!(model.name.span().start(), 2);
     }
 
     #[test]
     fn merge_graphs() {
         let mut g1 = ModelGraph::new();
-        g1.add_model(ModelDef::new("User", module_name("auth.models"), 1));
+        g1.add_model(model_def("User", module_name("auth.models"), 1));
 
         let mut g2 = ModelGraph::new();
-        g2.add_model(ModelDef::new("Order", module_name("shop.models"), 1));
+        g2.add_model(model_def("Order", module_name("shop.models"), 1));
 
         g1.merge(g2);
         assert_eq!(g1.len(), 2);
@@ -1500,8 +1562,8 @@ mod tests {
     #[test]
     fn same_named_models_in_different_modules_coexist() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("Comment", module_name("blog.models"), 1));
-        graph.add_model(ModelDef::new("Comment", module_name("news.models"), 1));
+        graph.add_model(model_def("Comment", module_name("blog.models"), 1));
+        graph.add_model(model_def("Comment", module_name("news.models"), 1));
 
         let comments: Vec<_> = graph
             .models_named("Comment")

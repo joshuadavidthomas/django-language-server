@@ -4,25 +4,48 @@ expression: graph
 ---
 models:
   geonode.favorite.models.Favorite:
-    name: Favorite
+    name:
+      value: Favorite
+      span:
+        start: 3754
+        length: 8
     module_name: geonode.favorite.models
-    line: 95
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 3782
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 3807
+            length: 24
         related_name: ~
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 3863
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 3896
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 3985
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id

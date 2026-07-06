@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   releases.models.Release:
-    name: Release
+    name:
+      value: Release
+      span:
+        start: 5349
+        length: 7
     module_name: releases.models
-    line: 164
     relations: []
     kind: concrete

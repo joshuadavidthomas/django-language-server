@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   misago.conf.models.Setting:
-    name: Setting
+    name:
+      value: Setting
+      span:
+        start: 625
+        length: 7
     module_name: misago.conf.models
-    line: 23
     relations: []
     kind: concrete

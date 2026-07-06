@@ -4,61 +4,123 @@ expression: graph
 ---
 models:
   actstream.models.Action:
-    name: Action
+    name:
+      value: Action
+      span:
+        start: 1448
+        length: 6
     module_name: actstream.models
-    line: 45
     relations:
-      - field_name: actor_content_type
+      - field_name:
+          value: actor_content_type
+          span:
+            start: 2380
+            length: 18
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2428
+            length: 11
         related_name: actor
-      - field_name: actor
+      - field_name:
+          value: actor
+          span:
+            start: 2591
+            length: 5
         relation_type: GenericForeignKey
         ct_field: actor_content_type
         fk_field: actor_object_id
-      - field_name: target_content_type
+      - field_name:
+          value: target_content_type
+          span:
+            start: 2781
+            length: 19
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2830
+            length: 11
         related_name: target
-      - field_name: target
+      - field_name:
+          value: target
+          span:
+            start: 3063
+            length: 6
         relation_type: GenericForeignKey
         ct_field: target_content_type
         fk_field: target_object_id
-      - field_name: action_object_content_type
+      - field_name:
+          value: action_object_content_type
+          span:
+            start: 3160
+            length: 26
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 3216
+            length: 11
         related_name: action_object
-      - field_name: action_object
+      - field_name:
+          value: action_object
+          span:
+            start: 3463
+            length: 13
         relation_type: GenericForeignKey
         ct_field: action_object_content_type
         fk_field: action_object_object_id
     kind: concrete
   actstream.models.Follow:
-    name: Follow
+    name:
+      value: Follow
+      span:
+        start: 514
+        length: 6
     module_name: actstream.models
-    line: 16
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 616
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 650
+            length: 24
         related_name: ~
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 727
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 769
+            length: 11
         related_name: ~
-      - field_name: follow_object
+      - field_name:
+          value: follow_object
+          span:
+            start: 896
+            length: 13
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id

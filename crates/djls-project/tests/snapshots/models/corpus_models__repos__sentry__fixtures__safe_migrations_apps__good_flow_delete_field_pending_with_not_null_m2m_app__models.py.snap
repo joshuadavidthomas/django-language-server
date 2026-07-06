@@ -4,26 +4,43 @@ expression: graph
 ---
 models:
   fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models.M2MTable:
-    name: M2MTable
+    name:
+      value: M2MTable
+      span:
+        start: 129
+        length: 8
     module_name: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models
-    line: 10
     relations: []
     kind: concrete
   fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models.OtherTable:
-    name: OtherTable
+    name:
+      value: OtherTable
+      span:
+        start: 86
+        length: 10
     module_name: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models
-    line: 6
     relations: []
     kind: concrete
   fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models.TestTable:
-    name: TestTable
+    name:
+      value: TestTable
+      span:
+        start: 325
+        length: 9
     module_name: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models
-    line: 17
     relations:
-      - field_name: excluded_projects
+      - field_name:
+          value: excluded_projects
+          span:
+            start: 354
+            length: 17
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: OtherTable
+          value:
+            kind: Bare
+            name: OtherTable
+          span:
+            start: 397
+            length: 10
         related_name: ~
     kind: concrete

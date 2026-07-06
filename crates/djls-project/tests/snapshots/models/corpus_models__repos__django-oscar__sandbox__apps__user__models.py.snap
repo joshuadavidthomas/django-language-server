@@ -4,16 +4,27 @@ expression: graph
 ---
 models:
   sandbox.apps.user.models.Profile:
-    name: Profile
+    name:
+      value: Profile
+      span:
+        start: 341
+        length: 7
     module_name: sandbox.apps.user.models
-    line: 15
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 425
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Attribute
-          path:
-            - compat
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - compat
+              - AUTH_USER_MODEL
+          span:
+            start: 453
+            length: 22
         related_name: profile
     kind: concrete

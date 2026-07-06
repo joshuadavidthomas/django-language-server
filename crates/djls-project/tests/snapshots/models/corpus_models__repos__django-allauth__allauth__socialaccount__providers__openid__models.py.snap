@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   allauth.socialaccount.providers.openid.models.OpenIDNonce:
-    name: OpenIDNonce
+    name:
+      value: OpenIDNonce
+      span:
+        start: 363
+        length: 11
     module_name: allauth.socialaccount.providers.openid.models
-    line: 16
     relations: []
     kind: concrete
   allauth.socialaccount.providers.openid.models.OpenIDStore:
-    name: OpenIDStore
+    name:
+      value: OpenIDStore
+      span:
+        start: 37
+        length: 11
     module_name: allauth.socialaccount.providers.openid.models
-    line: 4
     relations: []
     kind: concrete

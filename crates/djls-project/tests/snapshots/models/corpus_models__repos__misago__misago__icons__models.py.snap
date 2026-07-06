@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   misago.icons.models.Icon:
-    name: Icon
+    name:
+      value: Icon
+      span:
+        start: 37
+        length: 4
     module_name: misago.icons.models
-    line: 4
     relations: []
     kind: concrete

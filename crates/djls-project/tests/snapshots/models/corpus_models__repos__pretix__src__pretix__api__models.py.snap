@@ -4,71 +4,134 @@ expression: graph
 ---
 models:
   src.pretix.api.models.ApiCall:
-    name: ApiCall
+    name:
+      value: ApiCall
+      span:
+        start: 6496
+        length: 7
     module_name: src.pretix.api.models
-    line: 168
     relations: []
     kind: concrete
   src.pretix.api.models.WebHook:
-    name: WebHook
+    name:
+      value: WebHook
+      span:
+        start: 4334
+        length: 7
     module_name: src.pretix.api.models
-    line: 114
     relations:
-      - field_name: organizer
+      - field_name:
+          value: organizer
+          span:
+            start: 4361
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Organizer
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Organizer
+          span:
+            start: 4391
+            length: 22
         related_name: webhooks
-      - field_name: limit_events
+      - field_name:
+          value: limit_events
+          span:
+            start: 4744
+            length: 12
         relation_type: ManyToMany
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Event
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Event
+          span:
+            start: 4782
+            length: 18
         related_name: ~
     kind: concrete
   src.pretix.api.models.WebHookCall:
-    name: WebHookCall
+    name:
+      value: WebHookCall
+      span:
+        start: 5367
+        length: 11
     module_name: src.pretix.api.models
-    line: 140
     relations:
-      - field_name: webhook
+      - field_name:
+          value: webhook
+          span:
+            start: 5398
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: WebHook
+          value:
+            kind: Bare
+            name: WebHook
+          span:
+            start: 5426
+            length: 9
         related_name: calls
     kind: concrete
   src.pretix.api.models.WebHookCallRetry:
-    name: WebHookCallRetry
+    name:
+      value: WebHookCallRetry
+      span:
+        start: 5978
+        length: 16
     module_name: src.pretix.api.models
-    line: 156
     relations:
-      - field_name: webhook
+      - field_name:
+          value: webhook
+          span:
+            start: 6061
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: WebHook
+          value:
+            kind: Bare
+            name: WebHook
+          span:
+            start: 6089
+            length: 9
         related_name: retries
-      - field_name: logentry
+      - field_name:
+          value: logentry
+          span:
+            start: 6154
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: LogEntry
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: LogEntry
+          span:
+            start: 6183
+            length: 21
         related_name: webhook_retries
     kind: concrete
   src.pretix.api.models.WebHookEventListener:
-    name: WebHookEventListener
+    name:
+      value: WebHookEventListener
+      span:
+        start: 5124
+        length: 20
     module_name: src.pretix.api.models
-    line: 132
     relations:
-      - field_name: webhook
+      - field_name:
+          value: webhook
+          span:
+            start: 5164
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: WebHook
+          value:
+            kind: Bare
+            name: WebHook
+          span:
+            start: 5192
+            length: 9
         related_name: listeners
     kind: concrete

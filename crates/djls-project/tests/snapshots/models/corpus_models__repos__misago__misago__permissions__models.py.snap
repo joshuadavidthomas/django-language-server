@@ -4,43 +4,81 @@ expression: graph
 ---
 models:
   misago.permissions.models.CategoryGroupPermission:
-    name: CategoryGroupPermission
+    name:
+      value: CategoryGroupPermission
+      span:
+        start: 298
+        length: 23
     module_name: misago.permissions.models
-    line: 13
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 341
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_categories
-          name: Category
+          value:
+            kind: Qualified
+            app_label: misago_categories
+            name: Category
+          span:
+            start: 370
+            length: 28
         related_name: ~
-      - field_name: group
+      - field_name:
+          value: group
+          span:
+            start: 430
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_users
-          name: Group
+          value:
+            kind: Qualified
+            app_label: misago_users
+            name: Group
+          span:
+            start: 456
+            length: 20
         related_name: ~
     kind: concrete
   misago.permissions.models.Moderator:
-    name: Moderator
+    name:
+      value: Moderator
+      span:
+        start: 1399
+        length: 9
     module_name: misago.permissions.models
-    line: 41
     relations:
-      - field_name: group
+      - field_name:
+          value: group
+          span:
+            start: 1428
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_users
-          name: Group
+          value:
+            kind: Qualified
+            app_label: misago_users
+            name: Group
+          span:
+            start: 1454
+            length: 20
         related_name: ~
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 1517
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1551
+            length: 24
         related_name: ~
     kind: concrete

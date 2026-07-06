@@ -4,26 +4,48 @@ expression: graph
 ---
 models:
   misago.themes.models.Css:
-    name: Css
+    name:
+      value: Css
+      span:
+        start: 1377
+        length: 3
     module_name: misago.themes.models
-    line: 48
     relations:
-      - field_name: theme
+      - field_name:
+          value: theme
+          span:
+            start: 1400
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Theme
+          value:
+            kind: Bare
+            name: Theme
+          span:
+            start: 1426
+            length: 5
         related_name: css
     kind: concrete
   misago.themes.models.Media:
-    name: Media
+    name:
+      value: Media
+      span:
+        start: 2517
+        length: 5
     module_name: misago.themes.models
-    line: 82
     relations:
-      - field_name: theme
+      - field_name:
+          value: theme
+          span:
+            start: 2542
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Theme
+          value:
+            kind: Bare
+            name: Theme
+          span:
+            start: 2568
+            length: 5
         related_name: media
     kind: concrete

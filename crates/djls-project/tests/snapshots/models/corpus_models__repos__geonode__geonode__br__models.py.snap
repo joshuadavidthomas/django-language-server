@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   geonode.br.models.RestoredBackup:
-    name: RestoredBackup
+    name:
+      value: RestoredBackup
+      span:
+        start: 935
+        length: 14
     module_name: geonode.br.models
-    line: 28
     relations: []
     kind: concrete

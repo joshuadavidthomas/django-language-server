@@ -4,73 +4,143 @@ expression: graph
 ---
 models:
   misago.notifications.models.Notification:
-    name: Notification
+    name:
+      value: Notification
+      span:
+        start: 309
+        length: 12
     module_name: misago.notifications.models
-    line: 15
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 388
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 413
+            length: 24
         related_name: ~
-      - field_name: actor
+      - field_name:
+          value: actor
+          span:
+            start: 563
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 598
+            length: 24
         related_name: +
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 807
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_categories
-          name: Category
+          value:
+            kind: Qualified
+            app_label: misago_categories
+            name: Category
+          span:
+            start: 845
+            length: 28
         related_name: ~
-      - field_name: thread
+      - field_name:
+          value: thread
+          span:
+            start: 933
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_threads
-          name: Thread
+          value:
+            kind: Qualified
+            app_label: misago_threads
+            name: Thread
+          span:
+            start: 969
+            length: 23
         related_name: ~
-      - field_name: post
+      - field_name:
+          value: post
+          span:
+            start: 1127
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_threads
-          name: Post
+          value:
+            kind: Qualified
+            app_label: misago_threads
+            name: Post
+          span:
+            start: 1161
+            length: 21
         related_name: ~
     kind: concrete
   misago.notifications.models.WatchedThread:
-    name: WatchedThread
+    name:
+      value: WatchedThread
+      span:
+        start: 1846
+        length: 13
     module_name: misago.notifications.models
-    line: 59
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 1926
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1951
+            length: 24
         related_name: ~
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 2007
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_categories
-          name: Category
+          value:
+            kind: Qualified
+            app_label: misago_categories
+            name: Category
+          span:
+            start: 2036
+            length: 28
         related_name: ~
-      - field_name: thread
+      - field_name:
+          value: thread
+          span:
+            start: 2096
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_threads
-          name: Thread
+          value:
+            kind: Qualified
+            app_label: misago_threads
+            name: Thread
+          span:
+            start: 2123
+            length: 23
         related_name: ~
     kind: concrete

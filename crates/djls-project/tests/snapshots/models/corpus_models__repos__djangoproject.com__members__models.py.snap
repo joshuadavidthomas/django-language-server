@@ -4,38 +4,66 @@ expression: graph
 ---
 models:
   members.models.CorporateMember:
-    name: CorporateMember
+    name:
+      value: CorporateMember
+      span:
+        start: 2676
+        length: 15
     module_name: members.models
-    line: 96
     relations: []
     kind: concrete
   members.models.IndividualMember:
-    name: IndividualMember
+    name:
+      value: IndividualMember
+      span:
+        start: 1009
+        length: 16
     module_name: members.models
-    line: 40
     relations: []
     kind: concrete
   members.models.Invoice:
-    name: Invoice
+    name:
+      value: Invoice
+      span:
+        start: 4986
+        length: 7
     module_name: members.models
-    line: 164
     relations:
-      - field_name: member
+      - field_name:
+          value: member
+          span:
+            start: 5255
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: CorporateMember
+          value:
+            kind: Bare
+            name: CorporateMember
+          span:
+            start: 5282
+            length: 15
         related_name: ~
     kind: concrete
   members.models.Team:
-    name: Team
+    name:
+      value: Team
+      span:
+        start: 1716
+        length: 4
     module_name: members.models
-    line: 66
     relations:
-      - field_name: members
+      - field_name:
+          value: members
+          span:
+            start: 1901
+            length: 7
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: IndividualMember
+          value:
+            kind: Bare
+            name: IndividualMember
+          span:
+            start: 1934
+            length: 16
         related_name: ~
     kind: concrete

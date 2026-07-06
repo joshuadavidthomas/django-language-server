@@ -4,26 +4,43 @@ expression: graph
 ---
 models:
   wagtail.contrib.settings.models.AbstractSetting:
-    name: AbstractSetting
+    name:
+      value: AbstractSetting
+      span:
+        start: 486
+        length: 15
     module_name: wagtail.contrib.settings.models
-    line: 19
     relations: []
     kind: abstract
   wagtail.contrib.settings.models.BaseGenericSetting:
-    name: BaseGenericSetting
+    name:
+      value: BaseGenericSetting
+      span:
+        start: 5215
+        length: 18
     module_name: wagtail.contrib.settings.models
-    line: 168
     relations: []
     kind: abstract
   wagtail.contrib.settings.models.BaseSiteSetting:
-    name: BaseSiteSetting
+    name:
+      value: BaseSiteSetting
+      span:
+        start: 3562
+        length: 15
     module_name: wagtail.contrib.settings.models
-    line: 112
     relations:
-      - field_name: site
+      - field_name:
+          value: site
+          span:
+            start: 3600
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Site
+          value:
+            kind: Bare
+            name: Site
+          span:
+            start: 3637
+            length: 4
         related_name: ~
     kind: abstract

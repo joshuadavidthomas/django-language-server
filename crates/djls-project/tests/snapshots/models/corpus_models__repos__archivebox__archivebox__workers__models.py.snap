@@ -4,14 +4,20 @@ expression: graph
 ---
 models:
   archivebox.workers.models.BaseModelWithStateMachine:
-    name: BaseModelWithStateMachine
+    name:
+      value: BaseModelWithStateMachine
+      span:
+        start: 909
+        length: 25
     module_name: archivebox.workers.models
-    line: 28
     relations: []
     kind: abstract
   archivebox.workers.models.ModelWithStateMachine:
-    name: ModelWithStateMachine
+    name:
+      value: ModelWithStateMachine
+      span:
+        start: 12261
+        length: 21
     module_name: archivebox.workers.models
-    line: 311
     relations: []
     kind: abstract

@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   misago.socialauth.models.SocialAuthProvider:
-    name: SocialAuthProvider
+    name:
+      value: SocialAuthProvider
+      span:
+        start: 71
+        length: 18
     module_name: misago.socialauth.models
-    line: 6
     relations: []
     kind: concrete

@@ -4,20 +4,29 @@ expression: graph
 ---
 models:
   runtests.testapp.models.Abstract:
-    name: Abstract
+    name:
+      value: Abstract
+      span:
+        start: 263
+        length: 8
     module_name: runtests.testapp.models
-    line: 13
     relations: []
     kind: abstract
   runtests.testapp.models.Player:
-    name: Player
+    name:
+      value: Player
+      span:
+        start: 135
+        length: 6
     module_name: runtests.testapp.models
-    line: 6
     relations: []
     kind: concrete
   runtests.testapp.models.Unregistered:
-    name: Unregistered
+    name:
+      value: Unregistered
+      span:
+        start: 429
+        length: 12
     module_name: runtests.testapp.models
-    line: 23
     relations: []
     kind: concrete

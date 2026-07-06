@@ -4,38 +4,76 @@ expression: graph
 ---
 models:
   src.pretix.multidomain.models.AlternativeDomainAssignment:
-    name: AlternativeDomainAssignment
+    name:
+      value: AlternativeDomainAssignment
+      span:
+        start: 5080
+        length: 27
     module_name: src.pretix.multidomain.models
-    line: 138
     relations:
-      - field_name: domain
+      - field_name:
+          value: domain
+          span:
+            start: 5127
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: KnownDomain
+          value:
+            kind: Bare
+            name: KnownDomain
+          span:
+            start: 5163
+            length: 11
         related_name: event_assignments
-      - field_name: event
+      - field_name:
+          value: event
+          span:
+            start: 5262
+            length: 5
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Event
+          value:
+            kind: Bare
+            name: Event
+          span:
+            start: 5300
+            length: 5
         related_name: alternative_domain_assignment
     kind: concrete
   src.pretix.multidomain.models.KnownDomain:
-    name: KnownDomain
+    name:
+      value: KnownDomain
+      span:
+        start: 1430
+        length: 11
     module_name: src.pretix.multidomain.models
-    line: 31
     relations:
-      - field_name: organizer
+      - field_name:
+          value: organizer
+          span:
+            start: 2059
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Organizer
+          value:
+            kind: Bare
+            name: Organizer
+          span:
+            start: 2098
+            length: 9
         related_name: domains
-      - field_name: event
+      - field_name:
+          value: event
+          span:
+            start: 2223
+            length: 5
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Event
+          value:
+            kind: Bare
+            name: Event
+          span:
+            start: 2261
+            length: 5
         related_name: domain
     kind: concrete

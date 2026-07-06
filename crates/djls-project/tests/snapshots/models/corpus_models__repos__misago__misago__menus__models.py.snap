@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   misago.menus.models.MenuItem:
-    name: MenuItem
+    name:
+      value: MenuItem
+      span:
+        start: 88
+        length: 8
     module_name: misago.menus.models
-    line: 5
     relations: []
     kind: concrete

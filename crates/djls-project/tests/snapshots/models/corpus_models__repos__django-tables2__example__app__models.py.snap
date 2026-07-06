@@ -4,32 +4,57 @@ expression: graph
 ---
 models:
   example.app.models.Continent:
-    name: Continent
+    name:
+      value: Continent
+      span:
+        start: 124
+        length: 9
     module_name: example.app.models
-    line: 6
     relations: []
     kind: concrete
   example.app.models.Country:
-    name: Country
+    name:
+      value: Country
+      span:
+        start: 250
+        length: 7
     module_name: example.app.models
-    line: 13
     relations:
-      - field_name: continent
+      - field_name:
+          value: continent
+          span:
+            start: 657
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Continent
+          value:
+            kind: Bare
+            name: Continent
+          span:
+            start: 687
+            length: 9
         related_name: ~
     kind: concrete
   example.app.models.Person:
-    name: Person
+    name:
+      value: Person
+      span:
+        start: 1038
+        length: 6
     module_name: example.app.models
-    line: 39
     relations:
-      - field_name: country
+      - field_name:
+          value: country
+          span:
+            start: 1184
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Country
+          value:
+            kind: Bare
+            name: Country
+          span:
+            start: 1212
+            length: 7
         related_name: ~
     kind: concrete

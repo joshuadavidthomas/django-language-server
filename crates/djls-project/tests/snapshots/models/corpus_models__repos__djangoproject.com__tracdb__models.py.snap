@@ -4,86 +4,153 @@ expression: graph
 ---
 models:
   tracdb.models.Attachment:
-    name: Attachment
+    name:
+      value: Attachment
+      span:
+        start: 7673
+        length: 10
     module_name: tracdb.models
-    line: 281
     relations: []
     kind: concrete
   tracdb.models.Component:
-    name: Component
+    name:
+      value: Component
+      span:
+        start: 5038
+        length: 9
     module_name: tracdb.models
-    line: 175
     relations: []
     kind: concrete
   tracdb.models.Milestone:
-    name: Milestone
+    name:
+      value: Milestone
+      span:
+        start: 5627
+        length: 9
     module_name: tracdb.models
-    line: 203
     relations: []
     kind: concrete
   tracdb.models.Revision:
-    name: Revision
+    name:
+      value: Revision
+      span:
+        start: 6645
+        length: 8
     module_name: tracdb.models
-    line: 242
     relations: []
     kind: concrete
   tracdb.models.Ticket:
-    name: Ticket
+    name:
+      value: Ticket
+      span:
+        start: 2551
+        length: 6
     module_name: tracdb.models
-    line: 79
     relations:
-      - field_name: component
+      - field_name:
+          value: component
+          span:
+            start: 2874
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Component
+          value:
+            kind: Bare
+            name: Component
+          span:
+            start: 2913
+            length: 11
         related_name: tickets
-      - field_name: version
+      - field_name:
+          value: version
+          span:
+            start: 3182
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Version
+          value:
+            kind: Bare
+            name: Version
+          span:
+            start: 3219
+            length: 9
         related_name: tickets
-      - field_name: milestone
+      - field_name:
+          value: milestone
+          span:
+            start: 3357
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Milestone
+          value:
+            kind: Bare
+            name: Milestone
+          span:
+            start: 3396
+            length: 11
         related_name: tickets
     kind: concrete
   tracdb.models.TicketChange:
-    name: TicketChange
+    name:
+      value: TicketChange
+      span:
+        start: 4381
+        length: 12
     module_name: tracdb.models
-    line: 150
     relations:
-      - field_name: ticket
+      - field_name:
+          value: ticket
+          span:
+            start: 4477
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Ticket
+          value:
+            kind: Bare
+            name: Ticket
+          span:
+            start: 4513
+            length: 6
         related_name: changes
     kind: concrete
   tracdb.models.TicketCustom:
-    name: TicketCustom
+    name:
+      value: TicketCustom
+      span:
+        start: 3929
+        length: 12
     module_name: tracdb.models
-    line: 131
     relations:
-      - field_name: ticket
+      - field_name:
+          value: ticket
+          span:
+            start: 4015
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Ticket
+          value:
+            kind: Bare
+            name: Ticket
+          span:
+            start: 4051
+            length: 6
         related_name: custom_fields
     kind: concrete
   tracdb.models.Version:
-    name: Version
+    name:
+      value: Version
+      span:
+        start: 5306
+        length: 7
     module_name: tracdb.models
-    line: 188
     relations: []
     kind: concrete
   tracdb.models.Wiki:
-    name: Wiki
+    name:
+      value: Wiki
+      span:
+        start: 7166
+        length: 4
     module_name: tracdb.models
-    line: 262
     relations: []
     kind: concrete

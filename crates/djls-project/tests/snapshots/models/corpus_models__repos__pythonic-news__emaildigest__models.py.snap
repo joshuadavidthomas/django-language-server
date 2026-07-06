@@ -4,65 +4,120 @@ expression: graph
 ---
 models:
   emaildigest.models.AnonymousSubscription:
-    name: AnonymousSubscription
+    name:
+      value: AnonymousSubscription
+      span:
+        start: 2409
+        length: 21
     module_name: emaildigest.models
-    line: 39
     relations:
-      - field_name: logged_in_user
+      - field_name:
+          value: logged_in_user
+          span:
+            start: 2699
+            length: 14
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: accounts
-          name: CustomUser
+          value:
+            kind: Qualified
+            app_label: accounts
+            name: CustomUser
+          span:
+            start: 2734
+            length: 21
         related_name: ~
     kind: concrete
   emaildigest.models.EmailDigest:
-    name: EmailDigest
+    name:
+      value: EmailDigest
+      span:
+        start: 48
+        length: 11
     module_name: emaildigest.models
-    line: 4
     relations:
-      - field_name: stories
+      - field_name:
+          value: stories
+          span:
+            start: 1079
+            length: 7
         relation_type: ManyToMany
         target:
-          kind: Qualified
-          app_label: news
-          name: Story
+          value:
+            kind: Qualified
+            app_label: news
+            name: Story
+          span:
+            start: 1112
+            length: 12
         related_name: ~
     kind: concrete
   emaildigest.models.Subscription:
-    name: Subscription
+    name:
+      value: Subscription
+      span:
+        start: 1133
+        length: 12
     module_name: emaildigest.models
-    line: 19
     relations: []
     kind: concrete
   emaildigest.models.UnSubscription:
-    name: UnSubscription
+    name:
+      value: UnSubscription
+      span:
+        start: 2802
+        length: 14
     module_name: emaildigest.models
-    line: 47
     relations:
-      - field_name: subscription
+      - field_name:
+          value: subscription
+          span:
+            start: 3026
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Subscription
+          value:
+            kind: Bare
+            name: Subscription
+          span:
+            start: 3059
+            length: 12
         related_name: ~
-      - field_name: from_digest
+      - field_name:
+          value: from_digest
+          span:
+            start: 3103
+            length: 11
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: EmailDigest
+          value:
+            kind: Bare
+            name: EmailDigest
+          span:
+            start: 3135
+            length: 11
         related_name: ~
     kind: concrete
   emaildigest.models.UserSubscription:
-    name: UserSubscription
+    name:
+      value: UserSubscription
+      span:
+        start: 2280
+        length: 16
     module_name: emaildigest.models
-    line: 35
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 2316
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: accounts
-          name: CustomUser
+          value:
+            kind: Qualified
+            app_label: accounts
+            name: CustomUser
+          span:
+            start: 2341
+            length: 21
         related_name: ~
     kind: concrete

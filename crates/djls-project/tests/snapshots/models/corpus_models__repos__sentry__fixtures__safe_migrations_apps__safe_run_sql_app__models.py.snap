@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   fixtures.safe_migrations_apps.safe_run_sql_app.models.TestTable:
-    name: TestTable
+    name:
+      value: TestTable
+      span:
+        start: 95
+        length: 9
     module_name: fixtures.safe_migrations_apps.safe_run_sql_app.models
-    line: 6
     relations: []
     kind: concrete

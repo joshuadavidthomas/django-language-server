@@ -4,14 +4,25 @@ expression: graph
 ---
 models:
   django.contrib.flatpages.models.FlatPage:
-    name: FlatPage
+    name:
+      value: FlatPage
+      span:
+        start: 249
+        length: 8
     module_name: django.contrib.flatpages.models
-    line: 8
     relations:
-      - field_name: sites
+      - field_name:
+          value: sites
+          span:
+            start: 1066
+            length: 5
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Site
+          value:
+            kind: Bare
+            name: Site
+          span:
+            start: 1097
+            length: 4
         related_name: ~
     kind: concrete

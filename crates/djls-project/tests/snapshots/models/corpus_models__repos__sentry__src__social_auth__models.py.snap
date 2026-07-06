@@ -4,14 +4,25 @@ expression: graph
 ---
 models:
   src.social_auth.models.UserSocialAuth:
-    name: UserSocialAuth
+    name:
+      value: UserSocialAuth
+      span:
+        start: 653
+        length: 14
     module_name: src.social_auth.models
-    line: 23
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 772
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          value:
+            kind: Bare
+            name: AUTH_USER_MODEL
+          span:
+            start: 797
+            length: 15
         related_name: social_auth
     kind: concrete

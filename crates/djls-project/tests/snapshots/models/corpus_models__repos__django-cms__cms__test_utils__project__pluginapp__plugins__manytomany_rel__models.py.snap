@@ -4,38 +4,66 @@ expression: graph
 ---
 models:
   cms.test_utils.project.pluginapp.plugins.manytomany_rel.models.Article:
-    name: Article
+    name:
+      value: Article
+      span:
+        start: 71
+        length: 7
     module_name: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
-    line: 6
     relations:
-      - field_name: section
+      - field_name:
+          value: section
+          span:
+            start: 142
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Section
+          value:
+            kind: Bare
+            name: Section
+          span:
+            start: 170
+            length: 9
         related_name: ~
     kind: concrete
   cms.test_utils.project.pluginapp.plugins.manytomany_rel.models.FKModel:
-    name: FKModel
+    name:
+      value: FKModel
+      span:
+        start: 697
+        length: 7
     module_name: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
-    line: 32
     relations:
-      - field_name: fk_field
+      - field_name:
+          value: fk_field
+          span:
+            start: 724
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: PluginModelWithFKFromModel
+          value:
+            kind: Bare
+            name: PluginModelWithFKFromModel
+          span:
+            start: 753
+            length: 28
         related_name: ~
     kind: concrete
   cms.test_utils.project.pluginapp.plugins.manytomany_rel.models.M2MTargetModel:
-    name: M2MTargetModel
+    name:
+      value: M2MTargetModel
+      span:
+        start: 817
+        length: 14
     module_name: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
-    line: 36
     relations: []
     kind: concrete
   cms.test_utils.project.pluginapp.plugins.manytomany_rel.models.Section:
-    name: Section
+    name:
+      value: Section
+      span:
+        start: 294
+        length: 7
     module_name: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
-    line: 14
     relations: []
     kind: concrete

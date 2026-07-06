@@ -4,180 +4,351 @@ expression: graph
 ---
 models:
   blog.models.BaseModel:
-    name: BaseModel
+    name:
+      value: BaseModel
+      span:
+        start: 7066
+        length: 9
     module_name: blog.models
-    line: 220
     relations:
-      - field_name: tags
+      - field_name:
+          value: tags
+          span:
+            start: 7164
+            length: 4
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 7194
+            length: 3
         related_name: ~
-      - field_name: series
+      - field_name:
+          value: series
+          span:
+            start: 7506
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Series
+          value:
+            kind: Bare
+            name: Series
+          span:
+            start: 7533
+            length: 6
         related_name: ~
     kind: abstract
   blog.models.Blogmark:
-    name: Blogmark
+    name:
+      value: Blogmark
+      span:
+        start: 12093
+        length: 8
     module_name: blog.models
-    line: 379
     relations:
-      - field_name: tags
+      - field_name:
+          value: tags
+          span:
+            start: 7164
+            length: 4
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 7194
+            length: 3
         related_name: ~
-      - field_name: series
+      - field_name:
+          value: series
+          span:
+            start: 7506
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Series
+          value:
+            kind: Bare
+            name: Series
+          span:
+            start: 7533
+            length: 6
         related_name: ~
     kind: concrete
   blog.models.Comment:
-    name: Comment
+    name:
+      value: Comment
+      span:
+        start: 16357
+        length: 7
     module_name: blog.models
-    line: 532
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 16384
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 16417
+            length: 11
         related_name: ~
-      - field_name: item
+      - field_name:
+          value: item
+          span:
+            start: 16519
+            length: 4
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
     kind: concrete
   blog.models.Entry:
-    name: Entry
+    name:
+      value: Entry
+      span:
+        start: 8284
+        length: 5
     module_name: blog.models
-    line: 254
     relations:
-      - field_name: tags
+      - field_name:
+          value: tags
+          span:
+            start: 7164
+            length: 4
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 7194
+            length: 3
         related_name: ~
-      - field_name: series
+      - field_name:
+          value: series
+          span:
+            start: 7506
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Series
+          value:
+            kind: Bare
+            name: Series
+          span:
+            start: 7533
+            length: 6
         related_name: ~
     kind: concrete
   blog.models.LiveUpdate:
-    name: LiveUpdate
+    name:
+      value: LiveUpdate
+      span:
+        start: 10623
+        length: 10
     module_name: blog.models
-    line: 328
     relations:
-      - field_name: entry
+      - field_name:
+          value: entry
+          span:
+            start: 10740
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Entry
+          value:
+            kind: Bare
+            name: Entry
+          span:
+            start: 10766
+            length: 5
         related_name: updates
     kind: concrete
   blog.models.Note:
-    name: Note
+    name:
+      value: Note
+      span:
+        start: 13501
+        length: 4
     module_name: blog.models
-    line: 425
     relations:
-      - field_name: tags
+      - field_name:
+          value: tags
+          span:
+            start: 7164
+            length: 4
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 7194
+            length: 3
         related_name: ~
-      - field_name: series
+      - field_name:
+          value: series
+          span:
+            start: 7506
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Series
+          value:
+            kind: Bare
+            name: Series
+          span:
+            start: 7533
+            length: 6
         related_name: ~
     kind: concrete
   blog.models.Photo:
-    name: Photo
+    name:
+      value: Photo
+      span:
+        start: 14253
+        length: 5
     module_name: blog.models
-    line: 452
     relations: []
     kind: concrete
   blog.models.Photoset:
-    name: Photoset
+    name:
+      value: Photoset
+      span:
+        start: 15155
+        length: 8
     module_name: blog.models
-    line: 481
     relations:
-      - field_name: photos
+      - field_name:
+          value: photos
+          span:
+            start: 15336
+            length: 6
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Photo
+          value:
+            kind: Bare
+            name: Photo
+          span:
+            start: 15377
+            length: 5
         related_name: in_photoset
-      - field_name: primary
+      - field_name:
+          value: primary
+          span:
+            start: 15430
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Photo
+          value:
+            kind: Bare
+            name: Photo
+          span:
+            start: 15458
+            length: 5
         related_name: ~
     kind: concrete
   blog.models.PreviousTagName:
-    name: PreviousTagName
+    name:
+      value: PreviousTagName
+      span:
+        start: 5268
+        length: 15
     module_name: blog.models
-    line: 157
     relations:
-      - field_name: tag
+      - field_name:
+          value: tag
+          span:
+            start: 5303
+            length: 3
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 5327
+            length: 3
         related_name: ~
     kind: concrete
   blog.models.Quotation:
-    name: Quotation
+    name:
+      value: Quotation
+      span:
+        start: 10914
+        length: 9
     module_name: blog.models
-    line: 337
     relations:
-      - field_name: tags
+      - field_name:
+          value: tags
+          span:
+            start: 7164
+            length: 4
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 7194
+            length: 3
         related_name: ~
-      - field_name: series
+      - field_name:
+          value: series
+          span:
+            start: 7506
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Series
+          value:
+            kind: Bare
+            name: Series
+          span:
+            start: 7533
+            length: 6
         related_name: ~
     kind: concrete
   blog.models.Series:
-    name: Series
+    name:
+      value: Series
+      span:
+        start: 6390
+        length: 6
     module_name: blog.models
-    line: 195
     relations: []
     kind: concrete
   blog.models.Tag:
-    name: Tag
+    name:
+      value: Tag
+      span:
+        start: 742
+        length: 3
     module_name: blog.models
-    line: 22
     relations: []
     kind: concrete
   blog.models.TagMerge:
-    name: TagMerge
+    name:
+      value: TagMerge
+      span:
+        start: 5463
+        length: 8
     module_name: blog.models
-    line: 165
     relations:
-      - field_name: destination_tag
+      - field_name:
+          value: destination_tag
+          span:
+            start: 5706
+            length: 15
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Tag
+          value:
+            kind: Bare
+            name: Tag
+          span:
+            start: 5751
+            length: 3
         related_name: ~
     kind: concrete

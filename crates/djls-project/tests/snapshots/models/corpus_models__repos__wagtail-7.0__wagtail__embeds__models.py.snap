@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   wagtail.embeds.models.Embed:
-    name: Embed
+    name:
+      value: Embed
+      span:
+        start: 236
+        length: 5
     module_name: wagtail.embeds.models
-    line: 13
     relations: []
     kind: concrete

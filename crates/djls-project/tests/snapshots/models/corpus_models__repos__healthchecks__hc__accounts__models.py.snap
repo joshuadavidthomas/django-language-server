@@ -4,56 +4,108 @@ expression: graph
 ---
 models:
   hc.accounts.models.Credential:
-    name: Credential
+    name:
+      value: Credential
+      span:
+        start: 21557
+        length: 10
     module_name: hc.accounts.models
-    line: 602
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 21692
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 21717
+            length: 4
         related_name: credentials
     kind: concrete
   hc.accounts.models.Member:
-    name: Member
+    name:
+      value: Member
+      span:
+        start: 20704
+        length: 6
     module_name: hc.accounts.models
-    line: 576
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 20868
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 20893
+            length: 4
         related_name: memberships
-      - field_name: project
+      - field_name:
+          value: project
+          span:
+            start: 20947
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Project
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 20975
+            length: 7
         related_name: ~
     kind: concrete
   hc.accounts.models.Profile:
-    name: Profile
+    name:
+      value: Profile
+      span:
+        start: 2159
+        length: 7
     module_name: hc.accounts.models
-    line: 75
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 2186
+            length: 4
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 2214
+            length: 4
         related_name: ~
     kind: concrete
   hc.accounts.models.Project:
-    name: Project
+    name:
+      value: Project
+      span:
+        start: 15309
+        length: 7
     module_name: hc.accounts.models
-    line: 427
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 15453
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 15479
+            length: 4
         related_name: ~
     kind: concrete

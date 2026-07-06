@@ -4,41 +4,79 @@ expression: graph
 ---
 models:
   src.nomnom.canonicalize.models.CanonicalizedNomination:
-    name: CanonicalizedNomination
+    name:
+      value: CanonicalizedNomination
+      span:
+        start: 3173
+        length: 23
     module_name: src.nomnom.canonicalize.models
-    line: 91
     relations:
-      - field_name: work
+      - field_name:
+          value: work
+          span:
+            start: 3357
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Work
+          value:
+            kind: Bare
+            name: Work
+          span:
+            start: 3382
+            length: 4
         related_name: ~
-      - field_name: nomination
+      - field_name:
+          value: nomination
+          span:
+            start: 3418
+            length: 10
         relation_type: OneToOne
         target:
-          kind: Qualified
-          app_label: nominate
-          name: Nomination
+          value:
+            kind: Qualified
+            app_label: nominate
+            name: Nomination
+          span:
+            start: 3452
+            length: 21
         related_name: ~
     kind: concrete
   src.nomnom.canonicalize.models.Work:
-    name: Work
+    name:
+      value: Work
+      span:
+        start: 571
+        length: 4
     module_name: src.nomnom.canonicalize.models
-    line: 16
     relations:
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 752
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: nominate
-          name: Category
+          value:
+            kind: Qualified
+            app_label: nominate
+            name: Category
+          span:
+            start: 781
+            length: 19
         related_name: ~
-      - field_name: nominations
+      - field_name:
+          value: nominations
+          span:
+            start: 874
+            length: 11
         relation_type: ManyToMany
         target:
-          kind: Qualified
-          app_label: nominate
-          name: Nomination
+          value:
+            kind: Qualified
+            app_label: nominate
+            name: Nomination
+          span:
+            start: 920
+            length: 21
         related_name: works
     kind: concrete

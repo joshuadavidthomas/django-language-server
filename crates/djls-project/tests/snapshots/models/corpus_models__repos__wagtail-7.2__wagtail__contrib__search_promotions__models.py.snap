@@ -4,39 +4,72 @@ expression: graph
 ---
 models:
   wagtail.contrib.search_promotions.models.Query:
-    name: Query
+    name:
+      value: Query
+      span:
+        start: 258
+        length: 5
     module_name: wagtail.contrib.search_promotions.models
-    line: 11
     relations: []
     kind: concrete
   wagtail.contrib.search_promotions.models.QueryDailyHits:
-    name: QueryDailyHits
+    name:
+      value: QueryDailyHits
+      span:
+        start: 1994
+        length: 14
     module_name: wagtail.contrib.search_promotions.models
-    line: 71
     relations:
-      - field_name: query
+      - field_name:
+          value: query
+          span:
+            start: 2028
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Query
+          value:
+            kind: Bare
+            name: Query
+          span:
+            start: 2063
+            length: 5
         related_name: daily_hits
     kind: concrete
   wagtail.contrib.search_promotions.models.SearchPromotion:
-    name: SearchPromotion
+    name:
+      value: SearchPromotion
+      span:
+        start: 2791
+        length: 15
     module_name: wagtail.contrib.search_promotions.models
-    line: 96
     relations:
-      - field_name: query
+      - field_name:
+          value: query
+          span:
+            start: 2826
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Query
+          value:
+            kind: Bare
+            name: Query
+          span:
+            start: 2861
+            length: 5
         related_name: editors_picks
-      - field_name: page
+      - field_name:
+          value: page
+          span:
+            start: 2948
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: wagtailcore
-          name: Page
+          value:
+            kind: Qualified
+            app_label: wagtailcore
+            name: Page
+          span:
+            start: 2982
+            length: 18
         related_name: ~
     kind: concrete

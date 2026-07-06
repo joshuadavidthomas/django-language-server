@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   example_project.posts.models.Post:
-    name: Post
+    name:
+      value: Post
+      span:
+        start: 69
+        length: 4
     module_name: example_project.posts.models
-    line: 5
     relations: []
     kind: concrete

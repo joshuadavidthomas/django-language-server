@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   example_project_custom_group.articles.models.Article:
-    name: Article
+    name:
+      value: Article
+      span:
+        start: 268
+        length: 7
     module_name: example_project_custom_group.articles.models
-    line: 13
     relations: []
     kind: concrete

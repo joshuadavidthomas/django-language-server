@@ -4,120 +4,247 @@ expression: graph
 ---
 models:
   readthedocs.organizations.models.Organization:
-    name: Organization
+    name:
+      value: Organization
+      span:
+        start: 2051
+        length: 12
     module_name: readthedocs.organizations.models
-    line: 66
     relations:
-      - field_name: projects
+      - field_name:
+          value: projects
+          span:
+            start: 2301
+            length: 8
         relation_type: ManyToMany
         target:
-          kind: Qualified
-          app_label: projects
-          name: Project
+          value:
+            kind: Qualified
+            app_label: projects
+            name: Project
+          span:
+            start: 2344
+            length: 18
         related_name: organizations
-      - field_name: owners
+      - field_name:
+          value: owners
+          span:
+            start: 2468
+            length: 6
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 2509
+            length: 4
         related_name: owner_organizations
-      - field_name: stripe_customer
+      - field_name:
+          value: stripe_customer
+          span:
+            start: 4341
+            length: 15
         relation_type: OneToOne
         target:
-          kind: Qualified
-          app_label: djstripe
-          name: Customer
+          value:
+            kind: Qualified
+            app_label: djstripe
+            name: Customer
+          span:
+            start: 4389
+            length: 19
         related_name: rtd_organization
-      - field_name: stripe_subscription
+      - field_name:
+          value: stripe_subscription
+          span:
+            start: 4578
+            length: 19
         relation_type: OneToOne
         target:
-          kind: Qualified
-          app_label: djstripe
-          name: Subscription
+          value:
+            kind: Qualified
+            app_label: djstripe
+            name: Subscription
+          span:
+            start: 4630
+            length: 23
         related_name: rtd_organization
     kind: concrete
   readthedocs.organizations.models.OrganizationOwner:
-    name: OrganizationOwner
+    name:
+      value: OrganizationOwner
+      span:
+        start: 9225
+        length: 17
     module_name: readthedocs.organizations.models
-    line: 294
     relations:
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 9333
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 9368
+            length: 4
         related_name: ~
-      - field_name: organization
+      - field_name:
+          value: organization
+          span:
+            start: 9418
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Organization
+          value:
+            kind: Bare
+            name: Organization
+          span:
+            start: 9460
+            length: 12
         related_name: ~
     kind: concrete
   readthedocs.organizations.models.Team:
-    name: Team
+    name:
+      value: Team
+      span:
+        start: 9522
+        length: 4
     module_name: readthedocs.organizations.models
-    line: 307
     relations:
-      - field_name: organization
+      - field_name:
+          value: organization
+          span:
+            start: 9756
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Organization
+          value:
+            kind: Bare
+            name: Organization
+          span:
+            start: 9798
+            length: 12
         related_name: teams
-      - field_name: projects
+      - field_name:
+          value: projects
+          span:
+            start: 9886
+            length: 8
         relation_type: ManyToMany
         target:
-          kind: Qualified
-          app_label: projects
-          name: Project
+          value:
+            kind: Qualified
+            app_label: projects
+            name: Project
+          span:
+            start: 9929
+            length: 18
         related_name: teams
-      - field_name: members
+      - field_name:
+          value: members
+          span:
+            start: 10045
+            length: 7
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 10087
+            length: 4
         related_name: teams
     kind: concrete
   readthedocs.organizations.models.TeamInvite:
-    name: TeamInvite
+    name:
+      value: TeamInvite
+      span:
+        start: 11374
+        length: 10
     module_name: readthedocs.organizations.models
-    line: 380
     relations:
-      - field_name: organization
+      - field_name:
+          value: organization
+          span:
+            start: 11657
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Organization
+          value:
+            kind: Bare
+            name: Organization
+          span:
+            start: 11699
+            length: 12
         related_name: invites
-      - field_name: team
+      - field_name:
+          value: team
+          span:
+            start: 11789
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Team
+          value:
+            kind: Bare
+            name: Team
+          span:
+            start: 11823
+            length: 4
         related_name: invites
     kind: concrete
   readthedocs.organizations.models.TeamMember:
-    name: TeamMember
+    name:
+      value: TeamMember
+      span:
+        start: 13547
+        length: 10
     module_name: readthedocs.organizations.models
-    line: 448
     relations:
-      - field_name: team
+      - field_name:
+          value: team
+          span:
+            start: 13810
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Team
+          value:
+            kind: Bare
+            name: Team
+          span:
+            start: 13844
+            length: 4
         related_name: ~
-      - field_name: member
+      - field_name:
+          value: member
+          span:
+            start: 13894
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: User
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 13930
+            length: 4
         related_name: ~
-      - field_name: invite
+      - field_name:
+          value: invite
+          span:
+            start: 14041
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: TeamInvite
+          value:
+            kind: Bare
+            name: TeamInvite
+          span:
+            start: 14077
+            length: 10
         related_name: ~
     kind: concrete

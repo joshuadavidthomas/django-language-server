@@ -4,51 +4,97 @@ expression: graph
 ---
 models:
   misago.readtracker.models.ReadCategory:
-    name: ReadCategory
+    name:
+      value: ReadCategory
+      span:
+        start: 104
+        length: 12
     module_name: misago.readtracker.models
-    line: 6
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 136
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 161
+            length: 24
         related_name: ~
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 217
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_categories
-          name: Category
+          value:
+            kind: Qualified
+            app_label: misago_categories
+            name: Category
+          span:
+            start: 246
+            length: 28
         related_name: ~
     kind: concrete
   misago.readtracker.models.ReadThread:
-    name: ReadThread
+    name:
+      value: ReadThread
+      span:
+        start: 543
+        length: 10
     module_name: misago.readtracker.models
-    line: 19
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 573
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 598
+            length: 24
         related_name: ~
-      - field_name: category
+      - field_name:
+          value: category
+          span:
+            start: 654
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_categories
-          name: Category
+          value:
+            kind: Qualified
+            app_label: misago_categories
+            name: Category
+          span:
+            start: 683
+            length: 28
         related_name: ~
-      - field_name: thread
+      - field_name:
+          value: thread
+          span:
+            start: 743
+            length: 6
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: misago_threads
-          name: Thread
+          value:
+            kind: Qualified
+            app_label: misago_threads
+            name: Thread
+          span:
+            start: 770
+            length: 23
         related_name: ~
     kind: concrete

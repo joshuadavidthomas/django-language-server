@@ -4,38 +4,61 @@ expression: graph
 ---
 models:
   simple_history.registry_tests.migration_test_app.models.DoYouKnow:
-    name: DoYouKnow
+    name:
+      value: DoYouKnow
+      span:
+        start: 90
+        length: 9
     module_name: simple_history.registry_tests.migration_test_app.models
-    line: 6
     relations: []
     kind: concrete
   simple_history.registry_tests.migration_test_app.models.ModelWithCustomAttrForeignKey:
-    name: ModelWithCustomAttrForeignKey
+    name:
+      value: ModelWithCustomAttrForeignKey
+      span:
+        start: 773
+        length: 29
     module_name: simple_history.registry_tests.migration_test_app.models
-    line: 34
     relations: []
     kind: concrete
   simple_history.registry_tests.migration_test_app.models.ModelWithCustomAttrOneToOneField:
-    name: ModelWithCustomAttrOneToOneField
+    name:
+      value: ModelWithCustomAttrOneToOneField
+      span:
+        start: 1455
+        length: 32
     module_name: simple_history.registry_tests.migration_test_app.models
-    line: 56
     relations: []
     kind: concrete
   simple_history.registry_tests.migration_test_app.models.WhatIMean:
-    name: WhatIMean
+    name:
+      value: WhatIMean
+      span:
+        start: 132
+        length: 9
     module_name: simple_history.registry_tests.migration_test_app.models
-    line: 10
     relations: []
     kind: concrete
   simple_history.registry_tests.migration_test_app.models.Yar:
-    name: Yar
+    name:
+      value: Yar
+      span:
+        start: 171
+        length: 3
     module_name: simple_history.registry_tests.migration_test_app.models
-    line: 14
     relations:
-      - field_name: what
+      - field_name:
+          value: what
+          span:
+            start: 194
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: WhatIMean
+          value:
+            kind: Bare
+            name: WhatIMean
+          span:
+            start: 219
+            length: 9
         related_name: ~
     kind: concrete

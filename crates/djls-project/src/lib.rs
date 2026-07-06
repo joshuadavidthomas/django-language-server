@@ -91,6 +91,8 @@ pub use templates::template_resolution;
 #[doc(hidden)]
 pub mod testing {
     use camino::Utf8PathBuf;
+    use djls_source::File;
+    use djls_source::Span;
 
     pub use crate::discovery::compute_django_discovery;
     pub use crate::models::model_modules;
@@ -102,6 +104,44 @@ pub mod testing {
         module_name: super::PythonModuleName,
     ) -> &super::ModelGraph {
         crate::models::extract_models(db, file, module_name).graph()
+    }
+
+    #[must_use]
+    pub fn model_location(
+        graph: &super::ModelGraph,
+        module_name: &str,
+        model_name: &str,
+    ) -> Option<(File, Span)> {
+        graph
+            .models_named(model_name)
+            .find(|(id, _model)| id.module_name().as_str() == module_name)
+            .map(|(_id, model)| (model.file, model.name.span()))
+    }
+
+    #[must_use]
+    pub fn model_relation_locations(
+        graph: &super::ModelGraph,
+        module_name: &str,
+        model_name: &str,
+    ) -> Vec<(String, File, Span, Option<Span>)> {
+        graph
+            .models_named(model_name)
+            .find(|(id, _model)| id.module_name().as_str() == module_name)
+            .map(|(_id, model)| {
+                model
+                    .relations
+                    .iter()
+                    .map(|relation| {
+                        (
+                            relation.field_name.value().as_str().to_string(),
+                            relation.file,
+                            relation.field_name.span(),
+                            relation.target_span(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn settings_module_file(

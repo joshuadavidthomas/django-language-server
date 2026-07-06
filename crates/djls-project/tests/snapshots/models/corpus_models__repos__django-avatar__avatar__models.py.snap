@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   avatar.models.Avatar:
-    name: Avatar
+    name:
+      value: Avatar
+      span:
+        start: 2741
+        length: 6
     module_name: avatar.models
-    line: 91
     relations: []
     kind: concrete

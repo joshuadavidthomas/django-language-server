@@ -4,23 +4,46 @@ expression: graph
 ---
 models:
   cms.test_utils.project.objectpermissionsapp.models.UserObjectPermission:
-    name: UserObjectPermission
+    name:
+      value: UserObjectPermission
+      span:
+        start: 1578
+        length: 20
     module_name: cms.test_utils.project.objectpermissionsapp.models
-    line: 42
     relations:
-      - field_name: permission
+      - field_name:
+          value: permission
+          span:
+            start: 1618
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Permission
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 1649
+            length: 10
         related_name: ~
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 1691
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 1724
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 1832
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk

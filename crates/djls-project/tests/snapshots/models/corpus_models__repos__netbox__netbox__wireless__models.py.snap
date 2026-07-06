@@ -4,20 +4,29 @@ expression: graph
 ---
 models:
   netbox.wireless.models.WirelessAuthenticationBase:
-    name: WirelessAuthenticationBase
+    name:
+      value: WirelessAuthenticationBase
+      span:
+        start: 513
+        length: 26
     module_name: netbox.wireless.models
-    line: 20
     relations: []
     kind: abstract
   netbox.wireless.models.WirelessLAN:
-    name: WirelessLAN
+    name:
+      value: WirelessLAN
+      span:
+        start: 2073
+        length: 11
     module_name: netbox.wireless.models
-    line: 79
     relations: []
     kind: concrete
   netbox.wireless.models.WirelessLink:
-    name: WirelessLink
+    name:
+      value: WirelessLink
+      span:
+        start: 3544
+        length: 12
     module_name: netbox.wireless.models
-    line: 132
     relations: []
     kind: concrete

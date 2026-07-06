@@ -4,8 +4,11 @@ expression: graph
 ---
 models:
   sorl.thumbnail.models.KVStore:
-    name: KVStore
+    name:
+      value: KVStore
+      span:
+        start: 79
+        length: 7
     module_name: sorl.thumbnail.models
-    line: 6
     relations: []
     kind: concrete

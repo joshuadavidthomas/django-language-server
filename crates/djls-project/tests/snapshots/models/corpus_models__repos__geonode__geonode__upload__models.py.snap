@@ -4,32 +4,57 @@ expression: graph
 ---
 models:
   geonode.upload.models.ResourceHandlerInfo:
-    name: ResourceHandlerInfo
+    name:
+      value: ResourceHandlerInfo
+      span:
+        start: 4521
+        length: 19
     module_name: geonode.upload.models
-    line: 143
     relations:
-      - field_name: resource
+      - field_name:
+          value: resource
+          span:
+            start: 4687
+            length: 8
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ResourceBase
+          value:
+            kind: Bare
+            name: ResourceBase
+          span:
+            start: 4716
+            length: 12
         related_name: ~
-      - field_name: execution_request
+      - field_name:
+          value: execution_request
+          span:
+            start: 4869
+            length: 17
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ExecutionRequest
+          value:
+            kind: Bare
+            name: ExecutionRequest
+          span:
+            start: 4907
+            length: 16
         related_name: ~
     kind: concrete
   geonode.upload.models.UploadParallelismLimit:
-    name: UploadParallelismLimit
+    name:
+      value: UploadParallelismLimit
+      span:
+        start: 3113
+        length: 22
     module_name: geonode.upload.models
-    line: 97
     relations: []
     kind: concrete
   geonode.upload.models.UploadSizeLimit:
-    name: UploadSizeLimit
+    name:
+      value: UploadSizeLimit
+      span:
+        start: 2281
+        length: 15
     module_name: geonode.upload.models
-    line: 64
     relations: []
     kind: concrete

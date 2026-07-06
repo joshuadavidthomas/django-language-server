@@ -6,7 +6,7 @@ use ruff_python_ast::Alias;
 use ruff_python_ast::Stmt;
 
 use crate::ast::AliasExt;
-use crate::ast::IdentifierExt;
+use crate::ast::RangedExt;
 use crate::python::PythonModuleName;
 use crate::python::parse_python_module;
 

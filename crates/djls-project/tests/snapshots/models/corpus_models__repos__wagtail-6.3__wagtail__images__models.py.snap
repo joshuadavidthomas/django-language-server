@@ -4,48 +4,84 @@ expression: graph
 ---
 models:
   wagtail.images.models.AbstractImage:
-    name: AbstractImage
+    name:
+      value: AbstractImage
+      span:
+        start: 7959
+        length: 13
     module_name: wagtail.images.models
-    line: 257
     relations:
-      - field_name: uploaded_by_user
+      - field_name:
+          value: uploaded_by_user
+          span:
+            start: 8736
+            length: 16
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 8782
+            length: 24
         related_name: ~
     kind: abstract
   wagtail.images.models.AbstractRendition:
-    name: AbstractRendition
+    name:
+      value: AbstractRendition
+      span:
+        start: 46758
+        length: 17
     module_name: wagtail.images.models
-    line: 1267
     relations: []
     kind: abstract
   wagtail.images.models.Image:
-    name: Image
+    name:
+      value: Image
+      span:
+        start: 32369
+        length: 5
     module_name: wagtail.images.models
-    line: 884
     relations:
-      - field_name: uploaded_by_user
+      - field_name:
+          value: uploaded_by_user
+          span:
+            start: 8736
+            length: 16
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 8782
+            length: 24
         related_name: ~
     kind: concrete
   wagtail.images.models.Rendition:
-    name: Rendition
+    name:
+      value: Rendition
+      span:
+        start: 52033
+        length: 9
     module_name: wagtail.images.models
-    line: 1429
     relations:
-      - field_name: image
+      - field_name:
+          value: image
+          span:
+            start: 52067
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Image
+          value:
+            kind: Bare
+            name: Image
+          span:
+            start: 52102
+            length: 5
         related_name: renditions
     kind: concrete

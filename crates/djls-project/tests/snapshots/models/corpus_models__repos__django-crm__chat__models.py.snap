@@ -4,52 +4,107 @@ expression: graph
 ---
 models:
   chat.models.ChatMessage:
-    name: ChatMessage
+    name:
+      value: ChatMessage
+      span:
+        start: 435
+        length: 11
     module_name: chat.models
-    line: 12
     relations:
-      - field_name: content_type
+      - field_name:
+          value: content_type
+          span:
+            start: 580
+            length: 12
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: ContentType
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 613
+            length: 11
         related_name: ~
-      - field_name: content_object
+      - field_name:
+          value: content_object
+          span:
+            start: 715
+            length: 14
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
-      - field_name: owner
+      - field_name:
+          value: owner
+          span:
+            start: 896
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 931
+            length: 24
         related_name: "%(app_label)s_%(class)s_owner_related"
-      - field_name: answer_to
+      - field_name:
+          value: answer_to
+          span:
+            start: 1111
+            length: 9
         relation_type: ForeignKey
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 1150
+            length: 6
         related_name: "%(app_label)s_%(class)s_answer_to_related"
-      - field_name: topic
+      - field_name:
+          value: topic
+          span:
+            start: 1319
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 1354
+            length: 6
         related_name: "%(app_label)s_%(class)s_topic_related"
-      - field_name: recipients
+      - field_name:
+          value: recipients
+          span:
+            start: 1483
+            length: 10
         relation_type: ManyToMany
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1528
+            length: 24
         related_name: "%(app_label)s_%(class)s_recipients_related"
-      - field_name: to
+      - field_name:
+          value: to
+          span:
+            start: 1681
+            length: 2
         relation_type: ManyToMany
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1718
+            length: 24
         related_name: "%(app_label)s_%(class)s_to_related"
     kind: concrete

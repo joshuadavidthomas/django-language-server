@@ -4,20 +4,39 @@ expression: graph
 ---
 models:
   geonode.maps.models.MapLayer:
-    name: MapLayer
+    name:
+      value: MapLayer
+      span:
+        start: 7296
+        length: 8
     module_name: geonode.maps.models
-    line: 200
     relations:
-      - field_name: map
+      - field_name:
+          value: map
+          span:
+            start: 7546
+            length: 3
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Map
+          value:
+            kind: Bare
+            name: Map
+          span:
+            start: 7570
+            length: 3
         related_name: maplayers
-      - field_name: dataset
+      - field_name:
+          value: dataset
+          span:
+            start: 7691
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Dataset
+          value:
+            kind: Bare
+            name: Dataset
+          span:
+            start: 7719
+            length: 7
         related_name: maplayers
     kind: concrete

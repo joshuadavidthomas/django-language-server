@@ -4,28 +4,50 @@ expression: graph
 ---
 models:
   src.pretix.plugins.stripe.models.ReferencedStripeObject:
-    name: ReferencedStripeObject
+    name:
+      value: ReferencedStripeObject
+      span:
+        start: 1217
+        length: 22
     module_name: src.pretix.plugins.stripe.models
-    line: 25
     relations:
-      - field_name: order
+      - field_name:
+          value: order
+          span:
+            start: 1336
+            length: 5
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: Order
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: Order
+          span:
+            start: 1362
+            length: 18
         related_name: ~
-      - field_name: payment
+      - field_name:
+          value: payment
+          span:
+            start: 1412
+            length: 7
         relation_type: ForeignKey
         target:
-          kind: Qualified
-          app_label: pretixbase
-          name: OrderPayment
+          value:
+            kind: Qualified
+            app_label: pretixbase
+            name: OrderPayment
+          span:
+            start: 1440
+            length: 25
         related_name: ~
     kind: concrete
   src.pretix.plugins.stripe.models.RegisteredApplePayDomain:
-    name: RegisteredApplePayDomain
+    name:
+      value: RegisteredApplePayDomain
+      span:
+        start: 1524
+        length: 24
     module_name: src.pretix.plugins.stripe.models
-    line: 31
     relations: []
     kind: concrete

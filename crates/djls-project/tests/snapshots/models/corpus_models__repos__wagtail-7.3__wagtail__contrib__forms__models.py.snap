@@ -4,38 +4,66 @@ expression: graph
 ---
 models:
   wagtail.contrib.forms.models.AbstractEmailForm:
-    name: AbstractEmailForm
+    name:
+      value: AbstractEmailForm
+      span:
+        start: 11993
+        length: 17
     module_name: wagtail.contrib.forms.models
-    line: 382
     relations: []
     kind: abstract
   wagtail.contrib.forms.models.AbstractFormSubmission:
-    name: AbstractFormSubmission
+    name:
+      value: AbstractFormSubmission
+      span:
+        start: 1073
+        length: 22
     module_name: wagtail.contrib.forms.models
-    line: 36
     relations:
-      - field_name: page
+      - field_name:
+          value: page
+          span:
+            start: 1377
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Page
+          value:
+            kind: Bare
+            name: Page
+          span:
+            start: 1402
+            length: 4
         related_name: ~
     kind: abstract
   wagtail.contrib.forms.models.EmailFormMixin:
-    name: EmailFormMixin
+    name:
+      value: EmailFormMixin
+      span:
+        start: 10153
+        length: 14
     module_name: wagtail.contrib.forms.models
-    line: 322
     relations: []
     kind: abstract
   wagtail.contrib.forms.models.FormSubmission:
-    name: FormSubmission
+    name:
+      value: FormSubmission
+      span:
+        start: 1979
+        length: 14
     module_name: wagtail.contrib.forms.models
-    line: 70
     relations:
-      - field_name: page
+      - field_name:
+          value: page
+          span:
+            start: 1377
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: Page
+          value:
+            kind: Bare
+            name: Page
+          span:
+            start: 1402
+            length: 4
         related_name: ~
     kind: concrete

@@ -4,48 +4,79 @@ expression: graph
 ---
 models:
   archivebox.base_models.models.ModelWithConfig:
-    name: ModelWithConfig
+    name:
+      value: ModelWithConfig
+      span:
+        start: 3430
+        length: 15
     module_name: archivebox.base_models.models
-    line: 100
     relations: []
     kind: abstract
   archivebox.base_models.models.ModelWithHealthStats:
-    name: ModelWithHealthStats
+    name:
+      value: ModelWithHealthStats
+      span:
+        start: 2700
+        length: 20
     module_name: archivebox.base_models.models
-    line: 81
     relations: []
     kind: abstract
   archivebox.base_models.models.ModelWithNotes:
-    name: ModelWithNotes
+    name:
+      value: ModelWithNotes
+      span:
+        start: 2509
+        length: 14
     module_name: archivebox.base_models.models
-    line: 73
     relations: []
     kind: abstract
   archivebox.base_models.models.ModelWithOutputDir:
-    name: ModelWithOutputDir
+    name:
+      value: ModelWithOutputDir
+      span:
+        start: 3645
+        length: 18
     module_name: archivebox.base_models.models
-    line: 108
     relations:
-      - field_name: created_by
+      - field_name:
+          value: created_by
+          span:
+            start: 1787
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1818
+            length: 24
         related_name: ~
     kind: abstract
   archivebox.base_models.models.ModelWithUUID:
-    name: ModelWithUUID
+    name:
+      value: ModelWithUUID
+      span:
+        start: 1537
+        length: 13
     module_name: archivebox.base_models.models
-    line: 47
     relations:
-      - field_name: created_by
+      - field_name:
+          value: created_by
+          span:
+            start: 1787
+            length: 10
         relation_type: ForeignKey
         target:
-          kind: Attribute
-          path:
-            - settings
-            - AUTH_USER_MODEL
+          value:
+            kind: Attribute
+            path:
+              - settings
+              - AUTH_USER_MODEL
+          span:
+            start: 1818
+            length: 24
         related_name: ~
     kind: abstract

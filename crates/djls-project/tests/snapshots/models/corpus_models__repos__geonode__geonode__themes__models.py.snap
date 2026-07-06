@@ -4,20 +4,34 @@ expression: graph
 ---
 models:
   geonode.themes.models.GeoNodeThemeCustomization:
-    name: GeoNodeThemeCustomization
+    name:
+      value: GeoNodeThemeCustomization
+      span:
+        start: 2333
+        length: 25
     module_name: geonode.themes.models
-    line: 52
     relations:
-      - field_name: jumbotron_slide_show
+      - field_name:
+          value: jumbotron_slide_show
+          span:
+            start: 3868
+            length: 20
         relation_type: ManyToMany
         target:
-          kind: Bare
-          name: JumbotronThemeSlide
+          value:
+            kind: Bare
+            name: JumbotronThemeSlide
+          span:
+            start: 3914
+            length: 19
         related_name: ~
     kind: concrete
   geonode.themes.models.JumbotronThemeSlide:
-    name: JumbotronThemeSlide
+    name:
+      value: JumbotronThemeSlide
+      span:
+        start: 1168
+        length: 19
     module_name: geonode.themes.models
-    line: 31
     relations: []
     kind: concrete

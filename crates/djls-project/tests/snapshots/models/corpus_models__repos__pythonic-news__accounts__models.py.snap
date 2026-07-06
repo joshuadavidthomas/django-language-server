@@ -4,38 +4,71 @@ expression: graph
 ---
 models:
   accounts.models.EmailVerification:
-    name: EmailVerification
+    name:
+      value: EmailVerification
+      span:
+        start: 2481
+        length: 17
     module_name: accounts.models
-    line: 75
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 2841
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: CustomUser
+          value:
+            kind: Bare
+            name: CustomUser
+          span:
+            start: 2866
+            length: 10
         related_name: ~
     kind: concrete
   accounts.models.Invitation:
-    name: Invitation
+    name:
+      value: Invitation
+      span:
+        start: 1656
+        length: 10
     module_name: accounts.models
-    line: 52
     relations:
-      - field_name: inviting_user
+      - field_name:
+          value: inviting_user
+          span:
+            start: 1877
+            length: 13
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: CustomUser
+          value:
+            kind: Bare
+            name: CustomUser
+          span:
+            start: 1911
+            length: 10
         related_name: ~
     kind: concrete
   accounts.models.PasswordResetRequest:
-    name: PasswordResetRequest
+    name:
+      value: PasswordResetRequest
+      span:
+        start: 3136
+        length: 20
     module_name: accounts.models
-    line: 91
     relations:
-      - field_name: user
+      - field_name:
+          value: user
+          span:
+            start: 3367
+            length: 4
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: CustomUser
+          value:
+            kind: Bare
+            name: CustomUser
+          span:
+            start: 3392
+            length: 10
         related_name: ~
     kind: concrete

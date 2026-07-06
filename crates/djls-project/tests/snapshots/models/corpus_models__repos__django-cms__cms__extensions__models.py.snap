@@ -4,47 +4,96 @@ expression: graph
 ---
 models:
   cms.extensions.models.BaseExtension:
-    name: BaseExtension
+    name:
+      value: BaseExtension
+      span:
+        start: 124
+        length: 13
     module_name: cms.extensions.models
-    line: 7
     relations:
-      - field_name: public_extension
+      - field_name:
+          value: public_extension
+          span:
+            start: 157
+            length: 16
         relation_type: OneToOne
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 206
+            length: 6
         related_name: draft_extension
     kind: abstract
   cms.extensions.models.PageContentExtension:
-    name: PageContentExtension
+    name:
+      value: PageContentExtension
+      span:
+        start: 2725
+        length: 20
     module_name: cms.extensions.models
-    line: 84
     relations:
-      - field_name: public_extension
+      - field_name:
+          value: public_extension
+          span:
+            start: 157
+            length: 16
         relation_type: OneToOne
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 206
+            length: 6
         related_name: draft_extension
-      - field_name: extended_object
+      - field_name:
+          value: extended_object
+          span:
+            start: 2766
+            length: 15
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: PageContent
+          value:
+            kind: Bare
+            name: PageContent
+          span:
+            start: 2805
+            length: 11
         related_name: ~
     kind: abstract
   cms.extensions.models.PageExtension:
-    name: PageExtension
+    name:
+      value: PageExtension
+      span:
+        start: 2494
+        length: 13
     module_name: cms.extensions.models
-    line: 74
     relations:
-      - field_name: public_extension
+      - field_name:
+          value: public_extension
+          span:
+            start: 157
+            length: 16
         relation_type: OneToOne
         target:
-          kind: SelfRef
+          value:
+            kind: SelfRef
+          span:
+            start: 206
+            length: 6
         related_name: draft_extension
-      - field_name: extended_object
+      - field_name:
+          value: extended_object
+          span:
+            start: 2528
+            length: 15
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: Page
+          value:
+            kind: Bare
+            name: Page
+          span:
+            start: 2567
+            length: 4
         related_name: ~
     kind: abstract
