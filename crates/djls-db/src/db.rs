@@ -936,7 +936,7 @@ env_file = ".env.local"
         .unwrap();
 
         let mut db = DjangoDatabase::new(
-            Arc::new(OsFileSystem),
+            Arc::new(OsFileSystem::default()),
             &Settings::default(),
             Some(root.as_path()),
         );

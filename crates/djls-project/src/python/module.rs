@@ -188,7 +188,7 @@ fn python_module_flat_candidates(
         let root = search_path.clone();
         let dir = search_path.path().join(&relative);
         let init_file = dir.join("__init__.py");
-        if db.path_is_file(&init_file) {
+        if db.path_is_file(&init_file) && path_case_matches(db, &init_file, search_path.path()) {
             candidates.push(PythonModuleCandidate::RegularPackage {
                 root,
                 dir,
@@ -198,7 +198,7 @@ fn python_module_flat_candidates(
         }
 
         let py_file = dir.with_extension("py");
-        if db.path_is_file(&py_file) {
+        if db.path_is_file(&py_file) && path_case_matches(db, &py_file, search_path.path()) {
             candidates.push(PythonModuleCandidate::FileModule {
                 root,
                 path: py_file,
@@ -206,12 +206,17 @@ fn python_module_flat_candidates(
             continue;
         }
 
-        if db.path_is_dir(&dir) {
+        if db.path_is_dir(&dir) && path_case_matches(db, &dir, search_path.path()) {
             candidates.push(PythonModuleCandidate::NamespacePortion { root, dir });
         }
     }
 
     candidates
+}
+
+fn path_case_matches(db: &dyn ProjectDb, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+    let fs = db.file_system();
+    fs.case_sensitivity().is_case_sensitive() || fs.path_exists_case_sensitive(path, prefix)
 }
 
 fn resolve_component(
@@ -221,7 +226,9 @@ fn resolve_component(
 ) -> Option<ResolvedComponent> {
     let dir = candidate.dir.join(component);
     let init_file = dir.join("__init__.py");
-    if let Ok(file) = path_to_file(db, &init_file) {
+    if let Ok(file) = path_to_file(db, &init_file)
+        && path_case_matches(db, &init_file, &candidate.dir)
+    {
         return Some(ResolvedComponent::RegularPackage {
             root: candidate.root.clone(),
             dir,
@@ -231,7 +238,9 @@ fn resolve_component(
     }
 
     let py_file = dir.with_extension("py");
-    if let Ok(file) = path_to_file(db, &py_file) {
+    if let Ok(file) = path_to_file(db, &py_file)
+        && path_case_matches(db, &py_file, &candidate.dir)
+    {
         return Some(ResolvedComponent::FileModule {
             root: candidate.root.clone(),
             path: py_file,
@@ -239,7 +248,9 @@ fn resolve_component(
         });
     }
 
-    if matches!(path_to_file(db, &dir), Err(FileError::IsADirectory)) {
+    if matches!(path_to_file(db, &dir), Err(FileError::IsADirectory))
+        && path_case_matches(db, &dir, &candidate.dir)
+    {
         return Some(ResolvedComponent::NamespacePortion(CandidateDirectory {
             root: candidate.root.clone(),
             dir,

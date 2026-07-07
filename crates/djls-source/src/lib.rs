@@ -22,6 +22,7 @@ pub use files::FileStatus;
 pub use files::SourceFiles;
 pub use files::SourceText;
 pub use files::path_to_file;
+pub use fs::CaseSensitivity;
 pub use fs::FileSystem;
 pub use fs::InMemoryFileSystem;
 pub use fs::OsFileSystem;

@@ -39,6 +39,7 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_source::CaseSensitivity;
 use djls_source::FileKind;
 use djls_source::FileSystem;
 use djls_source::FxDashMap;
@@ -70,7 +71,7 @@ impl Workspace {
         let buffers = Buffers::new();
         let overlay = Arc::new(OverlayFileSystem::new(
             buffers.clone(),
-            Arc::new(OsFileSystem),
+            Arc::new(OsFileSystem::default()),
         ));
 
         Self { buffers, overlay }
@@ -289,6 +290,18 @@ impl FileSystem for OverlayFileSystem {
             })
     }
 
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        self.disk.case_sensitivity()
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        self.buffers.contains(path)
+            || self.buffers.iter().any(|(buffer_path, _document)| {
+                buffer_path.starts_with(path) && buffer_path != path
+            })
+            || self.disk.path_exists_case_sensitive(path, prefix)
+    }
+
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
         let mut entries = self.disk.walk_entries(root, options)?;
 
@@ -449,6 +462,20 @@ mod tests {
             .collect();
 
         assert_eq!(relatives, vec!["buffer.html"]);
+    }
+
+    #[test]
+    fn overlay_case_sensitive_exists_includes_buffer_implied_directory() {
+        let buffers = Buffers::new();
+        let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(InMemoryFileSystem::new()));
+        let db = TestDb::new(Arc::new(InMemoryFileSystem::new()));
+        let path = Utf8PathBuf::from("/project/pkg/bar.py");
+        buffers.open(path.clone(), text_document(&db, &path, "buffer"));
+
+        assert!(fs.path_exists_case_sensitive(
+            Utf8Path::new("/project/pkg"),
+            Utf8Path::new("/project"),
+        ));
     }
 
     #[test]

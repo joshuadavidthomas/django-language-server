@@ -11,6 +11,7 @@
 
 use std::io;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -91,6 +92,22 @@ impl From<std::fs::FileType> for WalkEntryKind {
     }
 }
 
+/// Known case-sensitivity behavior for a filesystem view.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CaseSensitivity {
+    CaseSensitive,
+    CaseInsensitive,
+    Unknown,
+}
+
+impl CaseSensitivity {
+    /// Return whether the filesystem is known to be case-sensitive.
+    #[must_use]
+    pub fn is_case_sensitive(&self) -> bool {
+        matches!(self, Self::CaseSensitive)
+    }
+}
+
 /// An entry discovered under a walk root.
 ///
 /// Each entry carries both the resolved path and the path relative to the root
@@ -137,6 +154,10 @@ pub trait FileSystem: Send + Sync {
     fn is_file(&self, path: &Utf8Path) -> bool;
     /// Return whether a path is a directory.
     fn is_dir(&self, path: &Utf8Path) -> bool;
+    /// Return the known case-sensitivity behavior for this filesystem view.
+    fn case_sensitivity(&self) -> CaseSensitivity;
+    /// Return whether a path exists with exact on-disk casing after `prefix`.
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool;
     /// Walk entries under a root using the supplied traversal policy.
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>>;
 }
@@ -169,6 +190,18 @@ where
             .is_dir(path)
     }
 
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .case_sensitivity()
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .path_exists_case_sensitive(path, prefix)
+    }
+
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
         self.lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -180,6 +213,7 @@ where
 #[derive(Clone)]
 pub struct InMemoryFileSystem {
     files: FxHashMap<Utf8PathBuf, String>,
+    case_sensitivity: CaseSensitivity,
 }
 
 impl InMemoryFileSystem {
@@ -187,6 +221,15 @@ impl InMemoryFileSystem {
     pub fn new() -> Self {
         Self {
             files: FxHashMap::default(),
+            case_sensitivity: CaseSensitivity::CaseSensitive,
+        }
+    }
+
+    #[must_use]
+    pub fn case_insensitive() -> Self {
+        Self {
+            files: FxHashMap::default(),
+            case_sensitivity: CaseSensitivity::CaseInsensitive,
         }
     }
 
@@ -195,7 +238,37 @@ impl InMemoryFileSystem {
     }
 
     pub fn remove_file(&mut self, path: &Utf8Path) {
-        self.files.remove(path);
+        if self.case_sensitivity.is_case_sensitive() {
+            self.files.remove(path);
+        } else if let Some(stored_path) = self.matching_file_path(path).cloned() {
+            self.files.remove(&stored_path);
+        }
+    }
+
+    fn matching_file_path(&self, path: &Utf8Path) -> Option<&Utf8PathBuf> {
+        if self.case_sensitivity.is_case_sensitive() {
+            self.files.get_key_value(path).map(|(path, _)| path)
+        } else {
+            self.files
+                .keys()
+                .find(|stored_path| paths_eq_ignore_ascii_case(stored_path, path))
+        }
+    }
+
+    fn exact_dir_exists(&self, path: &Utf8Path) -> bool {
+        !self.files.contains_key(path) && self.files.keys().any(|file| file.starts_with(path))
+    }
+
+    fn matching_dir_path(&self, path: &Utf8Path) -> bool {
+        if self.case_sensitivity.is_case_sensitive() {
+            self.exact_dir_exists(path)
+        } else {
+            self.matching_file_path(path).is_none()
+                && self
+                    .files
+                    .keys()
+                    .any(|file| path_starts_with_ignore_ascii_case(file, path))
+        }
     }
 }
 
@@ -205,10 +278,43 @@ impl Default for InMemoryFileSystem {
     }
 }
 
+fn paths_eq_ignore_ascii_case(left: &Utf8Path, right: &Utf8Path) -> bool {
+    let left_components = left.components().collect::<Vec<_>>();
+    let right_components = right.components().collect::<Vec<_>>();
+    left_components.len() == right_components.len()
+        && left_components
+            .iter()
+            .zip(right_components)
+            .all(|(left, right)| left.as_str().eq_ignore_ascii_case(right.as_str()))
+}
+
+fn path_starts_with_ignore_ascii_case(path: &Utf8Path, prefix: &Utf8Path) -> bool {
+    let path_components = path.components().collect::<Vec<_>>();
+    let prefix_components = prefix.components().collect::<Vec<_>>();
+    path_components.len() >= prefix_components.len()
+        && path_components
+            .iter()
+            .zip(prefix_components)
+            .all(|(path, prefix)| path.as_str().eq_ignore_ascii_case(prefix.as_str()))
+}
+
+fn components_after_prefix<'a>(path: &'a Utf8Path, prefix: &Utf8Path) -> Option<Vec<&'a str>> {
+    if !path_starts_with_ignore_ascii_case(path, prefix) {
+        return None;
+    }
+
+    Some(
+        path.components()
+            .skip(prefix.components().count())
+            .map(|component| component.as_str())
+            .collect(),
+    )
+}
+
 impl FileSystem for InMemoryFileSystem {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
-        self.files
-            .get(path)
+        self.matching_file_path(path)
+            .and_then(|path| self.files.get(path))
             .cloned()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not found"))
     }
@@ -218,11 +324,32 @@ impl FileSystem for InMemoryFileSystem {
     }
 
     fn is_file(&self, path: &Utf8Path) -> bool {
-        self.files.contains_key(path)
+        self.matching_file_path(path).is_some()
     }
 
     fn is_dir(&self, path: &Utf8Path) -> bool {
-        self.files.keys().any(|file| file.starts_with(path)) && !self.is_file(path)
+        self.matching_dir_path(path)
+    }
+
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        self.case_sensitivity
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        if self.case_sensitivity.is_case_sensitive() {
+            return self.exists(path);
+        }
+
+        let Some(requested_suffix) = components_after_prefix(path, prefix) else {
+            return false;
+        };
+
+        self.files.keys().any(|stored_path| {
+            let Some(stored_suffix) = components_after_prefix(stored_path, prefix) else {
+                return false;
+            };
+            stored_suffix.starts_with(&requested_suffix)
+        })
     }
 
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
@@ -232,27 +359,53 @@ impl FileSystem for InMemoryFileSystem {
 
         let mut entries = Vec::new();
         for path in self.files.keys() {
-            if path == root {
-                entries.push(WalkEntry::file_root(root));
+            if (self.case_sensitivity.is_case_sensitive() && path == root)
+                || (!self.case_sensitivity.is_case_sensitive()
+                    && paths_eq_ignore_ascii_case(path, root))
+            {
+                entries.push(WalkEntry::file_root(path));
                 continue;
             }
 
-            if !path.starts_with(root) {
-                continue;
-            }
+            let file_relative_components: Vec<_> = if self.case_sensitivity.is_case_sensitive() {
+                if !path.starts_with(root) {
+                    continue;
+                }
 
-            let Ok(file_relative) = path.strip_prefix(root) else {
-                continue;
+                let Ok(file_relative) = path.strip_prefix(root) else {
+                    continue;
+                };
+                if file_relative.as_str().is_empty() {
+                    continue;
+                }
+
+                file_relative
+                    .components()
+                    .map(|component| component.as_str())
+                    .collect()
+            } else {
+                if !path_starts_with_ignore_ascii_case(path, root) {
+                    continue;
+                }
+
+                path.components()
+                    .skip(root.components().count())
+                    .map(|component| component.as_str())
+                    .collect()
             };
-            if file_relative.as_str().is_empty() {
+            if file_relative_components.is_empty() {
                 continue;
             }
 
-            let mut entry_path = root.to_path_buf();
+            let mut entry_path = path
+                .components()
+                .take(root.components().count())
+                .map(|component| component.as_str())
+                .collect::<Utf8PathBuf>();
             let mut entry_relative = Utf8PathBuf::new();
-            for component in file_relative.components() {
-                entry_path.push(component.as_str());
-                entry_relative.push(component.as_str());
+            for component in file_relative_components {
+                entry_path.push(component);
+                entry_relative.push(component);
 
                 if !options.hidden
                     && entry_relative.components().any(|component| {
@@ -297,7 +450,81 @@ impl FileSystem for InMemoryFileSystem {
 }
 
 /// Standard filesystem implementation that uses `std::fs` and the `ignore` crate.
-pub struct OsFileSystem;
+#[derive(Default)]
+pub struct OsFileSystem {
+    case_sensitivity: OnceLock<CaseSensitivity>,
+}
+
+impl OsFileSystem {
+    fn path_exists_case_sensitive_fast(path: &Utf8Path, prefix: &Utf8Path) -> Option<bool> {
+        let Ok(canonicalized) = path.as_std_path().canonicalize() else {
+            return Some(false);
+        };
+        let Ok(canonicalized) = Utf8PathBuf::from_path_buf(canonicalized) else {
+            return None;
+        };
+
+        canonicalized_path_matches_requested_suffix(canonicalized.as_path(), path, prefix)
+    }
+
+    fn path_exists_case_sensitive_slow(path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        for ancestor in path.ancestors() {
+            if ancestor == prefix {
+                break;
+            }
+
+            let Some(parent) = ancestor.parent() else {
+                return false;
+            };
+            let Some(file_name) = ancestor.file_name() else {
+                return false;
+            };
+            let Ok(entries) = std::fs::read_dir(parent) else {
+                return false;
+            };
+
+            if !entries.filter_map(Result::ok).any(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name == file_name)
+            }) {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+fn canonicalized_path_matches_requested_suffix(
+    canonicalized: &Utf8Path,
+    path: &Utf8Path,
+    prefix: &Utf8Path,
+) -> Option<bool> {
+    let canonicalized = simplify_verbatim_prefix(canonicalized);
+    let path = simplify_verbatim_prefix(path);
+    let prefix = simplify_verbatim_prefix(prefix);
+
+    if canonicalized.as_str().to_lowercase() != path.as_str().to_lowercase() {
+        return None;
+    }
+
+    let exempt = prefix.components().count();
+    Some(
+        path.components()
+            .skip(exempt)
+            .eq(canonicalized.components().skip(exempt)),
+    )
+}
+
+fn simplify_verbatim_prefix(path: &Utf8Path) -> &Utf8Path {
+    if cfg!(windows) && path.as_str().starts_with(r"\\?\") {
+        Utf8Path::new(&path.as_str()[r"\\?\".len()..])
+    } else {
+        path
+    }
+}
 
 impl FileSystem for OsFileSystem {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
@@ -314,6 +541,57 @@ impl FileSystem for OsFileSystem {
 
     fn is_dir(&self, path: &Utf8Path) -> bool {
         path.is_dir()
+    }
+
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        self.case_sensitivity
+            .get()
+            .copied()
+            .unwrap_or(CaseSensitivity::Unknown)
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        if self
+            .case_sensitivity
+            .get_or_init(|| {
+                #[cfg(not(unix))]
+                return CaseSensitivity::Unknown;
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+
+                    let Ok(original_case_metadata) = prefix.as_std_path().metadata() else {
+                        return CaseSensitivity::Unknown;
+                    };
+
+                    let upper_case = Utf8PathBuf::from(prefix.as_str().to_uppercase());
+                    if upper_case == prefix {
+                        return CaseSensitivity::Unknown;
+                    }
+
+                    match upper_case.as_std_path().metadata() {
+                        Ok(uppercase_metadata) => {
+                            if uppercase_metadata.ino() == original_case_metadata.ino() {
+                                CaseSensitivity::CaseInsensitive
+                            } else {
+                                CaseSensitivity::CaseSensitive
+                            }
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                            CaseSensitivity::CaseSensitive
+                        }
+                        Err(_) => CaseSensitivity::Unknown,
+                    }
+                }
+            })
+            .is_case_sensitive()
+        {
+            return self.exists(path);
+        }
+
+        Self::path_exists_case_sensitive_fast(path, prefix)
+            .unwrap_or_else(|| Self::path_exists_case_sensitive_slow(path, prefix))
     }
 
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
@@ -400,6 +678,57 @@ mod tests {
     }
 
     #[test]
+    fn case_insensitive_in_memory_lookups_ignore_ascii_case() {
+        let mut fs = InMemoryFileSystem::case_insensitive();
+        fs.add_file("/Project/pkg/module.py".into(), "content".to_string());
+
+        assert!(fs.exists(Utf8Path::new("/project/PKG/MODULE.py")));
+        assert!(fs.is_file(Utf8Path::new("/project/PKG/MODULE.py")));
+        assert!(fs.is_dir(Utf8Path::new("/project/PKG")));
+        assert_eq!(
+            fs.read_to_string(Utf8Path::new("/project/PKG/MODULE.py"))
+                .unwrap(),
+            "content"
+        );
+    }
+
+    #[test]
+    fn case_insensitive_in_memory_path_exists_case_sensitive_verifies_suffix_casing() {
+        let mut fs = InMemoryFileSystem::case_insensitive();
+        fs.add_file("/project/pkg/module.py".into(), String::new());
+
+        assert!(fs.path_exists_case_sensitive(
+            Utf8Path::new("/project/pkg/module.py"),
+            Utf8Path::new("/project"),
+        ));
+        assert!(!fs.path_exists_case_sensitive(
+            Utf8Path::new("/project/pkg/Module.py"),
+            Utf8Path::new("/project"),
+        ));
+        assert!(fs.path_exists_case_sensitive(
+            Utf8Path::new("/PROJECT/pkg/module.py"),
+            Utf8Path::new("/PROJECT"),
+        ));
+    }
+
+    #[test]
+    fn case_insensitive_in_memory_path_exists_case_sensitive_verifies_directories() {
+        let mut fs = InMemoryFileSystem::case_insensitive();
+        fs.add_file("/project/pkg/module.py".into(), String::new());
+
+        assert!(fs.path_exists_case_sensitive(
+            Utf8Path::new("/project/pkg"),
+            Utf8Path::new("/project"),
+        ));
+        assert!(
+            !fs.path_exists_case_sensitive(
+                Utf8Path::new("/project/Pkg"),
+                Utf8Path::new("/project"),
+            )
+        );
+    }
+
+    #[test]
     fn in_memory_walks_files_under_root() {
         let mut fs = InMemoryFileSystem::new();
         fs.add_file("/project/templates/base.html".into(), "base".to_string());
@@ -425,6 +754,42 @@ mod tests {
     }
 
     #[test]
+    fn case_insensitive_in_memory_walk_uses_wrong_cased_root() {
+        let mut fs = InMemoryFileSystem::case_insensitive();
+        fs.add_file("/Project/Templates/base.html".into(), "base".to_string());
+        fs.add_file(
+            "/Project/Templates/App/page.html".into(),
+            "page".to_string(),
+        );
+
+        let files = fs
+            .walk_entries(
+                Utf8Path::new("/project/templates"),
+                &WalkOptions::unrestricted(),
+            )
+            .unwrap();
+        let paths: Vec<_> = files
+            .iter()
+            .filter(|entry| entry.kind == WalkEntryKind::File)
+            .map(|entry| entry.path.as_str())
+            .collect();
+        let relatives: Vec<_> = files
+            .iter()
+            .filter(|entry| entry.kind == WalkEntryKind::File)
+            .map(|entry| entry.relative.as_str())
+            .collect();
+
+        assert_eq!(
+            paths,
+            vec![
+                "/Project/Templates/App/page.html",
+                "/Project/Templates/base.html",
+            ]
+        );
+        assert_eq!(relatives, vec!["App/page.html", "base.html"]);
+    }
+
+    #[test]
     fn in_memory_walk_respects_hidden_option() {
         let mut fs = InMemoryFileSystem::new();
         fs.add_file("/project/.hidden/secret.html".into(), "secret".to_string());
@@ -440,6 +805,42 @@ mod tests {
             .collect();
 
         assert_eq!(relatives, vec!["visible.html"]);
+    }
+
+    #[test]
+    fn canonicalized_compare_ignores_prefix_casing_mismatch() {
+        assert_eq!(
+            canonicalized_path_matches_requested_suffix(
+                Utf8Path::new("/Project/foo.py"),
+                Utf8Path::new("/project/foo.py"),
+                Utf8Path::new("/project"),
+            ),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn canonicalized_compare_rejects_suffix_casing_mismatch() {
+        assert_eq!(
+            canonicalized_path_matches_requested_suffix(
+                Utf8Path::new("/Project/foo.py"),
+                Utf8Path::new("/project/Foo.py"),
+                Utf8Path::new("/project"),
+            ),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn canonicalized_compare_defers_non_casing_difference() {
+        assert_eq!(
+            canonicalized_path_matches_requested_suffix(
+                Utf8Path::new("/Project/foo.py"),
+                Utf8Path::new("/project/bar.py"),
+                Utf8Path::new("/project"),
+            ),
+            None
+        );
     }
 
     fn temp_path(dir: &tempfile::TempDir) -> Utf8PathBuf {
@@ -461,7 +862,7 @@ mod tests {
         std::fs::write(dir.path().join(".hidden/secret.html"), "secret").unwrap();
         std::fs::write(dir.path().join("visible.html"), "visible").unwrap();
 
-        let entries = OsFileSystem
+        let entries = OsFileSystem::default()
             .walk_entries(&temp_path(&dir), &WalkOptions::default())
             .unwrap();
         let names = entry_names(&entries);
@@ -481,7 +882,7 @@ mod tests {
             hidden: true,
             ..WalkOptions::default()
         };
-        let entries = OsFileSystem
+        let entries = OsFileSystem::default()
             .walk_entries(&temp_path(&dir), &options)
             .unwrap();
         let names = entry_names(&entries);
@@ -503,7 +904,7 @@ mod tests {
         std::fs::write(dir.path().join("ignored/skip.html"), "skip").unwrap();
         std::fs::write(dir.path().join("keep.html"), "keep").unwrap();
 
-        let entries = OsFileSystem
+        let entries = OsFileSystem::default()
             .walk_entries(&temp_path(&dir), &WalkOptions::default())
             .unwrap();
         let names = entry_names(&entries);
@@ -529,7 +930,7 @@ mod tests {
             no_ignore: true,
             ..WalkOptions::default()
         };
-        let entries = OsFileSystem
+        let entries = OsFileSystem::default()
             .walk_entries(&temp_path(&dir), &options)
             .unwrap();
         let names = entry_names(&entries);
@@ -549,7 +950,7 @@ mod tests {
             globs: vec!["page.*".to_string()],
             ..WalkOptions::default()
         };
-        let entries = OsFileSystem
+        let entries = OsFileSystem::default()
             .walk_entries(&temp_path(&dir), &options)
             .unwrap();
         let names = entry_names(&entries);
@@ -570,7 +971,7 @@ mod tests {
             max_depth: Some(1),
             ..WalkOptions::default()
         };
-        let entries = OsFileSystem
+        let entries = OsFileSystem::default()
             .walk_entries(&temp_path(&dir), &options)
             .unwrap();
         let names = entry_names(&entries);
@@ -585,7 +986,7 @@ mod tests {
         let file_path = Utf8PathBuf::from_path_buf(dir.path().join("single.html")).unwrap();
         std::fs::write(file_path.as_std_path(), "single").unwrap();
 
-        let entries = OsFileSystem
+        let entries = OsFileSystem::default()
             .walk_entries(&file_path, &WalkOptions::default())
             .unwrap();
 

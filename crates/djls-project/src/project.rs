@@ -271,7 +271,7 @@ mod tests {
             .unwrap();
 
             let settings = Settings::default();
-            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem::default(), root, &settings);
 
             assert_eq!(vars.len(), 2);
             assert_eq!(
@@ -295,7 +295,7 @@ mod tests {
             fs::write(dir.path().join("djls.toml"), r#"env_file = ".env.local""#).unwrap();
 
             let settings = Settings::new(root, None).unwrap();
-            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem::default(), root, &settings);
 
             assert_eq!(vars.len(), 1);
             assert_eq!(vars[0], ("MY_VAR".to_string(), "hello".to_string()));
@@ -307,7 +307,7 @@ mod tests {
             let root = Utf8Path::from_path(dir.path()).unwrap();
 
             let settings = Settings::default();
-            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem::default(), root, &settings);
 
             assert!(vars.is_empty());
         }
@@ -323,7 +323,7 @@ mod tests {
             .unwrap();
 
             let settings = Settings::new(root, None).unwrap();
-            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem::default(), root, &settings);
 
             assert!(vars.is_empty());
         }
@@ -339,7 +339,7 @@ mod tests {
             .unwrap();
 
             let settings = Settings::default();
-            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem::default(), root, &settings);
 
             assert_eq!(vars.len(), 2);
             assert_eq!(vars[0].0, "DJANGO_SECRET_KEY");
@@ -357,7 +357,7 @@ mod tests {
             .unwrap();
 
             let settings = Settings::default();
-            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem::default(), root, &settings);
 
             assert_eq!(vars.len(), 2);
             assert_eq!(

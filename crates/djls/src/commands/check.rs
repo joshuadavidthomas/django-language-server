@@ -153,7 +153,7 @@ impl Command for Check {
             return check_stdin(&project_root, &settings, &config, &fmt, quiet);
         }
 
-        let fs: Arc<dyn FileSystem> = Arc::new(OsFileSystem);
+        let fs: Arc<dyn FileSystem> = Arc::new(OsFileSystem::default());
         let mut db = DjangoDatabase::new(fs, &settings, Some(&project_root));
         db.apply_project_settings(settings);
 
