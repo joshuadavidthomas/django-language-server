@@ -2,6 +2,7 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use djls_source::FileKind;
+use djls_source::path_to_file;
 use tokio::sync::Mutex;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
@@ -104,9 +105,12 @@ impl DjangoLanguageServer {
             return;
         }
 
-        let file = document.file();
+        let path = document.path().to_path_buf();
         let Some(diagnostics) = self
-            .with_snapshot(move |snapshot| djls_ide::collect_diagnostics(snapshot.db(), file))
+            .with_snapshot(move |snapshot| {
+                let file = path_to_file(snapshot.db(), &path).ok()?;
+                djls_ide::collect_diagnostics(snapshot.db(), file)
+            })
             .await
         else {
             return;

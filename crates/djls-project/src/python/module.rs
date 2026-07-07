@@ -3,6 +3,7 @@ use std::fmt;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
+use djls_source::path_to_file;
 use thiserror::Error;
 
 use crate::db::Db as ProjectDb;
@@ -495,7 +496,7 @@ impl PythonModule {
                 PythonModuleCandidate::NamespacePortion { .. } => continue,
             };
 
-            let file = db.get_or_create_file(&path);
+            let file = path_to_file(db, &path).ok()?;
             return Some(Self::new(name, path, file));
         }
 

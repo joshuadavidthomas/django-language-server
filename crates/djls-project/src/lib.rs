@@ -106,6 +106,7 @@ pub(crate) enum ExtractionStatus {
 pub mod testing {
     use camino::Utf8PathBuf;
     use djls_source::File;
+    use djls_source::FileStatus;
     use djls_source::Span;
 
     pub use crate::discovery::compute_django_discovery;
@@ -263,7 +264,10 @@ pub mod testing {
             "/__djls_testing__/{}.py",
             module_name.as_str().replace('.', "/")
         ));
-        let file = db.get_or_create_file(&path);
+        let file = File::builder(path.clone(), 0, FileStatus::Exists)
+            .durability(salsa::Durability::LOW)
+            .path_durability(salsa::Durability::HIGH)
+            .new(db);
         super::PythonModule::new(module_name, path, file)
     }
 }

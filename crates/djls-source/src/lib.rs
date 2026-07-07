@@ -1,3 +1,4 @@
+mod changes;
 mod collections;
 mod db;
 mod files;
@@ -8,14 +9,19 @@ mod position;
 mod protocol;
 mod render;
 
+pub use changes::ChangeEvent;
+pub use changes::SourceChanges;
 pub use collections::FxDashMap;
 pub use db::Db;
 pub use files::File;
+pub use files::FileError;
 pub use files::FileKind;
 pub use files::FileRoot;
 pub use files::FileRootKind;
+pub use files::FileStatus;
 pub use files::SourceFiles;
 pub use files::SourceText;
+pub use files::path_to_file;
 pub use fs::FileSystem;
 pub use fs::InMemoryFileSystem;
 pub use fs::OsFileSystem;

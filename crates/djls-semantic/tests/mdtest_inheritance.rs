@@ -35,7 +35,7 @@ fn render_inheritance(scenario: &Scenario) -> String {
 
     let primary = scenario.primary_file();
     let primary_path = template_path(&primary.path);
-    let file = db.get_or_create_file(Utf8Path::new(&primary_path));
+    let file = db.file(Utf8Path::new(&primary_path));
     let nodelist = parse_template(&db, file).expect("should parse");
     let symbols = template_symbols(&db, nodelist);
     let inheritance = template_inheritance(&db, project, file);

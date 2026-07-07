@@ -56,7 +56,7 @@ fn corpus_template_inheritance_terminates() {
 
         let project = fixture.build(&db);
         for template_path in templates {
-            let file = db.get_or_create_file(&template_path);
+            let file = db.file(&template_path);
             if parse_template(&db, file).is_none() {
                 continue;
             }

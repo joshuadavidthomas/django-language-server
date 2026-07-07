@@ -22,7 +22,7 @@ fn goto_definition_reports_location_link_with_origin_range() {
         .template_file("base.html", "/test/project/templates/base.html", "base")
         .install(&mut db);
 
-    let file = db.get_or_create_file(Utf8Path::new(child_path));
+    let file = db.file(Utf8Path::new(child_path));
     let response = goto_definition(
         &db,
         file,
@@ -63,7 +63,7 @@ fn goto_definition_falls_back_to_location_without_link_support() {
         .template_file("base.html", "/test/project/templates/base.html", "base")
         .install(&mut db);
 
-    let file = db.get_or_create_file(Utf8Path::new(child_path));
+    let file = db.file(Utf8Path::new(child_path));
     let response = goto_definition(
         &db,
         file,
@@ -99,7 +99,7 @@ fn find_references_reports_template_name_interior_range() {
         .template_file("base.html", "/test/project/templates/base.html", "base")
         .install(&mut db);
 
-    let file = db.get_or_create_file(Utf8Path::new(child_path));
+    let file = db.file(Utf8Path::new(child_path));
     let locations = find_references(
         &db,
         file,

@@ -7,6 +7,7 @@ use std::sync::RwLockWriteGuard;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use salsa::Durability;
+use salsa::Setter;
 
 use crate::collections::FxDashMap;
 use crate::db::Db;
@@ -23,6 +24,44 @@ pub struct File {
     pub path: Utf8PathBuf,
     /// The revision number for invalidation tracking
     pub revision: u64,
+    pub status: FileStatus,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FileStatus {
+    Exists,
+    IsADirectory,
+    NotFound,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FileError {
+    #[error("Is a directory")]
+    IsADirectory,
+    #[error("Not found")]
+    NotFound,
+}
+
+fn file_status(db: &dyn Db, path: &Utf8Path) -> FileStatus {
+    let file_system = db.file_system();
+    if file_system.is_file(path) {
+        FileStatus::Exists
+    } else if file_system.is_dir(path) {
+        FileStatus::IsADirectory
+    } else {
+        FileStatus::NotFound
+    }
+}
+
+/// Get or create a tracked file for `path` and return it if it exists.
+#[inline]
+pub fn path_to_file(db: &dyn Db, path: &Utf8Path) -> Result<File, FileError> {
+    let file = db.files().get_or_create_file(db, path);
+    match file.status(db) {
+        FileStatus::Exists => Ok(file),
+        FileStatus::IsADirectory => Err(FileError::IsADirectory),
+        FileStatus::NotFound => Err(FileError::NotFound),
+    }
 }
 
 #[salsa::input]
@@ -55,6 +94,29 @@ impl File {
         let source = self.source(db);
         let line_index = self.line_index(db);
         line_index.end_line_col(source.as_str(), encoding)
+    }
+
+    pub fn sync(self, db: &mut dyn Db) {
+        let path = self.path(db).clone();
+        Self::sync_path(db, &path);
+    }
+
+    pub fn sync_path(db: &mut dyn Db, path: &Utf8Path) {
+        let Some(file) = db.files().try_file(path) else {
+            return;
+        };
+
+        let current_status = file.status(db);
+        let next_status = file_status(db, path);
+        if current_status == next_status {
+            return;
+        }
+
+        file.set_status(db).to(next_status);
+        if matches!(current_status, FileStatus::Exists) != matches!(next_status, FileStatus::Exists)
+        {
+            db.bump_file_revision(file);
+        }
     }
 }
 
@@ -207,13 +269,10 @@ impl FileRootKind {
 
 impl SourceFiles {
     #[must_use]
-    pub(crate) fn get_or_create_file<SalsaDb>(&self, db: &SalsaDb, path: &Utf8Path) -> File
-    where
-        SalsaDb: salsa::Database + ?Sized,
-    {
+    fn get_or_create_file(&self, db: &dyn Db, path: &Utf8Path) -> File {
         let path = path.to_owned();
         *self.0.by_path.entry(path.clone()).or_insert_with(|| {
-            File::builder(path.clone(), 0)
+            File::builder(path.clone(), 0, file_status(db, &path))
                 .durability(self.durability_for(db, &path))
                 .path_durability(Durability::HIGH)
                 .new(db)
@@ -221,8 +280,8 @@ impl SourceFiles {
     }
 
     #[must_use]
-    pub fn contains_file(&self, path: &Utf8Path) -> bool {
-        self.0.by_path.contains_key(path)
+    pub fn try_file(&self, path: &Utf8Path) -> Option<File> {
+        self.0.by_path.get(path).map(|entry| *entry.value())
     }
 
     fn roots(&self) -> RwLockReadGuard<'_, Vec<FileRoot>> {
@@ -321,10 +380,7 @@ impl SourceFiles {
             .new(db)
     }
 
-    fn durability_for<SalsaDb>(&self, db: &SalsaDb, path: &Utf8Path) -> Durability
-    where
-        SalsaDb: salsa::Database + ?Sized,
-    {
+    fn durability_for(&self, db: &dyn Db, path: &Utf8Path) -> Durability {
         self.root(db, path)
             .map_or(Durability::LOW, |root| root.kind(db).durability())
     }

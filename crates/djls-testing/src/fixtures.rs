@@ -608,7 +608,7 @@ pub fn extract_and_merge(
             continue;
         };
         db.add_file(file_path.as_str(), &source);
-        let file = db.get_or_create_file(file_path);
+        let file = db.file(file_path);
         let bundle = extract_bundle(&db, file, module_name);
 
         arities.merge_filter_arities(&bundle.filter_arities);

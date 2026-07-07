@@ -11,11 +11,14 @@ use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::builtin_tag_specs;
+use djls_source::Db as SourceDb;
 use djls_source::File;
+use djls_source::FileStatus;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
 use djls_source::SourceFiles;
+use djls_source::path_to_file;
 
 #[derive(Clone, Default)]
 pub struct SalsaEventLog {
@@ -146,14 +149,23 @@ impl TestDatabase {
         self.project = Some(project);
     }
 
+    /// Return an existing fixture file from the test filesystem.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the fixture has not been added to the in-memory filesystem.
     #[must_use]
-    pub fn get_or_create_file(&self, path: &Utf8Path) -> File {
-        <Self as djls_source::Db>::get_or_create_file(self, path)
+    pub fn file(&self, path: &Utf8Path) -> File {
+        path_to_file(self, path).expect("test fixture file should exist; call add_file first")
     }
 
     #[must_use]
     pub(crate) fn create_file_with_revision(&self, path: &Utf8Path, revision: u64) -> File {
-        File::builder(path.to_owned(), revision)
+        debug_assert!(
+            self.file_system().is_file(path),
+            "fixture file should exist before creating tracked file: {path}"
+        );
+        File::builder(path.to_owned(), revision, FileStatus::Exists)
             .durability(salsa::Durability::LOW)
             .path_durability(salsa::Durability::HIGH)
             .new(self)

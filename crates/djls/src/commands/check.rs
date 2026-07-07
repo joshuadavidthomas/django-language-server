@@ -11,7 +11,6 @@ use clap::Parser;
 use djls_db::DjangoDatabase;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_source::Db as _;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -22,6 +21,7 @@ use djls_source::Severity;
 use djls_source::SourceText;
 use djls_source::Span;
 use djls_source::WalkOptions;
+use djls_source::path_to_file;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 
@@ -281,7 +281,16 @@ fn check_stdin(
 
 /// Run validation and capture the source text for later rendering.
 fn check_file_with_source(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
-    let file = db.get_or_create_file(path);
+    let Ok(file) = path_to_file(db, path) else {
+        return FileCheckResult {
+            path: path.to_owned(),
+            source: SourceText::default(),
+            check: CheckResult {
+                template_errors: Vec::new(),
+                validation_errors: Vec::new(),
+            },
+        };
+    };
     let source = file.source(db);
     let check = check_file(db, file);
 

@@ -27,7 +27,7 @@ fn extract_source(source: &str, module_name: &str) -> ExtractionBundle {
     let db = TestDatabase::new();
     let path = Utf8Path::new("/test/extraction.py");
     db.add_file(path.as_str(), source);
-    let file = db.get_or_create_file(path);
+    let file = db.file(path);
     extract_bundle(&db, file, PythonModuleName::parse(module_name).unwrap())
 }
 

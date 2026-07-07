@@ -1022,7 +1022,8 @@ mod tests {
 
     fn test_file() -> File {
         let db = TestDatabase::new();
-        db.get_or_create_file(Utf8Path::new("/test.py"))
+        db.add_file("/test.py", "");
+        db.file(Utf8Path::new("/test.py"))
     }
 
     fn test_span(start: u32) -> Span {

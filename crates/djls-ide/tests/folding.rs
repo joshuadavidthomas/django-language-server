@@ -29,7 +29,7 @@ fn folding_ranges_include_top_level_and_nested_template_blocks() {
 ";
     let db = TestDatabase::new();
     db.add_file("template.html", source);
-    let file = db.get_or_create_file(Utf8Path::new("template.html"));
+    let file = db.file(Utf8Path::new("template.html"));
     let ranges = collect_folding_ranges(&db, file);
 
     assert!(ranges.iter().any(|range| {
@@ -65,7 +65,7 @@ body
 ";
     let db = TestDatabase::new();
     db.add_file("template.html", source);
-    let file = db.get_or_create_file(Utf8Path::new("template.html"));
+    let file = db.file(Utf8Path::new("template.html"));
     let ranges = collect_folding_ranges(&db, file);
 
     assert!(ranges.iter().any(|range| {

@@ -3,14 +3,17 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and the Salsa database for incremental computation.
 
-#[cfg(test)]
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_db::DjangoDatabase;
-use djls_source::Db as SourceDb;
+use djls_source::ChangeEvent;
+use djls_source::Db as _;
 use djls_source::File;
+use djls_source::FileStatus;
 use djls_source::Offset;
+use djls_source::SourceChanges;
 use djls_source::Span;
+use djls_source::path_to_file;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
@@ -106,8 +109,8 @@ impl Session {
 
     /// Open a document in the session.
     ///
-    /// Updates both the workspace buffers and database. Creates the file in
-    /// the database or invalidates it if it already exists.
+    /// Updates the workspace buffer first, then applies the project-visible
+    /// file event against the overlay-backed database.
     pub(crate) fn open_document(
         &mut self,
         text_document: &ls_types::TextDocumentItem,
@@ -118,14 +121,12 @@ impl Session {
         };
 
         let kind = text_document.language_id_to_file_kind(self.client_info.client());
-
-        Some(self.workspace.open_document(
-            &mut self.db,
-            &path,
-            &text_document.text,
-            text_document.version,
-            kind,
-        ))
+        let change = self.open_document_change(&path);
+        let document =
+            self.workspace
+                .open_document(&path, &text_document.text, text_document.version, kind);
+        SourceChanges::new([change]).apply(&mut self.db);
+        Some(document)
     }
 
     pub(crate) fn save_document(
@@ -137,7 +138,9 @@ impl Session {
             return None;
         };
 
-        self.workspace.save_document(&mut self.db, &path)
+        let document = self.workspace.save_document(&path)?;
+        SourceChanges::new([ChangeEvent::ContentChanged(path)]).apply(&mut self.db);
+        Some(document)
     }
 
     pub(crate) fn update_document(
@@ -150,19 +153,25 @@ impl Session {
             return None;
         };
 
-        self.workspace.update_document(
-            &mut self.db,
+        let change = if self.workspace.get_document(&path).is_some() {
+            ChangeEvent::ContentChanged(path.clone())
+        } else {
+            self.open_document_change(&path)
+        };
+        let document = self.workspace.update_document(
             &path,
             changes.to_document_changes(),
             text_document.version,
             self.client_info.position_encoding(),
-        )
+        )?;
+        SourceChanges::new([change]).apply(&mut self.db);
+        Some(document)
     }
 
     /// Close a document.
     ///
-    /// Removes from workspace buffers and triggers database invalidation to fall back to disk.
-    /// For template files, immediately re-parses from disk.
+    /// Removes the document from workspace buffers, invalidates cached source state,
+    /// and lets future reads fall back to disk.
     pub(crate) fn close_document(
         &mut self,
         text_document: &ls_types::TextDocumentIdentifier,
@@ -172,9 +181,37 @@ impl Session {
             return None;
         };
 
-        let document = self.workspace.close_document(&mut self.db, &path)?;
+        let change = self.close_document_change(&path);
+        let document = self.workspace.close_document(&path)?;
+        SourceChanges::new([change]).apply(&mut self.db);
 
         Some(document)
+    }
+
+    fn open_document_change(&self, path: &Utf8Path) -> ChangeEvent {
+        if !self.workspace.disk_is_file(path) {
+            return ChangeEvent::BecameVisible(path.to_path_buf());
+        }
+
+        match self
+            .db
+            .files()
+            .try_file(path)
+            .map(|file| file.status(&self.db))
+        {
+            Some(FileStatus::Exists) => ChangeEvent::Opened(path.to_path_buf()),
+            Some(FileStatus::IsADirectory | FileStatus::NotFound) | None => {
+                ChangeEvent::BecameVisible(path.to_path_buf())
+            }
+        }
+    }
+
+    fn close_document_change(&self, path: &Utf8Path) -> ChangeEvent {
+        if self.workspace.disk_is_file(path) {
+            ChangeEvent::ContentChanged(path.to_path_buf())
+        } else {
+            ChangeEvent::Deleted(path.to_path_buf())
+        }
     }
 
     /// Get a document from the buffer if it's open.
@@ -185,11 +222,7 @@ impl Session {
 
     /// Get all currently open documents.
     pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
-        self.workspace
-            .buffers()
-            .iter()
-            .map(|(_path, document)| document)
-            .collect()
+        self.workspace.open_documents()
     }
 }
 
@@ -238,7 +271,7 @@ impl SessionSnapshot {
             return None;
         };
 
-        Some(self.db.get_or_create_file(&path))
+        path_to_file(&self.db, &path).ok()
     }
 
     /// Resolve an LSP positioned document request to a tracked file and byte offset.
@@ -290,7 +323,6 @@ impl SessionSnapshot {
 mod tests {
     use djls_project::Db as ProjectDb;
     use djls_project::Interpreter;
-    use djls_source::Db as SourceDb;
     use tempfile::tempdir;
 
     use super::*;
@@ -324,7 +356,7 @@ mod tests {
         assert!(session.get_document(&path).is_some());
 
         let db = session.db();
-        let file = db.get_or_create_file(&path);
+        let file = path_to_file(db, &path).expect("open buffer should be visible to the overlay");
         let content = file.source(db).to_string();
         assert_eq!(content, "print('hello')");
 
@@ -359,7 +391,7 @@ mod tests {
         assert_eq!(doc.version(), 2);
 
         let db = session.db();
-        let file = db.get_or_create_file(&path);
+        let file = path_to_file(db, &path).expect("open buffer should be visible to the overlay");
         let content = file.source(db).to_string();
         assert_eq!(content, "updated");
     }

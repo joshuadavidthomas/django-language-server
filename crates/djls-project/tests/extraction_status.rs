@@ -53,7 +53,7 @@ fn model_parse_failure_is_unparseable_with_empty_graph() {
     let db = TestDatabase::new();
     let path = Utf8Path::new("/proj/blog/models.py");
     db.add_file(path.as_str(), "class Broken(");
-    let file = db.get_or_create_file(path);
+    let file = db.file(path);
     let module_name = PythonModuleName::parse("blog.models").unwrap();
 
     let graph = extract_model_graph(&db, file, module_name.clone());
@@ -71,7 +71,7 @@ fn successful_model_parse_is_partial() {
         path.as_str(),
         "from django.db import models\nclass Post(models.Model):\n    pass\n",
     );
-    let file = db.get_or_create_file(path);
+    let file = db.file(path);
     let module_name = PythonModuleName::parse("blog.models").unwrap();
 
     let graph = extract_model_graph(&db, file, module_name.clone());
@@ -86,7 +86,7 @@ fn filter_arity_parse_failure_is_unparseable_with_empty_map() {
     let db = TestDatabase::new();
     let path = Utf8Path::new("/proj/blog/templatetags/blog.py");
     db.add_file(path.as_str(), "def broken(");
-    let file = db.get_or_create_file(path);
+    let file = db.file(path);
     let module_name = PythonModuleName::parse("blog.templatetags.blog").unwrap();
 
     let extraction = djls_project::extract_filter_arities(&db, file, module_name.clone());
@@ -104,7 +104,7 @@ fn successful_filter_arity_parse_is_partial() {
         path.as_str(),
         "from django import template\nregister = template.Library()\n@register.filter\ndef shout(value):\n    return value\n",
     );
-    let file = db.get_or_create_file(path);
+    let file = db.file(path);
     let module_name = PythonModuleName::parse("blog.templatetags.blog").unwrap();
 
     let extraction = djls_project::extract_filter_arities(&db, file, module_name.clone());

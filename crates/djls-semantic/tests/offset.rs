@@ -17,7 +17,7 @@ fn context_for_source<'db>(
 ) -> SemanticOffsetContext<'db> {
     let path = "test.html";
     db.add_file(path, source);
-    let file = db.get_or_create_file(Utf8Path::new(path));
+    let file = db.file(Utf8Path::new(path));
     SemanticOffsetContext::from_offset(db, file, offset)
 }
 

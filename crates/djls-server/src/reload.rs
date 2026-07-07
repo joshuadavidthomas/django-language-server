@@ -9,6 +9,7 @@ use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
+use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
 use djls_ide::WarmCachePart;
@@ -21,6 +22,7 @@ use djls_project::DjangoDiscoveryPart;
 use djls_project::Project;
 use djls_project::apply_django_discovery;
 use djls_project::django_discovery_phases;
+use djls_source::path_to_file;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -614,8 +616,8 @@ async fn republish_snapshot_diagnostics(
     }
 
     for document in documents {
-        let file = document.file();
-        let Some(diagnostics) = collect_snapshot_diagnostics(snapshot.clone(), file).await else {
+        let path = document.path().to_path_buf();
+        let Some(diagnostics) = collect_snapshot_diagnostics(snapshot.clone(), path).await else {
             continue;
         };
 
@@ -639,12 +641,14 @@ async fn republish_snapshot_diagnostics(
 
 async fn collect_snapshot_diagnostics(
     snapshot: SessionSnapshot,
-    file: djls_source::File,
+    path: Utf8PathBuf,
 ) -> Option<Vec<ls_types::Diagnostic>> {
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
         let snapshot = snapshot.clone();
+        let path = path.clone();
         let result = tokio::task::spawn_blocking(move || {
             salsa::Cancelled::catch(AssertUnwindSafe(|| {
+                let file = path_to_file(snapshot.db(), &path).ok()?;
                 djls_ide::collect_diagnostics(snapshot.db(), file)
             }))
         })
