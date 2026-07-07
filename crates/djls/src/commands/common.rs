@@ -127,7 +127,11 @@ mod tests {
         let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
         std::fs::write(dir.path().join("page.html"), "page").unwrap();
         std::fs::write(dir.path().join("style.css"), "style").unwrap();
-        let db = DjangoDatabase::new(Arc::new(OsFileSystem), &Settings::default(), None);
+        let db = DjangoDatabase::new(
+            Arc::new(OsFileSystem::default()),
+            &Settings::default(),
+            None,
+        );
 
         let files = discover_files(
             std::slice::from_ref(&dir_path),
@@ -147,7 +151,11 @@ mod tests {
         let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
         let file_path = Utf8PathBuf::from_path_buf(dir.path().join("single.html")).unwrap();
         std::fs::write(file_path.as_std_path(), "single").unwrap();
-        let db = DjangoDatabase::new(Arc::new(OsFileSystem), &Settings::default(), None);
+        let db = DjangoDatabase::new(
+            Arc::new(OsFileSystem::default()),
+            &Settings::default(),
+            None,
+        );
 
         let files = discover_files(
             std::slice::from_ref(&file_path),
@@ -167,7 +175,11 @@ mod tests {
         let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
         let file_path = Utf8PathBuf::from_path_buf(dir.path().join("page.html")).unwrap();
         std::fs::write(file_path.as_std_path(), "page").unwrap();
-        let db = DjangoDatabase::new(Arc::new(OsFileSystem), &Settings::default(), None);
+        let db = DjangoDatabase::new(
+            Arc::new(OsFileSystem::default()),
+            &Settings::default(),
+            None,
+        );
 
         let files = discover_files(
             &[dir_path.clone(), file_path],

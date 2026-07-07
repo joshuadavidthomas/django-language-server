@@ -75,6 +75,13 @@ impl TestDatabase {
     }
 
     #[must_use]
+    pub fn case_insensitive() -> Self {
+        let mut db = Self::with_storage(salsa::Storage::default());
+        db.fs = Arc::new(Mutex::new(InMemoryFileSystem::case_insensitive()));
+        db
+    }
+
+    #[must_use]
     pub fn with_event_log(event_log: SalsaEventLog) -> Self {
         Self::with_storage(salsa::Storage::new(Some(Box::new(move |event| {
             event_log.push(event);
@@ -190,7 +197,7 @@ impl Default for OsTestDatabase {
 impl OsTestDatabase {
     #[must_use]
     pub fn new() -> Self {
-        Self::with_file_system(Arc::new(OsFileSystem))
+        Self::with_file_system(Arc::new(OsFileSystem::default()))
     }
 
     #[must_use]

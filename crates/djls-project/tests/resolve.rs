@@ -2,12 +2,15 @@ use std::collections::BTreeMap;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::Settings;
 use djls_project::testing::compute_django_discovery;
 use djls_project::testing::model_modules;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileRootKind;
 use djls_source::InMemoryFileSystem;
+use djls_source::OsFileSystem;
+use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
@@ -1482,6 +1485,122 @@ fn ty_module_name_3_parts_file_to_module() {
     )
     .expect("foo/bar/baz/__init__.py should map to foo.bar.baz");
     assert_eq!(foo_bar_baz_module.name().as_str(), "foo.bar.baz");
+}
+
+#[test]
+fn python_module_resolve_rejects_wrong_cased_file_module_on_case_insensitive_fs() {
+    let db = TestDatabase::case_insensitive();
+    let project = ProjectFixture::new("/project")
+        .file("/project/foo.py", "")
+        .build(&db);
+
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("Foo").unwrap()),
+        None
+    );
+    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+    assert_eq!(module.path(), Utf8Path::new("/project/foo.py"));
+}
+
+#[test]
+fn resolve_module_detail_rejects_wrong_cased_file_module_candidate_on_case_insensitive_fs() {
+    let db = TestDatabase::case_insensitive();
+    let project = ProjectFixture::new("/project")
+        .file("/project/foo.py", "")
+        .build(&db);
+
+    let detail = resolve_module_detail(&db, project, PythonModuleName::parse("Foo").unwrap());
+
+    assert_eq!(detail.selected_root, None);
+    assert!(detail.candidates.is_empty());
+    assert_eq!(detail.unresolved_reason, Some(UnresolvedReason::NotFound));
+}
+
+#[test]
+fn python_module_resolve_rejects_wrong_cased_dotted_file_module_on_case_insensitive_fs() {
+    let db = TestDatabase::case_insensitive();
+    let project = ProjectFixture::new("/project")
+        .file("/project/pkg/bar.py", "")
+        .build(&db);
+
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.Bar").unwrap()),
+        None
+    );
+    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
+        .expect("pkg.bar should resolve");
+    assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
+}
+
+#[test]
+fn python_module_resolve_rejects_wrong_cased_package_component_on_case_insensitive_fs() {
+    let db = TestDatabase::case_insensitive();
+    let project = ProjectFixture::new("/project")
+        .file("/project/pkg/__init__.py", "")
+        .file("/project/pkg/bar.py", "")
+        .build(&db);
+
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("Pkg.bar").unwrap()),
+        None
+    );
+    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
+        .expect("pkg.bar should resolve");
+    assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
+}
+
+// ty:resolve.rs::case_sensitive_resolution_with_symlinked_directory
+#[cfg(unix)]
+#[test]
+fn ty_case_sensitive_resolution_with_symlinked_directory() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = Utf8PathBuf::from_path_buf(temp_dir.path().canonicalize().unwrap())
+        .expect("temp dir path should be UTF-8");
+    let src = root.join("src");
+    let a_package_target = root.join("a-package");
+    let a_src = src.join("a");
+
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::create_dir_all(&a_package_target).unwrap();
+    std::fs::write(
+        a_package_target.join("__init__.py"),
+        "class Foo: x: int = 4",
+    )
+    .unwrap();
+    std::fs::write(src.join("main.py"), "print('Hi')").unwrap();
+
+    // The symlink triggers the slow path because canonicalizing
+    // `src/a/__init__.py` returns `a-package/__init__.py`.
+    std::os::unix::fs::symlink(a_package_target.as_std_path(), a_src.as_std_path()).unwrap();
+
+    let mut db = OsTestDatabase::new();
+    let search_paths = SearchPaths::from_project_settings(
+        &OsFileSystem::default(),
+        &root,
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = Project::new(
+        &db,
+        root,
+        search_paths,
+        Interpreter::Auto,
+        None,
+        Vec::new(),
+        Vec::new(),
+        Settings::default().tagspecs().clone(),
+    );
+    db.set_project(project);
+
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("A").unwrap()),
+        None
+    );
+    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
+        .expect("a should resolve");
+    assert!(module.path().ends_with("src/a/__init__.py"));
 }
 
 #[test]

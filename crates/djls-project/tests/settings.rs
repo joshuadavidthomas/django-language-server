@@ -80,6 +80,14 @@ impl FileSystem for FailingReadFileSystem {
         self.inner.is_dir(path)
     }
 
+    fn case_sensitivity(&self) -> djls_source::CaseSensitivity {
+        self.inner.case_sensitivity()
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        self.inner.path_exists_case_sensitive(path, prefix)
+    }
+
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
         self.inner.walk_entries(root, options)
     }
@@ -105,6 +113,14 @@ impl FileSystem for FailingWalkFileSystem {
 
     fn is_dir(&self, path: &Utf8Path) -> bool {
         self.inner.is_dir(path)
+    }
+
+    fn case_sensitivity(&self) -> djls_source::CaseSensitivity {
+        self.inner.case_sensitivity()
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        self.inner.path_exists_case_sensitive(path, prefix)
     }
 
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {

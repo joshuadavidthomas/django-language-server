@@ -9,6 +9,7 @@ use djls_project::TemplateLibraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
+use djls_source::CaseSensitivity;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FileSystem;
@@ -47,6 +48,14 @@ impl FileSystem for SourceMapFileSystem {
             .iter()
             .any(|entry| entry.key().starts_with(path))
             && !self.is_file(path)
+    }
+
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        CaseSensitivity::CaseSensitive
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, _prefix: &Utf8Path) -> bool {
+        self.exists(path)
     }
 
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
