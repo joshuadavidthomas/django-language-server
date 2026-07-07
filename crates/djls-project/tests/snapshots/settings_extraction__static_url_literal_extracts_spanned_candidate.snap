@@ -4,24 +4,19 @@ expression: "django_settings(&db, project)"
 ---
 parse_status: parsed
 installed_apps:
-  values:
-    - django.contrib.admin
-    - myapp
-  extraction: complete
+  values: []
+  extraction: partial
 templates:
-  backends:
-    - backend: ~
-      dirs: []
-      app_dirs: true
-      libraries: []
-      builtins: []
-      context_processors: []
-      extraction: complete
-  extraction: complete
+  backends: []
+  extraction: partial
 staticfiles:
   static_url:
-    values: []
-    extraction: partial
+    values:
+      - value: /static/
+        span:
+          start: 14
+          length: 10
+    extraction: complete
   static_root:
     values: []
     extraction: partial

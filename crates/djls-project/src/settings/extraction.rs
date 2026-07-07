@@ -10,6 +10,7 @@
 mod bindings;
 mod env;
 mod installed_apps;
+mod staticfiles;
 mod templates;
 mod traversal;
 
@@ -28,19 +29,37 @@ use crate::settings::types::SettingsParseStatus;
 use crate::settings::types::SettingsSource;
 use crate::settings::types::SettingsSourceResolver;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AssignmentCompleteness {
+    Full,
+    Partial,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum KnownSetting {
     InstalledApps,
     Templates,
+    StaticUrl,
+    StaticRoot,
+    StaticFilesDirs,
 }
 
-const KNOWN_SETTINGS: &[KnownSetting] = &[KnownSetting::InstalledApps, KnownSetting::Templates];
+const KNOWN_SETTINGS: &[KnownSetting] = &[
+    KnownSetting::InstalledApps,
+    KnownSetting::Templates,
+    KnownSetting::StaticUrl,
+    KnownSetting::StaticRoot,
+    KnownSetting::StaticFilesDirs,
+];
 
 impl KnownSetting {
     fn from_name(name: &str) -> Option<Self> {
         match name {
             "INSTALLED_APPS" => Some(Self::InstalledApps),
             "TEMPLATES" => Some(Self::Templates),
+            "STATIC_URL" => Some(Self::StaticUrl),
+            "STATIC_ROOT" => Some(Self::StaticRoot),
+            "STATICFILES_DIRS" => Some(Self::StaticFilesDirs),
             _ => None,
         }
     }
@@ -49,6 +68,9 @@ impl KnownSetting {
         match self {
             Self::InstalledApps => "INSTALLED_APPS",
             Self::Templates => "TEMPLATES",
+            Self::StaticUrl => "STATIC_URL",
+            Self::StaticRoot => "STATIC_ROOT",
+            Self::StaticFilesDirs => "STATICFILES_DIRS",
         }
     }
 }

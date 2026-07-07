@@ -3,9 +3,11 @@ use std::ops::ControlFlow;
 use camino::Utf8Path;
 use ruff_python_ast as ast;
 
+use crate::ExtractionStatus;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::settings::extraction::AssignmentCompleteness;
 use crate::settings::extraction::KNOWN_SETTINGS;
 use crate::settings::extraction::KnownSetting;
 use crate::settings::extraction::SettingsExtraction;
@@ -13,11 +15,14 @@ use crate::settings::extraction::bindings::SettingsBindings;
 use crate::settings::extraction::bindings::TouchedBindings;
 use crate::settings::extraction::env::EvalEnv;
 use crate::settings::extraction::installed_apps;
+use crate::settings::extraction::staticfiles;
 use crate::settings::extraction::templates;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalListBinding;
+use crate::settings::types::ScalarSetting;
 use crate::settings::types::SettingsImport;
 use crate::settings::types::SettingsSourceResolver;
+use crate::settings::types::StaticFilesDirsSetting;
 use crate::settings::types::TemplateDirPath;
 use crate::settings::types::TemplateSettings;
 
@@ -156,7 +161,7 @@ impl<'a> SettingsBindingsCollector<'a> {
         {
             match setting {
                 KnownSetting::InstalledApps => self.extend_installed_apps(&assign.value),
-                KnownSetting::Templates => self.bindings.mark_unsupported(setting),
+                setting => self.bindings.mark_unsupported(setting),
             }
         } else if let Some(index) = templates_dirs_target(&assign.target) {
             self.extend_template_dirs(index, &assign.value);
@@ -185,7 +190,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                 KnownSetting::InstalledApps => {
                     self.apply_installed_apps_call(attribute.attr.as_str(), &call.arguments);
                 }
-                KnownSetting::Templates => self.bindings.mark_unsupported(setting),
+                setting => self.bindings.mark_unsupported(setting),
             }
         } else if let Some(name) = attribute.value.name_target()
             && self.bindings.locals.list_binding(name).is_some()
@@ -368,6 +373,9 @@ impl<'a> SettingsBindingsCollector<'a> {
         match KnownSetting::from_name(name) {
             Some(KnownSetting::InstalledApps) => self.assign_installed_apps(value),
             Some(KnownSetting::Templates) => self.assign_templates(value),
+            Some(KnownSetting::StaticUrl) => self.assign_static_url(value),
+            Some(KnownSetting::StaticRoot) => self.assign_static_root(value),
+            Some(KnownSetting::StaticFilesDirs) => self.assign_staticfiles_dirs(value),
             None => self.assign_aux(name, value),
         }
     }
@@ -399,6 +407,39 @@ impl<'a> SettingsBindingsCollector<'a> {
                 if bound_name == KnownSetting::Templates.name() {
                     if let Some(templates) = &imported_bindings.templates {
                         self.bindings.templates = Some(templates.clone());
+                    } else {
+                        self.mark_definition_name(bound_name);
+                    }
+                } else {
+                    self.mark_definition_name(bound_name);
+                }
+            }
+            Some(KnownSetting::StaticUrl) => {
+                if bound_name == KnownSetting::StaticUrl.name() {
+                    if let Some(static_url) = &imported_bindings.static_url {
+                        self.bindings.static_url = Some(static_url.clone());
+                    } else {
+                        self.mark_definition_name(bound_name);
+                    }
+                } else {
+                    self.mark_definition_name(bound_name);
+                }
+            }
+            Some(KnownSetting::StaticRoot) => {
+                if bound_name == KnownSetting::StaticRoot.name() {
+                    if let Some(static_root) = &imported_bindings.static_root {
+                        self.bindings.static_root = Some(static_root.clone());
+                    } else {
+                        self.mark_definition_name(bound_name);
+                    }
+                } else {
+                    self.mark_definition_name(bound_name);
+                }
+            }
+            Some(KnownSetting::StaticFilesDirs) => {
+                if bound_name == KnownSetting::StaticFilesDirs.name() {
+                    if let Some(staticfiles_dirs) = &imported_bindings.staticfiles_dirs {
+                        self.bindings.staticfiles_dirs = Some(staticfiles_dirs.clone());
                     } else {
                         self.mark_definition_name(bound_name);
                     }
@@ -441,11 +482,15 @@ impl<'a> SettingsBindingsCollector<'a> {
         let env = EvalEnv::new(self.module_path, &self.bindings);
         match installed_apps::evaluate_assignment(value, &env) {
             installed_apps::AssignmentEffect::Assign(extracted) => {
-                let status = extracted.status;
-                self.bindings.installed_apps = Some(InstalledAppsSetting::full(extracted.values));
-                if !status.is_complete() {
-                    self.bindings.mark_partial(KnownSetting::InstalledApps);
-                }
+                let extraction = if extracted.status.is_complete() {
+                    ExtractionStatus::Complete
+                } else {
+                    ExtractionStatus::Partial
+                };
+                self.bindings.installed_apps = Some(InstalledAppsSetting::with_extraction(
+                    extracted.values,
+                    extraction,
+                ));
             }
             installed_apps::AssignmentEffect::Unsupported => {
                 self.bindings.mark_unsupported(KnownSetting::InstalledApps);
@@ -532,12 +577,60 @@ impl<'a> SettingsBindingsCollector<'a> {
         match templates::evaluate_assignment(value, &env) {
             templates::AssignmentEffect::Assign(backends, completeness) => {
                 self.bindings.templates = Some(TemplateSettings::full(backends));
-                if completeness == templates::AssignmentCompleteness::Partial {
+                if completeness == AssignmentCompleteness::Partial {
                     self.bindings.mark_partial(KnownSetting::Templates);
                 }
             }
             templates::AssignmentEffect::Unsupported => {
                 self.bindings.mark_unsupported(KnownSetting::Templates);
+            }
+        }
+    }
+
+    fn assign_static_url(&mut self, value: &ast::Expr) {
+        match staticfiles::evaluate_static_url_assignment(value) {
+            Some((candidate, completeness)) => {
+                self.bindings.static_url = Some(match completeness {
+                    AssignmentCompleteness::Full => ScalarSetting::full(vec![candidate]),
+                    AssignmentCompleteness::Partial => {
+                        ScalarSetting::with_extraction(vec![candidate], ExtractionStatus::Partial)
+                    }
+                });
+            }
+            None => {
+                self.bindings.mark_unsupported(KnownSetting::StaticUrl);
+            }
+        }
+    }
+
+    fn assign_static_root(&mut self, value: &ast::Expr) {
+        let env = EvalEnv::new(self.module_path, &self.bindings);
+        let (candidate, completeness) = staticfiles::evaluate_static_root_assignment(value, &env);
+        self.bindings.static_root = Some(match completeness {
+            AssignmentCompleteness::Full => ScalarSetting::full(vec![candidate]),
+            AssignmentCompleteness::Partial => {
+                ScalarSetting::with_extraction(vec![candidate], ExtractionStatus::Partial)
+            }
+        });
+    }
+
+    fn assign_staticfiles_dirs(&mut self, value: &ast::Expr) {
+        let env = EvalEnv::new(self.module_path, &self.bindings);
+        match staticfiles::evaluate_staticfiles_dirs_assignment(value, &env) {
+            Some(extracted) => {
+                let extraction = if extracted.status.is_complete() {
+                    ExtractionStatus::Complete
+                } else {
+                    ExtractionStatus::Partial
+                };
+                self.bindings.staticfiles_dirs = Some(StaticFilesDirsSetting::with_extraction(
+                    extracted.values,
+                    extraction,
+                ));
+            }
+            None => {
+                self.bindings
+                    .mark_unsupported(KnownSetting::StaticFilesDirs);
             }
         }
     }

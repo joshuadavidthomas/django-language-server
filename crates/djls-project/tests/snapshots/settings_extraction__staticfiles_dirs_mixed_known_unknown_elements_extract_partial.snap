@@ -7,15 +7,8 @@ installed_apps:
   values: []
   extraction: partial
 templates:
-  backends:
-    - backend: ~
-      dirs: []
-      app_dirs: true
-      libraries: []
-      builtins: []
-      context_processors: []
-      extraction: complete
-  extraction: complete
+  backends: []
+  extraction: partial
 staticfiles:
   static_url:
     values: []
@@ -24,5 +17,19 @@ staticfiles:
     values: []
     extraction: partial
   staticfiles_dirs:
-    values: []
+    values:
+      - value:
+          resolved: /proj/assets
+        span:
+          start: 96
+          length: 19
+      - value: unknown
+        span:
+          start: 117
+          length: 13
+      - value:
+          resolved: /shared/static
+        span:
+          start: 132
+          length: 16
     extraction: partial
