@@ -226,6 +226,7 @@ mod invalidation_tests {
     use djls_source::Offset;
     use djls_source::OsFileSystem;
     use djls_source::SourceFiles;
+    use djls_source::path_to_file;
     use djls_templates::parse_template;
     use salsa::Database;
     use salsa::Setter;
@@ -279,8 +280,11 @@ mod invalidation_tests {
         let event_log = EventLog::default();
         let settings = Settings::default();
 
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file("/test/project/tags.py".into(), String::new());
+
         let mut db = DjangoDatabase {
-            fs: Arc::new(InMemoryFileSystem::new()),
+            fs: Arc::new(fs),
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
@@ -366,9 +370,9 @@ mod invalidation_tests {
         };
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
-        let child_file = db.get_or_create_file(&child_path);
-        let parent_file = db.get_or_create_file(&parent_path);
-        let other_file = db.get_or_create_file(&other_path);
+        let child_file = path_to_file(&db, &child_path).expect("child fixture should exist");
+        let parent_file = path_to_file(&db, &parent_path).expect("parent fixture should exist");
+        let other_file = path_to_file(&db, &other_path).expect("other fixture should exist");
 
         TemplateInheritanceFixture {
             _tempdir: tempdir,
@@ -456,7 +460,7 @@ mod invalidation_tests {
         );
         event_log.take();
 
-        let settings_file = db.get_or_create_file(&settings_path);
+        let settings_file = path_to_file(&db, &settings_path).expect("fixture file should exist");
         fs.lock().unwrap().add_file(
             settings_path,
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'builtins': []}}]\n".to_string(),
@@ -513,7 +517,7 @@ mod invalidation_tests {
         let project = db.project.unwrap();
 
         let child_path = Utf8Path::new("/test/project/templates/child.html");
-        let child = db.get_or_create_file(child_path);
+        let child = path_to_file(&db, child_path).expect("fixture file should exist");
         let offset = Offset::try_from(source.find("base.html").unwrap()).unwrap();
         {
             let SemanticOffsetContext::TemplateReference { name, .. } =
@@ -669,7 +673,7 @@ mod invalidation_tests {
         assert_eq!(db.template_dirs().unwrap(), vec![templates_dir.clone()]);
         event_log.take();
 
-        let settings_file = db.get_or_create_file(&settings_path);
+        let settings_file = path_to_file(&db, &settings_path).expect("fixture file should exist");
         fs.lock().unwrap().add_file(
             settings_path,
             format!(
@@ -731,7 +735,7 @@ mod invalidation_tests {
         assert_eq!(db.template_dirs().unwrap(), vec![templates_dir]);
         event_log.take();
 
-        let other_file = db.get_or_create_file(&other_path);
+        let other_file = path_to_file(&db, &other_path).expect("fixture file should exist");
         db.bump_file_revision(other_file);
 
         assert_eq!(db.template_dirs().unwrap(), vec![root.join("templates")]);
@@ -1068,10 +1072,8 @@ env_file = ".env.local"
         let (db, event_log) = test_db_with_project();
 
         // Create a Python file and track it
-        let file = djls_source::Db::get_or_create_file(
-            &db,
-            camino::Utf8Path::new("/test/project/tags.py"),
-        );
+        let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
+            .expect("fixture file should exist");
 
         // First extraction
         let _result1 = djls_project::extract_filter_arities(
@@ -1103,10 +1105,8 @@ env_file = ".env.local"
         let (mut db, event_log) = test_db_with_project();
 
         // Create and extract from a file (file doesn't exist, source is empty)
-        let file = djls_source::Db::get_or_create_file(
-            &db,
-            camino::Utf8Path::new("/test/project/tags.py"),
-        );
+        let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
+            .expect("fixture file should exist");
         let _result = djls_project::extract_filter_arities(
             &db,
             file,
@@ -1167,10 +1167,8 @@ def my_filter(value, arg):
             logs: Arc::new(Mutex::new(None)),
         };
 
-        let file = djls_source::Db::get_or_create_file(
-            &db,
-            camino::Utf8Path::new("/test/project/tags.py"),
-        );
+        let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
+            .expect("fixture file should exist");
         let result = djls_project::extract_filter_arities(
             &db,
             file,
@@ -1335,7 +1333,8 @@ def my_filter(value, arg):
                 .installed_library_str("custom")
                 .is_none()
         );
-        let extra_file = djls_source::Db::get_or_create_file(&db, &extra_settings_path);
+        let extra_file =
+            path_to_file(&db, &extra_settings_path).expect("fixture file should exist");
         assert!(extra_file.source(&db).as_str().contains("old_tags"));
 
         {
@@ -1402,7 +1401,7 @@ def my_filter(value, arg):
         let file_revisions: Vec<_> = file_paths
             .iter()
             .map(|path| {
-                let file = db.get_or_create_file(path);
+                let file = path_to_file(&db, path).expect("fixture file should exist");
                 (path.clone(), file.revision(&db))
             })
             .collect();
@@ -1422,7 +1421,7 @@ def my_filter(value, arg):
         let unchanged_file_revisions: Vec<_> = file_paths
             .iter()
             .map(|path| {
-                let file = db.get_or_create_file(path);
+                let file = path_to_file(&db, path).expect("fixture file should exist");
                 (path.clone(), file.revision(&db))
             })
             .collect();
@@ -1544,7 +1543,7 @@ def my_filter(value, arg):
         );
         event_log.take();
 
-        let tag_file = db.get_or_create_file(&tag_path);
+        let tag_file = path_to_file(&db, &tag_path).expect("fixture file should exist");
         fs.lock().unwrap().add_file(
             tag_path,
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n".to_string(),
@@ -1653,7 +1652,7 @@ def my_filter(value, arg):
             "both model files should be extracted on first model graph computation"
         );
 
-        let first_model = db.get_or_create_file(&first_model_path);
+        let first_model = path_to_file(&db, &first_model_path).expect("fixture file should exist");
         fs.lock().unwrap().add_file(
             first_model_path,
             "from django.db import models\nclass FirstRenamed(models.Model):\n    pass\n"

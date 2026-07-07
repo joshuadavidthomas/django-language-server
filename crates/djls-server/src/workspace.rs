@@ -39,7 +39,6 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_source::Db;
 use djls_source::FileKind;
 use djls_source::FileSystem;
 use djls_source::FxDashMap;
@@ -52,12 +51,11 @@ use djls_source::WalkOptions;
 use crate::document::DocumentChange;
 use crate::document::TextDocument;
 
-/// Workspace facade that coordinates open buffers with source invalidation.
+/// Workspace facade for open buffers and the filesystem overlay.
 ///
-/// `Workspace` provides the LSP/session boundary for document lifecycle events.
-/// It stores open documents, exposes an overlay filesystem to the database, and
-/// bumps the corresponding `djls_source::File` revision whenever buffered
-/// content changes.
+/// `Workspace` stores open documents and exposes an overlay filesystem to the
+/// database. `Session` applies the matching project-visible file events after
+/// mutating this buffer state.
 pub(crate) struct Workspace {
     /// Thread-safe shared buffer storage for open documents.
     buffers: Buffers,
@@ -87,82 +85,63 @@ impl Workspace {
         self.overlay.clone()
     }
 
-    /// Return the shared open-document buffers for session bookkeeping.
+    /// Return all currently open documents.
+    pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
+        self.buffers
+            .iter()
+            .map(|(_path, document)| document)
+            .collect()
+    }
+
     #[must_use]
-    pub(crate) fn buffers(&self) -> &Buffers {
-        &self.buffers
+    pub(crate) fn disk_is_file(&self, path: &Utf8Path) -> bool {
+        self.overlay.disk.is_file(path)
     }
 
-    fn open_changes_file_set(&self, db: &dyn Db, path: &Utf8Path) -> bool {
-        !self.overlay.disk.is_file(path) || !db.files().contains_file(path)
-    }
-
-    fn close_changes_file_set(&self, path: &Utf8Path) -> bool {
-        !self.overlay.disk.is_file(path)
-    }
-
-    #[cfg(test)]
     #[must_use]
     pub(crate) fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
         self.buffers.get(path)
     }
 
-    /// Open a document in memory and ensure a corresponding Salsa file exists.
+    /// Open a document in memory.
     pub(crate) fn open_document(
         &mut self,
-        db: &mut dyn Db,
         path: &Utf8Path,
         content: &str,
         version: i32,
         kind: FileKind,
     ) -> TextDocument {
-        let file_set_changes = self.open_changes_file_set(db, path);
-        let file = db.get_or_create_file(path);
-        let document =
-            TextDocument::new(path.to_path_buf(), content.to_string(), version, kind, file);
+        let document = TextDocument::new(path.to_path_buf(), content.to_string(), version, kind);
         debug_assert_eq!(document.kind(), kind);
-        db.bump_file_and_maybe_root_revision(document.file(), path, file_set_changes);
         self.buffers.open(path.to_path_buf(), document.clone());
         document
     }
 
-    /// Mark a saved open document as changed so cached source queries refresh.
-    pub(crate) fn save_document(
-        &mut self,
-        db: &mut dyn Db,
-        path: &Utf8Path,
-    ) -> Option<TextDocument> {
-        let document = self.buffers.get(path)?;
-        db.bump_file_revision(document.file());
-        Some(document)
+    /// Return the saved open document without changing buffered content.
+    pub(crate) fn save_document(&self, path: &Utf8Path) -> Option<TextDocument> {
+        self.buffers.get(path)
     }
 
-    /// Apply LSP text changes to an open document and bump its source revision.
+    /// Apply LSP text changes to an open document.
     pub(crate) fn update_document(
         &mut self,
-        db: &mut dyn Db,
         path: &Utf8Path,
         changes: Vec<DocumentChange>,
         version: i32,
         encoding: PositionEncoding,
     ) -> Option<TextDocument> {
         if let Some(mut document) = self.buffers.get(path) {
-            db.bump_file_revision(document.file());
             document.update(changes, version, encoding);
             self.buffers.update(path.to_path_buf(), document.clone());
             Some(document)
         } else if let Some(first_change) = changes.into_iter().next() {
             if first_change.range().is_none() {
-                let file_set_changes = self.open_changes_file_set(db, path);
-                let file = db.get_or_create_file(path);
                 let document = TextDocument::new(
                     path.to_path_buf(),
                     first_change.text().to_string(),
                     version,
                     FileKind::Other,
-                    file,
                 );
-                db.bump_file_and_maybe_root_revision(file, path, file_set_changes);
                 self.buffers.open(path.to_path_buf(), document.clone());
                 Some(document)
             } else {
@@ -173,16 +152,9 @@ impl Workspace {
         }
     }
 
-    /// Close a document, removing it from buffers and touching the tracked file.
-    pub(crate) fn close_document(
-        &mut self,
-        db: &mut dyn Db,
-        path: &Utf8Path,
-    ) -> Option<TextDocument> {
-        let file_set_changes = self.close_changes_file_set(path);
-        let document = self.buffers.close(path)?;
-        db.bump_file_and_maybe_root_revision(document.file(), path, file_set_changes);
-        Some(document)
+    /// Close a document, removing it from buffers.
+    pub(crate) fn close_document(&mut self, path: &Utf8Path) -> Option<TextDocument> {
+        self.buffers.close(path)
     }
 }
 
@@ -393,10 +365,13 @@ fn buffer_relative_path(root: &Utf8Path, path: &Utf8Path) -> Option<Utf8PathBuf>
 
 #[cfg(test)]
 mod tests {
+    use djls_source::ChangeEvent;
     use djls_source::Db as _;
     use djls_source::FileRootKind;
     use djls_source::InMemoryFileSystem;
+    use djls_source::SourceChanges;
     use djls_source::SourceFiles;
+    use djls_source::path_to_file;
     use tempfile::tempdir;
 
     use super::*;
@@ -433,15 +408,15 @@ mod tests {
         }
     }
 
-    fn text_document(db: &TestDb, path: &Utf8Path, content: &str) -> TextDocument {
-        let file = db.get_or_create_file(path);
-        TextDocument::new(
-            path.to_path_buf(),
-            content.to_string(),
-            1,
-            FileKind::Python,
-            file,
-        )
+    #[salsa::db]
+    impl djls_project::Db for TestDb {
+        fn project(&self) -> Option<djls_project::Project> {
+            None
+        }
+    }
+
+    fn text_document(_db: &TestDb, path: &Utf8Path, content: &str) -> TextDocument {
+        TextDocument::new(path.to_path_buf(), content.to_string(), 1, FileKind::Python)
     }
 
     #[test]
@@ -514,18 +489,14 @@ mod tests {
         let root = db
             .files()
             .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
-        db.get_or_create_file(&file_path);
+        let _ = path_to_file(&db, &file_path).expect("disk-backed fixture should exist");
 
-        workspace.open_document(
-            &mut db,
-            &file_path,
-            "buffer template",
-            1,
-            FileKind::Template,
-        );
+        workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
+        SourceChanges::new([ChangeEvent::Opened(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 0);
 
-        workspace.close_document(&mut db, &file_path).unwrap();
+        workspace.close_document(&file_path).unwrap();
+        SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 0);
     }
 
@@ -542,16 +513,12 @@ mod tests {
             .files()
             .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
 
-        workspace.open_document(
-            &mut db,
-            &file_path,
-            "buffer template",
-            1,
-            FileKind::Template,
-        );
+        workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
+        SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 1);
 
-        workspace.close_document(&mut db, &file_path).unwrap();
+        workspace.close_document(&file_path).unwrap();
+        SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 1);
     }
 
@@ -567,16 +534,12 @@ mod tests {
             .files()
             .try_add_root(&db, root_path.to_path_buf(), FileRootKind::Project);
 
-        workspace.open_document(
-            &mut db,
-            &file_path,
-            "buffer template",
-            1,
-            FileKind::Template,
-        );
+        workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
+        SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 1);
 
-        workspace.close_document(&mut db, &file_path).unwrap();
+        workspace.close_document(&file_path).unwrap();
+        SourceChanges::new([ChangeEvent::Deleted(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 2);
     }
 
@@ -588,28 +551,24 @@ mod tests {
 
         let mut workspace = Workspace::new();
         let mut db = TestDb::new(workspace.overlay());
-        let document = workspace.open_document(
-            &mut db,
-            &file_path,
-            "buffer template",
-            1,
-            FileKind::Template,
-        );
-        let file = document.file();
+        workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
+        SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
+        let file = path_to_file(&db, &file_path).expect("opened document should be interned");
         assert_eq!(file.source(&db).as_str(), "buffer template");
 
         workspace
             .update_document(
-                &mut db,
                 &file_path,
                 vec![DocumentChange::new(None, "updated template".to_string())],
                 2,
                 PositionEncoding::Utf16,
             )
             .unwrap();
+        SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
         assert_eq!(file.source(&db).as_str(), "updated template");
 
-        workspace.close_document(&mut db, &file_path).unwrap();
+        workspace.close_document(&file_path).unwrap();
+        SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
         assert_eq!(file.source(&db).as_str(), "disk template");
     }
 }

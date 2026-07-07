@@ -45,7 +45,7 @@ fn model_extraction_snapshots() {
     for path in targets {
         let source = std::fs::read_to_string(path.as_std_path()).unwrap();
         db.add_file(path.as_str(), &source);
-        let file = db.get_or_create_file(&path);
+        let file = db.file(&path);
         let module_name = module_name_from_file(&path);
         let Ok(module_name) = PythonModuleName::parse(&module_name) else {
             continue;

@@ -1,8 +1,6 @@
 //! Project-specific database capabilities.
 //!
-//! The trait exposes the runtime state that project-aware semantic code needs:
-//! the current `Project` input. Imperative synchronization lives outside the
-//! trait so it stays a capability boundary rather than a service object.
+//! The trait exposes the runtime state that project-aware semantic code needs.
 
 use camino::Utf8PathBuf;
 use djls_source::Db as SourceDb;

@@ -76,7 +76,7 @@ fn db_with_source_and_config(source: &str, diagnostics_config: DiagnosticsConfig
 }
 
 fn file(db: &TestDatabase) -> djls_source::File {
-    db.get_or_create_file(Utf8Path::new(TEMPLATE_PATH))
+    db.file(Utf8Path::new(TEMPLATE_PATH))
 }
 
 fn template_uri() -> ls_types::Uri {

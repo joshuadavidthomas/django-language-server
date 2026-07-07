@@ -6,6 +6,8 @@
 //! transport, and when to apply the payload.
 
 use camino::Utf8PathBuf;
+use djls_source::File;
+use djls_source::path_to_file;
 use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
@@ -345,12 +347,16 @@ pub fn apply_django_discovery(db: &mut dyn ProjectDb, discovery: DjangoDiscovery
     }
 
     for path in file_paths {
-        let file = db.get_or_create_file(&path);
+        let Ok(file) = path_to_file(db, &path) else {
+            continue;
+        };
         let current = file.source(db);
         let latest = db.read_file(&path).unwrap_or_default();
 
         if current.as_str() != latest {
             db.bump_file_revision(file);
         }
+
+        File::sync_path(db, &path);
     }
 }

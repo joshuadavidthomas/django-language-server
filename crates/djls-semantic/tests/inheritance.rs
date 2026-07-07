@@ -48,7 +48,7 @@ fn project_with_templates(
 
 fn symbols_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db TemplateSymbols {
     db.add_file("test.html", source);
-    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(db, file).expect("should parse");
     template_symbols(db, nodelist)
 }
@@ -119,7 +119,7 @@ fn self_extends_skips_visited_origin_and_uses_shadowed_template() {
             ),
         ],
     );
-    let file = db.get_or_create_file(Utf8Path::new(
+    let file = db.file(Utf8Path::new(
         "/test/project/templates/admin/base_site.html",
     ));
 
@@ -149,7 +149,7 @@ fn template_inheritance_resolves_relative_sibling_extends() {
             ),
         ],
     );
-    let file = db.get_or_create_file(Utf8Path::new("/test/project/templates/dir/child.html"));
+    let file = db.file(Utf8Path::new("/test/project/templates/dir/child.html"));
 
     let (ancestors, end) = inheritance_summary(&db, project, file);
 
@@ -168,7 +168,7 @@ fn template_inheritance_treats_escaping_relative_extends_as_unresolved() {
             "{% extends \"../../outside.html\" %}",
         )],
     );
-    let file = db.get_or_create_file(Utf8Path::new("/test/project/templates/page.html"));
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
 
     let (ancestors, end) = inheritance_summary(&db, project, file);
 
@@ -198,8 +198,8 @@ fn block_overrides_accepts_relative_winning_extends_target() {
             ),
         ],
     );
-    let parent = db.get_or_create_file(Utf8Path::new("/test/project/templates/dir/parent.html"));
-    let child = db.get_or_create_file(Utf8Path::new("/test/project/templates/dir/child.html"));
+    let parent = db.file(Utf8Path::new("/test/project/templates/dir/parent.html"));
+    let child = db.file(Utf8Path::new("/test/project/templates/dir/child.html"));
 
     let overrides = block_overrides(&db, project, parent, "content");
 
@@ -241,10 +241,8 @@ fn template_inheritance_follows_extends_role_not_builtin_name() {
             ),
         ],
     );
-    let custom_file =
-        db.get_or_create_file(Utf8Path::new("/test/project/templates/custom_child.html"));
-    let builtin_file =
-        db.get_or_create_file(Utf8Path::new("/test/project/templates/builtin_child.html"));
+    let custom_file = db.file(Utf8Path::new("/test/project/templates/custom_child.html"));
+    let builtin_file = db.file(Utf8Path::new("/test/project/templates/builtin_child.html"));
 
     let custom = inheritance_summary(&db, project, custom_file);
     let builtin = inheritance_summary(&db, project, builtin_file);

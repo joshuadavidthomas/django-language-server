@@ -229,7 +229,7 @@ fn template_names_for_file_returns_names_in_discovery_order() {
         ],
     );
 
-    let file = db.get_or_create_file(Utf8Path::new("/test/project/templates/account/detail.html"));
+    let file = db.file(Utf8Path::new("/test/project/templates/account/detail.html"));
     let names: Vec<_> = template_resolution(&db, project)
         .template_names_for_file(&db, file)
         .iter()

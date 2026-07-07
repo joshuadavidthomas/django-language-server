@@ -7,7 +7,6 @@
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_source::File;
 use djls_source::FileKind;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
@@ -19,8 +18,6 @@ use djls_source::Range;
 /// version tracking for synchronization and pre-computed line indices for
 /// efficient position lookups.
 ///
-/// Links to the corresponding Salsa `File` for integration with incremental
-/// computation and invalidation tracking.
 #[derive(Clone)]
 pub(crate) struct TextDocument {
     /// The document's path.
@@ -33,19 +30,11 @@ pub(crate) struct TextDocument {
     kind: FileKind,
     /// Line index for efficient position and range lookups.
     line_index: LineIndex,
-    /// The Salsa file this document represents.
-    file: File,
 }
 
 impl TextDocument {
     #[must_use]
-    pub(crate) fn new(
-        path: Utf8PathBuf,
-        content: String,
-        version: i32,
-        kind: FileKind,
-        file: File,
-    ) -> Self {
+    pub(crate) fn new(path: Utf8PathBuf, content: String, version: i32, kind: FileKind) -> Self {
         let line_index = LineIndex::from(content.as_str());
         Self {
             path,
@@ -53,7 +42,6 @@ impl TextDocument {
             version,
             kind,
             line_index,
-            file,
         }
     }
 
@@ -70,11 +58,6 @@ impl TextDocument {
     #[must_use]
     pub(crate) fn kind(&self) -> FileKind {
         self.kind
-    }
-
-    #[must_use]
-    pub(crate) fn file(&self) -> File {
-        self.file
     }
 
     #[must_use]
@@ -151,57 +134,18 @@ impl DocumentChange {
 #[cfg(test)]
 mod tests {
     use camino::Utf8Path;
-    use djls_source::Db as _;
     use djls_source::FileKind;
-    use djls_source::FileSystem;
-    use djls_source::InMemoryFileSystem;
     use djls_source::LineCol;
-    use djls_source::SourceFiles;
 
     use super::*;
 
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDb {
-        storage: salsa::Storage<Self>,
-        files: SourceFiles,
-        fs: InMemoryFileSystem,
-    }
-
-    impl Default for TestDb {
-        fn default() -> Self {
-            Self {
-                storage: salsa::Storage::new(None),
-                files: SourceFiles::default(),
-                fs: InMemoryFileSystem::new(),
-            }
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDb {}
-
-    #[salsa::db]
-    impl djls_source::Db for TestDb {
-        fn files(&self) -> &SourceFiles {
-            &self.files
-        }
-
-        fn file_system(&self) -> &dyn FileSystem {
-            &self.fs
-        }
-    }
-
     fn text_document(content: &str, version: i32) -> TextDocument {
-        let db = TestDb::default();
         let path = Utf8Path::new("/test.txt");
-        let file = db.get_or_create_file(path);
         TextDocument::new(
             path.to_path_buf(),
             content.to_string(),
             version,
             FileKind::Other,
-            file,
         )
     }
 

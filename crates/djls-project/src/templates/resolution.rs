@@ -6,6 +6,7 @@ use djls_source::File;
 use djls_source::Utf8PathClean;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
+use djls_source::path_to_file;
 use djls_source::safe_join;
 use rustc_hash::FxHashMap;
 
@@ -343,9 +344,9 @@ impl ProjectTemplateFiles {
         Self(
             templates
                 .into_iter()
-                .map(|(name, path)| {
-                    let file = db.get_or_create_file(&path);
-                    ProjectTemplateFile::new(name, path, file)
+                .filter_map(|(name, path)| {
+                    let file = path_to_file(db, &path).ok()?;
+                    Some(ProjectTemplateFile::new(name, path, file))
                 })
                 .collect(),
         )

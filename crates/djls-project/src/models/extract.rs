@@ -555,7 +555,8 @@ mod tests {
 
     fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
         let db = TestDatabase::new();
-        let file = db.get_or_create_file(Utf8Path::new("/test.py"));
+        db.add_file("/test.py", source);
+        let file = db.file(Utf8Path::new("/test.py"));
         let module_name = PythonModuleName::parse(module_name).unwrap();
         let imports = crate::python::extract_import_table_for_source(
             source,

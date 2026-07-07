@@ -333,7 +333,7 @@ mod tests {
     fn import_table_query_reads_python_file_source() {
         let db = TestDatabase::new();
         db.add_file("/project/pkg/mod.py", "import os\n");
-        let file = db.get_or_create_file(camino::Utf8Path::new("/project/pkg/mod.py"));
+        let file = db.file(camino::Utf8Path::new("/project/pkg/mod.py"));
         let table = import_table(&db, file, PythonModuleName::parse("pkg.mod").unwrap());
 
         assert_eq!(binding(table, "os").target.as_str(), "os");

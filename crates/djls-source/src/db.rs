@@ -18,10 +18,6 @@ pub trait Db: salsa::Database {
         self.file_system().read_to_string(path)
     }
 
-    fn path_exists(&self, path: &Utf8Path) -> bool {
-        self.file_system().exists(path)
-    }
-
     fn path_is_file(&self, path: &Utf8Path) -> bool {
         self.file_system().is_file(path)
     }
@@ -36,11 +32,6 @@ pub trait Db: salsa::Database {
         options: &WalkOptions,
     ) -> std::io::Result<Vec<WalkEntry>> {
         self.file_system().walk_entries(root, options)
-    }
-
-    /// Get or create a tracked file for the given path.
-    fn get_or_create_file(&self, path: &Utf8Path) -> File {
-        self.files().get_or_create_file(self, path)
     }
 
     /// Bump the revision for a tracked file to invalidate dependent queries.

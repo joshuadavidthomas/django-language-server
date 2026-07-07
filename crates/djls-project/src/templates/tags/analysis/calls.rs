@@ -140,6 +140,7 @@ mod tests {
     use camino::Utf8Path;
     use djls_source::FileSystem;
     use djls_source::InMemoryFileSystem;
+    use djls_source::path_to_file;
     use ruff_python_ast::Stmt;
     use ruff_python_ast::StmtFunctionDef;
     use ruff_python_parser::parse_module;
@@ -173,7 +174,8 @@ mod tests {
                 .lock()
                 .unwrap()
                 .add_file(path.into(), source.to_string());
-            <Self as djls_source::Db>::get_or_create_file(self, Utf8Path::new(path))
+            path_to_file(self, Utf8Path::new(path))
+                .expect("inserted Python fixture should be visible")
         }
     }
 

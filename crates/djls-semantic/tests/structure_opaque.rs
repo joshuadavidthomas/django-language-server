@@ -15,7 +15,7 @@ use djls_testing::TestDatabase;
 fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {
     let path = "test.html";
     db.add_file(path, source);
-    let file = db.get_or_create_file(Utf8Path::new(path));
+    let file = db.file(Utf8Path::new(path));
     let nodelist = parse_template(db, file).expect("should parse");
     compute_opaque_regions(db, nodelist)
 }
@@ -42,7 +42,7 @@ fn opaque_opener_treats_intermediate_as_raw_content() {
     let path = "test.html";
     let source = "{% opaque_if %}first{% opaque_else %}second{% endopaque_if %}";
     db.add_file(path, source);
-    let file = db.get_or_create_file(Utf8Path::new(path));
+    let file = db.file(Utf8Path::new(path));
     let nodelist = parse_template(&db, file).expect("should parse");
     let regions = compute_opaque_regions(&db, nodelist);
     let first = u32::try_from(source.find("first").unwrap()).unwrap();
@@ -140,7 +140,7 @@ fn unclosed_opaque_block_creates_no_region() {
     let path = "test.html";
     let source = "{% verbatim %}body";
     db.add_file(path, source);
-    let file = db.get_or_create_file(Utf8Path::new(path));
+    let file = db.file(Utf8Path::new(path));
     let nodelist = parse_template(&db, file).expect("should parse");
     let regions = compute_opaque_regions(&db, nodelist);
     let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);

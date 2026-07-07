@@ -17,6 +17,7 @@ use djls_source::SourceFiles;
 use djls_source::WalkEntry;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
+use djls_source::path_to_file;
 use salsa::Setter;
 
 #[derive(Clone)]
@@ -152,10 +153,15 @@ impl Db {
         self
     }
 
+    /// Add source content and return the corresponding tracked file.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the inserted benchmark source is not visible through the filesystem.
     pub fn file_with_contents(&mut self, path: impl Into<Utf8PathBuf>, contents: &str) -> File {
         let path = path.into();
         self.fs.sources.insert(path.clone(), contents.to_string());
-        self.get_or_create_file(&path)
+        path_to_file(self, &path).expect("inserted benchmark source should be visible")
     }
 
     pub fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {

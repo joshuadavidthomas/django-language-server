@@ -31,7 +31,7 @@ fn document_links_resolve_template_references_with_interior_ranges() {
         .template_file("partials/card.html", partial_path, "partial")
         .install(&mut db);
 
-    let file = db.get_or_create_file(Utf8Path::new(child_path));
+    let file = db.file(Utf8Path::new(child_path));
     let links = document_links(&db, file);
 
     assert_eq!(links.len(), 2);
@@ -86,7 +86,7 @@ fn document_links_resolve_relative_include_to_sibling_template() {
         .template_file("dir/x.html", target_path, "target")
         .install(&mut db);
 
-    let file = db.get_or_create_file(Utf8Path::new(child_path));
+    let file = db.file(Utf8Path::new(child_path));
     let links = document_links(&db, file);
 
     assert_eq!(
@@ -129,7 +129,7 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
     );
 
     db.add_file(template_path, source);
-    let file = db.get_or_create_file(Utf8Path::new(template_path));
+    let file = db.file(Utf8Path::new(template_path));
     let links = document_links(&db, file);
 
     assert_eq!(

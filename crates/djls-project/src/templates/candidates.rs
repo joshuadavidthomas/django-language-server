@@ -6,6 +6,7 @@ use djls_source::FileRootKind;
 use djls_source::FileSystem;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
+use djls_source::path_to_file;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
@@ -29,15 +30,15 @@ pub(crate) struct TemplateTagCandidate {
 }
 
 impl TemplateTagCandidate {
-    fn from_source(db: &dyn ProjectDb, source: TemplateTagCandidateSource) -> Self {
+    fn from_source(db: &dyn ProjectDb, source: TemplateTagCandidateSource) -> Option<Self> {
         let module_name = templatetag_module(&source.app, &source.name)
             .expect("template tag candidate source should have a valid module name");
-        let file = db.get_or_create_file(&source.path);
-        Self {
+        let file = path_to_file(db, &source.path).ok()?;
+        Some(Self {
             app: source.app,
             name: source.name,
             module: PythonModule::new(module_name, source.path, file),
-        }
+        })
     }
 
     fn path(&self) -> &Utf8Path {
@@ -198,8 +199,9 @@ pub(crate) fn templatetag_package_candidates(
                 Some(package_module),
             ) {
                 CandidateSourceRecognition::Candidate(source) => {
-                    scan.candidates
-                        .push(TemplateTagCandidate::from_source(db, source));
+                    if let Some(candidate) = TemplateTagCandidate::from_source(db, source) {
+                        scan.candidates.push(candidate);
+                    }
                 }
                 CandidateSourceRecognition::InvalidIdentifier => scan.mark_incomplete(),
                 CandidateSourceRecognition::NotCandidate => {}
@@ -284,7 +286,7 @@ fn discover_templatetag_candidates(
     let mut results: Vec<_> = source_scan
         .sources
         .into_iter()
-        .map(|source| TemplateTagCandidate::from_source(db, source))
+        .filter_map(|source| TemplateTagCandidate::from_source(db, source))
         .collect();
 
     results.sort_by(TemplateTagCandidate::cmp_by_app_name_path);

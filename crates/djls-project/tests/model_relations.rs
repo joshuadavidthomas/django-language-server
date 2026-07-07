@@ -44,7 +44,7 @@ fn relation_value<'a>(graph: &'a Value, model: &str, field: &str) -> &'a Value {
 
 fn update_file(db: &mut TestDatabase, path: &str, content: &str) {
     db.add_file(path, content);
-    let file = db.get_or_create_file(Utf8Path::new(path));
+    let file = db.file(Utf8Path::new(path));
     db.bump_file_revision(file);
 }
 
@@ -295,7 +295,7 @@ fn model_graph_records_model_and_relation_provenance_for_relation_forms() {
         .build(&db);
 
     let graph = compute_model_graph(&db, project);
-    let blog_file = db.get_or_create_file(Utf8Path::new("/project/blog/models.py"));
+    let blog_file = db.file(Utf8Path::new("/project/blog/models.py"));
     let (model_file, model_span) =
         model_location(graph, "blog.models", "Post").expect("Post model should have location");
     assert_eq!(model_file, blog_file);
@@ -365,8 +365,8 @@ fn model_graph_records_inherited_relation_provenance() {
         .build(&db);
 
     let graph = compute_model_graph(&db, project);
-    let same_file = db.get_or_create_file(Utf8Path::new("/project/inheritance/models.py"));
-    let base_file = db.get_or_create_file(Utf8Path::new("/project/base/models.py"));
+    let same_file = db.file(Utf8Path::new("/project/inheritance/models.py"));
+    let base_file = db.file(Utf8Path::new("/project/base/models.py"));
 
     for child in ["SameFileChild", "SameFileSibling"] {
         let locations = model_relation_locations(graph, "inheritance.models", child);
