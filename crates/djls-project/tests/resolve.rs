@@ -1157,6 +1157,56 @@ fn ty_module_search_path_priority() {
     );
 }
 
+// ty:resolve.rs::symlink
+#[cfg(unix)]
+#[test]
+fn ty_symlink() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = Utf8PathBuf::from_path_buf(temp_dir.path().canonicalize().unwrap())
+        .expect("temp dir path should be UTF-8");
+    let src = root.join("src");
+    let foo = src.join("foo.py");
+    let bar = src.join("bar.py");
+
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(&foo, "").unwrap();
+    std::os::unix::fs::symlink(foo.as_std_path(), bar.as_std_path()).unwrap();
+
+    let mut db = OsTestDatabase::new();
+    let search_paths = SearchPaths::from_project_settings(
+        &OsFileSystem::default(),
+        &root,
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = Project::new(
+        &db,
+        root,
+        search_paths,
+        Interpreter::Auto,
+        None,
+        Vec::new(),
+        Vec::new(),
+        Settings::default().tagspecs().clone(),
+    );
+    db.set_project(project);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+    let bar_module = PythonModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
+        .expect("bar should resolve");
+
+    assert_ne!(foo_module, bar_module);
+    assert_eq!(foo_module.path(), foo.as_path());
+    assert_eq!(bar_module.path(), bar.as_path());
+    assert_eq!(
+        file_to_module(&db, project, foo.clone()),
+        Some(foo_module.clone())
+    );
+    assert_eq!(file_to_module(&db, project, bar), Some(bar_module));
+}
+
 // ty:resolve.rs::deleting_an_unrelated_file_doesnt_change_module_resolution
 #[test]
 fn ty_deleting_an_unrelated_file_doesnt_change_module_resolution() {
@@ -1757,6 +1807,39 @@ fn ty_module_name_2_parts_file_to_module() {
         file_to_module(&db, project, Utf8PathBuf::from("/src/foo/bar/__init__.py"))
             .expect("foo/bar/__init__.py should map to foo.bar");
     assert_eq!(foo_bar_module.name().as_str(), "foo.bar");
+}
+
+// ty:resolve.rs::file_to_module_where_one_search_path_is_subdirectory_of_other
+#[test]
+fn ty_file_to_module_where_one_search_path_is_subdirectory_of_other() {
+    let mut db = TestDatabase::new();
+    let site_packages = Utf8PathBuf::from("/project/.venv/lib/python3.13/site-packages");
+    let installed_foo_module = site_packages.join("foo/__init__.py");
+    db.add_file(installed_foo_module.as_str(), "");
+
+    let pythonpath = vec![site_packages.clone()];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    let module = file_to_module(&db, project, installed_foo_module.clone())
+        .expect("installed foo package should map to foo");
+    assert_eq!(module.name().as_str(), "foo");
+    assert_eq!(module.path(), installed_foo_module.as_path());
+
+    let detail = file_to_module_detail(&db, project, installed_foo_module);
+    assert_eq!(detail.derivations.len(), 1);
+    assert_eq!(detail.derivations[0].root.path(), site_packages.as_path());
+    assert_eq!(detail.derivations[0].name.as_str(), "foo");
+    assert_eq!(
+        detail.derivations[0].status,
+        FileModuleDerivationStatus::RoundTrips
+    );
 }
 
 // ty:path.rs::module_name_3_parts
