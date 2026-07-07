@@ -44,10 +44,25 @@ pub enum FileError {
 
 fn file_status(db: &dyn Db, path: &Utf8Path) -> FileStatus {
     let file_system = db.file_system();
-    if file_system.is_file(path) {
+    let status = if file_system.is_file(path) {
         FileStatus::Exists
     } else if file_system.is_dir(path) {
         FileStatus::IsADirectory
+    } else {
+        FileStatus::NotFound
+    };
+
+    if matches!(status, FileStatus::NotFound) || file_system.case_sensitivity().is_case_sensitive()
+    {
+        return status;
+    }
+
+    let Some(parent) = path.parent() else {
+        return status;
+    };
+
+    if file_system.path_exists_case_sensitive(path, parent) {
+        status
     } else {
         FileStatus::NotFound
     }
@@ -102,20 +117,8 @@ impl File {
     }
 
     pub fn sync_path(db: &mut dyn Db, path: &Utf8Path) {
-        let Some(file) = db.files().try_file(path) else {
-            return;
-        };
-
-        let current_status = file.status(db);
-        let next_status = file_status(db, path);
-        if current_status == next_status {
-            return;
-        }
-
-        file.set_status(db).to(next_status);
-        if matches!(current_status, FileStatus::Exists) != matches!(next_status, FileStatus::Exists)
-        {
-            db.bump_file_revision(file);
+        for ancestor in path.ancestors() {
+            sync_file(db, ancestor);
         }
     }
 }
@@ -284,6 +287,15 @@ impl SourceFiles {
         self.0.by_path.get(path).map(|entry| *entry.value())
     }
 
+    #[must_use]
+    fn paths(&self) -> Vec<Utf8PathBuf> {
+        self.0
+            .by_path
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
+    }
+
     fn roots(&self) -> RwLockReadGuard<'_, Vec<FileRoot>> {
         self.0
             .roots
@@ -383,5 +395,29 @@ impl SourceFiles {
     fn durability_for(&self, db: &dyn Db, path: &Utf8Path) -> Durability {
         self.root(db, path)
             .map_or(Durability::LOW, |root| root.kind(db).durability())
+    }
+}
+
+pub(crate) fn sync_known_paths(db: &mut dyn Db) {
+    let paths = db.files().paths();
+    for path in paths {
+        sync_file(db, &path);
+    }
+}
+
+fn sync_file(db: &mut dyn Db, path: &Utf8Path) {
+    let Some(file) = db.files().try_file(path) else {
+        return;
+    };
+
+    let current_status = file.status(db);
+    let next_status = file_status(db, path);
+    if current_status == next_status {
+        return;
+    }
+
+    file.set_status(db).to(next_status);
+    if matches!(current_status, FileStatus::Exists) != matches!(next_status, FileStatus::Exists) {
+        db.bump_file_revision(file);
     }
 }

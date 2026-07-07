@@ -7,12 +7,16 @@ use djls_project::testing::compute_django_discovery;
 use djls_project::testing::model_modules;
 use djls_project::*;
 use djls_source::Db as _;
+use djls_source::File;
 use djls_source::FileRootKind;
 use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use salsa::Database as _;
+use salsa::Setter;
 
 struct TestModel {
     module_name: PythonModuleName,
@@ -83,6 +87,32 @@ fn apply_project_discovery(db: &mut TestDatabase) {
     let project = db.project().expect("project should be configured");
     let discovery = compute_django_discovery(db, project);
     apply_django_discovery(db, discovery);
+}
+
+fn will_execute_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
+    events
+        .iter()
+        .filter(|event| match &event.kind {
+            salsa::EventKind::WillExecute { database_key } => db
+                .ingredient_debug_name(database_key.ingredient_index())
+                .contains(query_name),
+            _ => false,
+        })
+        .count()
+}
+
+fn assert_no_will_execute_events(events: &[salsa::Event]) {
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event.kind, salsa::EventKind::WillExecute { .. })),
+        "expected no tracked queries to execute; events: {events:#?}"
+    );
+}
+
+fn set_project_search_paths(db: &mut TestDatabase, project: Project, search_paths: SearchPaths) {
+    search_paths.register_roots(db);
+    project.set_search_paths(db).to(search_paths);
 }
 
 fn django_template_settings(installed_apps: &[&str], builtins: &[&str]) -> String {
@@ -1127,6 +1157,272 @@ fn ty_module_search_path_priority() {
     );
 }
 
+// ty:resolve.rs::deleting_an_unrelated_file_doesnt_change_module_resolution
+#[test]
+fn ty_deleting_an_unrelated_file_doesnt_change_module_resolution() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo.py", "x = 1")
+        .file("/src/bar.py", "y = 1")
+        .build(&db);
+    let foo_name = PythonModuleName::parse("foo").unwrap();
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+    let foo_path = foo_module.path().to_path_buf();
+    let _ = event_log.take();
+
+    db.remove_file("/src/bar.py");
+    File::sync_path(&mut db, Utf8Path::new("/src/bar.py"));
+
+    let foo_module = PythonModule::resolve(&db, project, foo_name).expect("foo should resolve");
+    let events = event_log.take();
+    assert_no_will_execute_events(&events);
+    assert_eq!(foo_module.path(), foo_path.as_path());
+}
+
+// ty:resolve.rs::adding_file_on_which_module_resolution_depends_invalidates_previously_failing_query_that_now_succeeds
+#[test]
+fn ty_adding_file_on_which_module_resolution_depends_invalidates_previously_failing_query_that_now_succeeds()
+ {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/src").build(&db);
+    let foo_bar_name = PythonModuleName::parse("foo.bar").unwrap();
+
+    assert_eq!(
+        PythonModule::resolve(&db, project, foo_bar_name.clone()),
+        None
+    );
+
+    db.add_file("/src/foo/bar.py", "x = 1");
+    File::sync_path(&mut db, Utf8Path::new("/src/foo/bar.py"));
+
+    let foo_bar_module = PythonModule::resolve(&db, project, foo_bar_name)
+        .expect("foo.bar should resolve after its file is created");
+    assert_eq!(foo_bar_module.path(), Utf8Path::new("/src/foo/bar.py"));
+}
+
+// ty:resolve.rs::removing_file_on_which_module_resolution_depends_invalidates_previously_successful_query_that_now_fails
+#[test]
+fn ty_removing_file_on_which_module_resolution_depends_invalidates_previously_successful_query_that_now_fails()
+ {
+    let mut db = TestDatabase::new();
+    db.add_file("/src/foo/__init__.py", "x = 2");
+    db.add_file("/src/foo.py", "x = 1");
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/src", search_paths);
+    let foo_name = PythonModuleName::parse("foo").unwrap();
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
+
+    db.remove_file("/src/foo/__init__.py");
+    File::sync_path(&mut db, Utf8Path::new("/src/foo/__init__.py"));
+    File::sync_path(&mut db, Utf8Path::new("/src/foo"));
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name).expect("foo should still resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+}
+
+// ty:resolve.rs::adding_file_to_search_path_with_lower_priority_does_not_invalidate_query
+#[test]
+fn ty_adding_file_to_search_path_with_lower_priority_does_not_invalidate_query() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    db.add_file("/src/foo.py", "x = 1");
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/src", search_paths);
+    let foo_name = PythonModuleName::parse("foo").unwrap();
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+    let _ = event_log.take();
+
+    db.add_file("/site-packages/foo.py", "x = 2");
+    File::sync_path(&mut db, Utf8Path::new("/site-packages/foo.py"));
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name).expect("foo should remain resolved");
+    let events = event_log.take();
+    assert_no_will_execute_events(&events);
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+}
+
+// ty:resolve.rs::adding_file_to_search_path_with_higher_priority_invalidates_the_query
+#[test]
+fn ty_adding_file_to_search_path_with_higher_priority_invalidates_the_query() {
+    let mut db = TestDatabase::new();
+    db.add_file("/site-packages/foo.py", "x = 2");
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/src", search_paths);
+    let foo_name = PythonModuleName::parse("foo").unwrap();
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/site-packages/foo.py"));
+
+    db.add_file("/src/foo.py", "x = 1");
+    File::sync_path(&mut db, Utf8Path::new("/src/foo.py"));
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name).expect("foo should resolve from /src");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+}
+
+// ty:resolve.rs::deleting_file_from_higher_priority_search_path_invalidates_the_query
+#[test]
+fn ty_deleting_file_from_higher_priority_search_path_invalidates_the_query() {
+    let mut db = TestDatabase::new();
+    db.add_file("/src/foo.py", "x = 1");
+    db.add_file("/site-packages/foo.py", "x = 2");
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/src", search_paths);
+    let foo_name = PythonModuleName::parse("foo").unwrap();
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+
+    db.remove_file("/src/foo.py");
+    File::sync_path(&mut db, Utf8Path::new("/src/foo.py"));
+
+    let foo_module = PythonModule::resolve(&db, project, foo_name)
+        .expect("foo should resolve from lower-priority path");
+    assert_eq!(foo_module.path(), Utf8Path::new("/site-packages/foo.py"));
+}
+
+// ty:resolve.rs::module_resolution_paths_cached_between_different_module_resolutions (re-expressed: search paths are project input, not a tracked query)
+#[test]
+fn ty_module_resolution_paths_cached_between_different_module_resolutions_reexpressed() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    db.add_file("/src/foo.py", "");
+    db.add_file("/src/bar.py", "");
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/src", search_paths);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+    let _ = event_log.take();
+
+    let bar_module = PythonModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
+        .expect("bar should resolve");
+    let events = event_log.take();
+    assert_eq!(bar_module.path(), Utf8Path::new("/src/bar.py"));
+    assert_eq!(
+        will_execute_count(&db, &events, "PythonModule::resolve_"),
+        1,
+        "expected resolving bar after foo to execute PythonModule::resolve_ exactly once; events: {events:#?}"
+    );
+}
+
+// ty:resolve.rs::deleting_pth_file_on_which_module_resolution_depends_invalidates_cache (re-expressed: .pth discovery runs when project search paths are constructed)
+#[test]
+fn ty_deleting_pth_file_on_which_module_resolution_depends_invalidates_cache_reexpressed() {
+    let mut db = TestDatabase::new();
+    db.add_file("/site-packages/_foo.pth", "/x/src");
+    db.add_file("/x/src/foo.py", "");
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let foo_name = PythonModuleName::parse("foo").unwrap();
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo.py"));
+
+    db.remove_file("/site-packages/_foo.pth");
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    set_project_search_paths(&mut db, project, search_paths);
+    File::sync_path(&mut db, Utf8Path::new("/site-packages/_foo.pth"));
+
+    assert_eq!(PythonModule::resolve(&db, project, foo_name), None);
+}
+
+// ty:resolve.rs::deleting_editable_install_on_which_module_resolution_depends_invalidates_cache (re-expressed: editable roots are search-path input, not a tracked dynamic-resolution query)
+#[test]
+fn ty_deleting_editable_install_on_which_module_resolution_depends_invalidates_cache_reexpressed() {
+    let mut db = TestDatabase::new();
+    db.add_file("/site-packages/_foo.pth", "/x/src");
+    db.add_file("/x/src/foo.py", "");
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let foo_name = PythonModuleName::parse("foo").unwrap();
+
+    let foo_module =
+        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo.py"));
+
+    db.remove_file("/x/src/foo.py");
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    set_project_search_paths(&mut db, project, search_paths);
+    File::sync_path(&mut db, Utf8Path::new("/x/src/foo.py"));
+    File::sync_path(&mut db, Utf8Path::new("/x/src"));
+
+    assert_eq!(PythonModule::resolve(&db, project, foo_name), None);
+}
+
 // ty:resolve.rs::editable_install_absolute_path
 #[test]
 fn ty_editable_install_absolute_path() {
@@ -1548,6 +1844,25 @@ fn python_module_resolve_rejects_wrong_cased_package_component_on_case_insensiti
     let module = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
         .expect("pkg.bar should resolve");
     assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
+}
+
+#[test]
+fn case_only_rename_invalidates_resolution_on_case_insensitive_fs() {
+    let mut db = TestDatabase::case_insensitive();
+    let project = ProjectFixture::new("/project")
+        .file("/project/Foo.py", "")
+        .build(&db);
+    let name = PythonModuleName::parse("foo").unwrap();
+
+    assert_eq!(PythonModule::resolve(&db, project, name.clone()), None);
+
+    db.remove_file("/project/Foo.py");
+    db.add_file("/project/foo.py", "");
+    File::sync_path(&mut db, Utf8Path::new("/project/foo.py"));
+
+    let module =
+        PythonModule::resolve(&db, project, name).expect("foo should resolve after rename");
+    assert_eq!(module.path(), Utf8Path::new("/project/foo.py"));
 }
 
 // ty:resolve.rs::case_sensitive_resolution_with_symlinked_directory
