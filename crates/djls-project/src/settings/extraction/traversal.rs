@@ -170,6 +170,9 @@ impl<'a> SettingsBindingsCollector<'a> {
             return;
         };
         let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
+            for setting in expr_touched_known_settings(expr) {
+                self.bindings.mark_unsupported(setting);
+            }
             return;
         };
 
@@ -204,8 +207,10 @@ impl<'a> SettingsBindingsCollector<'a> {
                 }
                 _ => self.bindings.mark_unsupported(KnownSetting::Templates),
             }
-        } else if let Some(setting) = expr_touched_known_settings(expr).next() {
-            self.bindings.mark_unsupported(setting);
+        } else {
+            for setting in expr_touched_known_settings(expr) {
+                self.bindings.mark_unsupported(setting);
+            }
         }
     }
 
@@ -851,7 +856,19 @@ fn expr_touches_name(expr: &ast::Expr, expected: &str) -> bool {
         expr if expr.name_target() == Some(expected) => true,
         ast::Expr::Attribute(attribute) => expr_touches_name(&attribute.value, expected),
         ast::Expr::Subscript(subscript) => expr_touches_name(&subscript.value, expected),
-        ast::Expr::Call(call) => expr_touches_name(&call.func, expected),
+        ast::Expr::Call(call) => {
+            expr_touches_name(&call.func, expected)
+                || call
+                    .arguments
+                    .args
+                    .iter()
+                    .any(|expr| expr_touches_name(expr, expected))
+                || call
+                    .arguments
+                    .keywords
+                    .iter()
+                    .any(|keyword| expr_touches_name(&keyword.value, expected))
+        }
         ast::Expr::BinOp(bin_op) => {
             expr_touches_name(&bin_op.left, expected) || expr_touches_name(&bin_op.right, expected)
         }

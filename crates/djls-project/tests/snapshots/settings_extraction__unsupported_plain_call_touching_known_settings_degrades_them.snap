@@ -1,0 +1,12 @@
+---
+source: crates/djls-project/tests/settings_extraction.rs
+assertion_line: 318
+expression: "django_settings(&db, project)"
+---
+parse_status: parsed
+installed_apps:
+  values: []
+  extraction: partial
+templates:
+  backends: []
+  extraction: partial
