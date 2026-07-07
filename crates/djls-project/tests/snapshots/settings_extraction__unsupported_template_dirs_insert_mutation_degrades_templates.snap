@@ -10,3 +10,13 @@ installed_apps:
 templates:
   backends: []
   extraction: partial
+staticfiles:
+  static_url:
+    values: []
+    extraction: partial
+  static_root:
+    values: []
+    extraction: partial
+  staticfiles_dirs:
+    values: []
+    extraction: partial

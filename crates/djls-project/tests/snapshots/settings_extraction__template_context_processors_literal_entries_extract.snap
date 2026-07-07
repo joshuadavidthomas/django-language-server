@@ -32,3 +32,13 @@ templates:
             length: 53
       extraction: complete
   extraction: complete
+staticfiles:
+  static_url:
+    values: []
+    extraction: partial
+  static_root:
+    values: []
+    extraction: partial
+  staticfiles_dirs:
+    values: []
+    extraction: partial

@@ -6,14 +6,22 @@ use crate::settings::types::DjangoSettings;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
 use crate::settings::types::LocalListBinding;
+use crate::settings::types::ScalarSetting;
+use crate::settings::types::SettingValues;
 use crate::settings::types::SettingsParseStatus;
+use crate::settings::types::StaticFilesDirsSetting;
+use crate::settings::types::StaticFilesSettings;
 use crate::settings::types::TemplateBackend;
+use crate::settings::types::TemplateDirPath;
 use crate::settings::types::TemplateSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct SettingsBindings {
     pub(super) installed_apps: Option<InstalledAppsSetting>,
     pub(super) templates: Option<TemplateSettings>,
+    pub(super) static_url: Option<ScalarSetting<String>>,
+    pub(super) static_root: Option<ScalarSetting<TemplateDirPath>>,
+    pub(super) staticfiles_dirs: Option<StaticFilesDirsSetting>,
     pub(super) locals: LocalBindings,
 }
 
@@ -29,6 +37,20 @@ impl SettingsBindings {
                 .templates
                 .clone()
                 .unwrap_or_else(TemplateSettings::partial),
+            staticfiles: StaticFilesSettings {
+                static_url: self
+                    .static_url
+                    .clone()
+                    .unwrap_or_else(ScalarSetting::partial),
+                static_root: self
+                    .static_root
+                    .clone()
+                    .unwrap_or_else(ScalarSetting::partial),
+                staticfiles_dirs: self
+                    .staticfiles_dirs
+                    .clone()
+                    .unwrap_or_else(StaticFilesDirsSetting::partial),
+            },
         }
     }
 
@@ -38,6 +60,15 @@ impl SettingsBindings {
         }
         if let Some(templates) = &other.templates {
             self.templates = Some(templates.clone());
+        }
+        if let Some(static_url) = &other.static_url {
+            self.static_url = Some(static_url.clone());
+        }
+        if let Some(static_root) = &other.static_root {
+            self.static_root = Some(static_root.clone());
+        }
+        if let Some(staticfiles_dirs) = &other.staticfiles_dirs {
+            self.staticfiles_dirs = Some(staticfiles_dirs.clone());
         }
         self.locals.extend(other.locals.clone());
     }
@@ -51,6 +82,18 @@ impl SettingsBindings {
             KnownSetting::Templates => match &mut self.templates {
                 Some(templates) => templates.mark_partial(),
                 None => self.templates = Some(TemplateSettings::partial()),
+            },
+            KnownSetting::StaticUrl => match &mut self.static_url {
+                Some(static_url) => static_url.mark_partial(),
+                None => self.static_url = Some(ScalarSetting::partial()),
+            },
+            KnownSetting::StaticRoot => match &mut self.static_root {
+                Some(static_root) => static_root.mark_partial(),
+                None => self.static_root = Some(ScalarSetting::partial()),
+            },
+            KnownSetting::StaticFilesDirs => match &mut self.staticfiles_dirs {
+                Some(staticfiles_dirs) => staticfiles_dirs.mark_partial(),
+                None => self.staticfiles_dirs = Some(StaticFilesDirsSetting::partial()),
             },
         }
     }
@@ -67,6 +110,20 @@ impl SettingsBindings {
                 let templates = self.templates.get_or_insert_with(TemplateSettings::partial);
                 templates.clear_to_partial();
             }
+            KnownSetting::StaticUrl => {
+                let static_url = self.static_url.get_or_insert_with(ScalarSetting::partial);
+                static_url.clear_to_partial();
+            }
+            KnownSetting::StaticRoot => {
+                let static_root = self.static_root.get_or_insert_with(ScalarSetting::partial);
+                static_root.clear_to_partial();
+            }
+            KnownSetting::StaticFilesDirs => {
+                let staticfiles_dirs = self
+                    .staticfiles_dirs
+                    .get_or_insert_with(StaticFilesDirsSetting::partial);
+                staticfiles_dirs.clear_to_partial();
+            }
         }
     }
 
@@ -82,13 +139,31 @@ impl SettingsBindings {
         for setting in writes.settings.iter().copied() {
             match setting {
                 KnownSetting::InstalledApps => {
-                    self.installed_apps = Some(join_installed_apps(branch_bindings));
+                    self.installed_apps = Some(join_setting_values(branch_bindings, |bindings| {
+                        bindings.installed_apps.as_ref()
+                    }));
                 }
                 KnownSetting::Templates => {
                     self.templates = Some(TemplateSettings {
                         backends: join_template_backends(branch_bindings),
                         extraction: ExtractionStatus::Partial,
                     });
+                }
+                KnownSetting::StaticUrl => {
+                    self.static_url = Some(join_setting_values(branch_bindings, |bindings| {
+                        bindings.static_url.as_ref()
+                    }));
+                }
+                KnownSetting::StaticRoot => {
+                    self.static_root = Some(join_setting_values(branch_bindings, |bindings| {
+                        bindings.static_root.as_ref()
+                    }));
+                }
+                KnownSetting::StaticFilesDirs => {
+                    self.staticfiles_dirs =
+                        Some(join_setting_values(branch_bindings, |bindings| {
+                            bindings.staticfiles_dirs.as_ref()
+                        }));
                 }
             }
         }
@@ -156,26 +231,6 @@ impl TouchedBindings {
     }
 }
 
-fn join_installed_apps(branch_bindings: &[SettingsBindings]) -> InstalledAppsSetting {
-    let mut values = Vec::new();
-
-    for bindings in branch_bindings {
-        let Some(setting) = &bindings.installed_apps else {
-            continue;
-        };
-        for value in &setting.values {
-            if !values.contains(value) {
-                values.push(value.clone());
-            }
-        }
-    }
-
-    InstalledAppsSetting {
-        values,
-        extraction: ExtractionStatus::Partial,
-    }
-}
-
 fn join_template_backends(branch_bindings: &[SettingsBindings]) -> Vec<TemplateBackend> {
     let mut backends = Vec::new();
     for bindings in branch_bindings {
@@ -189,6 +244,26 @@ fn join_template_backends(branch_bindings: &[SettingsBindings]) -> Vec<TemplateB
         }
     }
     backends
+}
+
+fn join_setting_values<T: Clone + Eq>(
+    branch_bindings: &[SettingsBindings],
+    values: impl Fn(&SettingsBindings) -> Option<&SettingValues<T>>,
+) -> SettingValues<T> {
+    let mut joined = Vec::new();
+
+    for bindings in branch_bindings {
+        let Some(setting) = values(bindings) else {
+            continue;
+        };
+        for value in &setting.values {
+            if !joined.contains(value) {
+                joined.push(value.clone());
+            }
+        }
+    }
+
+    SettingValues::with_extraction(joined, ExtractionStatus::Partial)
 }
 
 fn join_local_lists(

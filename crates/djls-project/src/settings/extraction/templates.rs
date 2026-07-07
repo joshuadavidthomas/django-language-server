@@ -4,6 +4,7 @@ use ruff_python_ast as ast;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::python::PythonModuleName;
+use crate::settings::extraction::AssignmentCompleteness;
 use crate::settings::extraction::bindings::ExtractedList;
 use crate::settings::extraction::env::EvalEnv;
 use crate::settings::types::TemplateBackend;
@@ -13,12 +14,6 @@ use crate::settings::types::TemplateDirPath;
 pub(super) enum AssignmentEffect {
     Assign(Vec<TemplateBackend>, AssignmentCompleteness),
     Unsupported,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum AssignmentCompleteness {
-    Full,
-    Partial,
 }
 
 pub(super) enum DirsExtensionEffect {

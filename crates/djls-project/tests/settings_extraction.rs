@@ -480,3 +480,255 @@ else:
 
     insta::assert_yaml_snapshot!(django_settings(&db, project));
 }
+
+#[test]
+fn static_url_literal_extracts_spanned_candidate() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+STATIC_URL = "/static/"
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn static_url_conditional_override_keeps_all_candidates_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+STATIC_URL = "/static/"
+if USE_CDN:
+    STATIC_URL = "https://cdn.example.com/static/"
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn static_url_unknown_expression_extracts_partial_without_candidate() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+BASE_URL = "/assets/"
+STATIC_URL = BASE_URL + "static/"
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn static_root_resolved_path_extracts_spanned_candidate() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_ROOT = BASE_DIR / "staticfiles"
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn static_root_unknown_path_extracts_unknown_candidate_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+STATIC_ROOT = STATIC_BASE / "staticfiles"
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn static_root_conditional_assignment_keeps_all_candidates_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_ROOT = BASE_DIR / "staticfiles"
+if USE_TMP:
+    STATIC_ROOT = BASE_DIR / "tmp-staticfiles"
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn staticfiles_dirs_list_resolved_paths_extract() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATICFILES_DIRS = [BASE_DIR / "assets", "/shared/static"]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn staticfiles_dirs_tuple_resolved_paths_extract() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATICFILES_DIRS = (BASE_DIR / "assets", "/shared/static")
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn staticfiles_dirs_unknown_element_extracts_unknown_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r"
+STATICFILES_DIRS = [STATIC_ASSETS]
+",
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn staticfiles_dirs_mixed_known_unknown_elements_extract_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATICFILES_DIRS = [BASE_DIR / "assets", STATIC_ASSETS, "/shared/static"]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn staticfiles_dirs_conditional_assignment_keeps_all_candidates_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATICFILES_DIRS = [BASE_DIR / "assets"]
+if USE_VENDOR:
+    STATICFILES_DIRS = [BASE_DIR / "vendor-assets"]
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn static_url_star_import_conditional_reassignment_keeps_base_candidate_partial() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings.local")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings/__init__.py", "")
+        .file(
+            "/proj/myproject/settings/base.py",
+            r#"
+STATIC_URL = "/static/"
+"#,
+        )
+        .file(
+            "/proj/myproject/settings/local.py",
+            r#"
+from .base import *
+if USE_CDN:
+    STATIC_URL = "https://cdn.example.com/static/"
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn staticfiles_dirs_append_mutation_degrades_setting() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATICFILES_DIRS = [BASE_DIR / "assets"]
+STATICFILES_DIRS.append(BASE_DIR / "more-assets")
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}

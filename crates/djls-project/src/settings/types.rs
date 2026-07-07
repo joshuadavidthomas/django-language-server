@@ -19,32 +19,30 @@ pub(crate) enum SettingsParseStatus {
     Unparseable,
 }
 
-/// A best-effort string list setting such as `INSTALLED_APPS`.
+/// Observed values for one extracted Django setting.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct InstalledAppsSetting {
-    pub(crate) values: Vec<String>,
+pub(crate) struct SettingValues<T> {
+    pub(crate) values: Vec<T>,
     pub(crate) extraction: ExtractionStatus,
 }
 
-impl Default for InstalledAppsSetting {
+impl<T> Default for SettingValues<T> {
     fn default() -> Self {
         Self::partial()
     }
 }
 
-impl InstalledAppsSetting {
-    pub(crate) fn full(values: Vec<String>) -> Self {
-        Self {
-            values,
-            extraction: ExtractionStatus::Complete,
-        }
+impl<T> SettingValues<T> {
+    pub(crate) fn full(values: Vec<T>) -> Self {
+        Self::with_extraction(values, ExtractionStatus::Complete)
     }
 
     pub(crate) fn partial() -> Self {
-        Self {
-            values: Vec::new(),
-            extraction: ExtractionStatus::Partial,
-        }
+        Self::with_extraction(Vec::new(), ExtractionStatus::Partial)
+    }
+
+    pub(crate) fn with_extraction(values: Vec<T>, extraction: ExtractionStatus) -> Self {
+        Self { values, extraction }
     }
 
     #[must_use]
@@ -61,6 +59,8 @@ impl InstalledAppsSetting {
         self.extraction = ExtractionStatus::Partial;
     }
 }
+
+pub(crate) type InstalledAppsSetting = SettingValues<String>;
 
 /// The statically extracted subset of Django's `TEMPLATES` setting.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -167,12 +167,25 @@ impl TemplateContextProcessorPath {
     }
 }
 
+pub(crate) type ScalarSetting<T> = SettingValues<Spanned<T>>;
+
+/// The statically extracted subset of Django's staticfiles settings.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+pub(crate) struct StaticFilesSettings {
+    pub(crate) static_url: ScalarSetting<String>,
+    pub(crate) static_root: ScalarSetting<TemplateDirPath>,
+    pub(crate) staticfiles_dirs: StaticFilesDirsSetting,
+}
+
+pub(crate) type StaticFilesDirsSetting = SettingValues<Spanned<TemplateDirPath>>;
+
 /// The statically extracted subset of a Django settings module.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub(crate) struct DjangoSettings {
     pub(crate) parse_status: SettingsParseStatus,
     pub(crate) installed_apps: InstalledAppsSetting,
     pub(crate) templates: TemplateSettings,
+    pub(crate) staticfiles: StaticFilesSettings,
 }
 
 /// A path expression evaluated against the settings file's own location.
