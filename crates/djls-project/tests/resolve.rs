@@ -1004,6 +1004,551 @@ fn model_modules_finds_models_package_files() {
     assert!(module_names.contains(&"myapp.models.order"));
 }
 
+// ty:resolve.rs::first_party_module
+#[test]
+fn ty_first_party_module() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo.py", "print('Hello, world!')")
+        .build(&db);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+
+    assert_eq!(foo_module.name().as_str(), "foo");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo.py")),
+        Some(foo_module)
+    );
+}
+
+// ty:resolve.rs::resolve_package
+#[test]
+fn ty_resolve_package() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/__init__.py", "print('Hello, world!')")
+        .build(&db);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+
+    assert_eq!(foo_module.name().as_str(), "foo");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo/__init__.py")),
+        Some(foo_module)
+    );
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo")),
+        None
+    );
+}
+
+// ty:resolve.rs::package_priority_over_module
+#[test]
+fn ty_package_priority_over_module() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/__init__.py", "print('Hello, world!')")
+        .file("/src/foo.py", "print('Hello, world!')")
+        .build(&db);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo/__init__.py")),
+        Some(foo_module)
+    );
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo.py")),
+        None
+    );
+}
+
+// ty:resolve.rs::sub_packages
+#[test]
+fn ty_sub_packages() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/__init__.py", "")
+        .file("/src/foo/bar/__init__.py", "")
+        .file("/src/foo/bar/baz.py", "print('Hello, world!')")
+        .build(&db);
+
+    let baz_module = PythonModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo.bar.baz").unwrap(),
+    )
+    .expect("foo.bar.baz should resolve");
+
+    assert_eq!(baz_module.path(), Utf8Path::new("/src/foo/bar/baz.py"));
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo/bar/baz.py")),
+        Some(baz_module)
+    );
+}
+
+// ty:resolve.rs::module_search_path_priority
+#[test]
+fn ty_module_search_path_priority() {
+    let mut db = TestDatabase::new();
+    db.add_file("/src/foo.py", "");
+    db.add_file("/site-packages/foo.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/src", search_paths);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo.py")),
+        Some(foo_module)
+    );
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/site-packages/foo.py")),
+        None
+    );
+}
+
+// ty:resolve.rs::editable_install_absolute_path
+#[test]
+fn ty_editable_install_absolute_path() {
+    let mut db = TestDatabase::new();
+    db.add_file("/site-packages/_foo.pth", "/x/src");
+    db.add_file("/x/src/foo/__init__.py", "");
+    db.add_file("/x/src/foo/bar.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+    let foo_bar_module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap())
+            .expect("foo.bar should resolve");
+
+    assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo/__init__.py"));
+    assert_eq!(foo_bar_module.path(), Utf8Path::new("/x/src/foo/bar.py"));
+}
+
+// ty:resolve.rs::editable_install_pth_file_with_whitespace
+#[test]
+fn ty_editable_install_pth_file_with_whitespace() {
+    let mut db = TestDatabase::new();
+    db.add_file("/site-packages/_foo.pth", "        /x/src");
+    db.add_file("/site-packages/_bar.pth", "/y/src        ");
+    db.add_file("/x/src/foo.py", "");
+    db.add_file("/y/src/bar.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        None
+    );
+    let bar_module = PythonModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
+        .expect("bar should resolve");
+    assert_eq!(bar_module.path(), Utf8Path::new("/y/src/bar.py"));
+}
+
+// ty:resolve.rs::editable_install_relative_path
+#[test]
+fn ty_editable_install_relative_path() {
+    let mut db = TestDatabase::new();
+    db.add_file("/site-packages/_foo.pth", "../../x/../x/y/src");
+    db.add_file("/x/y/src/foo.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+
+    assert_eq!(foo_module.path(), Utf8Path::new("/x/y/src/foo.py"));
+}
+
+// ty:resolve.rs::editable_install_multiple_pth_files_with_multiple_paths
+#[test]
+fn ty_editable_install_multiple_pth_files_with_multiple_paths() {
+    let complex_pth_file = "\
+/
+
+# a comment
+/baz
+
+import not_an_editable_install; do_something_else_crazy_dynamic()
+
+# another comment
+spam
+
+not_a_directory
+";
+    let mut db = TestDatabase::new();
+    db.add_file("/site-packages/_foo.pth", "../../x/../x/y/src");
+    db.add_file("/site-packages/_lots_of_others.pth", complex_pth_file);
+    db.add_file("/x/y/src/foo.py", "");
+    db.add_file("/site-packages/spam/spam.py", "");
+    db.add_file("/a.py", "");
+    db.add_file("/baz/b.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+    let a_module = PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
+        .expect("a should resolve");
+    let b_module = PythonModule::resolve(&db, project, PythonModuleName::parse("b").unwrap())
+        .expect("b should resolve");
+    let spam_module = PythonModule::resolve(&db, project, PythonModuleName::parse("spam").unwrap())
+        .expect("spam should resolve");
+
+    assert_eq!(foo_module.path(), Utf8Path::new("/x/y/src/foo.py"));
+    assert_eq!(a_module.path(), Utf8Path::new("/a.py"));
+    assert_eq!(b_module.path(), Utf8Path::new("/baz/b.py"));
+    assert_eq!(
+        spam_module.path(),
+        Utf8Path::new("/site-packages/spam/spam.py")
+    );
+}
+
+// ty:resolve.rs::no_duplicate_search_paths_added
+#[test]
+fn ty_no_duplicate_search_paths_added() {
+    let db = TestDatabase::new();
+    db.add_file("/src/foo.py", "");
+    db.add_file("/site-packages/_foo.pth", "/src");
+
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    let paths: Vec<_> = search_paths.iter().cloned().collect();
+
+    assert!(paths.contains(&SearchPath::FirstParty(Utf8PathBuf::from("/src"))));
+    assert!(!paths.contains(&SearchPath::Editable(Utf8PathBuf::from("/src"))));
+}
+
+// ty:resolve.rs::multiple_site_packages_with_editables
+#[test]
+fn ty_multiple_site_packages_with_editables() {
+    let mut db = TestDatabase::new();
+    db.add_file("/venv/site-packages/foo.pth", "/x/y");
+    db.add_file("/x/y/a.py", "");
+    db.add_file("/system/site-packages/a.py", "");
+
+    let pythonpath = vec![
+        Utf8PathBuf::from("/venv/site-packages"),
+        Utf8PathBuf::from("/system/site-packages"),
+    ];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    let a_module = PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
+        .expect("a should resolve");
+
+    assert_eq!(a_module.path(), Utf8Path::new("/x/y/a.py"));
+}
+
+// ty:resolve.rs::stubs_over_module_source
+#[test]
+fn ty_stubs_over_module_source_runtime_uses_py() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo.py", "")
+        .file("/src/foo.pyi", "")
+        .build(&db);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+
+    assert_eq!(foo_module.name().as_str(), "foo");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+}
+
+// ty:resolve.rs::stubs_over_package_source
+#[test]
+fn ty_stubs_over_package_source_runtime_uses_package() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/__init__.py", "")
+        .file("/src/foo.pyi", "")
+        .build(&db);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+
+    assert_eq!(foo_module.name().as_str(), "foo");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
+}
+
+// ty:resolve.rs::typing_stub_over_module
+#[test]
+fn ty_typing_stub_over_module_runtime_uses_py() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo.py", "print('Hello, world!')")
+        .file("/src/foo.pyi", "x: int")
+        .build(&db);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+    assert_eq!(
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo.py")),
+        Some(foo_module)
+    );
+}
+
+// ty:list.rs::namespace_package
+#[test]
+fn ty_namespace_package_reexpressed() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/bar.py", "")
+        .build(&db);
+
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        None
+    );
+    let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap());
+    assert_eq!(dirs.dirs, vec![Utf8PathBuf::from("/src/foo")]);
+}
+
+// ty:list.rs::namespace_package_precedence
+#[test]
+fn ty_namespace_package_precedence_reexpressed() {
+    let mut db = TestDatabase::new();
+    db.add_file("/src/foo/bar.py", "");
+    db.add_file("/site-packages/foo.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/src", search_paths);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve from site-packages");
+    assert_eq!(foo_module.path(), Utf8Path::new("/site-packages/foo.py"));
+    assert!(
+        resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap())
+            .dirs
+            .is_empty()
+    );
+
+    let mut db = TestDatabase::new();
+    db.add_file("/src/foo.py", "");
+    db.add_file("/site-packages/foo/bar.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/src"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/src", search_paths);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve from first party");
+    assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
+    assert!(
+        resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap())
+            .dirs
+            .is_empty()
+    );
+}
+
+// ty:path.rs::module_name_1_part
+#[test]
+fn ty_module_name_1_part_file_to_module() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo.py", "")
+        .build(&db);
+    let foo_module = file_to_module(&db, project, Utf8PathBuf::from("/src/foo.py"))
+        .expect("foo.py should map to foo");
+    assert_eq!(foo_module.name().as_str(), "foo");
+
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/__init__.py", "")
+        .build(&db);
+    let foo_module = file_to_module(&db, project, Utf8PathBuf::from("/src/foo/__init__.py"))
+        .expect("foo/__init__.py should map to foo");
+    assert_eq!(foo_module.name().as_str(), "foo");
+}
+
+// ty:path.rs::module_name_2_parts
+#[test]
+fn ty_module_name_2_parts_file_to_module() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/bar.py", "")
+        .build(&db);
+    let foo_bar_module = file_to_module(&db, project, Utf8PathBuf::from("/src/foo/bar.py"))
+        .expect("foo/bar.py should map to foo.bar");
+    assert_eq!(foo_bar_module.name().as_str(), "foo.bar");
+
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/bar/__init__.py", "")
+        .build(&db);
+    let foo_bar_module =
+        file_to_module(&db, project, Utf8PathBuf::from("/src/foo/bar/__init__.py"))
+            .expect("foo/bar/__init__.py should map to foo.bar");
+    assert_eq!(foo_bar_module.name().as_str(), "foo.bar");
+}
+
+// ty:path.rs::module_name_3_parts
+#[test]
+fn ty_module_name_3_parts_file_to_module() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/bar/baz.py", "")
+        .build(&db);
+    let foo_bar_baz_module = file_to_module(&db, project, Utf8PathBuf::from("/src/foo/bar/baz.py"))
+        .expect("foo/bar/baz.py should map to foo.bar.baz");
+    assert_eq!(foo_bar_baz_module.name().as_str(), "foo.bar.baz");
+
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/src")
+        .file("/src/foo/bar/baz/__init__.py", "")
+        .build(&db);
+    let foo_bar_baz_module = file_to_module(
+        &db,
+        project,
+        Utf8PathBuf::from("/src/foo/bar/baz/__init__.py"),
+    )
+    .expect("foo/bar/baz/__init__.py should map to foo.bar.baz");
+    assert_eq!(foo_bar_baz_module.name().as_str(), "foo.bar.baz");
+}
+
+#[test]
+fn python_module_resolve_applies_regular_package_terminality_across_roots() {
+    let mut db = TestDatabase::new();
+    db.add_file("/root_a/foo/__init__.py", "");
+    db.add_file("/root_b/foo/bar.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/root_a"), Utf8PathBuf::from("/root_b")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+        .expect("foo should resolve");
+    assert_eq!(foo_module.path(), Utf8Path::new("/root_a/foo/__init__.py"));
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap()),
+        None
+    );
+    assert_eq!(
+        resolve_module_detail(&db, project, PythonModuleName::parse("foo.bar").unwrap())
+            .unresolved_reason,
+        Some(UnresolvedReason::NotFound)
+    );
+}
+
+#[test]
+fn python_module_resolve_traverses_namespace_portions_across_roots() {
+    let mut db = TestDatabase::new();
+    db.add_file("/root_a/foo/spam.txt", "");
+    db.add_file("/root_b/foo/bar.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/root_a"), Utf8PathBuf::from("/root_b")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        None
+    );
+    let foo_bar_module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap())
+            .expect("foo.bar should resolve through the namespace package");
+    assert_eq!(foo_bar_module.path(), Utf8Path::new("/root_b/foo/bar.py"));
+
+    let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap());
+    assert_eq!(
+        dirs.dirs,
+        vec![
+            Utf8PathBuf::from("/root_a/foo"),
+            Utf8PathBuf::from("/root_b/foo"),
+        ]
+    );
+}
+
 #[test]
 fn python_module_resolve_prefers_regular_package_over_sibling_file() {
     let db = TestDatabase::new();
