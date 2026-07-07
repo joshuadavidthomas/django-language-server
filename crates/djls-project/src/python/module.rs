@@ -225,9 +225,10 @@ fn resolve_component(
     component: &str,
 ) -> Option<ResolvedComponent> {
     let dir = candidate.dir.join(component);
+    let dir_status = path_to_file(db, &dir);
     let init_file = dir.join("__init__.py");
-    if let Ok(file) = path_to_file(db, &init_file)
-        && path_case_matches(db, &init_file, &candidate.dir)
+    if matches!(dir_status, Err(FileError::IsADirectory))
+        && let Ok(file) = path_to_file(db, &init_file)
     {
         return Some(ResolvedComponent::RegularPackage {
             root: candidate.root.clone(),
@@ -238,9 +239,7 @@ fn resolve_component(
     }
 
     let py_file = dir.with_extension("py");
-    if let Ok(file) = path_to_file(db, &py_file)
-        && path_case_matches(db, &py_file, &candidate.dir)
-    {
+    if let Ok(file) = path_to_file(db, &py_file) {
         return Some(ResolvedComponent::FileModule {
             root: candidate.root.clone(),
             path: py_file,
@@ -248,9 +247,7 @@ fn resolve_component(
         });
     }
 
-    if matches!(path_to_file(db, &dir), Err(FileError::IsADirectory))
-        && path_case_matches(db, &dir, &candidate.dir)
-    {
+    if matches!(dir_status, Err(FileError::IsADirectory)) {
         return Some(ResolvedComponent::NamespacePortion(CandidateDirectory {
             root: candidate.root.clone(),
             dir,
@@ -455,8 +452,6 @@ pub fn resolve_package_dirs(
     project: Project,
     name: PythonModuleName,
 ) -> PackageDirs {
-    project.touch_search_path_roots(db);
-
     match resolve_name(db, project, &name) {
         ModuleResolution::RegularPackage { dir, .. } => PackageDirs { dirs: vec![dir] },
         ModuleResolution::FileModule { .. } | ModuleResolution::NotFound => {
@@ -476,8 +471,6 @@ pub fn file_to_module(
     project: Project,
     source_path: Utf8PathBuf,
 ) -> Option<PythonModule> {
-    project.touch_search_path_roots(db);
-
     let selected = file_module_names(db, project, source_path.as_path())
         .next()
         .map(|(root, name)| {
@@ -624,8 +617,6 @@ impl PythonModule {
 impl PythonModule {
     #[salsa::tracked]
     pub fn resolve(db: &dyn ProjectDb, project: Project, name: PythonModuleName) -> Option<Self> {
-        project.touch_search_path_roots(db);
-
         match resolve_name(db, project, &name) {
             ModuleResolution::RegularPackage {
                 init_file, file, ..

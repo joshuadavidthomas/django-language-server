@@ -3,6 +3,7 @@ use camino::Utf8PathBuf;
 
 use crate::Db;
 use crate::File;
+use crate::files::sync_known_paths;
 use crate::path_to_file;
 
 /// Source-visible filesystem changes applied after the backing filesystem view
@@ -36,6 +37,7 @@ impl SourceChanges {
                 }
                 ChangeEvent::ContentChanged(path) => apply_content_change(db, path),
                 ChangeEvent::Deleted(path) => apply_deleted_path(db, path),
+                ChangeEvent::Rescan => sync_known_paths(db),
             }
         }
     }
@@ -52,6 +54,12 @@ pub enum ChangeEvent {
     ContentChanged(Utf8PathBuf),
     /// A path stopped being visible to source queries.
     Deleted(Utf8PathBuf),
+    /// Refresh every already-tracked path when precise path events are unavailable.
+    ///
+    /// This does not discover new paths. It re-checks statuses for paths that
+    /// source queries have already interned, including missing paths recorded
+    /// during resolution.
+    Rescan,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

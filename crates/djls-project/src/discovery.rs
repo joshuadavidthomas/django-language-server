@@ -6,7 +6,8 @@
 //! transport, and when to apply the payload.
 
 use camino::Utf8PathBuf;
-use djls_source::File;
+use djls_source::ChangeEvent;
+use djls_source::SourceChanges;
 use djls_source::path_to_file;
 use salsa::Setter;
 
@@ -356,7 +357,7 @@ pub fn apply_django_discovery(db: &mut dyn ProjectDb, discovery: DjangoDiscovery
         if current.as_str() != latest {
             db.bump_file_revision(file);
         }
-
-        File::sync_path(db, &path);
     }
+
+    SourceChanges::new([ChangeEvent::Rescan]).apply(db);
 }

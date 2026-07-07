@@ -2,8 +2,11 @@ use camino::Utf8Path;
 use djls_source::Db as _;
 use djls_source::File;
 use djls_source::FileError;
+use djls_source::FileStatus;
 use djls_source::path_to_file;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use salsa::Database as _;
 
 #[salsa::input]
 struct LookupPath {
@@ -25,6 +28,42 @@ fn lookup_outcome(db: &dyn djls_source::Db, lookup: LookupPath) -> LookupOutcome
         Err(FileError::IsADirectory) => LookupOutcome::IsADirectory,
         Err(FileError::NotFound) => LookupOutcome::NotFound,
     }
+}
+
+fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
+    events
+        .iter()
+        .filter(|event| match &event.kind {
+            salsa::EventKind::WillExecute { database_key } => db
+                .ingredient_debug_name(database_key.ingredient_index())
+                .contains(query_name),
+            _ => false,
+        })
+        .count()
+}
+
+#[test]
+fn ancestor_lookup_reexecutes_after_child_file_is_created_and_synced() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let parent_path = Utf8Path::new("/project/foo");
+    let child_path = Utf8Path::new("/project/foo/bar.py");
+
+    let lookup = LookupPath::new(&db, parent_path.to_string());
+    assert_eq!(lookup_outcome(&db, lookup), LookupOutcome::NotFound);
+    let _ = event_log.take();
+
+    db.add_file(child_path.as_str(), "print('created')\n");
+    File::sync_path(&mut db, child_path);
+
+    let parent = db
+        .files()
+        .try_file(parent_path)
+        .expect("parent path should have been interned by the lookup");
+    assert_eq!(parent.status(&db), FileStatus::IsADirectory);
+    assert_eq!(lookup_outcome(&db, lookup), LookupOutcome::IsADirectory);
+    let events = event_log.take();
+    assert!(execution_count(&db, &events, "lookup_outcome") > 0);
 }
 
 #[test]
