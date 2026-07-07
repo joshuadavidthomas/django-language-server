@@ -300,6 +300,44 @@ TEMPLATES[0]["DIRS"].insert(0, "first")
 }
 
 #[test]
+fn unsupported_plain_call_touching_known_settings_degrades_them() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+INSTALLED_APPS = ["a"]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates"}]
+configure(INSTALLED_APPS, TEMPLATES)
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
+fn unsupported_attribute_call_touching_both_known_settings_degrades_both() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r#"
+INSTALLED_APPS = ["a"]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates"}]
+helpers.configure(INSTALLED_APPS, TEMPLATES)
+"#,
+        )
+        .install(&mut db);
+
+    insta::assert_yaml_snapshot!(django_settings(&db, project));
+}
+
+#[test]
 fn ambiguous_branch_alias_extracts_partial_installed_apps() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
