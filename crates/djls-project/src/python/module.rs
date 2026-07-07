@@ -3,6 +3,7 @@ use std::fmt;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
+use djls_source::FileError;
 use djls_source::path_to_file;
 use thiserror::Error;
 
@@ -104,6 +105,47 @@ enum PythonModuleCandidate {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CandidateDirectory {
+    root: SearchPath,
+    dir: Utf8PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ModuleResolution {
+    RegularPackage {
+        root: SearchPath,
+        dir: Utf8PathBuf,
+        init_file: Utf8PathBuf,
+        file: File,
+    },
+    FileModule {
+        root: SearchPath,
+        path: Utf8PathBuf,
+        file: File,
+    },
+    NamespaceOnly {
+        portions: Vec<CandidateDirectory>,
+    },
+    NotFound,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ResolvedComponent {
+    RegularPackage {
+        root: SearchPath,
+        dir: Utf8PathBuf,
+        init_file: Utf8PathBuf,
+        file: File,
+    },
+    FileModule {
+        root: SearchPath,
+        path: Utf8PathBuf,
+        file: File,
+    },
+    NamespacePortion(CandidateDirectory),
+}
+
 struct FileModuleDerivationResult {
     root: SearchPath,
     name: PythonModuleName,
@@ -134,7 +176,7 @@ pub(crate) enum PythonImportError {
     TooManyDots,
 }
 
-fn python_module_candidates(
+fn python_module_flat_candidates(
     db: &dyn ProjectDb,
     project: Project,
     name: &PythonModuleName,
@@ -170,6 +212,98 @@ fn python_module_candidates(
     }
 
     candidates
+}
+
+fn resolve_component(
+    db: &dyn ProjectDb,
+    candidate: &CandidateDirectory,
+    component: &str,
+) -> Option<ResolvedComponent> {
+    let dir = candidate.dir.join(component);
+    let init_file = dir.join("__init__.py");
+    if let Ok(file) = path_to_file(db, &init_file) {
+        return Some(ResolvedComponent::RegularPackage {
+            root: candidate.root.clone(),
+            dir,
+            init_file,
+            file,
+        });
+    }
+
+    let py_file = dir.with_extension("py");
+    if let Ok(file) = path_to_file(db, &py_file) {
+        return Some(ResolvedComponent::FileModule {
+            root: candidate.root.clone(),
+            path: py_file,
+            file,
+        });
+    }
+
+    if matches!(path_to_file(db, &dir), Err(FileError::IsADirectory)) {
+        return Some(ResolvedComponent::NamespacePortion(CandidateDirectory {
+            root: candidate.root.clone(),
+            dir,
+        }));
+    }
+
+    None
+}
+
+fn resolve_name(db: &dyn ProjectDb, project: Project, name: &PythonModuleName) -> ModuleResolution {
+    let mut candidate_dirs = project
+        .search_paths(db)
+        .iter()
+        .map(|search_path| CandidateDirectory {
+            root: search_path.clone(),
+            dir: search_path.path().to_path_buf(),
+        })
+        .collect::<Vec<_>>();
+    let components = name.as_str().split('.').collect::<Vec<_>>();
+
+    for (index, component) in components.iter().enumerate() {
+        let is_last = index + 1 == components.len();
+        let mut portions = Vec::new();
+        let mut next_dirs = None;
+
+        for candidate in &candidate_dirs {
+            match resolve_component(db, candidate, component) {
+                Some(ResolvedComponent::RegularPackage {
+                    root,
+                    dir,
+                    init_file,
+                    file,
+                }) => {
+                    if is_last {
+                        return ModuleResolution::RegularPackage {
+                            root,
+                            dir,
+                            init_file,
+                            file,
+                        };
+                    }
+                    next_dirs = Some(vec![CandidateDirectory { root, dir }]);
+                    break;
+                }
+                Some(ResolvedComponent::FileModule { root, path, file }) => {
+                    if is_last {
+                        return ModuleResolution::FileModule { root, path, file };
+                    }
+                    return ModuleResolution::NotFound;
+                }
+                Some(ResolvedComponent::NamespacePortion(portion)) => portions.push(portion),
+                None => {}
+            }
+        }
+
+        candidate_dirs = match next_dirs {
+            Some(dirs) => dirs,
+            None if portions.is_empty() => return ModuleResolution::NotFound,
+            None if is_last => return ModuleResolution::NamespaceOnly { portions },
+            None => portions,
+        };
+    }
+
+    ModuleResolution::NotFound
 }
 
 fn file_module_names<'a>(
@@ -260,19 +394,18 @@ pub fn resolve_module_detail(
 ) -> ResolutionDetail {
     project.touch_search_path_roots(db);
 
-    let candidates = python_module_candidates(db, project, &name);
-    let selected_root = candidates.iter().find_map(|candidate| match candidate {
-        PythonModuleCandidate::RegularPackage { root, .. }
-        | PythonModuleCandidate::FileModule { root, .. } => Some(root.clone()),
-        PythonModuleCandidate::NamespacePortion { .. } => None,
-    });
-    let unresolved_reason = if selected_root.is_some() {
-        None
-    } else if candidates.is_empty() {
-        Some(UnresolvedReason::NotFound)
-    } else {
-        Some(UnresolvedReason::NamespaceOnly)
+    let resolution = resolve_name(db, project, &name);
+    let selected_root = match &resolution {
+        ModuleResolution::RegularPackage { root, .. }
+        | ModuleResolution::FileModule { root, .. } => Some(root.clone()),
+        ModuleResolution::NamespaceOnly { .. } | ModuleResolution::NotFound => None,
     };
+    let unresolved_reason = match &resolution {
+        ModuleResolution::RegularPackage { .. } | ModuleResolution::FileModule { .. } => None,
+        ModuleResolution::NamespaceOnly { .. } => Some(UnresolvedReason::NamespaceOnly),
+        ModuleResolution::NotFound => Some(UnresolvedReason::NotFound),
+    };
+    let candidates = python_module_flat_candidates(db, project, &name);
     let candidates = candidates
         .into_iter()
         .map(|candidate| match candidate {
@@ -313,21 +446,14 @@ pub fn resolve_package_dirs(
 ) -> PackageDirs {
     project.touch_search_path_roots(db);
 
-    let mut namespace_dirs = Vec::new();
-    for candidate in python_module_candidates(db, project, &name) {
-        match candidate {
-            PythonModuleCandidate::RegularPackage { dir, .. } => {
-                return PackageDirs { dirs: vec![dir] };
-            }
-            PythonModuleCandidate::FileModule { .. } => {
-                return PackageDirs { dirs: Vec::new() };
-            }
-            PythonModuleCandidate::NamespacePortion { dir, .. } => namespace_dirs.push(dir),
+    match resolve_name(db, project, &name) {
+        ModuleResolution::RegularPackage { dir, .. } => PackageDirs { dirs: vec![dir] },
+        ModuleResolution::FileModule { .. } | ModuleResolution::NotFound => {
+            PackageDirs { dirs: Vec::new() }
         }
-    }
-
-    PackageDirs {
-        dirs: namespace_dirs,
+        ModuleResolution::NamespaceOnly { portions } => PackageDirs {
+            dirs: portions.into_iter().map(|portion| portion.dir).collect(),
+        },
     }
 }
 
@@ -489,18 +615,13 @@ impl PythonModule {
     pub fn resolve(db: &dyn ProjectDb, project: Project, name: PythonModuleName) -> Option<Self> {
         project.touch_search_path_roots(db);
 
-        for candidate in python_module_candidates(db, project, &name) {
-            let path = match candidate {
-                PythonModuleCandidate::RegularPackage { init_file, .. } => init_file,
-                PythonModuleCandidate::FileModule { path, .. } => path,
-                PythonModuleCandidate::NamespacePortion { .. } => continue,
-            };
-
-            let file = path_to_file(db, &path).ok()?;
-            return Some(Self::new(name, path, file));
+        match resolve_name(db, project, &name) {
+            ModuleResolution::RegularPackage {
+                init_file, file, ..
+            } => Some(Self::new(name, init_file, file)),
+            ModuleResolution::FileModule { path, file, .. } => Some(Self::new(name, path, file)),
+            ModuleResolution::NamespaceOnly { .. } | ModuleResolution::NotFound => None,
         }
-
-        None
     }
 }
 
