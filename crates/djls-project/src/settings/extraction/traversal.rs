@@ -6,9 +6,9 @@ use ruff_python_ast as ast;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::settings::extraction::INSTALLED_APPS;
+use crate::settings::extraction::KNOWN_SETTINGS;
+use crate::settings::extraction::KnownSetting;
 use crate::settings::extraction::SettingsExtraction;
-use crate::settings::extraction::TEMPLATES;
 use crate::settings::extraction::bindings::SettingsBindings;
 use crate::settings::extraction::bindings::TouchedBindings;
 use crate::settings::extraction::env::EvalEnv;
@@ -47,8 +47,9 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     pub(super) fn mark_syntax_error(&mut self) {
-        self.bindings.mark_installed_apps_partial();
-        self.bindings.mark_templates_partial();
+        for setting in KNOWN_SETTINGS.iter().copied() {
+            self.bindings.mark_partial(setting);
+        }
     }
 
     pub(super) fn walk_body(&mut self, body: &[ast::Stmt]) {
@@ -148,8 +149,15 @@ impl<'a> SettingsBindingsCollector<'a> {
             return;
         }
 
-        if assign.target.name_target() == Some(INSTALLED_APPS) {
-            self.extend_installed_apps(&assign.value);
+        if let Some(setting) = assign
+            .target
+            .name_target()
+            .and_then(KnownSetting::from_name)
+        {
+            match setting {
+                KnownSetting::InstalledApps => self.extend_installed_apps(&assign.value),
+                KnownSetting::Templates => self.bindings.mark_unsupported(setting),
+            }
         } else if let Some(index) = templates_dirs_target(&assign.target) {
             self.extend_template_dirs(index, &assign.value);
         } else {
@@ -165,8 +173,17 @@ impl<'a> SettingsBindingsCollector<'a> {
             return;
         };
 
-        if attribute.value.name_target() == Some(INSTALLED_APPS) {
-            self.apply_installed_apps_call(attribute.attr.as_str(), &call.arguments);
+        if let Some(setting) = attribute
+            .value
+            .name_target()
+            .and_then(KnownSetting::from_name)
+        {
+            match setting {
+                KnownSetting::InstalledApps => {
+                    self.apply_installed_apps_call(attribute.attr.as_str(), &call.arguments);
+                }
+                KnownSetting::Templates => self.bindings.mark_unsupported(setting),
+            }
         } else if let Some(name) = attribute.value.name_target()
             && self.bindings.locals.list_binding(name).is_some()
         {
@@ -185,12 +202,10 @@ impl<'a> SettingsBindingsCollector<'a> {
                 {
                     self.extend_template_dirs(index, &call.arguments.args[0]);
                 }
-                _ => self.bindings.mark_templates_unsupported(),
+                _ => self.bindings.mark_unsupported(KnownSetting::Templates),
             }
-        } else if expr_touches_name(expr, INSTALLED_APPS) {
-            self.bindings.mark_installed_apps_unsupported();
-        } else if expr_touches_name(expr, TEMPLATES) {
-            self.bindings.mark_templates_unsupported();
+        } else if let Some(setting) = expr_touched_known_settings(expr).next() {
+            self.bindings.mark_unsupported(setting);
         }
     }
 
@@ -222,8 +237,9 @@ impl<'a> SettingsBindingsCollector<'a> {
             if let Some(bindings) = imported_bindings {
                 self.bindings.merge_star_import(&bindings);
             } else {
-                self.bindings.mark_installed_apps_partial();
-                self.bindings.mark_templates_partial();
+                for setting in KNOWN_SETTINGS.iter().copied() {
+                    self.bindings.mark_partial(setting);
+                }
             }
             return;
         }
@@ -312,7 +328,7 @@ impl<'a> SettingsBindingsCollector<'a> {
     fn walk_ambiguous_arms(&mut self, arms: &[&[ast::Stmt]]) {
         let mut writes = TouchedBindings::default();
         for arm in arms {
-            writes.merge(&collect_watched_writes(arm));
+            writes.merge(&collect_known_writes(arm));
         }
 
         let base = std::mem::take(&mut self.bindings);
@@ -344,10 +360,10 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn assign_name(&mut self, name: &str, value: &ast::Expr) {
-        match name {
-            INSTALLED_APPS => self.assign_installed_apps(value),
-            TEMPLATES => self.assign_templates(value),
-            _ => self.assign_aux(name, value),
+        match KnownSetting::from_name(name) {
+            Some(KnownSetting::InstalledApps) => self.assign_installed_apps(value),
+            Some(KnownSetting::Templates) => self.assign_templates(value),
+            None => self.assign_aux(name, value),
         }
     }
 
@@ -357,13 +373,13 @@ impl<'a> SettingsBindingsCollector<'a> {
         bound_name: &str,
         imported_bindings: &SettingsBindings,
     ) {
-        match imported_name {
-            INSTALLED_APPS => {
+        match KnownSetting::from_name(imported_name) {
+            Some(KnownSetting::InstalledApps) => {
                 let Some(setting) = &imported_bindings.installed_apps else {
                     self.mark_definition_name(bound_name);
                     return;
                 };
-                if bound_name == INSTALLED_APPS {
+                if bound_name == KnownSetting::InstalledApps.name() {
                     self.bindings.installed_apps = Some(setting.clone());
                 } else {
                     let list = if setting.is_fully_extracted() {
@@ -374,8 +390,8 @@ impl<'a> SettingsBindingsCollector<'a> {
                     self.bindings.locals.set_list(bound_name, list);
                 }
             }
-            TEMPLATES => {
-                if bound_name == TEMPLATES {
+            Some(KnownSetting::Templates) => {
+                if bound_name == KnownSetting::Templates.name() {
                     if let Some(templates) = &imported_bindings.templates {
                         self.bindings.templates = Some(templates.clone());
                     } else {
@@ -385,7 +401,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                     self.mark_definition_name(bound_name);
                 }
             }
-            _ => {
+            None => {
                 if !self.bindings.locals.bind_imported_local(
                     &imported_bindings.locals,
                     imported_name,
@@ -423,18 +439,18 @@ impl<'a> SettingsBindingsCollector<'a> {
                 let status = extracted.status;
                 self.bindings.installed_apps = Some(InstalledAppsSetting::full(extracted.values));
                 if !status.is_complete() {
-                    self.bindings.mark_installed_apps_partial();
+                    self.bindings.mark_partial(KnownSetting::InstalledApps);
                 }
             }
             installed_apps::AssignmentEffect::Unsupported => {
-                self.bindings.mark_installed_apps_unsupported();
+                self.bindings.mark_unsupported(KnownSetting::InstalledApps);
             }
         }
     }
 
     fn extend_installed_apps(&mut self, value: &ast::Expr) {
         if !self.bindings.can_mutate_installed_apps() {
-            self.bindings.mark_installed_apps_unsupported();
+            self.bindings.mark_unsupported(KnownSetting::InstalledApps);
             return;
         }
 
@@ -447,13 +463,13 @@ impl<'a> SettingsBindingsCollector<'a> {
             .expect("can_mutate_installed_apps requires an installed apps value");
         setting.values.extend(extracted.values);
         if !extracted.status.is_complete() {
-            self.bindings.mark_installed_apps_partial();
+            self.bindings.mark_partial(KnownSetting::InstalledApps);
         }
     }
 
     fn apply_installed_apps_call(&mut self, method: &str, arguments: &ast::Arguments) {
         if !self.bindings.can_mutate_installed_apps() {
-            self.bindings.mark_installed_apps_unsupported();
+            self.bindings.mark_unsupported(KnownSetting::InstalledApps);
             return;
         }
 
@@ -467,7 +483,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                         .expect("can_mutate_installed_apps requires an installed apps value");
                     setting.values.push(value.to_string());
                 } else {
-                    self.bindings.mark_installed_apps_partial();
+                    self.bindings.mark_partial(KnownSetting::InstalledApps);
                 }
             }
             "extend" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
@@ -485,7 +501,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                         let index = index.min(setting.values.len());
                         setting.values.insert(index, value.to_string());
                     }
-                    _ => self.bindings.mark_installed_apps_partial(),
+                    _ => self.bindings.mark_partial(KnownSetting::InstalledApps),
                 }
             }
             "remove" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
@@ -499,10 +515,10 @@ impl<'a> SettingsBindingsCollector<'a> {
                         setting.values.remove(position);
                     }
                 } else {
-                    self.bindings.mark_installed_apps_partial();
+                    self.bindings.mark_partial(KnownSetting::InstalledApps);
                 }
             }
-            _ => self.bindings.mark_installed_apps_unsupported(),
+            _ => self.bindings.mark_unsupported(KnownSetting::InstalledApps),
         }
     }
 
@@ -512,10 +528,12 @@ impl<'a> SettingsBindingsCollector<'a> {
             templates::AssignmentEffect::Assign(backends, completeness) => {
                 self.bindings.templates = Some(TemplateSettings::full(backends));
                 if completeness == templates::AssignmentCompleteness::Partial {
-                    self.bindings.mark_templates_partial();
+                    self.bindings.mark_partial(KnownSetting::Templates);
                 }
             }
-            templates::AssignmentEffect::Unsupported => self.bindings.mark_templates_unsupported(),
+            templates::AssignmentEffect::Unsupported => {
+                self.bindings.mark_unsupported(KnownSetting::Templates);
+            }
         }
     }
 
@@ -527,7 +545,9 @@ impl<'a> SettingsBindingsCollector<'a> {
                     self.push_template_dir(index, path);
                 }
             }
-            templates::DirsExtensionEffect::Partial => self.bindings.mark_templates_partial(),
+            templates::DirsExtensionEffect::Partial => {
+                self.bindings.mark_partial(KnownSetting::Templates);
+            }
         }
     }
 
@@ -535,11 +555,11 @@ impl<'a> SettingsBindingsCollector<'a> {
         let path_is_unknown = path == TemplateDirPath::Unknown;
 
         let Some(templates) = self.bindings.templates.as_mut() else {
-            self.bindings.mark_templates_partial();
+            self.bindings.mark_partial(KnownSetting::Templates);
             return;
         };
         let Some(backend) = templates.backends.get_mut(index) else {
-            self.bindings.mark_templates_partial();
+            self.bindings.mark_partial(KnownSetting::Templates);
             return;
         };
         if path_is_unknown {
@@ -547,25 +567,22 @@ impl<'a> SettingsBindingsCollector<'a> {
         }
         backend.dirs.push(path);
         if path_is_unknown {
-            self.bindings.mark_templates_partial();
+            self.bindings.mark_partial(KnownSetting::Templates);
         }
     }
 
     fn mark_unknown_targets(&mut self, target: &ast::Expr) {
-        if target_touches_name(target, INSTALLED_APPS) {
-            self.bindings.mark_installed_apps_unsupported();
-        }
-        if target_touches_name(target, TEMPLATES) {
-            self.bindings.mark_templates_unsupported();
+        for setting in target_touched_known_settings(target) {
+            self.bindings.mark_unsupported(setting);
         }
         clear_local_target_names(target, &mut |name| self.bindings.locals.clear_name(name));
     }
 
     fn mark_definition_name(&mut self, name: &str) {
-        match name {
-            INSTALLED_APPS => self.bindings.mark_installed_apps_unsupported(),
-            TEMPLATES => self.bindings.mark_templates_unsupported(),
-            _ => self.bindings.locals.clear_name(name),
+        if let Some(setting) = KnownSetting::from_name(name) {
+            self.bindings.mark_unsupported(setting);
+        } else {
+            self.bindings.locals.clear_name(name);
         }
     }
 }
@@ -598,7 +615,7 @@ impl Truthiness {
 /// Deliberately a separate pass from the collector walk: the walk skips
 /// statically-false branches, but join conservatism must see writes in every
 /// arm, dead or not.
-fn collect_watched_writes(body: &[ast::Stmt]) -> TouchedBindings {
+fn collect_known_writes(body: &[ast::Stmt]) -> TouchedBindings {
     let mut writes = TouchedBindings::default();
     walk_stmts(body, Recurse::Flat, |stmt| {
         record_stmt_writes(stmt, &mut writes);
@@ -623,12 +640,12 @@ fn record_stmt_writes(stmt: &ast::Stmt, writes: &mut TouchedBindings) {
         }
         ast::Stmt::For(stmt_for) => {
             record_target_writes(&stmt_for.target, writes);
-            writes.merge(&collect_watched_writes(&stmt_for.body));
-            writes.merge(&collect_watched_writes(&stmt_for.orelse));
+            writes.merge(&collect_known_writes(&stmt_for.body));
+            writes.merge(&collect_known_writes(&stmt_for.orelse));
         }
         ast::Stmt::While(stmt_while) => {
-            writes.merge(&collect_watched_writes(&stmt_while.body));
-            writes.merge(&collect_watched_writes(&stmt_while.orelse));
+            writes.merge(&collect_known_writes(&stmt_while.body));
+            writes.merge(&collect_known_writes(&stmt_while.orelse));
         }
         ast::Stmt::With(stmt_with) => {
             for item in &stmt_with.items {
@@ -636,29 +653,26 @@ fn record_stmt_writes(stmt: &ast::Stmt, writes: &mut TouchedBindings) {
                     record_target_writes(optional_vars, writes);
                 }
             }
-            writes.merge(&collect_watched_writes(&stmt_with.body));
+            writes.merge(&collect_known_writes(&stmt_with.body));
         }
         ast::Stmt::Try(stmt_try) => {
-            writes.merge(&collect_watched_writes(&stmt_try.body));
+            writes.merge(&collect_known_writes(&stmt_try.body));
             for handler in &stmt_try.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                writes.merge(&collect_watched_writes(&handler.body));
+                writes.merge(&collect_known_writes(&handler.body));
             }
-            writes.merge(&collect_watched_writes(&stmt_try.orelse));
-            writes.merge(&collect_watched_writes(&stmt_try.finalbody));
+            writes.merge(&collect_known_writes(&stmt_try.orelse));
+            writes.merge(&collect_known_writes(&stmt_try.finalbody));
         }
         ast::Stmt::If(stmt_if) => {
-            writes.merge(&collect_watched_writes(&stmt_if.body));
+            writes.merge(&collect_known_writes(&stmt_if.body));
             for clause in &stmt_if.elif_else_clauses {
-                writes.merge(&collect_watched_writes(&clause.body));
+                writes.merge(&collect_known_writes(&clause.body));
             }
         }
         ast::Stmt::Expr(expr) => {
-            if expr_touches_name(&expr.value, INSTALLED_APPS) {
-                writes.installed_apps = true;
-            }
-            if expr_touches_name(&expr.value, TEMPLATES) {
-                writes.templates = true;
+            for setting in expr_touched_known_settings(&expr.value) {
+                writes.record_setting(setting);
             }
             record_expr_local_mutations(&expr.value, writes);
         }
@@ -674,8 +688,9 @@ fn record_stmt_writes(stmt: &ast::Stmt, writes: &mut TouchedBindings) {
         ast::Stmt::ImportFrom(import) => {
             for alias in &import.names {
                 if alias.name.as_str() == "*" {
-                    writes.installed_apps = true;
-                    writes.templates = true;
+                    for setting in KNOWN_SETTINGS.iter().copied() {
+                        writes.record_setting(setting);
+                    }
                 } else {
                     let bound_name = alias
                         .asname
@@ -702,18 +717,15 @@ fn record_stmt_writes(stmt: &ast::Stmt, writes: &mut TouchedBindings) {
 }
 
 fn record_target_writes(target: &ast::Expr, writes: &mut TouchedBindings) {
-    if target_touches_name(target, INSTALLED_APPS) {
-        writes.installed_apps = true;
-    }
-    if target_touches_name(target, TEMPLATES) {
-        writes.templates = true;
+    for setting in target_touched_known_settings(target) {
+        writes.record_setting(setting);
     }
     record_local_target_writes(target, writes);
 }
 
 fn record_local_target_writes(target: &ast::Expr, writes: &mut TouchedBindings) {
     if let Some(name) = target.name_target() {
-        if !matches!(name, INSTALLED_APPS | TEMPLATES) {
+        if KnownSetting::from_name(name).is_none() {
             writes.record_local(name);
         }
         return;
@@ -745,17 +757,17 @@ fn record_expr_local_mutations(expr: &ast::Expr, writes: &mut TouchedBindings) {
         return;
     };
     if let Some(name) = attribute.value.name_target()
-        && !matches!(name, INSTALLED_APPS | TEMPLATES)
+        && KnownSetting::from_name(name).is_none()
     {
         writes.record_local(name);
     }
 }
 
 fn record_name_write(name: &str, writes: &mut TouchedBindings) {
-    match name {
-        INSTALLED_APPS => writes.installed_apps = true,
-        TEMPLATES => writes.templates = true,
-        _ => writes.record_local(name),
+    if let Some(setting) = KnownSetting::from_name(name) {
+        writes.record_setting(setting);
+    } else {
+        writes.record_local(name);
     }
 }
 
@@ -769,7 +781,8 @@ fn templates_dirs_target(expr: &ast::Expr) -> Option<usize> {
     let ast::Expr::Subscript(inner) = outer.value.as_ref() else {
         return None;
     };
-    if inner.value.name_target() != Some(TEMPLATES) {
+    if inner.value.name_target().and_then(KnownSetting::from_name) != Some(KnownSetting::Templates)
+    {
         return None;
     }
     inner.slice.non_negative_integer()
@@ -777,7 +790,7 @@ fn templates_dirs_target(expr: &ast::Expr) -> Option<usize> {
 
 fn clear_local_target_names(target: &ast::Expr, clear: &mut impl FnMut(&str)) {
     if let Some(name) = target.name_target() {
-        if !matches!(name, INSTALLED_APPS | TEMPLATES) {
+        if KnownSetting::from_name(name).is_none() {
             clear(name);
         }
         return;
@@ -799,6 +812,20 @@ fn clear_local_target_names(target: &ast::Expr, clear: &mut impl FnMut(&str)) {
         ast::Expr::Starred(starred) => clear_local_target_names(&starred.value, clear),
         _ => {}
     }
+}
+
+fn target_touched_known_settings(target: &ast::Expr) -> impl Iterator<Item = KnownSetting> + '_ {
+    KNOWN_SETTINGS
+        .iter()
+        .copied()
+        .filter(move |setting| target_touches_name(target, setting.name()))
+}
+
+fn expr_touched_known_settings(expr: &ast::Expr) -> impl Iterator<Item = KnownSetting> + '_ {
+    KNOWN_SETTINGS
+        .iter()
+        .copied()
+        .filter(move |setting| expr_touches_name(expr, setting.name()))
 }
 
 fn target_touches_name(target: &ast::Expr, expected: &str) -> bool {

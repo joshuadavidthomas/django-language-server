@@ -1,6 +1,7 @@
 use rustc_hash::FxHashSet;
 
 use crate::ExtractionStatus;
+use crate::settings::extraction::KnownSetting;
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
@@ -41,34 +42,36 @@ impl SettingsBindings {
         self.locals.extend(other.locals.clone());
     }
 
-    pub(super) fn mark_installed_apps_partial(&mut self) {
-        match &mut self.installed_apps {
-            Some(setting) => setting.mark_partial(),
-            None => self.installed_apps = Some(InstalledAppsSetting::partial()),
+    pub(super) fn mark_partial(&mut self, setting: KnownSetting) {
+        match setting {
+            KnownSetting::InstalledApps => match &mut self.installed_apps {
+                Some(setting) => setting.mark_partial(),
+                None => self.installed_apps = Some(InstalledAppsSetting::partial()),
+            },
+            KnownSetting::Templates => match &mut self.templates {
+                Some(templates) => templates.mark_partial(),
+                None => self.templates = Some(TemplateSettings::partial()),
+            },
         }
     }
 
-    pub(super) fn mark_installed_apps_unsupported(&mut self) {
-        let setting = self
-            .installed_apps
-            .get_or_insert_with(InstalledAppsSetting::partial);
-        setting.clear_to_partial();
+    pub(super) fn mark_unsupported(&mut self, setting: KnownSetting) {
+        match setting {
+            KnownSetting::InstalledApps => {
+                let setting = self
+                    .installed_apps
+                    .get_or_insert_with(InstalledAppsSetting::partial);
+                setting.clear_to_partial();
+            }
+            KnownSetting::Templates => {
+                let templates = self.templates.get_or_insert_with(TemplateSettings::partial);
+                templates.clear_to_partial();
+            }
+        }
     }
 
     pub(super) fn can_mutate_installed_apps(&self) -> bool {
         self.installed_apps.is_some()
-    }
-
-    pub(super) fn mark_templates_partial(&mut self) {
-        match &mut self.templates {
-            Some(templates) => templates.mark_partial(),
-            None => self.templates = Some(TemplateSettings::partial()),
-        }
-    }
-
-    pub(super) fn mark_templates_unsupported(&mut self) {
-        let templates = self.templates.get_or_insert_with(TemplateSettings::partial);
-        templates.clear_to_partial();
     }
 
     pub(super) fn join_ambiguous(
@@ -76,14 +79,18 @@ impl SettingsBindings {
         branch_bindings: &[SettingsBindings],
         writes: &TouchedBindings,
     ) -> SettingsBindings {
-        if writes.installed_apps {
-            self.installed_apps = Some(join_installed_apps(branch_bindings));
-        }
-        if writes.templates {
-            self.templates = Some(TemplateSettings {
-                backends: join_template_backends(branch_bindings),
-                extraction: ExtractionStatus::Partial,
-            });
+        for setting in writes.settings.iter().copied() {
+            match setting {
+                KnownSetting::InstalledApps => {
+                    self.installed_apps = Some(join_installed_apps(branch_bindings));
+                }
+                KnownSetting::Templates => {
+                    self.templates = Some(TemplateSettings {
+                        backends: join_template_backends(branch_bindings),
+                        extraction: ExtractionStatus::Partial,
+                    });
+                }
+            }
         }
         join_local_lists(&mut self, branch_bindings, &writes.locals);
         self
@@ -130,16 +137,18 @@ impl<T> ExtractedList<T> {
 
 #[derive(Default, Clone)]
 pub(super) struct TouchedBindings {
-    pub(super) installed_apps: bool,
-    pub(super) templates: bool,
+    settings: FxHashSet<KnownSetting>,
     locals: FxHashSet<String>,
 }
 
 impl TouchedBindings {
     pub(super) fn merge(&mut self, other: &Self) {
-        self.installed_apps |= other.installed_apps;
-        self.templates |= other.templates;
+        self.settings.extend(other.settings.iter().copied());
         self.locals.extend(other.locals.iter().cloned());
+    }
+
+    pub(super) fn record_setting(&mut self, setting: KnownSetting) {
+        self.settings.insert(setting);
     }
 
     pub(super) fn record_local(&mut self, name: &str) {

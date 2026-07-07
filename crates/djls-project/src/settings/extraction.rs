@@ -28,8 +28,30 @@ use crate::settings::types::SettingsParseStatus;
 use crate::settings::types::SettingsSource;
 use crate::settings::types::SettingsSourceResolver;
 
-const INSTALLED_APPS: &str = "INSTALLED_APPS";
-const TEMPLATES: &str = "TEMPLATES";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum KnownSetting {
+    InstalledApps,
+    Templates,
+}
+
+const KNOWN_SETTINGS: &[KnownSetting] = &[KnownSetting::InstalledApps, KnownSetting::Templates];
+
+impl KnownSetting {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "INSTALLED_APPS" => Some(Self::InstalledApps),
+            "TEMPLATES" => Some(Self::Templates),
+            _ => None,
+        }
+    }
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::InstalledApps => "INSTALLED_APPS",
+            Self::Templates => "TEMPLATES",
+        }
+    }
+}
 
 /// Extract Django settings from Python source.
 #[must_use]
@@ -242,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn plus_chain_splices_watched_name() {
+    fn plus_chain_splices_known_name() {
         assert_eq!(
             extract("INSTALLED_APPS = ['a']\nINSTALLED_APPS = INSTALLED_APPS + ['b']")
                 .installed_apps

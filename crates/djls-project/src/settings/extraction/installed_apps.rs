@@ -1,7 +1,7 @@
 use ruff_python_ast as ast;
 
 use crate::ast::ExprExt;
-use crate::settings::extraction::INSTALLED_APPS;
+use crate::settings::extraction::KnownSetting;
 use crate::settings::extraction::bindings::ExtractedList;
 use crate::settings::extraction::bindings::ExtractedListStatus;
 use crate::settings::extraction::env::EvalEnv;
@@ -39,7 +39,7 @@ pub(super) fn evaluate_list_operand(value: &ast::Expr, env: &EvalEnv<'_>) -> Ext
         expr => expr.name_target().map_or_else(
             || ExtractedList::incomplete(Vec::new()),
             |name| {
-                if name == INSTALLED_APPS {
+                if name == KnownSetting::InstalledApps.name() {
                     env.installed_apps().map_or_else(
                         || ExtractedList::incomplete(Vec::new()),
                         |setting| ExtractedList {
@@ -79,7 +79,7 @@ pub(super) fn evaluate_local_list_assignment(
 }
 
 fn evaluate_known_name_operand(name: &str, env: &EvalEnv<'_>) -> Option<ExtractedList<String>> {
-    if name == INSTALLED_APPS {
+    if name == KnownSetting::InstalledApps.name() {
         return env.installed_apps().map(|setting| ExtractedList {
             values: setting.values.clone(),
             status: if setting.is_fully_extracted() {
