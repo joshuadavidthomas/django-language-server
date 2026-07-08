@@ -1,3 +1,4 @@
+use camino::Utf8PathBuf;
 use djls_source::File;
 
 use crate::db::Db as ProjectDb;
@@ -12,7 +13,7 @@ pub(crate) enum ImportSourceResolution {
     Resolved(PythonSource),
     Unresolved,
     SkippedExternal,
-    ReadFailed,
+    ReadFailed { file: File, path: Utf8PathBuf },
 }
 
 pub(crate) trait PythonImportResolver {
@@ -31,7 +32,6 @@ pub(crate) struct ProjectImportSourceResolver<'db> {
     db: &'db dyn ProjectDb,
     project: Project,
     mode: PythonSourceReadMode,
-    resolved: Vec<File>,
 }
 
 impl<'db> ProjectImportSourceResolver<'db> {
@@ -44,12 +44,7 @@ impl<'db> ProjectImportSourceResolver<'db> {
     }
 
     fn new(db: &'db dyn ProjectDb, project: Project, mode: PythonSourceReadMode) -> Self {
-        Self {
-            db,
-            project,
-            mode,
-            resolved: Vec::new(),
-        }
+        Self { db, project, mode }
     }
 
     pub(crate) fn read_source(&self, file: File) -> Option<PythonSource> {
@@ -64,19 +59,17 @@ impl<'db> ProjectImportSourceResolver<'db> {
         ))
     }
 
-    pub(crate) fn resolved_files(&self) -> &[File] {
-        &self.resolved
-    }
-
     fn resolve_python_import(&self, import: PythonImport<'_>) -> Option<PythonModule> {
         PythonModule::resolve_import(self.db, self.project, import).ok()?
     }
 
     fn read_resolved_module(&mut self, module: &PythonModule) -> ImportSourceResolution {
         let file = module.file();
-        self.resolved.push(file);
-        self.read_source(file).map_or(
-            ImportSourceResolution::ReadFailed,
+        self.read_source(file).map_or_else(
+            || ImportSourceResolution::ReadFailed {
+                file,
+                path: file.path(self.db).to_path_buf(),
+            },
             ImportSourceResolution::Resolved,
         )
     }

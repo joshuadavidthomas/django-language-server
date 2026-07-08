@@ -360,6 +360,119 @@ pub(crate) enum PythonCompleteness {
 pub(super) struct PythonSemanticState {
     bindings: PythonBindings,
     mutations: Vec<PythonMutation>,
+    effects: PythonSemanticEffects,
+}
+
+impl PythonSemanticState {
+    fn degrade_names(&mut self, names: impl IntoIterator<Item = String>, origin: Origin) {
+        for name in names {
+            if let Some(binding) = self.bindings.by_name.get_mut(&name) {
+                binding.mark_partial();
+            } else {
+                self.bindings
+                    .bind(&name, PythonBinding::unknown(&name, origin));
+            }
+        }
+    }
+
+    pub(super) fn merge_only_effects_from_state(&mut self, other: Self) {
+        self.effects.merge(other.effects);
+    }
+
+    pub(super) fn changed_writes_from(base: &Self, changed: &Self) -> TouchedNames {
+        let mut writes = TouchedNames::default();
+        for (name, binding) in &changed.bindings.by_name {
+            if base.bindings.get(name) != Some(binding) {
+                writes.record(name);
+            }
+        }
+        for name in base.bindings.by_name.keys() {
+            if !changed.bindings.by_name.contains_key(name) {
+                writes.record(name);
+            }
+        }
+        for mutation in &changed.mutations {
+            if !base.mutations.contains(mutation) {
+                writes.record(&mutation.root);
+            }
+        }
+        writes
+    }
+
+    pub(super) fn join_branches(mut base: Self, branches: &[Self], writes: &TouchedNames) -> Self {
+        let mut names = writes.names.clone();
+        for branch in branches {
+            for (name, binding) in &branch.bindings.by_name {
+                if base.bindings.get(name) != Some(binding) {
+                    names.insert(name.clone());
+                }
+            }
+        }
+
+        for name in &names {
+            let branch_values = branches
+                .iter()
+                .map(|branch| branch.bindings.get(name).cloned());
+            if let Some(binding) = PythonBinding::joined(name, branch_values) {
+                base.bindings.bind(name, binding);
+            } else {
+                base.bindings.remove(name);
+            }
+        }
+
+        base.mutations.clear();
+        base.effects = PythonSemanticEffects::default();
+        for branch in branches {
+            for mutation in &branch.mutations {
+                if !base.mutations.contains(mutation) {
+                    base.mutations.push(mutation.clone());
+                }
+            }
+            base.effects.merge(branch.effects.clone());
+        }
+
+        base
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct PythonSemanticEffects {
+    imported_models: Vec<PythonSemanticModel>,
+    read_failures: Vec<(File, Utf8PathBuf)>,
+}
+
+impl PythonSemanticEffects {
+    fn add_imported_model(&mut self, imported_model: PythonSemanticModel) {
+        let Some(root_file) = imported_model.files_read.first().copied() else {
+            return;
+        };
+        if !self
+            .imported_models
+            .iter()
+            .any(|existing| existing.files_read.first().copied() == Some(root_file))
+        {
+            self.imported_models.push(imported_model);
+        }
+    }
+
+    fn add_read_failure(&mut self, file: File, path: Utf8PathBuf) {
+        if !self
+            .read_failures
+            .iter()
+            .any(|(existing_file, existing_path)| *existing_file == file && *existing_path == path)
+        {
+            self.read_failures.push((file, path));
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        for imported_model in other.imported_models {
+            self.add_imported_model(imported_model);
+        }
+        for (file, path) in other.read_failures {
+            self.add_read_failure(file, path);
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -447,107 +560,151 @@ impl PythonSemanticModelAnalysis {
             };
         }
 
-        let mut builder = PythonSemanticModelBuilder::new(source, resolver, self);
-        if let Ok(parsed) = parse_module(source.source()) {
-            let module = parsed.into_syntax();
-            builder.walk_body(&module.body);
+        let parsed = parse_module(source.source());
+        let status = if parsed.is_ok() {
+            ParseStatus::Parsed
         } else {
-            builder.model.status = ParseStatus::Unparseable;
+            ParseStatus::Unparseable
+        };
+        let mut evaluator = PythonSemanticEvaluator::new(source, self, resolver);
+        let mut state = PythonSemanticState::default();
+        if let Ok(parsed) = parsed {
+            let module = parsed.into_syntax();
+            state = evaluator.walk_body(state, &module.body);
         }
 
-        let model = builder.finish();
+        let model = finish_model(source, status, state);
         self.active.remove(&path);
         self.cache.insert(path, model.clone());
         model
     }
 }
 
-pub(super) struct PythonSemanticModelBuilder<'a> {
-    source: &'a PythonSource,
-    resolver: &'a mut dyn PythonImportResolver,
-    analysis: &'a mut PythonSemanticModelAnalysis,
-    model: PythonSemanticModel,
+fn finish_model(
+    source: &PythonSource,
+    current_status: ParseStatus,
+    state: PythonSemanticState,
+) -> PythonSemanticModel {
+    let mut files_read = vec![source.file()];
+    let mut source_paths = FxHashMap::from_iter([(source.file(), source.path().to_path_buf())]);
+    let mut status = current_status;
+
+    for (file, path) in state.effects.read_failures {
+        files_read.push(file);
+        source_paths.insert(file, path);
+    }
+
+    for imported_model in state.effects.imported_models {
+        files_read.extend(imported_model.files_read.clone());
+        source_paths.extend(imported_model.source_paths.clone());
+        status = status.join(imported_model.status);
+    }
+
+    PythonSemanticModel {
+        bindings: state.bindings,
+        files_read,
+        source_paths,
+        mutations: state.mutations,
+        status,
+    }
 }
 
-impl<'a> PythonSemanticModelBuilder<'a> {
+pub(super) struct PythonSemanticEvaluator<'a> {
+    source: &'a PythonSource,
+    analysis: &'a mut PythonSemanticModelAnalysis,
+    resolver: &'a mut dyn PythonImportResolver,
+}
+
+impl<'a> PythonSemanticEvaluator<'a> {
     fn new(
         source: &'a PythonSource,
-        resolver: &'a mut dyn PythonImportResolver,
         analysis: &'a mut PythonSemanticModelAnalysis,
+        resolver: &'a mut dyn PythonImportResolver,
     ) -> Self {
         Self {
             source,
-            resolver,
             analysis,
-            model: PythonSemanticModel {
-                bindings: PythonBindings::default(),
-                files_read: vec![source.file()],
-                source_paths: FxHashMap::from_iter([(source.file(), source.path().to_path_buf())]),
-                mutations: Vec::new(),
-                status: ParseStatus::Parsed,
-            },
+            resolver,
         }
-    }
-
-    fn finish(self) -> PythonSemanticModel {
-        self.model
     }
 
     fn origin<T: RangedExt>(&self, ranged: &T) -> Origin {
         Origin::new(self.source.file(), ranged.span())
     }
 
-    pub(super) fn walk_body(&mut self, body: &[ast::Stmt]) {
+    pub(super) fn walk_body(
+        &mut self,
+        mut state: PythonSemanticState,
+        body: &[ast::Stmt],
+    ) -> PythonSemanticState {
         for stmt in body {
-            self.walk_stmt(stmt);
+            state = self.walk_stmt(state, stmt);
         }
+        state
     }
 
-    fn walk_stmt(&mut self, stmt: &ast::Stmt) {
+    fn walk_stmt(
+        &mut self,
+        mut state: PythonSemanticState,
+        stmt: &ast::Stmt,
+    ) -> PythonSemanticState {
         match stmt {
-            ast::Stmt::Assign(assign) => self.walk_assign(assign),
-            ast::Stmt::AnnAssign(assign) => self.walk_ann_assign(assign),
-            ast::Stmt::AugAssign(assign) => self.walk_aug_assign(assign),
-            ast::Stmt::Expr(expr) => self.walk_expr(&expr.value),
-            ast::Stmt::Import(import) => self.walk_import(&import.names),
-            ast::Stmt::ImportFrom(import) => self.walk_import_from(import),
-            ast::Stmt::If(stmt_if) => crate::python::branches::walk_if(self, stmt_if),
+            ast::Stmt::Assign(assign) => self.walk_assign(&mut state, assign),
+            ast::Stmt::AnnAssign(assign) => self.walk_ann_assign(&mut state, assign),
+            ast::Stmt::AugAssign(assign) => self.walk_aug_assign(&mut state, assign),
+            ast::Stmt::Expr(expr) => self.walk_expr(&mut state, &expr.value),
+            ast::Stmt::Import(import) => self.walk_import(&mut state, &import.names),
+            ast::Stmt::ImportFrom(import) => self.walk_import_from(&mut state, import),
+            ast::Stmt::If(stmt_if) => {
+                return crate::python::branches::walk_if(self, state, stmt_if);
+            }
             ast::Stmt::For(stmt_for) => {
-                self.bind_unknown_targets(&stmt_for.target);
-                crate::python::branches::degrade_loop_bodies(
+                self.bind_unknown_targets(&mut state, &stmt_for.target);
+                return crate::python::branches::degrade_loop_bodies(
                     self,
+                    state,
                     &[&stmt_for.body, &stmt_for.orelse],
                 );
             }
             ast::Stmt::While(stmt_while) => {
-                crate::python::branches::degrade_loop_bodies(
-                    self,
-                    &[&stmt_while.body, &stmt_while.orelse],
-                );
+                return match Self::evaluate_test(&state, &stmt_while.test) {
+                    Truthiness::AlwaysFalse => self.walk_body(state, &stmt_while.orelse),
+                    Truthiness::AlwaysTrue | Truthiness::Ambiguous => {
+                        crate::python::branches::degrade_loop_bodies(
+                            self,
+                            state,
+                            &[&stmt_while.body, &stmt_while.orelse],
+                        )
+                    }
+                };
             }
             ast::Stmt::With(stmt_with) => {
                 for item in &stmt_with.items {
                     if let Some(optional_vars) = &item.optional_vars {
-                        self.bind_unknown_targets(optional_vars);
+                        self.bind_unknown_targets(&mut state, optional_vars);
                     }
                 }
-                self.walk_body(&stmt_with.body);
+                return self.walk_body(state, &stmt_with.body);
             }
-            ast::Stmt::Try(stmt_try) => crate::python::branches::walk_try(self, stmt_try),
+            ast::Stmt::Try(stmt_try) => {
+                return crate::python::branches::walk_try(self, state, stmt_try);
+            }
             ast::Stmt::FunctionDef(function) => {
-                self.bind_unknown_name(function.name.as_str(), self.origin(function));
+                Self::bind_unknown_name(&mut state, function.name.as_str(), self.origin(function));
             }
             ast::Stmt::ClassDef(class) => {
-                self.bind_unknown_name(class.name.as_str(), self.origin(class));
+                Self::bind_unknown_name(&mut state, class.name.as_str(), self.origin(class));
             }
             ast::Stmt::Delete(delete) => {
                 for target in &delete.targets {
-                    self.bind_unknown_targets(target);
+                    self.bind_unknown_targets(&mut state, target);
                 }
             }
-            ast::Stmt::TypeAlias(type_alias) => self.bind_unknown_targets(&type_alias.name),
+            ast::Stmt::TypeAlias(type_alias) => {
+                self.bind_unknown_targets(&mut state, &type_alias.name);
+            }
             ast::Stmt::Match(stmt_match) => {
-                crate::python::branches::walk_match(self, stmt_match);
+                return crate::python::branches::walk_match(self, state, stmt_match);
             }
             ast::Stmt::Return(_)
             | ast::Stmt::Raise(_)
@@ -559,145 +716,150 @@ impl<'a> PythonSemanticModelBuilder<'a> {
             | ast::Stmt::Continue(_)
             | ast::Stmt::IpyEscapeCommand(_) => {}
         }
+        state
     }
 
-    fn walk_assign(&mut self, assign: &ast::StmtAssign) {
+    fn walk_assign(&mut self, state: &mut PythonSemanticState, assign: &ast::StmtAssign) {
         if assign.targets.len() != 1 {
             for target in &assign.targets {
-                self.bind_unknown_targets(target);
+                self.bind_unknown_targets(state, target);
             }
             return;
         }
 
-        self.assign_target(&assign.targets[0], &assign.value);
+        self.assign_target(state, &assign.targets[0], &assign.value);
     }
 
-    fn walk_ann_assign(&mut self, assign: &ast::StmtAnnAssign) {
+    fn walk_ann_assign(&mut self, state: &mut PythonSemanticState, assign: &ast::StmtAnnAssign) {
         let Some(value) = &assign.value else {
-            self.bind_unknown_targets(&assign.target);
+            self.bind_unknown_targets(state, &assign.target);
             return;
         };
-        self.assign_target(&assign.target, value);
+        self.assign_target(state, &assign.target, value);
     }
 
-    fn assign_target(&mut self, target: &ast::Expr, value: &ast::Expr) {
+    fn assign_target(
+        &mut self,
+        state: &mut PythonSemanticState,
+        target: &ast::Expr,
+        value: &ast::Expr,
+    ) {
         if let Some(name) = target.name_target() {
-            self.assign_name(name, value);
+            self.assign_name(state, name, value);
         } else {
-            self.bind_unknown_targets(target);
+            self.bind_unknown_targets(state, target);
         }
     }
 
-    fn assign_name(&mut self, name: &str, value: &ast::Expr) {
+    fn assign_name(&mut self, state: &mut PythonSemanticState, name: &str, value: &ast::Expr) {
         let binding_origin = self.origin(value);
-        self.model
-            .mutations
-            .retain(|mutation| mutation.root != name);
+        state.mutations.retain(|mutation| mutation.root != name);
 
         if let Some(source_name) = value.name_target()
-            && let Some(binding) = self.model.binding(source_name).cloned()
+            && let Some(binding) = state.bindings.get(source_name).cloned()
         {
             let mut imported_binding = binding;
             imported_binding.name = name.to_string();
             for bound in &mut imported_binding.values {
                 bound.binding_origin = binding_origin;
             }
-            self.model.bindings.bind(name, imported_binding);
+            state.bindings.bind(name, imported_binding);
             return;
         }
 
-        let value = self.evaluate_value(value);
-        self.model
+        let value = self.evaluate_value(state, value);
+        state
             .bindings
             .bind(name, PythonBinding::full(name, value, binding_origin));
     }
 
-    fn walk_aug_assign(&mut self, assign: &ast::StmtAugAssign) {
+    fn walk_aug_assign(&mut self, state: &mut PythonSemanticState, assign: &ast::StmtAugAssign) {
         if assign.op != ast::Operator::Add {
-            self.bind_unknown_targets(&assign.target);
+            self.bind_unknown_targets(state, &assign.target);
             return;
         }
 
-        if !self.apply_extend_mutation(&assign.target, &assign.value, self.origin(assign)) {
-            self.bind_unknown_targets(&assign.target);
+        if !self.apply_extend_mutation(state, &assign.target, &assign.value, self.origin(assign)) {
+            self.bind_unknown_targets(state, &assign.target);
         }
     }
 
-    fn walk_expr(&mut self, expr: &ast::Expr) {
+    fn walk_expr(&mut self, state: &mut PythonSemanticState, expr: &ast::Expr) {
         let ast::Expr::Call(call) = expr else {
-            self.record_unsupported_touches(expr_read_names(expr));
+            self.record_unsupported_touches(state, expr_read_names(expr));
             return;
         };
         let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
-            self.record_unsupported_touches(expr_read_names(expr));
+            self.record_unsupported_touches(state, expr_read_names(expr));
             return;
         };
 
-        self.record_mutation(&attribute.value, attribute.attr.as_str());
+        Self::record_mutation(state, &attribute.value, attribute.attr.as_str());
 
         match attribute.attr.as_str() {
             "append" if call.arguments.args.len() == 1 && call.arguments.keywords.is_empty() => {
                 if !self.apply_append_mutation(
+                    state,
                     &attribute.value,
                     &call.arguments.args[0],
                     self.origin(call),
                 ) {
-                    self.record_unsupported_touches(expr_read_names(expr));
+                    self.record_unsupported_touches(state, expr_read_names(expr));
                 }
             }
             "extend" if call.arguments.args.len() == 1 && call.arguments.keywords.is_empty() => {
                 if !self.apply_extend_mutation(
+                    state,
                     &attribute.value,
                     &call.arguments.args[0],
                     self.origin(call),
                 ) {
-                    self.record_unsupported_touches(expr_read_names(expr));
+                    self.record_unsupported_touches(state, expr_read_names(expr));
                 }
             }
             "insert" if call.arguments.args.len() == 2 && call.arguments.keywords.is_empty() => {
                 if !self.apply_insert_mutation(
+                    state,
                     &attribute.value,
                     &call.arguments.args[0],
                     &call.arguments.args[1],
                     self.origin(call),
                 ) {
-                    self.record_unsupported_touches(expr_read_names(expr));
+                    self.record_unsupported_touches(state, expr_read_names(expr));
                 }
             }
             "remove" if call.arguments.args.len() == 1 && call.arguments.keywords.is_empty() => {
-                if !self.apply_remove_mutation(&attribute.value, &call.arguments.args[0]) {
-                    self.record_unsupported_touches(expr_read_names(expr));
+                if !Self::apply_remove_mutation(state, &attribute.value, &call.arguments.args[0]) {
+                    self.record_unsupported_touches(state, expr_read_names(expr));
                 }
             }
-            _ => self.record_unsupported_touches(expr_read_names(expr)),
+            _ => self.record_unsupported_touches(state, expr_read_names(expr)),
         }
     }
 
-    fn walk_import(&mut self, aliases: &[ast::Alias]) {
+    fn walk_import(&mut self, state: &mut PythonSemanticState, aliases: &[ast::Alias]) {
         for alias in aliases {
             let bound_name = alias.asname.as_ref().map_or_else(
                 || first_import_segment(alias.name.as_str()),
                 |asname| asname.as_str(),
             );
-            self.bind_unknown_name(bound_name, self.origin(alias));
+            Self::bind_unknown_name(state, bound_name, self.origin(alias));
         }
     }
 
-    fn merge_imported_model(&mut self, imported_model: &PythonSemanticModel) {
-        self.model
-            .files_read
-            .extend(imported_model.files_read.clone());
-        self.model
-            .source_paths
-            .extend(imported_model.source_paths.clone());
-        self.model.status = self.model.status.join(imported_model.status);
-        self.model
-            .mutations
-            .extend(imported_model.mutations.clone());
+    fn analyze_imported_model(
+        &mut self,
+        state: &mut PythonSemanticState,
+        imported_source: &PythonSource,
+    ) -> PythonSemanticModel {
+        let imported_model = self.analysis.analyze_source(imported_source, self.resolver);
+        state.mutations.extend(imported_model.mutations.clone());
+        state.effects.add_imported_model(imported_model.clone());
+        imported_model
     }
 
-    fn walk_import_from(&mut self, import: &ast::StmtImportFrom) {
-        let source_import = PythonImport {
+    fn walk_import_from(&mut self, state: &mut PythonSemanticState, import: &ast::StmtImportFrom) {
+        let python_import = PythonImport {
             level: import.level,
             module: import
                 .module
@@ -705,26 +867,27 @@ impl<'a> PythonSemanticModelBuilder<'a> {
                 .map(ruff_python_ast::Identifier::as_str),
             importer: self.source.path(),
         };
-
         let is_star_import = import.names.iter().any(|alias| alias.name.as_str() == "*");
         if is_star_import {
-            match self.resolver.resolve_star_import(source_import) {
-                ImportSourceResolution::Resolved(imported) => {
-                    let imported_model = self.analysis.analyze_source(&imported, self.resolver);
-                    self.merge_imported_model(&imported_model);
-                    self.model.bindings.merge_star_import(&imported_model);
+            match self.resolver.resolve_star_import(python_import) {
+                ImportSourceResolution::Resolved(imported_source) => {
+                    let imported_model = self.analyze_imported_model(state, &imported_source);
+                    state.bindings.merge_star_import(&imported_model);
                 }
-                ImportSourceResolution::Unresolved
-                | ImportSourceResolution::SkippedExternal
-                | ImportSourceResolution::ReadFailed => self.model.bindings.mark_all_partial(),
+                ImportSourceResolution::ReadFailed { file, path } => {
+                    state.effects.add_read_failure(file, path);
+                    state.bindings.mark_all_partial();
+                }
+                ImportSourceResolution::Unresolved | ImportSourceResolution::SkippedExternal => {
+                    state.bindings.mark_all_partial();
+                }
             }
             return;
         }
 
-        match self.resolver.resolve_named_import(source_import) {
-            ImportSourceResolution::Resolved(imported) => {
-                let imported_model = self.analysis.analyze_source(&imported, self.resolver);
-                self.merge_imported_model(&imported_model);
+        match self.resolver.resolve_named_import(python_import) {
+            ImportSourceResolution::Resolved(imported_source) => {
+                let imported_model = self.analyze_imported_model(state, &imported_source);
                 for alias in &import.names {
                     let imported_name = alias.name.as_str();
                     let bound_name = alias
@@ -732,7 +895,7 @@ impl<'a> PythonSemanticModelBuilder<'a> {
                         .as_ref()
                         .map_or_else(|| imported_name, |asname| asname.as_str());
                     if let Some(binding) = imported_model.binding(imported_name).cloned() {
-                        self.model.bindings.bind(
+                        state.bindings.bind(
                             bound_name,
                             PythonBinding {
                                 name: bound_name.to_string(),
@@ -741,28 +904,35 @@ impl<'a> PythonSemanticModelBuilder<'a> {
                             },
                         );
                     } else {
-                        self.bind_unknown_name(bound_name, self.origin(alias));
+                        Self::bind_unknown_name(state, bound_name, self.origin(alias));
                     }
                 }
             }
-            ImportSourceResolution::Unresolved
-            | ImportSourceResolution::SkippedExternal
-            | ImportSourceResolution::ReadFailed => {
+            ImportSourceResolution::ReadFailed { file, path } => {
+                state.effects.add_read_failure(file, path);
                 for alias in &import.names {
                     let bound_name = alias
                         .asname
                         .as_ref()
                         .map_or_else(|| alias.name.as_str(), |asname| asname.as_str());
-                    self.bind_unknown_name(bound_name, self.origin(alias));
+                    Self::bind_unknown_name(state, bound_name, self.origin(alias));
+                }
+            }
+            ImportSourceResolution::Unresolved | ImportSourceResolution::SkippedExternal => {
+                for alias in &import.names {
+                    let bound_name = alias
+                        .asname
+                        .as_ref()
+                        .map_or_else(|| alias.name.as_str(), |asname| asname.as_str());
+                    Self::bind_unknown_name(state, bound_name, self.origin(alias));
                 }
             }
         }
     }
 
-    fn evaluate_test_expr(&self, expr: &ast::Expr) -> Truthiness {
+    fn evaluate_test_expr(state: &PythonSemanticState, expr: &ast::Expr) -> Truthiness {
         if let Some(name) = expr.name_target() {
-            return self
-                .model
+            return state
                 .bindings
                 .bool_value(name)
                 .map_or(Truthiness::Ambiguous, Truthiness::from_bool);
@@ -771,22 +941,18 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         match expr {
             ast::Expr::BooleanLiteral(literal) => Truthiness::from_bool(literal.value),
             ast::Expr::UnaryOp(unary) if unary.op == ast::UnaryOp::Not => {
-                self.evaluate_test_expr(&unary.operand).negate()
+                Self::evaluate_test_expr(state, &unary.operand).negate()
             }
             _ => Truthiness::Ambiguous,
         }
     }
 
-    fn evaluate_value(&self, expr: &ast::Expr) -> PythonValue {
+    fn evaluate_value(&self, state: &PythonSemanticState, expr: &ast::Expr) -> PythonValue {
         let origin = self.origin(expr);
-        let path = evaluate_path(
-            expr,
-            self.source.path(),
-            &self.model.bindings.path_bindings(),
-        );
+        let path = evaluate_path(expr, self.source.path(), &state.bindings.path_bindings());
 
         if let Some(name) = expr.name_target()
-            && let Some(binding) = self.model.binding(name)
+            && let Some(binding) = state.bindings.get(name)
             && let [bound] = binding.values()
         {
             let mut value = bound.value().clone();
@@ -807,22 +973,27 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         }
 
         match expr {
-            ast::Expr::List(list) => self.evaluate_list(&list.elts, origin),
-            ast::Expr::Tuple(tuple) => self.evaluate_list(&tuple.elts, origin),
-            ast::Expr::Dict(dict) => self.evaluate_dict(dict, origin),
+            ast::Expr::List(list) => self.evaluate_list(state, &list.elts, origin),
+            ast::Expr::Tuple(tuple) => self.evaluate_list(state, &tuple.elts, origin),
+            ast::Expr::Dict(dict) => self.evaluate_dict(state, dict, origin),
             ast::Expr::BinOp(bin_op) if bin_op.op == ast::Operator::Add => {
-                self.evaluate_addition(&bin_op.left, &bin_op.right, origin)
+                self.evaluate_addition(state, &bin_op.left, &bin_op.right, origin)
             }
             _ => PythonValue::unknown(origin),
         }
     }
 
-    fn evaluate_list(&self, elements: &[ast::Expr], origin: Origin) -> PythonValue {
+    fn evaluate_list(
+        &self,
+        state: &PythonSemanticState,
+        elements: &[ast::Expr],
+        origin: Origin,
+    ) -> PythonValue {
         let mut values = Vec::new();
         let mut completeness = PythonCompleteness::Full;
         for element in elements {
             if let ast::Expr::Starred(starred) = element {
-                let starred = self.evaluate_value(&starred.value);
+                let starred = self.evaluate_value(state, &starred.value);
                 match starred.kind() {
                     PythonValueKind::List(items) => values.extend(items.clone()),
                     _ => completeness = PythonCompleteness::Partial,
@@ -833,7 +1004,7 @@ impl<'a> PythonSemanticModelBuilder<'a> {
                 continue;
             }
 
-            let value = self.evaluate_value(element);
+            let value = self.evaluate_value(state, element);
             if !value.is_complete() {
                 completeness = PythonCompleteness::Partial;
             }
@@ -844,12 +1015,13 @@ impl<'a> PythonSemanticModelBuilder<'a> {
 
     fn evaluate_addition(
         &self,
+        state: &PythonSemanticState,
         left: &ast::Expr,
         right: &ast::Expr,
         origin: Origin,
     ) -> PythonValue {
-        let left = self.evaluate_value(left);
-        let right = self.evaluate_value(right);
+        let left = self.evaluate_value(state, left);
+        let right = self.evaluate_value(state, right);
         let operands_complete = left.is_complete() && right.is_complete();
         match (left.kind, right.kind) {
             (PythonValueKind::List(mut left), PythonValueKind::List(right)) => {
@@ -866,7 +1038,12 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         }
     }
 
-    fn evaluate_dict(&self, dict: &ast::ExprDict, origin: Origin) -> PythonValue {
+    fn evaluate_dict(
+        &self,
+        state: &PythonSemanticState,
+        dict: &ast::ExprDict,
+        origin: Origin,
+    ) -> PythonValue {
         let mut entries: Vec<PythonDictEntry> = Vec::new();
         let mut seen_string_keys = FxHashSet::default();
         let mut completeness = PythonCompleteness::Full;
@@ -879,14 +1056,14 @@ impl<'a> PythonSemanticModelBuilder<'a> {
                 continue;
             };
 
-            let key = self.evaluate_value(key_expr);
+            let key = self.evaluate_value(state, key_expr);
             if let PythonValueKind::Str(key_text) = key.kind()
                 && !seen_string_keys.insert(key_text.clone())
             {
                 continue;
             }
 
-            let mut value = self.evaluate_value(&item.value);
+            let mut value = self.evaluate_value(state, &item.value);
             if earlier_entries_uncertain {
                 value.mark_partial();
             }
@@ -905,21 +1082,21 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         )
     }
 
-    fn bind_unknown_targets(&mut self, target: &ast::Expr) {
+    fn bind_unknown_targets(&mut self, state: &mut PythonSemanticState, target: &ast::Expr) {
         for name in target_write_names(target) {
-            self.bind_unknown_name(name, self.origin(target));
+            Self::bind_unknown_name(state, name, self.origin(target));
         }
     }
 
-    fn bind_unknown_name(&mut self, name: &str, origin: Origin) {
-        self.model
+    fn bind_unknown_name(state: &mut PythonSemanticState, name: &str, origin: Origin) {
+        state
             .bindings
             .bind(name, PythonBinding::unknown(name, origin));
     }
 
-    fn record_mutation(&mut self, target: &ast::Expr, method: &str) {
+    fn record_mutation(state: &mut PythonSemanticState, target: &ast::Expr, method: &str) {
         if let Some(target) = MutationTarget::from_expr(target) {
-            self.model.mutations.push(PythonMutation {
+            state.mutations.push(PythonMutation {
                 root: target.root.to_string(),
                 access: target
                     .access
@@ -931,34 +1108,30 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         }
     }
 
-    fn record_unsupported_touches(&mut self, names: impl IntoIterator<Item = String>) {
+    fn record_unsupported_touches(
+        &mut self,
+        state: &mut PythonSemanticState,
+        names: impl IntoIterator<Item = String>,
+    ) {
         for name in names {
-            self.bind_unknown_name(&name, Origin::new(self.source.file(), Span::new(0, 0)));
-        }
-    }
-
-    fn degrade_names(&mut self, names: impl IntoIterator<Item = String>) {
-        for name in names {
-            if let Some(binding) = self.model.bindings.by_name.get_mut(&name) {
-                binding.mark_partial();
-            } else {
-                self.model.bindings.bind(
-                    &name,
-                    PythonBinding::unknown(&name, Origin::new(self.source.file(), Span::new(0, 0))),
-                );
-            }
+            Self::bind_unknown_name(
+                state,
+                &name,
+                Origin::new(self.source.file(), Span::new(0, 0)),
+            );
         }
     }
 
     fn apply_append_mutation(
         &mut self,
+        state: &mut PythonSemanticState,
         target: &ast::Expr,
         value: &ast::Expr,
         _origin: Origin,
     ) -> bool {
-        let value = self.evaluate_value(value);
+        let value = self.evaluate_value(state, value);
         let value_complete = value.is_complete();
-        self.mutate_target(target, |target_value| match &mut target_value.kind {
+        Self::mutate_target(state, target, |target_value| match &mut target_value.kind {
             PythonValueKind::List(values) => {
                 values.push(value);
                 if !value_complete {
@@ -972,13 +1145,14 @@ impl<'a> PythonSemanticModelBuilder<'a> {
 
     fn apply_extend_mutation(
         &mut self,
+        state: &mut PythonSemanticState,
         target: &ast::Expr,
         value: &ast::Expr,
         _origin: Origin,
     ) -> bool {
-        let value = self.evaluate_value(value);
+        let value = self.evaluate_value(state, value);
         let value_complete = value.is_complete();
-        self.mutate_target(target, |target_value| {
+        Self::mutate_target(state, target, |target_value| {
             match (&mut target_value.kind, value.kind) {
                 (PythonValueKind::List(values), PythonValueKind::List(mut extension)) => {
                     values.append(&mut extension);
@@ -998,17 +1172,18 @@ impl<'a> PythonSemanticModelBuilder<'a> {
 
     fn apply_insert_mutation(
         &mut self,
+        state: &mut PythonSemanticState,
         target: &ast::Expr,
         index: &ast::Expr,
         value: &ast::Expr,
         _origin: Origin,
     ) -> bool {
         let Some(index) = index.non_negative_integer() else {
-            return self.mark_target_partial(target);
+            return Self::mark_target_partial(state, target);
         };
-        let value = self.evaluate_value(value);
+        let value = self.evaluate_value(state, value);
         let value_complete = value.is_complete();
-        self.mutate_target(target, |target_value| match &mut target_value.kind {
+        Self::mutate_target(state, target, |target_value| match &mut target_value.kind {
             PythonValueKind::List(values) => {
                 let index = index.min(values.len());
                 values.insert(index, value);
@@ -1021,11 +1196,15 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         })
     }
 
-    fn apply_remove_mutation(&mut self, target: &ast::Expr, value: &ast::Expr) -> bool {
+    fn apply_remove_mutation(
+        state: &mut PythonSemanticState,
+        target: &ast::Expr,
+        value: &ast::Expr,
+    ) -> bool {
         let Some(value) = value.string_literal() else {
-            return self.mark_target_partial(target);
+            return Self::mark_target_partial(state, target);
         };
-        self.mutate_target(target, |target_value| match &mut target_value.kind {
+        Self::mutate_target(state, target, |target_value| match &mut target_value.kind {
             PythonValueKind::List(values) => {
                 if let Some(position) = values.iter().position(|item| {
                     matches!(item.kind(), PythonValueKind::Str(candidate) if candidate == value)
@@ -1038,22 +1217,22 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         })
     }
 
-    fn mark_target_partial(&mut self, target: &ast::Expr) -> bool {
-        self.mutate_target(target, |value| {
+    fn mark_target_partial(state: &mut PythonSemanticState, target: &ast::Expr) -> bool {
+        Self::mutate_target(state, target, |value| {
             value.mark_partial();
             true
         })
     }
 
     fn mutate_target(
-        &mut self,
+        state: &mut PythonSemanticState,
         target: &ast::Expr,
         mutate: impl FnOnce(&mut PythonValue) -> bool,
     ) -> bool {
         let Some(target) = MutationTarget::from_expr(target) else {
             return false;
         };
-        let Some(binding) = self.model.bindings.by_name.get_mut(target.root) else {
+        let Some(binding) = state.bindings.by_name.get_mut(target.root) else {
             return false;
         };
         let [bound] = binding.values.as_mut_slice() else {
@@ -1072,76 +1251,37 @@ impl<'a> PythonSemanticModelBuilder<'a> {
     }
 }
 
-impl PythonSemanticModelBuilder<'_> {
-    pub(super) fn evaluate_test(&self, expr: &ast::Expr) -> Truthiness {
-        self.evaluate_test_expr(expr)
+impl PythonSemanticEvaluator<'_> {
+    pub(super) fn evaluate_test(state: &PythonSemanticState, expr: &ast::Expr) -> Truthiness {
+        Self::evaluate_test_expr(state, expr)
     }
 
     pub(super) fn collect_writes(body: &[ast::Stmt]) -> TouchedNames {
         collect_touched_names(body)
     }
 
-    pub(super) fn degrade_writes(&mut self, writes: TouchedNames) {
-        self.degrade_names(writes.names);
+    pub(super) fn degrade_writes(&self, state: &mut PythonSemanticState, writes: TouchedNames) {
+        if writes.all {
+            state.bindings.mark_all_partial();
+        }
+        state.degrade_names(
+            writes.names,
+            Origin::new(self.source.file(), Span::new(0, 0)),
+        );
     }
 
-    pub(super) fn take_state(&mut self) -> PythonSemanticState {
-        PythonSemanticState {
-            bindings: std::mem::take(&mut self.model.bindings),
-            mutations: std::mem::take(&mut self.model.mutations),
-        }
-    }
-
-    pub(super) fn set_state(&mut self, state: PythonSemanticState) {
-        self.model.bindings = state.bindings;
-        self.model.mutations = state.mutations;
-    }
-
-    pub(super) fn join_branches(
-        mut base: PythonSemanticState,
-        branches: &[PythonSemanticState],
-        writes: &TouchedNames,
-    ) -> PythonSemanticState {
-        let mut names = writes.names.clone();
-        for branch in branches {
-            for (name, binding) in &branch.bindings.by_name {
-                if base.bindings.get(name) != Some(binding) {
-                    names.insert(name.clone());
-                }
-            }
-        }
-
-        for name in &names {
-            let branch_values = branches
-                .iter()
-                .map(|branch| branch.bindings.get(name).cloned());
-            if let Some(binding) = PythonBinding::joined(name, branch_values) {
-                base.bindings.bind(name, binding);
-            } else {
-                base.bindings.remove(name);
-            }
-        }
-
-        base.mutations.clear();
-        for branch in branches {
-            for mutation in &branch.mutations {
-                if !base.mutations.contains(mutation) {
-                    base.mutations.push(mutation.clone());
-                }
-            }
-        }
-
-        base
-    }
-
-    pub(super) fn bind_pattern_name(&mut self, name: &str) {
-        self.bind_unknown_name(name, Origin::new(self.source.file(), Span::new(0, 0)));
+    pub(super) fn bind_pattern_name(&self, state: &mut PythonSemanticState, name: &str) {
+        state.bindings.bind(
+            name,
+            PythonBinding::unknown(name, Origin::new(self.source.file(), Span::new(0, 0))),
+        );
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct TouchedNames {
     names: FxHashSet<String>,
+    all: bool,
 }
 
 impl TouchedNames {
@@ -1149,8 +1289,13 @@ impl TouchedNames {
         self.names.insert(name.to_string());
     }
 
+    pub(super) fn record_all(&mut self) {
+        self.all = true;
+    }
+
     pub(super) fn merge(&mut self, other: Self) {
         self.names.extend(other.names);
+        self.all |= other.all;
     }
 }
 
@@ -1216,8 +1361,10 @@ fn collect_stmt_touched_names(stmt: &ast::Stmt, names: &mut TouchedNames) {
             }
         }
         ast::Stmt::ImportFrom(import) => {
-            for alias in &import.names {
-                if alias.name.as_str() != "*" {
+            if import.names.iter().any(|alias| alias.name.as_str() == "*") {
+                names.record_all();
+            } else {
+                for alias in &import.names {
                     let bound_name = alias
                         .asname
                         .as_ref()
