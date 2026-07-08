@@ -59,7 +59,7 @@ impl PythonSourceGraph {
         import: &ast::StmtImportFrom,
     ) -> Option<&PythonImportEdge> {
         let source = self.source(file)?;
-        let key = PythonImportKey::from_import(source.path(), import);
+        let key = ImportSite::from_import(source.path(), import);
         self.imports(file).iter().find(|edge| edge.import() == &key)
     }
 }
@@ -121,14 +121,14 @@ impl PythonModuleRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct PythonImportKey {
+pub(super) struct ImportSite {
     importer: Utf8PathBuf,
     level: u32,
     module: Option<String>,
-    names: Vec<PythonImportedName>,
+    names: Vec<ImportedName>,
 }
 
-impl PythonImportKey {
+impl ImportSite {
     fn from_import(importer: &Utf8Path, import: &ast::StmtImportFrom) -> Self {
         Self {
             importer: importer.to_path_buf(),
@@ -140,7 +140,7 @@ impl PythonImportKey {
             names: import
                 .names
                 .iter()
-                .map(|alias| PythonImportedName {
+                .map(|alias| ImportedName {
                     name: alias.name.to_string(),
                     asname: alias.asname.as_ref().map(ToString::to_string),
                 })
@@ -150,13 +150,13 @@ impl PythonImportKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct PythonImportedName {
+struct ImportedName {
     name: String,
     asname: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum PythonImportKind {
+pub(super) enum ImportKind {
     Star,
     Named,
 }
@@ -164,28 +164,28 @@ pub(super) enum PythonImportKind {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum PythonImportEdge {
     Resolved {
-        import: PythonImportKey,
+        import: ImportSite,
         file: File,
-        kind: PythonImportKind,
+        kind: ImportKind,
     },
     Unresolved {
-        import: PythonImportKey,
-        kind: PythonImportKind,
+        import: ImportSite,
+        kind: ImportKind,
     },
     SkippedExternal {
-        import: PythonImportKey,
-        kind: PythonImportKind,
+        import: ImportSite,
+        kind: ImportKind,
     },
     ReadFailed {
-        import: PythonImportKey,
+        import: ImportSite,
         file: File,
         path: Utf8PathBuf,
-        kind: PythonImportKind,
+        kind: ImportKind,
     },
 }
 
 impl PythonImportEdge {
-    pub(super) const fn import(&self) -> &PythonImportKey {
+    pub(super) const fn import(&self) -> &ImportSite {
         match self {
             Self::Resolved { import, .. }
             | Self::Unresolved { import, .. }

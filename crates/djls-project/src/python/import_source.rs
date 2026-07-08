@@ -3,7 +3,7 @@ use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonImport;
+use crate::python::PythonImportRequest;
 use crate::python::PythonModule;
 use crate::python::PythonSource;
 use crate::python::SearchPath;
@@ -17,9 +17,9 @@ pub(crate) enum ImportSourceResolution {
 }
 
 pub(crate) trait PythonImportResolver {
-    fn resolve_star_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution;
+    fn resolve_star_import(&mut self, import: PythonImportRequest<'_>) -> ImportSourceResolution;
 
-    fn resolve_named_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution;
+    fn resolve_named_import(&mut self, import: PythonImportRequest<'_>) -> ImportSourceResolution;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +59,7 @@ impl<'db> ProjectImportSourceResolver<'db> {
         ))
     }
 
-    fn resolve_python_import(&self, import: PythonImport<'_>) -> Option<PythonModule> {
+    fn resolve_python_import(&self, import: PythonImportRequest<'_>) -> Option<PythonModule> {
         PythonModule::resolve_import(self.db, self.project, import).ok()?
     }
 
@@ -76,14 +76,14 @@ impl<'db> ProjectImportSourceResolver<'db> {
 }
 
 impl PythonImportResolver for ProjectImportSourceResolver<'_> {
-    fn resolve_star_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
+    fn resolve_star_import(&mut self, import: PythonImportRequest<'_>) -> ImportSourceResolution {
         let Some(module) = self.resolve_python_import(import) else {
             return ImportSourceResolution::Unresolved;
         };
         self.read_resolved_module(&module)
     }
 
-    fn resolve_named_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
+    fn resolve_named_import(&mut self, import: PythonImportRequest<'_>) -> ImportSourceResolution {
         let Some(module) = self.resolve_python_import(import) else {
             return ImportSourceResolution::Unresolved;
         };

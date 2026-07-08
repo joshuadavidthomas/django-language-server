@@ -4,14 +4,14 @@ use ruff_python_ast as ast;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
+use super::ImportKind;
+use super::ImportSite;
 use super::PythonImportEdge;
-use super::PythonImportKey;
-use super::PythonImportKind;
 use super::PythonModuleRecord;
 use super::PythonSourceGraph;
 use crate::ast::ExprExt;
 use crate::python::ImportSourceResolution;
-use crate::python::PythonImport;
+use crate::python::PythonImportRequest;
 use crate::python::PythonImportResolver;
 use crate::python::semantic_model::control_flow::BranchPath;
 use crate::python::semantic_model::control_flow::Truthiness;
@@ -41,7 +41,7 @@ struct PythonSourceGraphBuilder<'graph, 'resolver> {
     resolver: &'resolver mut dyn PythonImportResolver,
     collecting: FxHashSet<File>,
     collected: FxHashSet<File>,
-    summaries: FxHashMap<File, ImportCollectionState>,
+    summaries: FxHashMap<File, GuardState>,
 }
 
 impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
@@ -74,12 +74,9 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
         };
 
         let summary = match &record {
-            PythonModuleRecord::Parsed { source, module } => Some(self.collect_body(
-                file,
-                source.path(),
-                ImportCollectionState::default(),
-                &module.body,
-            )),
+            PythonModuleRecord::Parsed { source, module } => {
+                Some(self.collect_body(file, source.path(), GuardState::default(), &module.body))
+            }
             PythonModuleRecord::Unparseable { .. } | PythonModuleRecord::ReadFailed { .. } => None,
         };
         self.graph.modules.insert(file, record);
@@ -94,9 +91,9 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
         &mut self,
         file: File,
         importer: &Utf8Path,
-        state: ImportCollectionState,
+        state: GuardState,
         body: &[ast::Stmt],
-    ) -> ImportCollectionState {
+    ) -> GuardState {
         let mut collector = ImportReachabilityCollector {
             builder: self,
             file,
@@ -109,11 +106,11 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
         &mut self,
         file: File,
         importer: &Utf8Path,
-        state: &mut ImportCollectionState,
+        state: &mut GuardState,
         import: &ast::StmtImportFrom,
     ) {
-        let key = PythonImportKey::from_import(importer, import);
-        let python_import = PythonImport {
+        let key = ImportSite::from_import(importer, import);
+        let python_import = PythonImportRequest {
             level: import.level,
             module: import
                 .module
@@ -122,14 +119,14 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
             importer,
         };
         let kind = if import.names.iter().any(|alias| alias.name.as_str() == "*") {
-            PythonImportKind::Star
+            ImportKind::Star
         } else {
-            PythonImportKind::Named
+            ImportKind::Named
         };
 
         let resolution = match kind {
-            PythonImportKind::Star => self.resolver.resolve_star_import(python_import),
-            PythonImportKind::Named => self.resolver.resolve_named_import(python_import),
+            ImportKind::Star => self.resolver.resolve_star_import(python_import),
+            ImportKind::Named => self.resolver.resolve_named_import(python_import),
         };
         let edge = match resolution {
             ImportSourceResolution::Resolved(source) => {
@@ -142,8 +139,8 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
                 }
                 self.collect_file(imported_file);
                 let summary = self.summaries.get(&imported_file).map_or(
-                    ResolvedImportSummary::Unavailable,
-                    ResolvedImportSummary::Available,
+                    ImportedGuardState::Unavailable,
+                    ImportedGuardState::Available,
                 );
                 state.apply_resolved_import(import, kind, summary);
                 PythonImportEdge::Resolved {
@@ -188,7 +185,7 @@ struct ImportReachabilityCollector<'builder, 'graph, 'resolver, 'importer> {
 }
 
 impl StatementInterpreter for ImportReachabilityCollector<'_, '_, '_, '_> {
-    type State = ImportCollectionState;
+    type State = GuardState;
 
     fn walk_assign(&mut self, state: &mut Self::State, assign: &ast::StmtAssign) {
         state.record_assign(&assign.targets, &assign.value);
@@ -260,10 +257,7 @@ impl StatementInterpreter for ImportReachabilityCollector<'_, '_, '_, '_> {
         let mut changed_names = FxHashSet::default();
         for body in bodies {
             let body_state = statement_walk::walk_body(self, base.clone(), body);
-            changed_names.extend(ImportCollectionState::changed_names_from(
-                &base,
-                &body_state,
-            ));
+            changed_names.extend(GuardState::changed_names_from(&base, &body_state));
         }
         state.degrade_names(changed_names);
         state
@@ -282,7 +276,7 @@ impl StatementInterpreter for ImportReachabilityCollector<'_, '_, '_, '_> {
             }
             branches.push(branch);
         }
-        ImportCollectionState::join(&branches)
+        GuardState::join(&branches)
     }
 
     fn join_match_cases(&mut self, state: Self::State, cases: &[ast::MatchCase]) -> Self::State {
@@ -295,13 +289,13 @@ impl StatementInterpreter for ImportReachabilityCollector<'_, '_, '_, '_> {
         if !cases.iter().any(is_irrefutable_match_case) {
             branches.push(state);
         }
-        ImportCollectionState::join(&branches)
+        GuardState::join(&branches)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum ResolvedImportSummary<'a> {
-    Available(&'a ImportCollectionState),
+enum ImportedGuardState<'a> {
+    Available(&'a GuardState),
     Unavailable,
 }
 
@@ -321,11 +315,11 @@ impl GuardBinding {
 }
 
 #[derive(Debug, Clone, Default)]
-struct ImportCollectionState {
+struct GuardState {
     bool_bindings: FxHashMap<String, GuardBinding>,
 }
 
-impl ImportCollectionState {
+impl GuardState {
     fn record_assign(&mut self, targets: &[ast::Expr], value: &ast::Expr) {
         if targets.len() == 1
             && let Some(name) = targets[0].name_target()
@@ -385,19 +379,19 @@ impl ImportCollectionState {
     fn apply_resolved_import(
         &mut self,
         import: &ast::StmtImportFrom,
-        kind: PythonImportKind,
-        imported: ResolvedImportSummary<'_>,
+        kind: ImportKind,
+        imported: ImportedGuardState<'_>,
     ) {
-        let ResolvedImportSummary::Available(imported) = imported else {
+        let ImportedGuardState::Available(imported) = imported else {
             self.apply_unresolved_import(import, kind);
             return;
         };
 
         match kind {
-            PythonImportKind::Star => {
+            ImportKind::Star => {
                 self.bool_bindings.extend(imported.bool_bindings.clone());
             }
-            PythonImportKind::Named => {
+            ImportKind::Named => {
                 for alias in &import.names {
                     let imported_name = alias.name.as_str();
                     let bound_name = alias
@@ -415,14 +409,14 @@ impl ImportCollectionState {
         }
     }
 
-    fn apply_unresolved_import(&mut self, import: &ast::StmtImportFrom, kind: PythonImportKind) {
+    fn apply_unresolved_import(&mut self, import: &ast::StmtImportFrom, kind: ImportKind) {
         match kind {
-            PythonImportKind::Star => {
+            ImportKind::Star => {
                 for value in self.bool_bindings.values_mut() {
                     *value = GuardBinding::Unknown;
                 }
             }
-            PythonImportKind::Named => {
+            ImportKind::Named => {
                 for alias in &import.names {
                     let bound_name = alias
                         .asname

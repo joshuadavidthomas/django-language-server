@@ -1,29 +1,32 @@
+mod bindings;
 mod control_flow;
 mod evaluator;
 mod model;
 mod mutation_target;
+mod mutations;
 mod source_graph;
 mod state;
 mod statement_walk;
 mod touched_names;
+mod values;
 
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
+use self::bindings::PythonBindings;
 use self::evaluator::EvaluationContext;
 use self::evaluator::evaluate_body;
 pub(crate) use self::model::ParseStatus;
-use self::model::PythonBindings;
-pub(crate) use self::model::PythonDict;
-pub(crate) use self::model::PythonMutationAccess;
-use self::model::PythonMutations;
 pub(crate) use self::model::PythonSemanticModel;
-pub(crate) use self::model::PythonValue;
-pub(crate) use self::model::PythonValueKind;
+pub(crate) use self::mutations::PythonMutationAccess;
+use self::mutations::PythonMutations;
 use self::source_graph::PythonImportEdge;
 use self::source_graph::PythonModuleRecord;
 use self::source_graph::PythonSourceGraph;
 use self::state::PythonSemanticState;
+pub(crate) use self::values::PythonDict;
+pub(crate) use self::values::PythonValue;
+pub(crate) use self::values::PythonValueKind;
 use crate::python::PythonImportResolver;
 use crate::python::PythonSource;
 

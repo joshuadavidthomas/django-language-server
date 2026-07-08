@@ -109,7 +109,8 @@ where
         IfBranches::Deterministic(Some(body)) => walk_body(semantics, state, body),
         IfBranches::Deterministic(None) => state,
         IfBranches::Ambiguous(arms) => {
-            let paths: Vec<BranchPath<'_>> = arms.iter().map(|arm| BranchPath::One(arm)).collect();
+            let paths: Vec<BranchPath<'_>> =
+                arms.iter().map(|arm| BranchPath::Single(arm)).collect();
             semantics.join_ambiguous_paths(state, &paths)
         }
     }
