@@ -2,16 +2,144 @@ use djls_source::Origin;
 
 use super::model::PythonBinding;
 use super::model::PythonBindings;
+use super::model::PythonMutation;
 use super::model::PythonMutations;
+use super::model::PythonSemanticModel;
+use super::model::PythonValue;
+use super::mutation_target::MutationAccess;
+use super::mutation_target::MutationTarget;
 use super::touched_names::TouchedNames;
+use crate::python::PythonPathBindings;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct PythonSemanticState {
-    pub(super) bindings: PythonBindings,
-    pub(super) mutations: PythonMutations,
+    bindings: PythonBindings,
+    mutations: PythonMutations,
 }
 
 impl PythonSemanticState {
+    pub(super) fn into_parts(self) -> (PythonBindings, PythonMutations) {
+        (self.bindings, self.mutations)
+    }
+
+    pub(super) fn assign_from_name(
+        &mut self,
+        name: &str,
+        source_name: &str,
+        binding_origin: Origin,
+    ) -> bool {
+        let Some(binding) = self.bindings.get(source_name).cloned() else {
+            return false;
+        };
+
+        let mut copied_binding = binding;
+        copied_binding.name = name.to_string();
+        for bound in &mut copied_binding.values {
+            bound.binding_origin = binding_origin;
+        }
+        self.bindings.bind(name, copied_binding);
+        self.mutations
+            .replace_root_from_assignment(source_name, name);
+        true
+    }
+
+    pub(super) fn assign_value(&mut self, name: &str, value: PythonValue, origin: Origin) {
+        self.mutations.remove_root(name);
+        self.bindings
+            .bind(name, PythonBinding::full(name, value, origin));
+    }
+
+    pub(super) fn apply_star_import(&mut self, imported_model: &PythonSemanticModel) {
+        self.bindings.merge_star_import(imported_model);
+        self.mutations.extend_from(imported_model.mutation_set());
+    }
+
+    pub(super) fn bind_named_import(
+        &mut self,
+        imported_model: &PythonSemanticModel,
+        imported_name: &str,
+        bound_name: &str,
+        origin: Origin,
+    ) {
+        self.mutations.extend_renamed_root_from(
+            imported_model.mutation_set(),
+            imported_name,
+            bound_name,
+        );
+
+        if let Some(binding) = imported_model.binding(imported_name).cloned() {
+            let mut binding = binding;
+            binding.name = bound_name.to_string();
+            self.bindings.bind(bound_name, binding);
+        } else {
+            self.bind_unknown(bound_name, origin);
+        }
+    }
+
+    pub(super) fn bind_unknown(&mut self, name: &str, origin: Origin) {
+        self.bindings
+            .bind(name, PythonBinding::unknown(name, origin));
+    }
+
+    pub(super) fn mark_all_partial(&mut self) {
+        self.bindings.mark_all_partial();
+    }
+
+    pub(super) fn bool_value(&self, name: &str) -> Option<bool> {
+        self.bindings.bool_value(name)
+    }
+
+    pub(super) fn path_bindings(&self) -> PythonPathBindings {
+        self.bindings.path_bindings()
+    }
+
+    pub(super) fn value_for_name(&self, name: &str) -> Option<PythonValue> {
+        let binding = self.bindings.get(name)?;
+        let [bound] = binding.values() else {
+            return None;
+        };
+        let mut value = bound.value().clone();
+        if !binding.is_complete() || !bound.is_complete() {
+            value.mark_partial();
+        }
+        Some(value)
+    }
+
+    pub(super) fn record_mutation(&mut self, target: &MutationTarget<'_>, method: &str) {
+        self.mutations.insert(PythonMutation {
+            root: target.root.to_string(),
+            access: target
+                .access
+                .iter()
+                .map(MutationAccess::to_public)
+                .collect(),
+            method: method.to_string(),
+        });
+    }
+
+    pub(super) fn mutate_target(
+        &mut self,
+        target: &MutationTarget<'_>,
+        mutate: impl FnOnce(&mut PythonValue) -> bool,
+    ) -> bool {
+        let Some(binding) = self.bindings.by_name.get_mut(target.root) else {
+            return false;
+        };
+        let [bound] = binding.values.as_mut_slice() else {
+            binding.mark_partial();
+            return true;
+        };
+        let Some(value) = target.resolve_mut(&mut bound.value) else {
+            binding.mark_partial();
+            return true;
+        };
+        let mutated = mutate(value);
+        if mutated && !value.is_complete() {
+            binding.mark_partial();
+        }
+        mutated
+    }
+
     pub(super) fn degrade_names(
         &mut self,
         names: impl IntoIterator<Item = String>,

@@ -9,15 +9,12 @@ use super::control_flow::BranchPath;
 use super::control_flow::Truthiness;
 use super::control_flow::evaluate_test_with;
 use super::control_flow::is_irrefutable_match_case;
-use super::model::PythonBinding;
 use super::model::PythonCompleteness;
 use super::model::PythonDict;
 use super::model::PythonDictEntry;
-use super::model::PythonMutation;
 use super::model::PythonSemanticModel;
 use super::model::PythonValue;
 use super::model::PythonValueKind;
-use super::mutation_target::MutationAccess;
 use super::mutation_target::MutationTarget;
 use super::source_graph::PythonImportEdge;
 use super::source_graph::PythonSourceGraph;
@@ -259,25 +256,13 @@ fn assign_name(
 ) {
     let binding_origin = ctx.origin(value);
     if let Some(source_name) = value.name_target()
-        && let Some(binding) = state.bindings.get(source_name).cloned()
+        && state.assign_from_name(name, source_name, binding_origin)
     {
-        let mut imported_binding = binding;
-        imported_binding.name = name.to_string();
-        for bound in &mut imported_binding.values {
-            bound.binding_origin = binding_origin;
-        }
-        state.bindings.bind(name, imported_binding);
-        state
-            .mutations
-            .replace_root_from_assignment(source_name, name);
         return;
     }
 
-    state.mutations.remove_root(name);
     let value = evaluate_value(ctx, state, value);
-    state
-        .bindings
-        .bind(name, PythonBinding::full(name, value, binding_origin));
+    state.assign_value(name, value, binding_origin);
 }
 
 fn walk_aug_assign(
@@ -388,14 +373,13 @@ fn walk_import_from(
         match edge {
             PythonImportEdge::Resolved { file, .. } => match ctx.resolved_model(*file) {
                 ResolvedImportModel::Available(imported_model) => {
-                    state.bindings.merge_star_import(imported_model);
-                    state.mutations.extend_from(imported_model.mutation_set());
+                    state.apply_star_import(imported_model);
                 }
-                ResolvedImportModel::Cycle => state.bindings.mark_all_partial(),
+                ResolvedImportModel::Cycle => state.mark_all_partial(),
             },
             PythonImportEdge::ReadFailed { .. }
             | PythonImportEdge::Unresolved { .. }
-            | PythonImportEdge::SkippedExternal { .. } => state.bindings.mark_all_partial(),
+            | PythonImportEdge::SkippedExternal { .. } => state.mark_all_partial(),
         }
         return;
     }
@@ -406,31 +390,18 @@ fn walk_import_from(
                 bind_imported_names_unknown(ctx, state, &import.names);
                 return;
             };
-            for (imported_name, bound_name) in edge.named_imports() {
-                state.mutations.extend_renamed_root_from(
-                    imported_model.mutation_set(),
-                    imported_name,
-                    bound_name,
-                );
-            }
             for alias in &import.names {
                 let imported_name = alias.name.as_str();
                 let bound_name = alias
                     .asname
                     .as_ref()
                     .map_or_else(|| imported_name, |asname| asname.as_str());
-                if let Some(binding) = imported_model.binding(imported_name).cloned() {
-                    state.bindings.bind(
-                        bound_name,
-                        PythonBinding {
-                            name: bound_name.to_string(),
-                            values: binding.values,
-                            completeness: binding.completeness,
-                        },
-                    );
-                } else {
-                    bind_unknown_name(state, bound_name, ctx.origin(alias));
-                }
+                state.bind_named_import(
+                    imported_model,
+                    imported_name,
+                    bound_name,
+                    ctx.origin(alias),
+                );
             }
         }
         PythonImportEdge::ReadFailed { .. }
@@ -462,14 +433,14 @@ fn apply_missing_import(
     is_star_import: bool,
 ) {
     if is_star_import {
-        state.bindings.mark_all_partial();
+        state.mark_all_partial();
         return;
     }
     bind_imported_names_unknown(ctx, state, &import.names);
 }
 
 pub(super) fn evaluate_test(state: &PythonSemanticState, expr: &ast::Expr) -> Truthiness {
-    evaluate_test_with(expr, |name| state.bindings.bool_value(name))
+    evaluate_test_with(expr, |name| state.bool_value(name))
 }
 
 fn evaluate_value(
@@ -478,16 +449,11 @@ fn evaluate_value(
     expr: &ast::Expr,
 ) -> PythonValue {
     let origin = ctx.origin(expr);
-    let path = evaluate_path(expr, ctx.source.path(), &state.bindings.path_bindings());
+    let path = evaluate_path(expr, ctx.source.path(), &state.path_bindings());
 
     if let Some(name) = expr.name_target()
-        && let Some(binding) = state.bindings.get(name)
-        && let [bound] = binding.values()
+        && let Some(value) = state.value_for_name(name)
     {
-        let mut value = bound.value().clone();
-        if !binding.is_complete() || !bound.is_complete() {
-            value.mark_partial();
-        }
         return value;
     }
 
@@ -621,22 +587,12 @@ fn bind_unknown_targets(
 }
 
 fn bind_unknown_name(state: &mut PythonSemanticState, name: &str, origin: Origin) {
-    state
-        .bindings
-        .bind(name, PythonBinding::unknown(name, origin));
+    state.bind_unknown(name, origin);
 }
 
 fn record_mutation(state: &mut PythonSemanticState, target: &ast::Expr, method: &str) {
     if let Some(target) = MutationTarget::from_expr(target) {
-        state.mutations.insert(PythonMutation {
-            root: target.root.to_string(),
-            access: target
-                .access
-                .iter()
-                .map(MutationAccess::to_public)
-                .collect(),
-            method: method.to_string(),
-        });
+        state.record_mutation(&target, method);
     }
 }
 
@@ -764,22 +720,7 @@ fn mutate_target(
     let Some(target) = MutationTarget::from_expr(target) else {
         return false;
     };
-    let Some(binding) = state.bindings.by_name.get_mut(target.root) else {
-        return false;
-    };
-    let [bound] = binding.values.as_mut_slice() else {
-        binding.mark_partial();
-        return true;
-    };
-    let Some(value) = target.resolve_mut(&mut bound.value) else {
-        binding.mark_partial();
-        return true;
-    };
-    let mutated = mutate(value);
-    if mutated && !value.is_complete() {
-        binding.mark_partial();
-    }
-    mutated
+    state.mutate_target(&target, mutate)
 }
 
 pub(super) fn collect_writes(body: &[ast::Stmt]) -> TouchedNames {
@@ -798,7 +739,7 @@ pub(super) fn degrade_writes(
     writes: TouchedNames,
 ) {
     if writes.all {
-        state.bindings.mark_all_partial();
+        state.mark_all_partial();
     }
     state.degrade_names(
         writes.names,
@@ -811,8 +752,5 @@ pub(super) fn bind_pattern_name(
     state: &mut PythonSemanticState,
     name: &str,
 ) {
-    state.bindings.bind(
-        name,
-        PythonBinding::unknown(name, Origin::new(ctx.source.file(), Span::new(0, 0))),
-    );
+    state.bind_unknown(name, Origin::new(ctx.source.file(), Span::new(0, 0)));
 }
