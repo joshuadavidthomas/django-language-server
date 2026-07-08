@@ -1,4 +1,3 @@
-mod branches;
 mod import_source;
 mod imports;
 mod interpreter;
@@ -10,8 +9,6 @@ mod search_paths;
 mod semantic_model;
 mod source;
 
-pub(crate) use branches::Truthiness;
-pub(crate) use branches::pattern_bound_names;
 pub(crate) use import_source::ImportSourceResolution;
 pub(crate) use import_source::ProjectImportSourceResolver;
 pub(crate) use import_source::PythonImportResolver;
