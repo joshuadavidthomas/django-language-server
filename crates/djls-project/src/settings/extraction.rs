@@ -475,6 +475,7 @@ mod tests {
     use crate::ExtractionStatus;
     use crate::python::ImportSourceResolution;
     use crate::python::PythonImport;
+    use crate::python::PythonSemanticModel;
     use crate::python::PythonSource;
     use crate::settings::types::EvaluatedPath;
 
@@ -507,7 +508,7 @@ mod tests {
                 Utf8PathBuf::from(format!("/project/settings/{}.py", module.replace('.', "/")));
             self.db.add_file(path.as_str(), &source);
             let Ok(file) = path_to_file(self.db, &path) else {
-                return ImportSourceResolution::ReadFailed;
+                return ImportSourceResolution::Unresolved;
             };
             ImportSourceResolution::Resolved(PythonSource::new(file, path, source))
         }
@@ -545,6 +546,18 @@ mod tests {
         }
     }
 
+    struct PanickingResolver;
+
+    impl PythonImportResolver for PanickingResolver {
+        fn resolve_star_import(&mut self, _import: PythonImport<'_>) -> ImportSourceResolution {
+            panic!("unreachable star import should not be resolved")
+        }
+
+        fn resolve_named_import(&mut self, _import: PythonImport<'_>) -> ImportSourceResolution {
+            panic!("unreachable named import should not be resolved")
+        }
+    }
+
     fn extract(source: &str) -> DjangoSettings {
         let db = TestDatabase::new();
         let mut resolver = MapResolver::new(&db);
@@ -556,11 +569,166 @@ mod tests {
         source: &str,
         resolver: &mut dyn PythonImportResolver,
     ) -> DjangoSettings {
+        let source = settings_source(db, source);
+        extract_settings(&source, resolver)
+    }
+
+    fn settings_source(db: &TestDatabase, source: &str) -> PythonSource {
         let path = Utf8Path::new("/project/config/settings.py");
         db.add_file(path.as_str(), source);
         let file = path_to_file(db, path).expect("settings file should exist");
-        let source = PythonSource::new(file, path.to_path_buf(), source.to_string());
-        extract_settings(&source, resolver)
+        PythonSource::new(file, path.to_path_buf(), source.to_string())
+    }
+
+    #[test]
+    fn unreachable_import_is_not_a_semantic_dependency() {
+        let db = TestDatabase::new();
+        let mut resolver = PanickingResolver;
+        let source = settings_source(
+            &db,
+            "if False:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
+        );
+
+        let model = PythonSemanticModel::analyze(&source, &mut resolver);
+        let settings = settings_from_model(&model);
+
+        assert_eq!(model.files_read(), &[source.file()]);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
+        assert_eq!(settings.installed_apps.values, ["local"]);
+    }
+
+    #[test]
+    fn unreachable_elif_import_is_not_a_semantic_dependency() {
+        let db = TestDatabase::new();
+        let mut resolver = PanickingResolver;
+        let source = settings_source(
+            &db,
+            "if FLAG:\n    INSTALLED_APPS = ['local']\nelif False:\n    from base import INSTALLED_APPS",
+        );
+
+        let model = PythonSemanticModel::analyze(&source, &mut resolver);
+        let settings = settings_from_model(&model);
+
+        assert_eq!(model.files_read(), &[source.file()]);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Partial
+        );
+        assert_eq!(settings.installed_apps.values, ["local"]);
+    }
+
+    #[test]
+    fn ambiguous_branch_import_effects_are_semantic_dependencies() {
+        let db = TestDatabase::new();
+        let mut resolver = MapResolver::new(&db).with_module("base", "INSTALLED_APPS = [");
+        let source = settings_source(
+            &db,
+            "if FLAG:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
+        );
+
+        let model = PythonSemanticModel::analyze(&source, &mut resolver);
+        let settings = settings_from_model(&model);
+
+        assert_eq!(model.files_read()[0], source.file());
+        assert_eq!(
+            model.files_read()[1].path(&db).as_str(),
+            "/project/settings/base.py"
+        );
+        assert_eq!(settings.parse_status, ParseStatus::Unparseable);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Partial
+        );
+        assert_eq!(settings.installed_apps.values, ["local"]);
+    }
+
+    #[test]
+    fn loop_import_effects_are_dependencies_without_accepting_values() {
+        let db = TestDatabase::new();
+        let mut resolver = MapResolver::new(&db).with_module("base", "INSTALLED_APPS = [");
+        let source = settings_source(&db, "for app in []:\n    from base import INSTALLED_APPS");
+
+        let model = PythonSemanticModel::analyze(&source, &mut resolver);
+        let settings = settings_from_model(&model);
+
+        assert_eq!(model.files_read()[0], source.file());
+        assert_eq!(
+            model.files_read()[1].path(&db).as_str(),
+            "/project/settings/base.py"
+        );
+        assert_eq!(settings.parse_status, ParseStatus::Unparseable);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Partial
+        );
+        assert!(settings.installed_apps.values.is_empty());
+    }
+
+    #[test]
+    fn loop_star_import_degrades_existing_bindings_without_accepting_values() {
+        let db = TestDatabase::new();
+        let mut resolver = MapResolver::new(&db).with_module("base", "INSTALLED_APPS = ['base']");
+        let source = settings_source(
+            &db,
+            "INSTALLED_APPS = ['local']\nfor app in PLUGINS:\n    from base import *",
+        );
+
+        let model = PythonSemanticModel::analyze(&source, &mut resolver);
+        let settings = settings_from_model(&model);
+
+        assert_eq!(model.files_read()[0], source.file());
+        assert_eq!(
+            model.files_read()[1].path(&db).as_str(),
+            "/project/settings/base.py"
+        );
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Partial
+        );
+        assert_eq!(settings.installed_apps.values, ["local"]);
+    }
+
+    #[test]
+    fn loop_nested_unreachable_star_import_does_not_degrade_bindings() {
+        let db = TestDatabase::new();
+        let mut resolver = PanickingResolver;
+        let source = settings_source(
+            &db,
+            "INSTALLED_APPS = ['local']\nfor app in PLUGINS:\n    if False:\n        from base import *",
+        );
+
+        let model = PythonSemanticModel::analyze(&source, &mut resolver);
+        let settings = settings_from_model(&model);
+
+        assert_eq!(model.files_read(), &[source.file()]);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
+        assert_eq!(settings.installed_apps.values, ["local"]);
+    }
+
+    #[test]
+    fn while_false_body_import_is_not_a_semantic_dependency() {
+        let db = TestDatabase::new();
+        let mut resolver = PanickingResolver;
+        let source = settings_source(
+            &db,
+            "while False:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
+        );
+
+        let model = PythonSemanticModel::analyze(&source, &mut resolver);
+        let settings = settings_from_model(&model);
+
+        assert_eq!(model.files_read(), &[source.file()]);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
+        assert_eq!(settings.installed_apps.values, ["local"]);
     }
 
     #[test]

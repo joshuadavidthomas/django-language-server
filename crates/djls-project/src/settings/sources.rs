@@ -59,12 +59,5 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
     };
     let model = PythonSemanticModel::analyze(&source, &mut resolver);
 
-    DjangoSettingsSources::from_files(
-        db,
-        model
-            .files_read()
-            .iter()
-            .copied()
-            .chain(resolver.resolved_files().iter().copied()),
-    )
+    DjangoSettingsSources::from_files(db, model.files_read().iter().copied())
 }
