@@ -7,32 +7,26 @@
 //! Django settings in practice: one environment-driven entry should not hide
 //! the static entries around it.
 
-mod bindings;
-mod env;
-mod installed_apps;
-mod staticfiles;
-mod templates;
-mod traversal;
-
-use std::sync::Arc;
-
-use camino::Utf8PathBuf;
-use ruff_python_parser::parse_module;
-use rustc_hash::FxHashMap;
-use rustc_hash::FxHashSet;
-
-use crate::python::PythonImport;
+use crate::ExtractionStatus;
+use crate::python::PythonDict;
+use crate::python::PythonImportResolver;
+use crate::python::PythonMutationAccess;
+use crate::python::PythonPathValue;
+use crate::python::PythonSemanticModel;
 use crate::python::PythonSource;
-use crate::settings::extraction::bindings::SettingsBindings;
-use crate::settings::extraction::traversal::SettingsBindingsCollector;
+use crate::python::PythonValue;
+use crate::python::PythonValueKind;
 use crate::settings::types::DjangoSettings;
+use crate::settings::types::EvaluatedPath;
+use crate::settings::types::InstalledAppsSetting;
+use crate::settings::types::Originated;
+use crate::settings::types::ScalarSetting;
+use crate::settings::types::SettingValues;
 use crate::settings::types::SettingsParseStatus;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum AssignmentCompleteness {
-    Full,
-    Partial,
-}
+use crate::settings::types::StaticFilesDirsSetting;
+use crate::settings::types::TemplateBackend;
+use crate::settings::types::TemplateContextProcessorPath;
+use crate::settings::types::TemplateSettings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum KnownSetting {
@@ -42,14 +36,6 @@ enum KnownSetting {
     StaticRoot,
     StaticFilesDirs,
 }
-
-const KNOWN_SETTINGS: &[KnownSetting] = &[
-    KnownSetting::InstalledApps,
-    KnownSetting::Templates,
-    KnownSetting::StaticUrl,
-    KnownSetting::StaticRoot,
-    KnownSetting::StaticFilesDirs,
-];
 
 impl KnownSetting {
     fn from_name(name: &str) -> Option<Self> {
@@ -74,74 +60,399 @@ impl KnownSetting {
     }
 }
 
-pub(super) trait SettingsImports {
-    fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource>;
-
-    fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource>;
-}
-
 /// Extract Django settings from Python source.
 #[must_use]
 pub(crate) fn extract_settings(
     source: &PythonSource,
-    resolver: &mut dyn SettingsImports,
+    resolver: &mut dyn PythonImportResolver,
 ) -> DjangoSettings {
-    let mut extraction = SettingsExtraction::default();
-    let (bindings, parse_status) = extraction.extract_module(source, resolver);
-    let mut settings = bindings.to_settings();
-    settings.parse_status = parse_status;
+    let model = PythonSemanticModel::analyze(source, resolver);
+    settings_from_model(&model)
+}
+
+fn settings_from_model(model: &PythonSemanticModel) -> DjangoSettings {
+    let mut settings = DjangoSettings {
+        parse_status: if model.has_parse_error() {
+            SettingsParseStatus::Unparseable
+        } else {
+            SettingsParseStatus::Parsed
+        },
+        installed_apps: extract_installed_apps(model),
+        templates: extract_templates(model),
+        staticfiles: crate::settings::types::StaticFilesSettings {
+            static_url: extract_static_url(model),
+            static_root: extract_static_root(model),
+            staticfiles_dirs: extract_staticfiles_dirs(model),
+        },
+    };
+
+    for mutation in model.mutations() {
+        if let Some(setting) = KnownSetting::from_name(mutation.root())
+            && !settings_supports_mutation(setting, mutation.access(), mutation.method())
+        {
+            clear_setting_to_partial(&mut settings, setting);
+        }
+    }
+
+    if model.has_parse_error() {
+        settings.installed_apps.mark_partial();
+        settings.templates.mark_partial();
+        settings.staticfiles.static_url.mark_partial();
+        settings.staticfiles.static_root.mark_partial();
+        settings.staticfiles.staticfiles_dirs.mark_partial();
+    }
+
     settings
 }
 
-#[derive(Debug, Default)]
-pub(super) struct SettingsExtraction {
-    active: FxHashSet<Utf8PathBuf>,
-    cache: FxHashMap<Utf8PathBuf, Arc<SettingsBindings>>,
+fn settings_supports_mutation(
+    setting: KnownSetting,
+    access: &[PythonMutationAccess],
+    method: &str,
+) -> bool {
+    match setting {
+        KnownSetting::InstalledApps => {
+            access.is_empty() && matches!(method, "append" | "extend" | "insert" | "remove")
+        }
+        KnownSetting::Templates => {
+            matches!(method, "append" | "extend")
+                && matches!(
+                    access,
+                    [PythonMutationAccess::Index(_), PythonMutationAccess::Key(key)] if key == "DIRS"
+                )
+        }
+        KnownSetting::StaticUrl | KnownSetting::StaticRoot | KnownSetting::StaticFilesDirs => false,
+    }
 }
 
-impl SettingsExtraction {
-    fn extract_module(
-        &mut self,
-        source: &PythonSource,
-        resolver: &mut dyn SettingsImports,
-    ) -> (Arc<SettingsBindings>, SettingsParseStatus) {
-        let path = source.path().to_path_buf();
-        if let Some(cached) = self.cache.get(&path) {
-            return (Arc::clone(cached), SettingsParseStatus::Parsed);
+fn clear_setting_to_partial(settings: &mut DjangoSettings, setting: KnownSetting) {
+    match setting {
+        KnownSetting::InstalledApps => {
+            settings.installed_apps.values.clear();
+            settings.installed_apps.mark_partial();
         }
-        if !self.active.insert(path.clone()) {
-            return (
-                Arc::new(SettingsBindings::default()),
-                SettingsParseStatus::Parsed,
-            );
+        KnownSetting::Templates => {
+            settings.templates.backends.clear();
+            settings.templates.mark_partial();
         }
+        KnownSetting::StaticUrl => {
+            settings.staticfiles.static_url.values.clear();
+            settings.staticfiles.static_url.mark_partial();
+        }
+        KnownSetting::StaticRoot => {
+            settings.staticfiles.static_root.values.clear();
+            settings.staticfiles.static_root.mark_partial();
+        }
+        KnownSetting::StaticFilesDirs => {
+            settings.staticfiles.staticfiles_dirs.values.clear();
+            settings.staticfiles.staticfiles_dirs.mark_partial();
+        }
+    }
+}
 
-        let mut collector = SettingsBindingsCollector::new(source, resolver, self);
+fn extract_installed_apps(model: &PythonSemanticModel) -> InstalledAppsSetting {
+    let Some(binding) = model.binding(KnownSetting::InstalledApps.name()) else {
+        return InstalledAppsSetting::partial();
+    };
 
-        let parse_status = if let Ok(parsed) = parse_module(source.source()) {
-            let module = parsed.into_syntax();
-            collector.walk_body(&module.body);
-            SettingsParseStatus::Parsed
-        } else {
-            collector.mark_syntax_error();
-            SettingsParseStatus::Unparseable
+    let mut values = Vec::new();
+    let mut complete = binding.is_complete();
+    for bound in binding.values() {
+        let PythonValueKind::List(elements) = bound.value().kind() else {
+            complete = false;
+            continue;
         };
-
-        let bindings = Arc::new(collector.into_bindings());
-        self.active.remove(&path);
-        self.cache.insert(path, Arc::clone(&bindings));
-        (bindings, parse_status)
+        for element in elements {
+            match element.kind() {
+                PythonValueKind::Str(value) => push_unique(&mut values, value.clone()),
+                _ => complete = false,
+            }
+            if !element.is_complete() {
+                complete = false;
+            }
+        }
     }
 
-    fn extract_import_source(
-        &mut self,
-        imported: &PythonSource,
-        resolver: &mut dyn SettingsImports,
-    ) -> Option<Arc<SettingsBindings>> {
-        if self.active.contains(imported.path()) {
-            return None;
+    setting_values(values, complete)
+}
+
+fn extract_templates(model: &PythonSemanticModel) -> TemplateSettings {
+    let Some(binding) = model.binding(KnownSetting::Templates.name()) else {
+        return TemplateSettings::partial();
+    };
+
+    let mut backends = Vec::new();
+    let mut complete = binding.is_complete();
+    for bound in binding.values() {
+        let PythonValueKind::List(elements) = bound.value().kind() else {
+            complete = false;
+            continue;
+        };
+        for element in elements {
+            let PythonValueKind::Dict(dict) = element.kind() else {
+                complete = false;
+                continue;
+            };
+            let backend = extract_template_backend(dict);
+            if !backend.is_fully_extracted() || !element.is_complete() {
+                complete = false;
+            }
+            backends.push(backend);
         }
-        Some(self.extract_module(imported, resolver).0)
+    }
+
+    TemplateSettings {
+        backends,
+        extraction: extraction_status(complete),
+    }
+}
+
+fn extract_template_backend(dict: &PythonDict) -> TemplateBackend {
+    let mut backend = TemplateBackend::default();
+    for entry in dict.entries() {
+        let PythonValueKind::Str(key) = entry.key().kind() else {
+            backend.mark_partial();
+            continue;
+        };
+        match key.as_str() {
+            "BACKEND" => match entry.value().kind() {
+                PythonValueKind::Str(value) => backend.backend = Some(value.clone()),
+                _ => backend.mark_partial(),
+            },
+            "DIRS" => extract_template_dirs(entry.value(), &mut backend),
+            "APP_DIRS" => match entry.value().kind() {
+                PythonValueKind::Bool(value) => backend.app_dirs = Some(*value),
+                _ => backend.mark_partial(),
+            },
+            "OPTIONS" => extract_template_options(entry.value(), &mut backend),
+            _ => {}
+        }
+        if !entry.value().is_complete() {
+            backend.mark_partial();
+        }
+    }
+    backend
+}
+
+fn extract_template_dirs(value: &PythonValue, backend: &mut TemplateBackend) {
+    backend.dirs.clear();
+    let PythonValueKind::List(elements) = value.kind() else {
+        backend.mark_partial();
+        return;
+    };
+    for element in elements {
+        let path = evaluated_path(element);
+        if path == EvaluatedPath::Unknown || !element.is_complete() {
+            backend.mark_partial();
+        }
+        backend.dirs.push(path);
+    }
+}
+
+fn extract_template_options(value: &PythonValue, backend: &mut TemplateBackend) {
+    backend.libraries.clear();
+    backend.builtins.clear();
+    backend.context_processors.clear();
+    let PythonValueKind::Dict(dict) = value.kind() else {
+        backend.mark_partial();
+        return;
+    };
+
+    for entry in dict.entries() {
+        let PythonValueKind::Str(key) = entry.key().kind() else {
+            backend.mark_partial();
+            continue;
+        };
+        match key.as_str() {
+            "libraries" => {
+                let (libraries, complete) = extract_template_library_dict(entry.value());
+                backend.libraries = libraries;
+                if !complete {
+                    backend.mark_partial();
+                }
+            }
+            "builtins" => {
+                let (builtins, complete) = extract_python_module_name_list(entry.value());
+                backend.builtins = builtins;
+                if !complete {
+                    backend.mark_partial();
+                }
+            }
+            "context_processors" => {
+                let (context_processors, complete) =
+                    extract_context_processor_path_list(entry.value());
+                backend.context_processors = context_processors;
+                if !complete {
+                    backend.mark_partial();
+                }
+            }
+            _ => {}
+        }
+        if !entry.value().is_complete() {
+            backend.mark_partial();
+        }
+    }
+}
+
+fn extract_template_library_dict(
+    value: &PythonValue,
+) -> (Vec<(String, crate::python::PythonModuleName)>, bool) {
+    let PythonValueKind::Dict(dict) = value.kind() else {
+        return (Vec::new(), false);
+    };
+
+    let mut values = Vec::new();
+    let mut complete = value.is_complete();
+    for entry in dict.entries() {
+        let PythonValueKind::Str(key) = entry.key().kind() else {
+            complete = false;
+            continue;
+        };
+        let PythonValueKind::Str(value) = entry.value().kind() else {
+            complete = false;
+            continue;
+        };
+        match crate::python::PythonModuleName::parse(value) {
+            Ok(module_name) => values.push((key.clone(), module_name)),
+            Err(_) => complete = false,
+        }
+    }
+    (values, complete)
+}
+
+fn extract_python_module_name_list(
+    value: &PythonValue,
+) -> (Vec<crate::python::PythonModuleName>, bool) {
+    let PythonValueKind::List(elements) = value.kind() else {
+        return (Vec::new(), false);
+    };
+
+    let mut values = Vec::new();
+    let mut complete = value.is_complete();
+    for element in elements {
+        let PythonValueKind::Str(value) = element.kind() else {
+            complete = false;
+            continue;
+        };
+        match crate::python::PythonModuleName::parse(value) {
+            Ok(module_name) => values.push(module_name),
+            Err(_) => complete = false,
+        }
+    }
+    (values, complete)
+}
+
+fn extract_context_processor_path_list(
+    value: &PythonValue,
+) -> (Vec<Originated<TemplateContextProcessorPath>>, bool) {
+    let PythonValueKind::List(elements) = value.kind() else {
+        return (Vec::new(), false);
+    };
+
+    let mut values = Vec::new();
+    let mut complete = value.is_complete();
+    for element in elements {
+        let PythonValueKind::Str(value) = element.kind() else {
+            complete = false;
+            continue;
+        };
+        match TemplateContextProcessorPath::parse(value) {
+            Ok(path) => values.push(Originated::new(path, element.origin())),
+            Err(_) => complete = false,
+        }
+    }
+    (values, complete)
+}
+
+fn extract_static_url(model: &PythonSemanticModel) -> ScalarSetting<String> {
+    let Some(binding) = model.binding(KnownSetting::StaticUrl.name()) else {
+        return ScalarSetting::partial();
+    };
+
+    let mut values = Vec::new();
+    let mut complete = binding.is_complete();
+    for bound in binding.values() {
+        match bound.value().kind() {
+            PythonValueKind::Str(value) => {
+                values.push(Originated::new(value.clone(), bound.value_origin()));
+            }
+            _ => complete = false,
+        }
+        if !bound.is_complete() {
+            complete = false;
+        }
+    }
+    setting_values(values, complete)
+}
+
+fn extract_static_root(model: &PythonSemanticModel) -> ScalarSetting<EvaluatedPath> {
+    let Some(binding) = model.binding(KnownSetting::StaticRoot.name()) else {
+        return ScalarSetting::partial();
+    };
+
+    let mut values = Vec::new();
+    let mut complete = binding.is_complete();
+    for bound in binding.values() {
+        let path = evaluated_path(bound.value());
+        if path == EvaluatedPath::Unknown || !bound.is_complete() {
+            complete = false;
+        }
+        values.push(Originated::new(path, bound.value_origin()));
+    }
+    setting_values(values, complete)
+}
+
+fn extract_staticfiles_dirs(model: &PythonSemanticModel) -> StaticFilesDirsSetting {
+    let Some(binding) = model.binding(KnownSetting::StaticFilesDirs.name()) else {
+        return StaticFilesDirsSetting::partial();
+    };
+
+    let mut values = Vec::new();
+    let mut complete = binding.is_complete();
+    for bound in binding.values() {
+        let PythonValueKind::List(elements) = bound.value().kind() else {
+            complete = false;
+            continue;
+        };
+        for element in elements {
+            let path = evaluated_path(element);
+            if path == EvaluatedPath::Unknown || !element.is_complete() {
+                complete = false;
+            }
+            values.push(Originated::new(path, element.origin()));
+        }
+    }
+    setting_values(values, complete)
+}
+
+fn evaluated_path(value: &PythonValue) -> EvaluatedPath {
+    if let Some(path) = value.path() {
+        return EvaluatedPath::Resolved(path.clone());
+    }
+
+    match value.kind() {
+        PythonValueKind::Path(PythonPathValue::Resolved(path)) => {
+            EvaluatedPath::Resolved(path.clone())
+        }
+        _ => EvaluatedPath::Unknown,
+    }
+}
+
+fn push_unique<T: Eq>(values: &mut Vec<T>, value: T) {
+    if !values.contains(&value) {
+        values.push(value);
+    }
+}
+
+fn setting_values<T>(values: Vec<T>, complete: bool) -> SettingValues<T> {
+    SettingValues::with_extraction(values, extraction_status(complete))
+}
+
+fn extraction_status(complete: bool) -> ExtractionStatus {
+    if complete {
+        ExtractionStatus::Complete
+    } else {
+        ExtractionStatus::Partial
     }
 }
 
@@ -155,6 +466,7 @@ mod tests {
 
     use super::*;
     use crate::ExtractionStatus;
+    use crate::python::PythonImport;
     use crate::python::PythonSource;
     use crate::settings::types::EvaluatedPath;
 
@@ -187,7 +499,7 @@ mod tests {
         }
     }
 
-    impl SettingsImports for MapResolver<'_> {
+    impl PythonImportResolver for MapResolver<'_> {
         fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
             self.resolve_mapped_import(import)
         }
@@ -209,7 +521,7 @@ mod tests {
         }
     }
 
-    impl SettingsImports for RefusingNamedResolver<'_> {
+    impl PythonImportResolver for RefusingNamedResolver<'_> {
         fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
             self.inner.resolve_star_import(import)
         }
@@ -228,7 +540,7 @@ mod tests {
     fn extract_with_resolver(
         db: &TestDatabase,
         source: &str,
-        resolver: &mut dyn SettingsImports,
+        resolver: &mut dyn PythonImportResolver,
     ) -> DjangoSettings {
         let path = Utf8Path::new("/project/config/settings.py");
         db.add_file(path.as_str(), source);
@@ -368,6 +680,42 @@ mod tests {
                 .values,
             ["debug"]
         );
+    }
+
+    #[test]
+    fn later_assignment_replaces_unsupported_touch_uncertainty() {
+        let settings = extract(
+            "INSTALLED_APPS = ['old']\nconfigure(INSTALLED_APPS)\nINSTALLED_APPS = ['new']",
+        );
+
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
+        assert_eq!(settings.installed_apps.values, ["new"]);
+    }
+
+    #[test]
+    fn later_assignment_replaces_unresolved_star_import_uncertainty() {
+        let settings = extract("from missing import *\nINSTALLED_APPS = ['local']");
+
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
+        assert_eq!(settings.installed_apps.values, ["local"]);
+    }
+
+    #[test]
+    fn addition_from_partial_local_binding_stays_partial() {
+        let settings =
+            extract("if FLAG:\n    LOCAL_APPS = ['a']\nINSTALLED_APPS = LOCAL_APPS + ['b']");
+
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Partial
+        );
+        assert_eq!(settings.installed_apps.values, ["a", "b"]);
     }
 
     #[test]
