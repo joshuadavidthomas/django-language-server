@@ -511,16 +511,16 @@ impl<'a> PythonSemanticModelBuilder<'a> {
             ast::Stmt::Expr(expr) => self.walk_expr(&expr.value),
             ast::Stmt::Import(import) => self.walk_import(&import.names),
             ast::Stmt::ImportFrom(import) => self.walk_import_from(import),
-            ast::Stmt::If(stmt_if) => crate::python::branches::analyze_if(self, stmt_if),
+            ast::Stmt::If(stmt_if) => crate::python::branches::walk_if(self, stmt_if),
             ast::Stmt::For(stmt_for) => {
                 self.bind_unknown_targets(&stmt_for.target);
-                crate::python::branches::degrade_touched_bodies(
+                crate::python::branches::degrade_loop_bodies(
                     self,
                     &[&stmt_for.body, &stmt_for.orelse],
                 );
             }
             ast::Stmt::While(stmt_while) => {
-                crate::python::branches::degrade_touched_bodies(
+                crate::python::branches::degrade_loop_bodies(
                     self,
                     &[&stmt_while.body, &stmt_while.orelse],
                 );
@@ -533,7 +533,7 @@ impl<'a> PythonSemanticModelBuilder<'a> {
                 }
                 self.walk_body(&stmt_with.body);
             }
-            ast::Stmt::Try(stmt_try) => crate::python::branches::analyze_try(self, stmt_try),
+            ast::Stmt::Try(stmt_try) => crate::python::branches::walk_try(self, stmt_try),
             ast::Stmt::FunctionDef(function) => {
                 self.bind_unknown_name(function.name.as_str(), self.origin(function));
             }
@@ -547,7 +547,7 @@ impl<'a> PythonSemanticModelBuilder<'a> {
             }
             ast::Stmt::TypeAlias(type_alias) => self.bind_unknown_targets(&type_alias.name),
             ast::Stmt::Match(stmt_match) => {
-                crate::python::branches::analyze_match(self, stmt_match);
+                crate::python::branches::walk_match(self, stmt_match);
             }
             ast::Stmt::Return(_)
             | ast::Stmt::Raise(_)
