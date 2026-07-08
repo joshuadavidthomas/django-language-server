@@ -1,22 +1,22 @@
 use djls_source::File;
 use ruff_python_ast as ast;
 
+use crate::python::ModuleSource;
 use crate::python::evaluate_path;
 use crate::settings::extraction::bindings::SettingsBindings;
-use crate::settings::extraction::substrate::SettingsSource;
 use crate::settings::types::EvaluatedPath;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
 use crate::settings::types::LocalListBinding;
 
 pub(super) struct EvalEnv<'a> {
-    source: &'a SettingsSource,
+    source: &'a ModuleSource,
     locals: &'a LocalBindings,
     installed_apps: Option<&'a InstalledAppsSetting>,
 }
 
 impl<'a> EvalEnv<'a> {
-    pub(super) fn new(source: &'a SettingsSource, bindings: &'a SettingsBindings) -> Self {
+    pub(super) fn new(source: &'a ModuleSource, bindings: &'a SettingsBindings) -> Self {
         Self {
             source,
             locals: &bindings.locals,
