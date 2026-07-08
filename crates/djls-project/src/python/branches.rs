@@ -45,10 +45,10 @@ impl<'a> BranchPath<'a> {
     }
 }
 
-pub(crate) fn analyze_if(builder: &mut PythonSemanticModelBuilder<'_>, stmt_if: &ast::StmtIf) {
+pub(crate) fn walk_if(builder: &mut PythonSemanticModelBuilder<'_>, stmt_if: &ast::StmtIf) {
     match builder.evaluate_test(&stmt_if.test) {
         Truthiness::AlwaysTrue => builder.walk_body(&stmt_if.body),
-        Truthiness::AlwaysFalse => analyze_false_if_clauses(builder, &stmt_if.elif_else_clauses),
+        Truthiness::AlwaysFalse => walk_false_if_clauses(builder, &stmt_if.elif_else_clauses),
         Truthiness::Ambiguous => {
             let mut arms = Vec::with_capacity(stmt_if.elif_else_clauses.len() + 2);
             arms.push(stmt_if.body.as_slice());
@@ -65,12 +65,12 @@ pub(crate) fn analyze_if(builder: &mut PythonSemanticModelBuilder<'_>, stmt_if: 
             {
                 arms.push(&[]);
             }
-            analyze_ambiguous_arms(builder, &arms);
+            walk_ambiguous_arms(builder, &arms);
         }
     }
 }
 
-fn analyze_false_if_clauses(
+fn walk_false_if_clauses(
     builder: &mut PythonSemanticModelBuilder<'_>,
     clauses: &[ast::ElifElseClause],
 ) {
@@ -95,14 +95,14 @@ fn analyze_false_if_clauses(
                 if !ambiguous_clauses.iter().any(|clause| clause.test.is_none()) {
                     arms.push(&[]);
                 }
-                analyze_ambiguous_arms(builder, &arms);
+                walk_ambiguous_arms(builder, &arms);
                 return;
             }
         }
     }
 }
 
-pub(crate) fn analyze_try(builder: &mut PythonSemanticModelBuilder<'_>, stmt_try: &ast::StmtTry) {
+pub(crate) fn walk_try(builder: &mut PythonSemanticModelBuilder<'_>, stmt_try: &ast::StmtTry) {
     if stmt_try.handlers.is_empty() {
         builder.walk_body(&stmt_try.body);
         builder.walk_body(&stmt_try.orelse);
@@ -124,11 +124,11 @@ pub(crate) fn analyze_try(builder: &mut PythonSemanticModelBuilder<'_>, stmt_try
             ));
         }
     }
-    analyze_ambiguous_paths(builder, &paths);
+    walk_ambiguous_paths(builder, &paths);
     builder.walk_body(&stmt_try.finalbody);
 }
 
-pub(crate) fn analyze_match(
+pub(crate) fn walk_match(
     builder: &mut PythonSemanticModelBuilder<'_>,
     stmt_match: &ast::StmtMatch,
 ) {
@@ -160,7 +160,7 @@ pub(crate) fn analyze_match(
     builder.set_state(joined);
 }
 
-pub(crate) fn degrade_touched_bodies(
+pub(crate) fn degrade_loop_bodies(
     builder: &mut PythonSemanticModelBuilder<'_>,
     bodies: &[&[ast::Stmt]],
 ) {
@@ -172,12 +172,12 @@ pub(crate) fn degrade_touched_bodies(
     builder.degrade_writes(writes);
 }
 
-fn analyze_ambiguous_arms(builder: &mut PythonSemanticModelBuilder<'_>, arms: &[&[ast::Stmt]]) {
+fn walk_ambiguous_arms(builder: &mut PythonSemanticModelBuilder<'_>, arms: &[&[ast::Stmt]]) {
     let paths: Vec<BranchPath<'_>> = arms.iter().map(|arm| BranchPath::One(arm)).collect();
-    analyze_ambiguous_paths(builder, &paths);
+    walk_ambiguous_paths(builder, &paths);
 }
 
-fn analyze_ambiguous_paths(builder: &mut PythonSemanticModelBuilder<'_>, paths: &[BranchPath<'_>]) {
+fn walk_ambiguous_paths(builder: &mut PythonSemanticModelBuilder<'_>, paths: &[BranchPath<'_>]) {
     let mut writes = TouchedNames::default();
     for path in paths {
         for segment in path.segments() {
