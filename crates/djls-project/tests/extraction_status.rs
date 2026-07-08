@@ -26,7 +26,7 @@ fn entry_settings_syntax_error_sets_parse_status_unparseable() {
 }
 
 #[test]
-fn imported_settings_syntax_error_keeps_entry_parse_status_parsed() {
+fn imported_settings_syntax_error_sets_entry_parse_status_unparseable() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings.local")
@@ -41,7 +41,7 @@ fn imported_settings_syntax_error_keeps_entry_parse_status_parsed() {
 
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
 
-    assert_eq!(settings["parse_status"], "parsed");
+    assert_eq!(settings["parse_status"], "unparseable");
     assert_eq!(settings["installed_apps"]["values"], serde_json::json!([]));
     assert_eq!(settings["installed_apps"]["extraction"], "partial");
     assert_eq!(settings["templates"]["backends"], serde_json::json!([]));

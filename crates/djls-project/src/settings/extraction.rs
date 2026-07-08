@@ -7,11 +7,13 @@
 //! Django settings in practice: one environment-driven entry should not hide
 //! the static entries around it.
 
+use camino::Utf8Path;
+
 use crate::ExtractionStatus;
+use crate::python::ParseStatus;
 use crate::python::PythonDict;
 use crate::python::PythonImportResolver;
 use crate::python::PythonMutationAccess;
-use crate::python::PythonPathValue;
 use crate::python::PythonSemanticModel;
 use crate::python::PythonSource;
 use crate::python::PythonValue;
@@ -22,7 +24,6 @@ use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::Originated;
 use crate::settings::types::ScalarSetting;
 use crate::settings::types::SettingValues;
-use crate::settings::types::SettingsParseStatus;
 use crate::settings::types::StaticFilesDirsSetting;
 use crate::settings::types::TemplateBackend;
 use crate::settings::types::TemplateContextProcessorPath;
@@ -72,11 +73,7 @@ pub(crate) fn extract_settings(
 
 fn settings_from_model(model: &PythonSemanticModel) -> DjangoSettings {
     let mut settings = DjangoSettings {
-        parse_status: if model.has_parse_error() {
-            SettingsParseStatus::Unparseable
-        } else {
-            SettingsParseStatus::Parsed
-        },
+        parse_status: model.parse_status(),
         installed_apps: extract_installed_apps(model),
         templates: extract_templates(model),
         staticfiles: crate::settings::types::StaticFilesSettings {
@@ -94,7 +91,7 @@ fn settings_from_model(model: &PythonSemanticModel) -> DjangoSettings {
         }
     }
 
-    if model.has_parse_error() {
+    if model.parse_status() == ParseStatus::Unparseable {
         settings.installed_apps.mark_partial();
         settings.templates.mark_partial();
         settings.staticfiles.static_url.mark_partial();
@@ -193,7 +190,7 @@ fn extract_templates(model: &PythonSemanticModel) -> TemplateSettings {
                 complete = false;
                 continue;
             };
-            let backend = extract_template_backend(dict);
+            let backend = extract_template_backend(model, dict);
             if !backend.is_fully_extracted() || !element.is_complete() {
                 complete = false;
             }
@@ -207,7 +204,7 @@ fn extract_templates(model: &PythonSemanticModel) -> TemplateSettings {
     }
 }
 
-fn extract_template_backend(dict: &PythonDict) -> TemplateBackend {
+fn extract_template_backend(model: &PythonSemanticModel, dict: &PythonDict) -> TemplateBackend {
     let mut backend = TemplateBackend::default();
     for entry in dict.entries() {
         let PythonValueKind::Str(key) = entry.key().kind() else {
@@ -219,7 +216,7 @@ fn extract_template_backend(dict: &PythonDict) -> TemplateBackend {
                 PythonValueKind::Str(value) => backend.backend = Some(value.clone()),
                 _ => backend.mark_partial(),
             },
-            "DIRS" => extract_template_dirs(entry.value(), &mut backend),
+            "DIRS" => extract_template_dirs(model, entry.value(), &mut backend),
             "APP_DIRS" => match entry.value().kind() {
                 PythonValueKind::Bool(value) => backend.app_dirs = Some(*value),
                 _ => backend.mark_partial(),
@@ -234,14 +231,18 @@ fn extract_template_backend(dict: &PythonDict) -> TemplateBackend {
     backend
 }
 
-fn extract_template_dirs(value: &PythonValue, backend: &mut TemplateBackend) {
+fn extract_template_dirs(
+    model: &PythonSemanticModel,
+    value: &PythonValue,
+    backend: &mut TemplateBackend,
+) {
     backend.dirs.clear();
     let PythonValueKind::List(elements) = value.kind() else {
         backend.mark_partial();
         return;
     };
     for element in elements {
-        let path = evaluated_path(element);
+        let path = evaluated_path(model, element);
         if path == EvaluatedPath::Unknown || !element.is_complete() {
             backend.mark_partial();
         }
@@ -393,7 +394,7 @@ fn extract_static_root(model: &PythonSemanticModel) -> ScalarSetting<EvaluatedPa
     let mut values = Vec::new();
     let mut complete = binding.is_complete();
     for bound in binding.values() {
-        let path = evaluated_path(bound.value());
+        let path = evaluated_path(model, bound.value());
         if path == EvaluatedPath::Unknown || !bound.is_complete() {
             complete = false;
         }
@@ -415,7 +416,7 @@ fn extract_staticfiles_dirs(model: &PythonSemanticModel) -> StaticFilesDirsSetti
             continue;
         };
         for element in elements {
-            let path = evaluated_path(element);
+            let path = evaluated_path(model, element);
             if path == EvaluatedPath::Unknown || !element.is_complete() {
                 complete = false;
             }
@@ -425,17 +426,23 @@ fn extract_staticfiles_dirs(model: &PythonSemanticModel) -> StaticFilesDirsSetti
     setting_values(values, complete)
 }
 
-fn evaluated_path(value: &PythonValue) -> EvaluatedPath {
-    if let Some(path) = value.path() {
-        return EvaluatedPath::Resolved(path.clone());
-    }
-
+fn evaluated_path(model: &PythonSemanticModel, value: &PythonValue) -> EvaluatedPath {
     match value.kind() {
-        PythonValueKind::Path(PythonPathValue::Resolved(path)) => {
-            EvaluatedPath::Resolved(path.clone())
-        }
+        PythonValueKind::Path(path) => EvaluatedPath::Resolved(path.clone()),
+        PythonValueKind::Str(path) => model
+            .source_path(value.origin().file)
+            .and_then(|source_path| resolve_string_path(source_path, path))
+            .map_or(EvaluatedPath::Unknown, EvaluatedPath::Resolved),
         _ => EvaluatedPath::Unknown,
     }
+}
+
+fn resolve_string_path(source_path: &Utf8Path, path: &str) -> Option<camino::Utf8PathBuf> {
+    let path = Utf8Path::new(path);
+    if path.is_absolute() {
+        return Some(path.to_path_buf());
+    }
+    source_path.parent().map(|parent| parent.join(path))
 }
 
 fn push_unique<T: Eq>(values: &mut Vec<T>, value: T) {
@@ -629,6 +636,34 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_branch_mutation_remains_partial_when_other_branch_assigns() {
+        let settings = extract(
+            "TEMPLATES = [{'OPTIONS': {'context_processors': []}}]\n\
+             if FLAG:\n\
+                 TEMPLATES[0]['OPTIONS']['context_processors'].append('django.template.context_processors.request')\n\
+             else:\n\
+                 TEMPLATES = [{'OPTIONS': {'context_processors': []}}]",
+        );
+
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
+        assert!(settings.templates.backends.is_empty());
+    }
+
+    #[test]
+    fn unsupported_branch_mutation_is_order_independent() {
+        let settings = extract(
+            "TEMPLATES = [{'OPTIONS': {'context_processors': []}}]\n\
+             if FLAG:\n\
+                 TEMPLATES = [{'OPTIONS': {'context_processors': []}}]\n\
+             else:\n\
+                 TEMPLATES[0]['OPTIONS']['context_processors'].append('django.template.context_processors.request')",
+        );
+
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
+        assert!(settings.templates.backends.is_empty());
+    }
+
+    #[test]
     fn non_literal_element_is_partial_and_skipped() {
         let settings = extract("INSTALLED_APPS = ['a', env('EXTRA'), 'b']");
         assert_eq!(
@@ -728,6 +763,52 @@ mod tests {
             ExtractionStatus::Partial
         );
         assert_eq!(settings.installed_apps.values, ["base", "debug", "prod"]);
+    }
+
+    #[test]
+    fn same_value_in_ambiguous_branches_is_complete() {
+        let settings = extract(
+            "if FLAG:\n    INSTALLED_APPS = ['django.contrib.admin']\nelse:\n    INSTALLED_APPS = ['django.contrib.admin']",
+        );
+
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Complete
+        );
+        assert_eq!(settings.installed_apps.values, ["django.contrib.admin"]);
+    }
+
+    #[test]
+    fn same_relative_path_string_from_different_files_stays_partial() {
+        let db = TestDatabase::new();
+        let mut resolver = MapResolver::new(&db)
+            .with_module("one.base", "STATIC_ROOT = 'static'")
+            .with_module("two.base", "STATIC_ROOT = 'static'");
+        let settings = extract_with_resolver(
+            &db,
+            "if FLAG:\n    from one.base import STATIC_ROOT\nelse:\n    from two.base import STATIC_ROOT",
+            &mut resolver,
+        );
+
+        assert_eq!(
+            settings.staticfiles.static_root.extraction,
+            ExtractionStatus::Partial
+        );
+        let values: Vec<_> = settings
+            .staticfiles
+            .static_root
+            .values
+            .iter()
+            .map(Originated::value)
+            .cloned()
+            .collect();
+        assert_eq!(
+            values,
+            [
+                EvaluatedPath::Resolved(Utf8PathBuf::from("/project/settings/one/static")),
+                EvaluatedPath::Resolved(Utf8PathBuf::from("/project/settings/two/static")),
+            ]
+        );
     }
 
     #[test]
@@ -1113,6 +1194,19 @@ mod tests {
     }
 
     #[test]
+    fn imported_parse_error_marks_settings_unparseable() {
+        let db = TestDatabase::new();
+        let mut resolver = MapResolver::new(&db).with_module("base", "INSTALLED_APPS = [");
+        let settings = extract_with_resolver(&db, "from base import INSTALLED_APPS", &mut resolver);
+
+        assert_eq!(settings.parse_status, ParseStatus::Unparseable);
+        assert_eq!(
+            settings.installed_apps.extraction,
+            ExtractionStatus::Partial
+        );
+    }
+
+    #[test]
     fn pathlib_named_import_does_not_affect_extraction_when_unresolved() {
         let settings = extract(
             "from pathlib import Path\n\
@@ -1127,6 +1221,28 @@ mod tests {
                 "/project/templates"
             ))]
         );
+    }
+
+    #[test]
+    fn template_dirs_string_list_resolves_relative_paths() {
+        let settings = extract("TEMPLATES = [{'DIRS': ['templates']}]");
+
+        assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
+        assert_eq!(
+            settings.templates.backends[0].dirs,
+            [EvaluatedPath::Resolved(Utf8PathBuf::from(
+                "/project/config/templates"
+            ))]
+        );
+    }
+
+    #[test]
+    fn bare_template_dirs_string_is_partial() {
+        let settings = extract("TEMPLATES = [{'DIRS': 'templates'}]");
+
+        let backend = &settings.templates.backends[0];
+        assert_eq!(backend.extraction, ExtractionStatus::Partial);
+        assert!(backend.dirs.is_empty());
     }
 
     #[test]

@@ -1,10 +1,13 @@
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
+use djls_source::Origin;
 use djls_source::Span;
 use ruff_python_ast as ast;
 use ruff_python_parser::parse_module;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use serde::Serialize;
 
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
@@ -15,15 +18,20 @@ use crate::python::Truthiness;
 use crate::python::evaluate_path;
 use crate::python::pattern_bound_names;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Origin {
-    pub(crate) file: File,
-    pub(crate) span: Span,
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ParseStatus {
+    #[default]
+    Parsed,
+    Unparseable,
 }
 
-impl Origin {
-    pub(crate) fn new(file: File, span: Span) -> Self {
-        Self { file, span }
+impl ParseStatus {
+    const fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Unparseable, _) | (_, Self::Unparseable) => Self::Unparseable,
+            (Self::Parsed, Self::Parsed) => Self::Parsed,
+        }
     }
 }
 
@@ -31,9 +39,9 @@ impl Origin {
 pub(crate) struct PythonSemanticModel {
     bindings: PythonBindings,
     files_read: Vec<File>,
-    unresolved_star_imports: Vec<Origin>,
+    source_paths: FxHashMap<File, Utf8PathBuf>,
     mutations: Vec<PythonMutation>,
-    parse_error: bool,
+    status: ParseStatus,
 }
 
 impl PythonSemanticModel {
@@ -53,8 +61,12 @@ impl PythonSemanticModel {
         &self.mutations
     }
 
-    pub(crate) fn has_parse_error(&self) -> bool {
-        self.parse_error
+    pub(crate) fn source_path(&self, file: File) -> Option<&Utf8Path> {
+        self.source_paths.get(&file).map(Utf8PathBuf::as_path)
+    }
+
+    pub(crate) fn parse_status(&self) -> ParseStatus {
+        self.status
     }
 }
 
@@ -133,7 +145,7 @@ impl PythonBinding {
     }
 
     fn joined(name: &str, bindings: impl IntoIterator<Item = Option<Self>>) -> Option<Self> {
-        let mut values = Vec::new();
+        let mut values: Vec<PythonBoundValue> = Vec::new();
         let mut completeness = PythonCompleteness::Full;
         let mut saw_binding = false;
 
@@ -147,7 +159,10 @@ impl PythonBinding {
                 completeness = PythonCompleteness::Partial;
             }
             for value in binding.values {
-                if !values.contains(&value) {
+                if !values
+                    .iter()
+                    .any(|existing| existing.semantically_eq(&value))
+                {
                     values.push(value);
                 }
             }
@@ -194,13 +209,16 @@ impl PythonBoundValue {
     pub(crate) fn is_complete(&self) -> bool {
         self.value.is_complete()
     }
+
+    fn semantically_eq(&self, other: &Self) -> bool {
+        self.value.semantically_eq(&other.value)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonValue {
     kind: PythonValueKind,
     origin: Origin,
-    path: Option<Utf8PathBuf>,
     completeness: PythonCompleteness,
 }
 
@@ -209,7 +227,6 @@ impl PythonValue {
         Self {
             kind,
             origin,
-            path: None,
             completeness,
         }
     }
@@ -242,17 +259,18 @@ impl PythonValue {
         self.completeness
     }
 
-    pub(crate) fn path(&self) -> Option<&Utf8PathBuf> {
-        self.path.as_ref()
-    }
-
-    fn with_path(mut self, path: Option<Utf8PathBuf>) -> Self {
-        self.path = path;
-        self
-    }
-
     fn mark_partial(&mut self) {
         self.completeness = PythonCompleteness::Partial;
+    }
+
+    fn semantically_eq(&self, other: &Self) -> bool {
+        self.completeness == other.completeness
+            && match (&self.kind, &other.kind) {
+                (PythonValueKind::Str(left), PythonValueKind::Str(right)) => {
+                    left == right && self.origin.file == other.origin.file
+                }
+                _ => self.kind.semantically_eq(&other.kind),
+            }
     }
 }
 
@@ -262,8 +280,28 @@ pub(crate) enum PythonValueKind {
     Bool(bool),
     List(Vec<PythonValue>),
     Dict(PythonDict),
-    Path(PythonPathValue),
+    Path(Utf8PathBuf),
     Unknown,
+}
+
+impl PythonValueKind {
+    fn semantically_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Str(left), Self::Str(right)) => left == right,
+            (Self::Bool(left), Self::Bool(right)) => left == right,
+            (Self::List(left), Self::List(right)) => {
+                left.len() == right.len()
+                    && left
+                        .iter()
+                        .zip(right)
+                        .all(|(left, right)| left.semantically_eq(right))
+            }
+            (Self::Dict(left), Self::Dict(right)) => left.semantically_eq(right),
+            (Self::Path(left), Self::Path(right)) => left == right,
+            (Self::Unknown, Self::Unknown) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -274,6 +312,15 @@ pub(crate) struct PythonDict {
 impl PythonDict {
     pub(crate) fn entries(&self) -> &[PythonDictEntry] {
         &self.entries
+    }
+
+    fn semantically_eq(&self, other: &Self) -> bool {
+        self.entries.len() == other.entries.len()
+            && self
+                .entries
+                .iter()
+                .zip(&other.entries)
+                .all(|(left, right)| left.semantically_eq(right))
     }
 
     fn get_string_key_mut(&mut self, key: &str) -> Option<&mut PythonValue> {
@@ -301,17 +348,22 @@ impl PythonDictEntry {
     pub(crate) fn value(&self) -> &PythonValue {
         &self.value
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PythonPathValue {
-    Resolved(Utf8PathBuf),
+    fn semantically_eq(&self, other: &Self) -> bool {
+        self.key.semantically_eq(&other.key) && self.value.semantically_eq(&other.value)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PythonCompleteness {
     Full,
     Partial,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct PythonSemanticState {
+    bindings: PythonBindings,
+    mutations: Vec<PythonMutation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -348,7 +400,7 @@ impl PythonBindings {
             let [bound] = binding.values.as_slice() else {
                 continue;
             };
-            let PythonValueKind::Path(PythonPathValue::Resolved(path)) = bound.value.kind() else {
+            let PythonValueKind::Path(path) = bound.value.kind() else {
                 continue;
             };
             if bound.is_complete() && binding.is_complete() {
@@ -393,9 +445,9 @@ impl PythonSemanticModelAnalysis {
             return PythonSemanticModel {
                 bindings: PythonBindings::default(),
                 files_read: Vec::new(),
-                unresolved_star_imports: Vec::new(),
+                source_paths: FxHashMap::default(),
                 mutations: Vec::new(),
-                parse_error: false,
+                status: ParseStatus::Parsed,
             };
         }
 
@@ -404,7 +456,7 @@ impl PythonSemanticModelAnalysis {
             let module = parsed.into_syntax();
             builder.walk_body(&module.body);
         } else {
-            builder.model.parse_error = true;
+            builder.model.status = ParseStatus::Unparseable;
         }
 
         let model = builder.finish();
@@ -434,9 +486,9 @@ impl<'a> PythonSemanticModelBuilder<'a> {
             model: PythonSemanticModel {
                 bindings: PythonBindings::default(),
                 files_read: vec![source.file()],
-                unresolved_star_imports: Vec::new(),
+                source_paths: FxHashMap::from_iter([(source.file(), source.path().to_path_buf())]),
                 mutations: Vec::new(),
-                parse_error: false,
+                status: ParseStatus::Parsed,
             },
         }
     }
@@ -653,15 +705,15 @@ impl<'a> PythonSemanticModelBuilder<'a> {
                     .files_read
                     .extend(imported_model.files_read.clone());
                 self.model
-                    .unresolved_star_imports
-                    .extend(imported_model.unresolved_star_imports.clone());
+                    .source_paths
+                    .extend(imported_model.source_paths.clone());
+                self.model.status = self.model.status.join(imported_model.status);
                 self.model
                     .mutations
                     .extend(imported_model.mutations.clone());
                 self.model.bindings.merge_star_import(&imported_model);
             } else {
                 self.model.bindings.mark_all_partial();
-                self.model.unresolved_star_imports.push(self.origin(import));
             }
             return;
         }
@@ -672,8 +724,9 @@ impl<'a> PythonSemanticModelBuilder<'a> {
                 .files_read
                 .extend(imported_model.files_read.clone());
             self.model
-                .unresolved_star_imports
-                .extend(imported_model.unresolved_star_imports.clone());
+                .source_paths
+                .extend(imported_model.source_paths.clone());
+            self.model.status = self.model.status.join(imported_model.status);
             for alias in &import.names {
                 let imported_name = alias.name.as_str();
                 let bound_name = alias
@@ -742,18 +795,13 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         }
 
         if let Some(value) = expr.string_literal() {
-            return PythonValue::full(PythonValueKind::Str(value.to_string()), origin)
-                .with_path(path);
+            return PythonValue::full(PythonValueKind::Str(value.to_string()), origin);
         }
         if let Some(value) = expr.bool_literal() {
             return PythonValue::full(PythonValueKind::Bool(value), origin);
         }
         if let Some(path) = path {
-            return PythonValue::full(
-                PythonValueKind::Path(PythonPathValue::Resolved(path.clone())),
-                origin,
-            )
-            .with_path(Some(path));
+            return PythonValue::full(PythonValueKind::Path(path), origin);
         }
 
         match expr {
@@ -1023,7 +1071,7 @@ impl<'a> PythonSemanticModelBuilder<'a> {
 }
 
 impl crate::python::branches::BranchAnalyzer for PythonSemanticModelBuilder<'_> {
-    type State = PythonBindings;
+    type State = PythonSemanticState;
     type Writes = TouchedNames;
 
     fn walk_body(&mut self, body: &[ast::Stmt]) {
@@ -1046,37 +1094,53 @@ impl crate::python::branches::BranchAnalyzer for PythonSemanticModelBuilder<'_> 
         self.degrade_names(writes.names);
     }
 
-    fn take_state(&mut self) -> PythonBindings {
-        std::mem::take(&mut self.model.bindings)
+    fn take_state(&mut self) -> PythonSemanticState {
+        PythonSemanticState {
+            bindings: std::mem::take(&mut self.model.bindings),
+            mutations: std::mem::take(&mut self.model.mutations),
+        }
     }
 
-    fn set_state(&mut self, state: PythonBindings) {
-        self.model.bindings = state;
+    fn set_state(&mut self, state: PythonSemanticState) {
+        self.model.bindings = state.bindings;
+        self.model.mutations = state.mutations;
     }
 
     fn join_branches(
         &self,
-        mut base: PythonBindings,
-        branches: &[PythonBindings],
+        mut base: PythonSemanticState,
+        branches: &[PythonSemanticState],
         writes: &TouchedNames,
-    ) -> PythonBindings {
+    ) -> PythonSemanticState {
         let mut names = writes.names.clone();
         for branch in branches {
-            for (name, binding) in &branch.by_name {
-                if base.get(name) != Some(binding) {
+            for (name, binding) in &branch.bindings.by_name {
+                if base.bindings.get(name) != Some(binding) {
                     names.insert(name.clone());
                 }
             }
         }
 
         for name in &names {
-            let branch_values = branches.iter().map(|branch| branch.get(name).cloned());
+            let branch_values = branches
+                .iter()
+                .map(|branch| branch.bindings.get(name).cloned());
             if let Some(binding) = PythonBinding::joined(name, branch_values) {
-                base.bind(name, binding);
+                base.bindings.bind(name, binding);
             } else {
-                base.remove(name);
+                base.bindings.remove(name);
             }
         }
+
+        base.mutations.clear();
+        for branch in branches {
+            for mutation in &branch.mutations {
+                if !base.mutations.contains(mutation) {
+                    base.mutations.push(mutation.clone());
+                }
+            }
+        }
+
         base
     }
 

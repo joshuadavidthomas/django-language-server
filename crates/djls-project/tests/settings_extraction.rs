@@ -448,7 +448,7 @@ TEMPLATES = [
 }
 
 #[test]
-fn template_context_processors_conditional_assignment_keeps_both_branch_facts_partial() {
+fn template_context_processors_same_branch_values_are_complete() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")

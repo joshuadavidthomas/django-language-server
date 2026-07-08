@@ -1,5 +1,6 @@
 ---
 source: crates/djls-project/tests/settings_extraction.rs
+assertion_line: 481
 expression: "django_settings(&db, project)"
 ---
 parse_status: parsed
@@ -19,18 +20,7 @@ templates:
             start: 213
             length: 33
       extraction: complete
-    - backend: django.template.backends.django.DjangoTemplates
-      dirs: []
-      app_dirs: true
-      libraries: []
-      builtins: []
-      context_processors:
-        - value: project.context_processors.site
-          span:
-            start: 476
-            length: 33
-      extraction: complete
-  extraction: partial
+  extraction: complete
 staticfiles:
   static_url:
     values: []
