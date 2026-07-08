@@ -3,6 +3,7 @@ use rustc_hash::FxHashSet;
 use crate::ExtractionStatus;
 use crate::settings::extraction::KnownSetting;
 use crate::settings::types::DjangoSettings;
+use crate::settings::types::EvaluatedPath;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
 use crate::settings::types::LocalListBinding;
@@ -12,7 +13,6 @@ use crate::settings::types::SettingsParseStatus;
 use crate::settings::types::StaticFilesDirsSetting;
 use crate::settings::types::StaticFilesSettings;
 use crate::settings::types::TemplateBackend;
-use crate::settings::types::TemplateDirPath;
 use crate::settings::types::TemplateSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -20,7 +20,7 @@ pub(super) struct SettingsBindings {
     pub(super) installed_apps: Option<InstalledAppsSetting>,
     pub(super) templates: Option<TemplateSettings>,
     pub(super) static_url: Option<ScalarSetting<String>>,
-    pub(super) static_root: Option<ScalarSetting<TemplateDirPath>>,
+    pub(super) static_root: Option<ScalarSetting<EvaluatedPath>>,
     pub(super) staticfiles_dirs: Option<StaticFilesDirsSetting>,
     pub(super) locals: LocalBindings,
 }
@@ -129,6 +129,19 @@ impl SettingsBindings {
 
     pub(super) fn can_mutate_installed_apps(&self) -> bool {
         self.installed_apps.is_some()
+    }
+
+    pub(super) fn degrade_touched(&mut self, writes: &TouchedBindings) {
+        for setting in writes.settings.iter().copied() {
+            self.mark_partial(setting);
+        }
+        for name in &writes.locals {
+            if let Some(list) = self.locals.list_binding_mut(name) {
+                list.mark_partial();
+            } else {
+                self.locals.clear_name(name);
+            }
+        }
     }
 
     pub(super) fn join_ambiguous(

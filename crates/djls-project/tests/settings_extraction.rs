@@ -255,7 +255,7 @@ TEMPLATES = [
 }
 
 #[test]
-fn template_backend_spread_erases_prior_keys() {
+fn template_backend_spread_keeps_prior_keys_partial() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -482,7 +482,7 @@ else:
 }
 
 #[test]
-fn static_url_literal_extracts_spanned_candidate() {
+fn static_url_literal_extracts_originated_candidate() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -536,7 +536,7 @@ STATIC_URL = BASE_URL + "static/"
 }
 
 #[test]
-fn static_root_resolved_path_extracts_spanned_candidate() {
+fn static_root_resolved_path_extracts_originated_candidate() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")

@@ -10,22 +10,21 @@ use crate::python::PythonModule;
 use crate::python::SearchPath;
 use crate::python::resolve_module_detail;
 use crate::settings::DjangoSettings;
-use crate::settings::SettingsImport;
-use crate::settings::SettingsSource;
-use crate::settings::SettingsSourceResolver;
-use crate::settings::extract_settings;
+use crate::settings::extraction::extract_settings;
+use crate::settings::extraction::substrate::SettingsImport;
+use crate::settings::extraction::substrate::SettingsImportResolver;
+use crate::settings::extraction::substrate::SettingsSource;
 
 pub(super) fn django_settings_from_file(
     db: &dyn ProjectDb,
     project: Project,
     file: File,
 ) -> DjangoSettings {
-    let mut reader = TrackedSettingsSourceReader { db };
-    let Some(source) = reader.read_source(file) else {
+    let mut context = SettingsImportContext::tracked(db, project);
+    let Some(source) = context.read_source(file) else {
         return DjangoSettings::default();
     };
-    let mut resolver = ReaderResolver::new(db, project, reader);
-    extract_settings(source.source.as_str(), &source.path, &mut resolver)
+    extract_settings(&source, &mut context)
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -60,64 +59,60 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
 
     // The Django Discovery bump set must cover the same settings source graph
     // the extractor would read against current disk content.
-    let mut reader = DiscoverySettingsSourceReader { db };
-    let Some(source) = reader.read_source(file) else {
+    let mut context = SettingsImportContext::discovery(db, project);
+    let Some(source) = context.read_source(file) else {
         return DjangoSettingsSources::from_files(db, [file]);
     };
-    let mut resolver = ReaderResolver::new(db, project, reader);
-    let _ = extract_settings(source.source.as_str(), &source.path, &mut resolver);
+    let _ = extract_settings(&source, &mut context);
 
-    DjangoSettingsSources::from_files(db, std::iter::once(file).chain(resolver.resolved))
+    DjangoSettingsSources::from_files(db, std::iter::once(file).chain(context.resolved))
 }
 
-trait SettingsSourceReader {
-    fn read_source(&mut self, file: File) -> Option<SettingsSource>;
+enum SettingsReadMode {
+    Tracked,
+    Discovery,
 }
 
-struct TrackedSettingsSourceReader<'db> {
-    db: &'db dyn ProjectDb,
-}
-
-impl SettingsSourceReader for TrackedSettingsSourceReader<'_> {
-    fn read_source(&mut self, file: File) -> Option<SettingsSource> {
-        Some(SettingsSource {
-            source: file.source(self.db).as_str().to_string(),
-            path: file.path(self.db).to_path_buf(),
-        })
-    }
-}
-
-struct DiscoverySettingsSourceReader<'db> {
-    db: &'db dyn ProjectDb,
-}
-
-impl SettingsSourceReader for DiscoverySettingsSourceReader<'_> {
-    fn read_source(&mut self, file: File) -> Option<SettingsSource> {
-        let path = file.path(self.db).to_path_buf();
-        let source = self.db.read_file(&path).ok()?;
-        Some(SettingsSource { source, path })
-    }
-}
-
-struct ReaderResolver<'db, R> {
+struct SettingsImportContext<'db> {
     db: &'db dyn ProjectDb,
     project: Project,
-    reader: R,
+    mode: SettingsReadMode,
     resolved: Vec<File>,
 }
 
-impl<'db, R> ReaderResolver<'db, R> {
-    fn new(db: &'db dyn ProjectDb, project: Project, reader: R) -> Self {
+impl<'db> SettingsImportContext<'db> {
+    fn tracked(db: &'db dyn ProjectDb, project: Project) -> Self {
         Self {
             db,
             project,
-            reader,
+            mode: SettingsReadMode::Tracked,
             resolved: Vec::new(),
         }
     }
+
+    fn discovery(db: &'db dyn ProjectDb, project: Project) -> Self {
+        Self {
+            db,
+            project,
+            mode: SettingsReadMode::Discovery,
+            resolved: Vec::new(),
+        }
+    }
+
+    fn read_source(&mut self, file: File) -> Option<SettingsSource> {
+        let source = match self.mode {
+            SettingsReadMode::Tracked => file.source(self.db).as_str().to_string(),
+            SettingsReadMode::Discovery => self.db.read_file(file.path(self.db)).ok()?,
+        };
+        Some(SettingsSource::new(
+            file,
+            file.path(self.db).to_path_buf(),
+            source,
+        ))
+    }
 }
 
-impl<R: SettingsSourceReader> SettingsSourceResolver for ReaderResolver<'_, R> {
+impl SettingsImportResolver for SettingsImportContext<'_> {
     fn resolve_star_import(
         &mut self,
         import: &SettingsImport,
@@ -146,7 +141,7 @@ impl<R: SettingsSourceReader> SettingsSourceResolver for ReaderResolver<'_, R> {
     }
 }
 
-impl<R: SettingsSourceReader> ReaderResolver<'_, R> {
+impl SettingsImportContext<'_> {
     fn resolve_python_import(
         &mut self,
         import: &SettingsImport,
@@ -163,6 +158,6 @@ impl<R: SettingsSourceReader> ReaderResolver<'_, R> {
     fn read_resolved_module(&mut self, module: &PythonModule) -> Option<SettingsSource> {
         let file = module.file();
         self.resolved.push(file);
-        self.reader.read_source(file)
+        self.read_source(file)
     }
 }

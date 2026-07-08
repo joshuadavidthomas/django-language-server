@@ -1,4 +1,5 @@
-use djls_source::Spanned;
+use djls_source::File;
+use djls_source::Span;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
@@ -7,6 +8,7 @@ use crate::python::resolve_prefix;
 use crate::settings::TemplateContextProcessorPath;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
+use crate::settings::types::Originated;
 use crate::templates::libraries::TemplateInventoryStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,7 +40,7 @@ impl TemplateContextProcessors {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateContextProcessor {
-    path: Spanned<TemplateContextProcessorPath>,
+    path: Originated<TemplateContextProcessorPath>,
     module: Option<PythonModule>,
     unresolved_tail: Vec<String>,
 }
@@ -47,6 +49,12 @@ impl TemplateContextProcessor {
     #[must_use]
     pub fn path_str(&self) -> &str {
         self.path.value().as_str()
+    }
+
+    #[must_use]
+    pub fn origin(&self) -> (File, Span) {
+        let origin = self.path.origin();
+        (origin.file, origin.span)
     }
 
     #[must_use]

@@ -1,5 +1,6 @@
-use djls_source::Spanned;
+use djls_source::File;
 use ruff_python_ast as ast;
+use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
@@ -7,9 +8,11 @@ use crate::python::PythonModuleName;
 use crate::settings::extraction::AssignmentCompleteness;
 use crate::settings::extraction::bindings::ExtractedList;
 use crate::settings::extraction::env::EvalEnv;
+use crate::settings::types::EvaluatedPath;
+use crate::settings::types::Origin;
+use crate::settings::types::Originated;
 use crate::settings::types::TemplateBackend;
 use crate::settings::types::TemplateContextProcessorPath;
-use crate::settings::types::TemplateDirPath;
 
 pub(super) enum AssignmentEffect {
     Assign(Vec<TemplateBackend>, AssignmentCompleteness),
@@ -17,7 +20,7 @@ pub(super) enum AssignmentEffect {
 }
 
 pub(super) enum DirsExtensionEffect {
-    Extend(Vec<TemplateDirPath>),
+    Extend(Vec<EvaluatedPath>),
     Partial,
 }
 
@@ -58,23 +61,20 @@ pub(super) fn evaluate_dirs_extension(value: &ast::Expr, env: &EvalEnv<'_>) -> D
 
 fn evaluate_template_backend(dict: &ast::ExprDict, env: &EvalEnv<'_>) -> TemplateBackend {
     let mut backend = TemplateBackend::default();
-    let first_item = dict
-        .items
-        .iter()
-        .rposition(|item| item.key.is_none())
-        .map_or(0, |index| {
-            backend.mark_partial();
-            index + 1
-        });
+    let mut seen_keys = FxHashSet::default();
 
-    for item in dict.items.iter().skip(first_item) {
+    for item in dict.items.iter().rev() {
         let Some(key_expr) = &item.key else {
+            backend.mark_partial();
             continue;
         };
         let Some(key) = key_expr.string_literal() else {
             backend.mark_partial();
             continue;
         };
+        if !seen_keys.insert(key) {
+            continue;
+        }
         match key {
             "BACKEND" => {
                 if let Some(value) = item.value.string_literal() {
@@ -93,7 +93,7 @@ fn evaluate_template_backend(dict: &ast::ExprDict, env: &EvalEnv<'_>) -> Templat
                     backend.mark_partial();
                 }
             }
-            "OPTIONS" => evaluate_template_options(&item.value, &mut backend),
+            "OPTIONS" => evaluate_template_options(&item.value, &mut backend, env.module_file()),
             _ => {}
         }
     }
@@ -108,14 +108,14 @@ fn evaluate_template_dirs(value: &ast::Expr, env: &EvalEnv<'_>, backend: &mut Te
     };
     for element in &list.elts {
         let path = env.evaluate_template_dir_path(element);
-        if path == TemplateDirPath::Unknown {
+        if path == EvaluatedPath::Unknown {
             backend.mark_partial();
         }
         backend.dirs.push(path);
     }
 }
 
-fn evaluate_template_options(value: &ast::Expr, backend: &mut TemplateBackend) {
+fn evaluate_template_options(value: &ast::Expr, backend: &mut TemplateBackend, file: File) {
     backend.libraries.clear();
     backend.builtins.clear();
     backend.context_processors.clear();
@@ -124,7 +124,8 @@ fn evaluate_template_options(value: &ast::Expr, backend: &mut TemplateBackend) {
         return;
     };
 
-    for item in &dict.items {
+    let mut seen_keys = FxHashSet::default();
+    for item in dict.items.iter().rev() {
         let Some(key_expr) = &item.key else {
             backend.mark_partial();
             continue;
@@ -133,24 +134,27 @@ fn evaluate_template_options(value: &ast::Expr, backend: &mut TemplateBackend) {
             backend.mark_partial();
             continue;
         };
+        if !seen_keys.insert(key) {
+            continue;
+        }
         match key {
             "libraries" => {
                 let libraries = extract_template_library_dict(&item.value);
-                backend.libraries.extend(libraries.values);
+                backend.libraries = libraries.values;
                 if !libraries.status.is_complete() {
                     backend.mark_partial();
                 }
             }
             "builtins" => {
                 let builtins = extract_python_module_name_list(&item.value);
-                backend.builtins.extend(builtins.values);
+                backend.builtins = builtins.values;
                 if !builtins.status.is_complete() {
                     backend.mark_partial();
                 }
             }
             "context_processors" => {
-                let context_processors = extract_context_processor_path_list(&item.value);
-                backend.context_processors.extend(context_processors.values);
+                let context_processors = extract_context_processor_path_list(&item.value, file);
+                backend.context_processors = context_processors.values;
                 if !context_processors.status.is_complete() {
                     backend.mark_partial();
                 }
@@ -166,18 +170,26 @@ fn extract_template_library_dict(value: &ast::Expr) -> ExtractedList<(String, Py
     };
 
     let mut extracted = ExtractedList::complete(Vec::new());
-    for item in &dict.items {
-        match (
-            item.key.as_ref().and_then(ExprExt::string_literal),
-            item.value.string_literal(),
-        ) {
-            (Some(key), Some(value)) => match PythonModuleName::parse(value) {
-                Ok(module_name) => extracted.values.push((key.to_string(), module_name)),
-                Err(_) => extracted.status.mark_incomplete(),
-            },
-            _ => extracted.status.mark_incomplete(),
+    let mut seen_keys = FxHashSet::default();
+
+    for item in dict.items.iter().rev() {
+        let Some(key) = item.key.as_ref().and_then(ExprExt::string_literal) else {
+            extracted.status.mark_incomplete();
+            continue;
+        };
+        if !seen_keys.insert(key) {
+            continue;
+        }
+        let Some(value) = item.value.string_literal() else {
+            extracted.status.mark_incomplete();
+            continue;
+        };
+        match PythonModuleName::parse(value) {
+            Ok(module_name) => extracted.values.push((key.to_string(), module_name)),
+            Err(_) => extracted.status.mark_incomplete(),
         }
     }
+    extracted.values.reverse();
     extracted
 }
 
@@ -202,7 +214,8 @@ fn extract_python_module_name_list(value: &ast::Expr) -> ExtractedList<PythonMod
 
 fn extract_context_processor_path_list(
     value: &ast::Expr,
-) -> ExtractedList<Spanned<TemplateContextProcessorPath>> {
+    file: File,
+) -> ExtractedList<Originated<TemplateContextProcessorPath>> {
     let ast::Expr::List(list) = value else {
         return ExtractedList::incomplete(Vec::new());
     };
@@ -214,7 +227,9 @@ fn extract_context_processor_path_list(
             continue;
         };
         match TemplateContextProcessorPath::parse(value) {
-            Ok(path) => extracted.values.push(Spanned::new(path, element.span())),
+            Ok(path) => extracted
+                .values
+                .push(Originated::new(path, Origin::new(file, element.span()))),
             Err(_) => extracted.status.mark_incomplete(),
         }
     }
