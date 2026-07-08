@@ -16,7 +16,7 @@ use crate::models::extract::extract_models_impl;
 use crate::models::resolve::resolve_deferred_models;
 use crate::project::Project;
 use crate::python::PythonModuleName;
-use crate::python::import_table;
+use crate::python::import_bindings;
 use crate::python::parse_python_module;
 
 /// Compute a merged `ModelGraph` from discovered model sources.
@@ -40,12 +40,12 @@ pub fn resolve_model_graph_from_modules(
     modules: impl IntoIterator<Item = (File, PythonModuleName)>,
 ) -> ModelGraph {
     let mut graph = ModelGraph::new();
-    let mut import_tables = BTreeMap::new();
+    let mut import_bindings_by_module = BTreeMap::new();
     let mut deferred = Vec::new();
 
     for (file, module_name) in modules {
-        let table = import_table(db, file, module_name.clone());
-        import_tables.insert(module_name.clone(), table);
+        let bindings = import_bindings(db, file, module_name.clone());
+        import_bindings_by_module.insert(module_name.clone(), bindings);
 
         let extraction = extract_models(db, file, module_name);
         if !extraction.graph.is_empty() {
@@ -55,7 +55,7 @@ pub fn resolve_model_graph_from_modules(
     }
 
     resolve_deferred_models(db, project, &mut graph, deferred);
-    graph.resolve_relation_targets(db, project, &import_tables);
+    graph.resolve_relation_targets(db, project, &import_bindings_by_module);
     #[cfg(debug_assertions)]
     graph.debug_assert_no_file_local_placeholders();
     graph
@@ -75,6 +75,6 @@ pub fn extract_models(
         return ModelExtraction::unparseable();
     };
 
-    let imports = import_table(db, file, module_name.clone());
+    let imports = import_bindings(db, file, module_name.clone());
     extract_models_impl(parsed.body(db), module_name, file, imports)
 }

@@ -22,7 +22,7 @@ use crate::models::graph::ModelName;
 use crate::models::graph::Relation;
 use crate::models::graph::RelationTarget;
 use crate::models::graph::RelationType;
-use crate::python::ImportTable;
+use crate::python::ImportBindings;
 #[cfg(test)]
 use crate::python::ModuleKind;
 use crate::python::PythonModuleName;
@@ -72,7 +72,7 @@ struct DeferredCandidate<'a> {
 }
 
 impl<'a> DeferredCandidate<'a> {
-    fn from_class(class: &'a StmtClassDef, imports: &ImportTable) -> Option<Self> {
+    fn from_class(class: &'a StmtClassDef, imports: &ImportBindings) -> Option<Self> {
         let args = class.arguments.as_ref()?;
         let bases: Vec<_> = args
             .args
@@ -91,13 +91,13 @@ impl<'a> DeferredCandidate<'a> {
 struct ModelCollector<'a> {
     module_name: PythonModuleName,
     file: File,
-    imports: &'a ImportTable,
+    imports: &'a ImportBindings,
     graph: ModelGraph,
     children: Vec<&'a StmtClassDef>,
 }
 
 impl<'a> ModelCollector<'a> {
-    fn new(module_name: PythonModuleName, file: File, imports: &'a ImportTable) -> Self {
+    fn new(module_name: PythonModuleName, file: File, imports: &'a ImportBindings) -> Self {
         Self {
             module_name,
             file,
@@ -216,7 +216,7 @@ pub(super) fn extract_models_impl(
     stmts: &[Stmt],
     module_name: PythonModuleName,
     file: File,
-    imports: &ImportTable,
+    imports: &ImportBindings,
 ) -> ModelExtraction {
     let mut collector = ModelCollector::new(module_name, file, imports);
     walk_stmts(stmts, Recurse::Flat, |stmt| {
@@ -321,7 +321,7 @@ impl DeferredModel {
 }
 
 impl DeferredBaseRef {
-    fn from_expr(expr: &Expr, imports: &ImportTable) -> Option<Self> {
+    fn from_expr(expr: &Expr, imports: &ImportBindings) -> Option<Self> {
         let path = expr.path_segments()?;
         if let Ok(path) = imports.resolve_qualified_path(path.iter().map(String::as_str)) {
             return Some(Self::Qualified(path));
@@ -346,7 +346,7 @@ fn base_class_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, imports: &ImportTable) -> bool {
+fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, imports: &ImportBindings) -> bool {
     bases
         .filter_map(ExprExt::path_segments)
         .filter_map(|path| {
@@ -558,7 +558,7 @@ mod tests {
         db.add_file("/test.py", source);
         let file = db.file(Utf8Path::new("/test.py"));
         let module_name = PythonModuleName::parse(module_name).unwrap();
-        let imports = crate::python::extract_import_table_for_source(
+        let imports = crate::python::extract_import_bindings_for_source(
             source,
             &module_name,
             ModuleKind::Module,
