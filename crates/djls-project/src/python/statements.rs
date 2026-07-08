@@ -1,55 +1,4 @@
-use camino::Utf8Path;
-use camino::Utf8PathBuf;
-use djls_source::File;
 use ruff_python_ast as ast;
-
-/// A Python `from X import ...` statement that another extractor may follow.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ModuleImport {
-    pub(crate) level: u32,
-    pub(crate) module: Option<String>,
-}
-
-/// Source text plus the file identity that produced it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ModuleSource {
-    source: String,
-    file: File,
-    path: Utf8PathBuf,
-}
-
-impl ModuleSource {
-    pub(crate) fn new(file: File, path: Utf8PathBuf, source: String) -> Self {
-        Self { source, file, path }
-    }
-
-    pub(crate) fn source(&self) -> &str {
-        &self.source
-    }
-
-    pub(crate) fn file(&self) -> File {
-        self.file
-    }
-
-    pub(crate) fn path(&self) -> &Utf8Path {
-        &self.path
-    }
-}
-
-/// Import-following seam used by module-level Python fact extractors.
-pub(crate) trait ModuleImportResolver {
-    fn resolve_star_import(
-        &mut self,
-        import: &ModuleImport,
-        importer: &Utf8Path,
-    ) -> Option<ModuleSource>;
-
-    fn resolve_named_import(
-        &mut self,
-        import: &ModuleImport,
-        importer: &Utf8Path,
-    ) -> Option<ModuleSource>;
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Truthiness {
@@ -76,7 +25,7 @@ impl Truthiness {
     }
 }
 
-pub(crate) trait ModuleFactsBuilder {
+pub(crate) trait StatementAnalyzer {
     type State: Clone;
     type Writes: Default;
 
@@ -114,10 +63,10 @@ impl<'a> ControlFlowPath<'a> {
     }
 }
 
-pub(crate) fn walk_if<B: ModuleFactsBuilder>(builder: &mut B, stmt_if: &ast::StmtIf) {
+pub(crate) fn analyze_if<B: StatementAnalyzer>(builder: &mut B, stmt_if: &ast::StmtIf) {
     match builder.evaluate_test(&stmt_if.test) {
         Truthiness::AlwaysTrue => builder.walk_body(&stmt_if.body),
-        Truthiness::AlwaysFalse => walk_false_if_clauses(builder, &stmt_if.elif_else_clauses),
+        Truthiness::AlwaysFalse => analyze_false_if_clauses(builder, &stmt_if.elif_else_clauses),
         Truthiness::Ambiguous => {
             let mut arms = Vec::with_capacity(stmt_if.elif_else_clauses.len() + 2);
             arms.push(stmt_if.body.as_slice());
@@ -134,12 +83,15 @@ pub(crate) fn walk_if<B: ModuleFactsBuilder>(builder: &mut B, stmt_if: &ast::Stm
             {
                 arms.push(&[]);
             }
-            walk_ambiguous_arms(builder, &arms);
+            analyze_ambiguous_arms(builder, &arms);
         }
     }
 }
 
-fn walk_false_if_clauses<B: ModuleFactsBuilder>(builder: &mut B, clauses: &[ast::ElifElseClause]) {
+fn analyze_false_if_clauses<B: StatementAnalyzer>(
+    builder: &mut B,
+    clauses: &[ast::ElifElseClause],
+) {
     for (index, clause) in clauses.iter().enumerate() {
         let Some(test) = &clause.test else {
             builder.walk_body(&clause.body);
@@ -161,14 +113,14 @@ fn walk_false_if_clauses<B: ModuleFactsBuilder>(builder: &mut B, clauses: &[ast:
                 if !ambiguous_clauses.iter().any(|clause| clause.test.is_none()) {
                     arms.push(&[]);
                 }
-                walk_ambiguous_arms(builder, &arms);
+                analyze_ambiguous_arms(builder, &arms);
                 return;
             }
         }
     }
 }
 
-pub(crate) fn walk_try<B: ModuleFactsBuilder>(builder: &mut B, stmt_try: &ast::StmtTry) {
+pub(crate) fn analyze_try<B: StatementAnalyzer>(builder: &mut B, stmt_try: &ast::StmtTry) {
     if stmt_try.handlers.is_empty() {
         builder.walk_body(&stmt_try.body);
         builder.walk_body(&stmt_try.orelse);
@@ -190,11 +142,11 @@ pub(crate) fn walk_try<B: ModuleFactsBuilder>(builder: &mut B, stmt_try: &ast::S
             ));
         }
     }
-    walk_ambiguous_paths(builder, &paths);
+    analyze_ambiguous_paths(builder, &paths);
     builder.walk_body(&stmt_try.finalbody);
 }
 
-pub(crate) fn walk_match<B: ModuleFactsBuilder>(builder: &mut B, stmt_match: &ast::StmtMatch) {
+pub(crate) fn analyze_match<B: StatementAnalyzer>(builder: &mut B, stmt_match: &ast::StmtMatch) {
     if stmt_match.cases.len() == 1 && is_irrefutable_match_case(&stmt_match.cases[0]) {
         bind_pattern_names(builder, &stmt_match.cases[0].pattern);
         builder.walk_body(&stmt_match.cases[0].body);
@@ -223,7 +175,7 @@ pub(crate) fn walk_match<B: ModuleFactsBuilder>(builder: &mut B, stmt_match: &as
     builder.set_state(joined);
 }
 
-pub(crate) fn degrade_touched_bodies<B: ModuleFactsBuilder>(
+pub(crate) fn degrade_touched_bodies<B: StatementAnalyzer>(
     builder: &mut B,
     bodies: &[&[ast::Stmt]],
 ) {
@@ -235,13 +187,13 @@ pub(crate) fn degrade_touched_bodies<B: ModuleFactsBuilder>(
     builder.degrade_writes(writes);
 }
 
-fn walk_ambiguous_arms<B: ModuleFactsBuilder>(builder: &mut B, arms: &[&[ast::Stmt]]) {
+fn analyze_ambiguous_arms<B: StatementAnalyzer>(builder: &mut B, arms: &[&[ast::Stmt]]) {
     let paths: Vec<ControlFlowPath<'_>> =
         arms.iter().map(|arm| ControlFlowPath::One(arm)).collect();
-    walk_ambiguous_paths(builder, &paths);
+    analyze_ambiguous_paths(builder, &paths);
 }
 
-fn walk_ambiguous_paths<B: ModuleFactsBuilder>(builder: &mut B, paths: &[ControlFlowPath<'_>]) {
+fn analyze_ambiguous_paths<B: StatementAnalyzer>(builder: &mut B, paths: &[ControlFlowPath<'_>]) {
     let mut writes = B::Writes::default();
     for path in paths {
         for segment in path.segments() {
@@ -263,13 +215,13 @@ fn walk_ambiguous_paths<B: ModuleFactsBuilder>(builder: &mut B, paths: &[Control
     builder.set_state(joined);
 }
 
-fn bind_pattern_names<B: ModuleFactsBuilder>(builder: &mut B, pattern: &ast::Pattern) {
+fn bind_pattern_names<B: StatementAnalyzer>(builder: &mut B, pattern: &ast::Pattern) {
     for name in pattern_bound_names(pattern) {
         builder.bind_pattern_name(name);
     }
 }
 
-fn record_pattern_writes<B: ModuleFactsBuilder>(
+fn record_pattern_writes<B: StatementAnalyzer>(
     builder: &B,
     pattern: &ast::Pattern,
     writes: &mut B::Writes,

@@ -160,6 +160,39 @@ pub(crate) struct PythonImport<'a> {
     pub(crate) importer: &'a Utf8Path,
 }
 
+/// Source text plus the Python module file identity that produced it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PythonModuleSource {
+    source: String,
+    file: File,
+    path: Utf8PathBuf,
+}
+
+impl PythonModuleSource {
+    pub(crate) fn new(file: File, path: Utf8PathBuf, source: String) -> Self {
+        Self { source, file, path }
+    }
+
+    pub(crate) fn source(&self) -> &str {
+        &self.source
+    }
+
+    pub(crate) fn file(&self) -> File {
+        self.file
+    }
+
+    pub(crate) fn path(&self) -> &Utf8Path {
+        &self.path
+    }
+}
+
+/// Import-following seam used by Python source extractors.
+pub(crate) trait PythonImportSourceResolver {
+    fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonModuleSource>;
+
+    fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonModuleSource>;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(crate) enum PythonImportError {
     #[error(transparent)]

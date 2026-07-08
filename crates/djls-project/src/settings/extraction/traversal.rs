@@ -6,10 +6,10 @@ use crate::ExtractionStatus;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::python::ModuleFactsBuilder;
-use crate::python::ModuleImport;
-use crate::python::ModuleImportResolver;
-use crate::python::ModuleSource;
+use crate::python::PythonImport;
+use crate::python::PythonImportSourceResolver;
+use crate::python::PythonModuleSource;
+use crate::python::StatementAnalyzer;
 use crate::python::Truthiness;
 use crate::python::pattern_bound_names;
 use crate::settings::extraction::AssignmentCompleteness;
@@ -31,15 +31,15 @@ use crate::settings::types::TemplateSettings;
 
 pub(super) struct SettingsBindingsCollector<'a> {
     bindings: SettingsBindings,
-    source: &'a ModuleSource,
-    resolver: &'a mut dyn ModuleImportResolver,
+    source: &'a PythonModuleSource,
+    resolver: &'a mut dyn PythonImportSourceResolver,
     extraction: &'a mut SettingsExtraction,
 }
 
 impl<'a> SettingsBindingsCollector<'a> {
     pub(super) fn new(
-        source: &'a ModuleSource,
-        resolver: &'a mut dyn ModuleImportResolver,
+        source: &'a PythonModuleSource,
+        resolver: &'a mut dyn PythonImportSourceResolver,
         extraction: &'a mut SettingsExtraction,
     ) -> Self {
         Self {
@@ -78,7 +78,7 @@ impl<'a> SettingsBindingsCollector<'a> {
             ast::Stmt::Expr(expr) => self.walk_expr(&expr.value),
             ast::Stmt::Import(import) => self.walk_import(&import.names),
             ast::Stmt::ImportFrom(import) => self.walk_import_from(import),
-            ast::Stmt::If(stmt_if) => crate::python::walk_if(self, stmt_if),
+            ast::Stmt::If(stmt_if) => crate::python::analyze_if(self, stmt_if),
             ast::Stmt::For(stmt_for) => {
                 self.mark_unknown_targets(&stmt_for.target);
                 crate::python::degrade_touched_bodies(self, &[&stmt_for.body, &stmt_for.orelse]);
@@ -97,7 +97,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                 }
                 self.walk_body(&stmt_with.body);
             }
-            ast::Stmt::Try(stmt_try) => crate::python::walk_try(self, stmt_try),
+            ast::Stmt::Try(stmt_try) => crate::python::analyze_try(self, stmt_try),
             ast::Stmt::FunctionDef(function) => self.mark_definition_name(function.name.as_str()),
             ast::Stmt::ClassDef(class) => self.mark_definition_name(class.name.as_str()),
             ast::Stmt::Delete(delete) => {
@@ -106,7 +106,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                 }
             }
             ast::Stmt::TypeAlias(type_alias) => self.mark_unknown_targets(&type_alias.name),
-            ast::Stmt::Match(stmt_match) => crate::python::walk_match(self, stmt_match),
+            ast::Stmt::Match(stmt_match) => crate::python::analyze_match(self, stmt_match),
             ast::Stmt::Return(_)
             | ast::Stmt::Raise(_)
             | ast::Stmt::Assert(_)
@@ -230,20 +230,24 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn walk_import_from(&mut self, import: &ast::StmtImportFrom) {
-        let source_import = ModuleImport {
+        let source_import = PythonImport {
             level: import.level,
-            module: import.module.as_ref().map(ToString::to_string),
+            module: import
+                .module
+                .as_ref()
+                .map(ruff_python_ast::Identifier::as_str),
+            importer: self.source.path(),
         };
 
         let is_star_import = import.names.iter().any(|alias| alias.name.as_str() == "*");
         if is_star_import {
-            let imported_bindings = self
-                .resolver
-                .resolve_star_import(&source_import, self.source.path())
-                .and_then(|resolved| {
-                    self.extraction
-                        .extract_import_source(&resolved, self.resolver)
-                });
+            let imported_bindings =
+                self.resolver
+                    .resolve_star_import(source_import)
+                    .and_then(|resolved| {
+                        self.extraction
+                            .extract_import_source(&resolved, self.resolver)
+                    });
             if let Some(bindings) = imported_bindings {
                 self.bindings.merge_star_import(&bindings);
             } else {
@@ -254,13 +258,13 @@ impl<'a> SettingsBindingsCollector<'a> {
             return;
         }
 
-        let imported_bindings = self
-            .resolver
-            .resolve_named_import(&source_import, self.source.path())
-            .and_then(|resolved| {
-                self.extraction
-                    .extract_import_source(&resolved, self.resolver)
-            });
+        let imported_bindings =
+            self.resolver
+                .resolve_named_import(source_import)
+                .and_then(|resolved| {
+                    self.extraction
+                        .extract_import_source(&resolved, self.resolver)
+                });
         if let Some(imported_bindings) = imported_bindings {
             for alias in &import.names {
                 let imported_name = alias.name.as_str();
@@ -616,7 +620,7 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 }
 
-impl ModuleFactsBuilder for SettingsBindingsCollector<'_> {
+impl StatementAnalyzer for SettingsBindingsCollector<'_> {
     type State = SettingsBindings;
     type Writes = TouchedBindings;
 
