@@ -1893,7 +1893,10 @@ fn resolve_module_detail_rejects_wrong_cased_file_module_candidate_on_case_insen
 
     assert_eq!(detail.selected_root, None);
     assert!(detail.candidates.is_empty());
-    assert_eq!(detail.unresolved_reason, Some(UnresolvedReason::NotFound));
+    assert_eq!(
+        detail.unresolved_reason,
+        Some(ModuleUnresolvedReason::NotFound)
+    );
 }
 
 #[test]
@@ -2027,7 +2030,7 @@ fn python_module_resolve_applies_regular_package_terminality_across_roots() {
     assert_eq!(
         resolve_module_detail(&db, project, PythonModuleName::parse("foo.bar").unwrap())
             .unresolved_reason,
-        Some(UnresolvedReason::NotFound)
+        Some(ModuleUnresolvedReason::NotFound)
     );
 }
 
@@ -2143,15 +2146,15 @@ fn resolve_module_detail_lists_shadowed_regular_candidates_in_root_order() {
     assert_eq!(
         detail.candidates,
         vec![
-            CandidateLocation {
+            ModuleCandidate {
                 root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
                 path: Utf8PathBuf::from("/project/app.py"),
-                kind: CandidateKind::FileModule,
+                kind: ModuleCandidateKind::FileModule,
             },
-            CandidateLocation {
+            ModuleCandidate {
                 root: SearchPath::FirstParty(Utf8PathBuf::from("/project/vendor")),
                 path: Utf8PathBuf::from("/project/vendor/app.py"),
-                kind: CandidateKind::FileModule,
+                kind: ModuleCandidateKind::FileModule,
             },
         ]
     );
@@ -2178,20 +2181,20 @@ fn resolve_module_detail_reports_namespace_only() {
     assert_eq!(detail.selected_root, None);
     assert_eq!(
         detail.unresolved_reason,
-        Some(UnresolvedReason::NamespaceOnly)
+        Some(ModuleUnresolvedReason::NamespaceOnly)
     );
     assert_eq!(
         detail.candidates,
         vec![
-            CandidateLocation {
+            ModuleCandidate {
                 root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
                 path: Utf8PathBuf::from("/project/app"),
-                kind: CandidateKind::NamespacePortion,
+                kind: ModuleCandidateKind::NamespacePortion,
             },
-            CandidateLocation {
+            ModuleCandidate {
                 root: SearchPath::Extra(Utf8PathBuf::from("/vendor")),
                 path: Utf8PathBuf::from("/vendor/app"),
-                kind: CandidateKind::NamespacePortion,
+                kind: ModuleCandidateKind::NamespacePortion,
             },
         ]
     );
@@ -2206,7 +2209,10 @@ fn resolve_module_detail_reports_not_found() {
 
     assert_eq!(detail.selected_root, None);
     assert!(detail.candidates.is_empty());
-    assert_eq!(detail.unresolved_reason, Some(UnresolvedReason::NotFound));
+    assert_eq!(
+        detail.unresolved_reason,
+        Some(ModuleUnresolvedReason::NotFound)
+    );
 }
 
 #[test]
@@ -2464,7 +2470,7 @@ fn file_to_module_reports_shadowed_cross_root_file() {
     );
     assert_eq!(
         detail.unresolved_reason,
-        Some(FileUnresolvedReason::Shadowed {
+        Some(FileModuleUnresolvedReason::Shadowed {
             winner: Utf8PathBuf::from("/project/app.py"),
         })
     );
@@ -2494,7 +2500,7 @@ fn file_to_module_reports_shadowed_sibling_precedence_file() {
     );
     assert_eq!(
         detail.unresolved_reason,
-        Some(FileUnresolvedReason::Shadowed {
+        Some(FileModuleUnresolvedReason::Shadowed {
             winner: Utf8PathBuf::from("/project/app/__init__.py"),
         })
     );
@@ -2513,7 +2519,7 @@ fn file_to_module_reports_not_under_any_root() {
     assert!(detail.derivations.is_empty());
     assert_eq!(
         detail.unresolved_reason,
-        Some(FileUnresolvedReason::NotUnderAnyRoot)
+        Some(FileModuleUnresolvedReason::NotUnderAnyRoot)
     );
 }
 
@@ -2532,7 +2538,7 @@ fn file_to_module_reports_no_valid_derivation() {
     assert!(detail.derivations.is_empty());
     assert_eq!(
         detail.unresolved_reason,
-        Some(FileUnresolvedReason::NoValidDerivation)
+        Some(FileModuleUnresolvedReason::NoValidDerivation)
     );
 }
 
@@ -2557,7 +2563,7 @@ fn file_to_module_reports_not_found_for_missing_source_file() {
     );
     assert_eq!(
         detail.unresolved_reason,
-        Some(FileUnresolvedReason::NotFound)
+        Some(FileModuleUnresolvedReason::NotFound)
     );
 }
 

@@ -1,14 +1,14 @@
 use djls_source::Origin;
 
-use super::model::PythonBinding;
-use super::model::PythonBindings;
-use super::model::PythonMutation;
-use super::model::PythonMutations;
+use super::bindings::PythonBinding;
+use super::bindings::PythonBindings;
 use super::model::PythonSemanticModel;
-use super::model::PythonValue;
 use super::mutation_target::MutationAccess;
 use super::mutation_target::MutationTarget;
+use super::mutations::PythonMutation;
+use super::mutations::PythonMutations;
 use super::touched_names::TouchedNames;
+use super::values::PythonValue;
 use crate::python::PythonPathBindings;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

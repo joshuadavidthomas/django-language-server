@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::CandidateKind;
-use djls_project::CandidateLocation;
 use djls_project::FileModuleDerivationStatus;
+use djls_project::ModuleCandidate;
+use djls_project::ModuleCandidateKind;
+use djls_project::ModuleUnresolvedReason;
 use djls_project::Project;
 use djls_project::PythonModule;
 use djls_project::PythonModuleName;
 use djls_project::SearchPath;
-use djls_project::UnresolvedReason;
 use djls_project::compute_model_graph;
 use djls_project::file_to_module;
 use djls_project::file_to_module_detail;
@@ -143,15 +143,15 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
     assert_eq!(
         dupe_detail.candidates,
         vec![
-            CandidateLocation {
+            ModuleCandidate {
                 root: SearchPath::FirstParty(root.clone()),
                 path: root.join("dupe.py"),
-                kind: CandidateKind::FileModule,
+                kind: ModuleCandidateKind::FileModule,
             },
-            CandidateLocation {
+            ModuleCandidate {
                 root: SearchPath::Editable(root.join("vendor")),
                 path: root.join("vendor/dupe.py"),
-                kind: CandidateKind::FileModule,
+                kind: ModuleCandidateKind::FileModule,
             },
         ]
     );
@@ -217,14 +217,14 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     assert_eq!(detail.selected_root, None);
     assert_eq!(
         detail.unresolved_reason,
-        Some(UnresolvedReason::NamespaceOnly)
+        Some(ModuleUnresolvedReason::NamespaceOnly)
     );
     assert_eq!(
         detail.candidates,
-        vec![CandidateLocation {
+        vec![ModuleCandidate {
             root: SearchPath::FirstParty(root.clone()),
             path: root.join("nsapp"),
-            kind: CandidateKind::NamespacePortion,
+            kind: ModuleCandidateKind::NamespacePortion,
         }]
     );
 }

@@ -1,8 +1,8 @@
 use ruff_python_ast as ast;
 
-use super::model::PythonMutationAccess;
-use super::model::PythonValue;
-use super::model::PythonValueKind;
+use super::mutations::PythonMutationAccess;
+use super::values::PythonValue;
+use super::values::PythonValueKind;
 use crate::ast::ExprExt;
 
 pub(super) struct MutationTarget<'a> {

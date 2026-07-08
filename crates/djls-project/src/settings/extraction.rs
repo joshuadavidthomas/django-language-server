@@ -474,7 +474,7 @@ mod tests {
     use super::*;
     use crate::ExtractionStatus;
     use crate::python::ImportSourceResolution;
-    use crate::python::PythonImport;
+    use crate::python::PythonImportRequest;
     use crate::python::PythonSemanticModel;
     use crate::python::PythonSource;
     use crate::settings::types::EvaluatedPath;
@@ -497,7 +497,10 @@ mod tests {
             self
         }
 
-        fn resolve_mapped_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
+        fn resolve_mapped_import(
+            &mut self,
+            import: PythonImportRequest<'_>,
+        ) -> ImportSourceResolution {
             let Some(module) = import.module else {
                 return ImportSourceResolution::Unresolved;
             };
@@ -515,11 +518,17 @@ mod tests {
     }
 
     impl PythonImportResolver for MapResolver<'_> {
-        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
+        fn resolve_star_import(
+            &mut self,
+            import: PythonImportRequest<'_>,
+        ) -> ImportSourceResolution {
             self.resolve_mapped_import(import)
         }
 
-        fn resolve_named_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
+        fn resolve_named_import(
+            &mut self,
+            import: PythonImportRequest<'_>,
+        ) -> ImportSourceResolution {
             self.resolve_mapped_import(import)
         }
     }
@@ -537,11 +546,17 @@ mod tests {
     }
 
     impl PythonImportResolver for RefusingNamedResolver<'_> {
-        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
+        fn resolve_star_import(
+            &mut self,
+            import: PythonImportRequest<'_>,
+        ) -> ImportSourceResolution {
             self.inner.resolve_star_import(import)
         }
 
-        fn resolve_named_import(&mut self, _import: PythonImport<'_>) -> ImportSourceResolution {
+        fn resolve_named_import(
+            &mut self,
+            _import: PythonImportRequest<'_>,
+        ) -> ImportSourceResolution {
             ImportSourceResolution::Unresolved
         }
     }
@@ -549,11 +564,17 @@ mod tests {
     struct PanickingResolver;
 
     impl PythonImportResolver for PanickingResolver {
-        fn resolve_star_import(&mut self, _import: PythonImport<'_>) -> ImportSourceResolution {
+        fn resolve_star_import(
+            &mut self,
+            _import: PythonImportRequest<'_>,
+        ) -> ImportSourceResolution {
             panic!("unreachable star import should not be resolved")
         }
 
-        fn resolve_named_import(&mut self, _import: PythonImport<'_>) -> ImportSourceResolution {
+        fn resolve_named_import(
+            &mut self,
+            _import: PythonImportRequest<'_>,
+        ) -> ImportSourceResolution {
             panic!("unreachable named import should not be resolved")
         }
     }

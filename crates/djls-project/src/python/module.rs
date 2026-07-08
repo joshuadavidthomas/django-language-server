@@ -21,24 +21,24 @@ pub struct PythonModule {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResolutionDetail {
+pub struct ModuleResolution {
     pub selected_root: Option<SearchPath>,
-    pub candidates: Vec<CandidateLocation>,
-    pub unresolved_reason: Option<UnresolvedReason>,
+    pub candidates: Vec<ModuleCandidate>,
+    pub unresolved_reason: Option<ModuleUnresolvedReason>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FileResolutionDetail {
+pub struct FileModuleResolution {
     pub selected_module: Option<PythonModule>,
     pub derivations: Vec<FileModuleDerivation>,
-    pub unresolved_reason: Option<FileUnresolvedReason>,
+    pub unresolved_reason: Option<FileModuleUnresolvedReason>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CandidateLocation {
+pub struct ModuleCandidate {
     pub root: SearchPath,
     pub path: Utf8PathBuf,
-    pub kind: CandidateKind,
+    pub kind: ModuleCandidateKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,7 +50,7 @@ pub struct FileModuleDerivation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CandidateKind {
+pub enum ModuleCandidateKind {
     RegularPackage,
     FileModule,
     NamespacePortion,
@@ -64,13 +64,13 @@ pub enum FileModuleDerivationStatus {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UnresolvedReason {
+pub enum ModuleUnresolvedReason {
     NotFound,
     NamespaceOnly,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FileUnresolvedReason {
+pub enum FileModuleUnresolvedReason {
     Shadowed { winner: Utf8PathBuf },
     NotUnderAnyRoot,
     NoValidDerivation,
@@ -112,7 +112,7 @@ struct CandidateDirectory {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum ModuleResolution {
+enum ModuleLookupResult {
     RegularPackage {
         root: SearchPath,
         dir: Utf8PathBuf,
@@ -154,7 +154,7 @@ struct FileModuleDerivationResult {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PythonImport<'a> {
+pub(crate) struct PythonImportRequest<'a> {
     pub(crate) level: u32,
     pub(crate) module: Option<&'a str>,
     pub(crate) importer: &'a Utf8Path,
@@ -257,7 +257,11 @@ fn resolve_component(
     None
 }
 
-fn resolve_name(db: &dyn ProjectDb, project: Project, name: &PythonModuleName) -> ModuleResolution {
+fn resolve_name(
+    db: &dyn ProjectDb,
+    project: Project,
+    name: &PythonModuleName,
+) -> ModuleLookupResult {
     let mut candidate_dirs = project
         .search_paths(db)
         .iter()
@@ -282,7 +286,7 @@ fn resolve_name(db: &dyn ProjectDb, project: Project, name: &PythonModuleName) -
                     file,
                 }) => {
                     if is_last {
-                        return ModuleResolution::RegularPackage {
+                        return ModuleLookupResult::RegularPackage {
                             root,
                             dir,
                             init_file,
@@ -294,9 +298,9 @@ fn resolve_name(db: &dyn ProjectDb, project: Project, name: &PythonModuleName) -
                 }
                 Some(ResolvedComponent::FileModule { root, path, file }) => {
                     if is_last {
-                        return ModuleResolution::FileModule { root, path, file };
+                        return ModuleLookupResult::FileModule { root, path, file };
                     }
-                    return ModuleResolution::NotFound;
+                    return ModuleLookupResult::NotFound;
                 }
                 Some(ResolvedComponent::NamespacePortion(portion)) => portions.push(portion),
                 None => {}
@@ -305,13 +309,13 @@ fn resolve_name(db: &dyn ProjectDb, project: Project, name: &PythonModuleName) -
 
         candidate_dirs = match next_dirs {
             Some(dirs) => dirs,
-            None if portions.is_empty() => return ModuleResolution::NotFound,
-            None if is_last => return ModuleResolution::NamespaceOnly { portions },
+            None if portions.is_empty() => return ModuleLookupResult::NotFound,
+            None if is_last => return ModuleLookupResult::NamespaceOnly { portions },
             None => portions,
         };
     }
 
-    ModuleResolution::NotFound
+    ModuleLookupResult::NotFound
 }
 
 fn file_module_names<'a>(
@@ -399,19 +403,19 @@ pub fn resolve_module_detail(
     db: &dyn ProjectDb,
     project: Project,
     name: PythonModuleName,
-) -> ResolutionDetail {
+) -> ModuleResolution {
     project.touch_search_path_roots(db);
 
     let resolution = resolve_name(db, project, &name);
     let selected_root = match &resolution {
-        ModuleResolution::RegularPackage { root, .. }
-        | ModuleResolution::FileModule { root, .. } => Some(root.clone()),
-        ModuleResolution::NamespaceOnly { .. } | ModuleResolution::NotFound => None,
+        ModuleLookupResult::RegularPackage { root, .. }
+        | ModuleLookupResult::FileModule { root, .. } => Some(root.clone()),
+        ModuleLookupResult::NamespaceOnly { .. } | ModuleLookupResult::NotFound => None,
     };
     let unresolved_reason = match &resolution {
-        ModuleResolution::RegularPackage { .. } | ModuleResolution::FileModule { .. } => None,
-        ModuleResolution::NamespaceOnly { .. } => Some(UnresolvedReason::NamespaceOnly),
-        ModuleResolution::NotFound => Some(UnresolvedReason::NotFound),
+        ModuleLookupResult::RegularPackage { .. } | ModuleLookupResult::FileModule { .. } => None,
+        ModuleLookupResult::NamespaceOnly { .. } => Some(ModuleUnresolvedReason::NamespaceOnly),
+        ModuleLookupResult::NotFound => Some(ModuleUnresolvedReason::NotFound),
     };
     let candidates = python_module_flat_candidates(db, project, &name);
     let candidates = candidates
@@ -419,25 +423,25 @@ pub fn resolve_module_detail(
         .map(|candidate| match candidate {
             PythonModuleCandidate::RegularPackage {
                 root, init_file, ..
-            } => CandidateLocation {
+            } => ModuleCandidate {
                 root,
                 path: init_file,
-                kind: CandidateKind::RegularPackage,
+                kind: ModuleCandidateKind::RegularPackage,
             },
-            PythonModuleCandidate::FileModule { root, path } => CandidateLocation {
+            PythonModuleCandidate::FileModule { root, path } => ModuleCandidate {
                 root,
                 path,
-                kind: CandidateKind::FileModule,
+                kind: ModuleCandidateKind::FileModule,
             },
-            PythonModuleCandidate::NamespacePortion { root, dir } => CandidateLocation {
+            PythonModuleCandidate::NamespacePortion { root, dir } => ModuleCandidate {
                 root,
                 path: dir,
-                kind: CandidateKind::NamespacePortion,
+                kind: ModuleCandidateKind::NamespacePortion,
             },
         })
         .collect();
 
-    ResolutionDetail {
+    ModuleResolution {
         selected_root,
         candidates,
         unresolved_reason,
@@ -453,11 +457,11 @@ pub fn resolve_package_dirs(
     name: PythonModuleName,
 ) -> PackageDirs {
     match resolve_name(db, project, &name) {
-        ModuleResolution::RegularPackage { dir, .. } => PackageDirs { dirs: vec![dir] },
-        ModuleResolution::FileModule { .. } | ModuleResolution::NotFound => {
+        ModuleLookupResult::RegularPackage { dir, .. } => PackageDirs { dirs: vec![dir] },
+        ModuleLookupResult::FileModule { .. } | ModuleLookupResult::NotFound => {
             PackageDirs { dirs: Vec::new() }
         }
-        ModuleResolution::NamespaceOnly { portions } => PackageDirs {
+        ModuleLookupResult::NamespaceOnly { portions } => PackageDirs {
             dirs: portions.into_iter().map(|portion| portion.dir).collect(),
         },
     }
@@ -486,7 +490,7 @@ pub fn file_to_module_detail(
     db: &dyn ProjectDb,
     project: Project,
     source_path: Utf8PathBuf,
-) -> FileResolutionDetail {
+) -> FileModuleResolution {
     project.touch_search_path_roots(db);
 
     let results = file_module_names(db, project, source_path.as_path())
@@ -499,19 +503,19 @@ pub fn file_to_module_detail(
         None
     } else if let Some(selected) = results.first() {
         match selected.resolved_module.as_ref().map(PythonModule::path) {
-            Some(winner) => Some(FileUnresolvedReason::Shadowed {
+            Some(winner) => Some(FileModuleUnresolvedReason::Shadowed {
                 winner: winner.to_path_buf(),
             }),
-            None => Some(FileUnresolvedReason::NotFound),
+            None => Some(FileModuleUnresolvedReason::NotFound),
         }
     } else if project
         .search_paths(db)
         .iter()
         .any(|search_path| source_path.strip_prefix(search_path.path()).is_ok())
     {
-        Some(FileUnresolvedReason::NoValidDerivation)
+        Some(FileModuleUnresolvedReason::NoValidDerivation)
     } else {
-        Some(FileUnresolvedReason::NotUnderAnyRoot)
+        Some(FileModuleUnresolvedReason::NotUnderAnyRoot)
     };
     let derivations = results
         .iter()
@@ -526,7 +530,7 @@ pub fn file_to_module_detail(
         })
         .collect();
 
-    FileResolutionDetail {
+    FileModuleResolution {
         selected_module,
         derivations,
         unresolved_reason,
@@ -541,7 +545,7 @@ impl PythonModule {
     pub(crate) fn resolve_import(
         db: &dyn ProjectDb,
         project: Project,
-        import: PythonImport<'_>,
+        import: PythonImportRequest<'_>,
     ) -> Result<Option<Self>, PythonImportError> {
         let name = if import.level == 0 {
             let module = import
@@ -618,11 +622,11 @@ impl PythonModule {
     #[salsa::tracked]
     pub fn resolve(db: &dyn ProjectDb, project: Project, name: PythonModuleName) -> Option<Self> {
         match resolve_name(db, project, &name) {
-            ModuleResolution::RegularPackage {
+            ModuleLookupResult::RegularPackage {
                 init_file, file, ..
             } => Some(Self::new(name, init_file, file)),
-            ModuleResolution::FileModule { path, file, .. } => Some(Self::new(name, path, file)),
-            ModuleResolution::NamespaceOnly { .. } | ModuleResolution::NotFound => None,
+            ModuleLookupResult::FileModule { path, file, .. } => Some(Self::new(name, path, file)),
+            ModuleLookupResult::NamespaceOnly { .. } | ModuleLookupResult::NotFound => None,
         }
     }
 }

@@ -127,15 +127,15 @@ fn push_reachable_clause_arms<'a, S>(
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum BranchPath<'a> {
-    One(&'a [ast::Stmt]),
-    Two(&'a [ast::Stmt], &'a [ast::Stmt]),
+    Single(&'a [ast::Stmt]),
+    Sequential(&'a [ast::Stmt], &'a [ast::Stmt]),
 }
 
 impl<'a> BranchPath<'a> {
     pub(super) fn segments(self) -> impl Iterator<Item = &'a [ast::Stmt]> {
         match self {
-            Self::One(body) => [Some(body), None],
-            Self::Two(first, second) => [Some(first), Some(second)],
+            Self::Single(body) => [Some(body), None],
+            Self::Sequential(first, second) => [Some(first), Some(second)],
         }
         .into_iter()
         .flatten()
@@ -144,14 +144,14 @@ impl<'a> BranchPath<'a> {
 
 pub(super) fn try_paths(stmt_try: &ast::StmtTry) -> Vec<BranchPath<'_>> {
     let mut paths = Vec::with_capacity(1 + stmt_try.handlers.len() * stmt_try.body.len().max(1));
-    paths.push(BranchPath::Two(
+    paths.push(BranchPath::Sequential(
         stmt_try.body.as_slice(),
         stmt_try.orelse.as_slice(),
     ));
     for handler in &stmt_try.handlers {
         let ast::ExceptHandler::ExceptHandler(handler) = handler;
         for prefix_len in 0..stmt_try.body.len().max(1) {
-            paths.push(BranchPath::Two(
+            paths.push(BranchPath::Sequential(
                 &stmt_try.body[..prefix_len],
                 handler.body.as_slice(),
             ));
