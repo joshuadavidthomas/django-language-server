@@ -2,13 +2,13 @@ use djls_source::Origin;
 
 use super::model::PythonBinding;
 use super::model::PythonBindings;
-use super::model::PythonMutation;
+use super::model::PythonMutations;
 use super::touched_names::TouchedNames;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct PythonSemanticState {
     pub(super) bindings: PythonBindings,
-    pub(super) mutations: Vec<PythonMutation>,
+    pub(super) mutations: PythonMutations,
 }
 
 impl PythonSemanticState {
@@ -39,9 +39,9 @@ impl PythonSemanticState {
                 writes.record(name);
             }
         }
-        for mutation in &changed.mutations {
+        for mutation in changed.mutations.iter() {
             if !base.mutations.contains(mutation) {
-                writes.record(&mutation.root);
+                writes.record(mutation.root());
             }
         }
         writes
@@ -70,11 +70,7 @@ impl PythonSemanticState {
 
         base.mutations.clear();
         for branch in branches {
-            for mutation in &branch.mutations {
-                if !base.mutations.contains(mutation) {
-                    base.mutations.push(mutation.clone());
-                }
-            }
+            base.mutations.extend_from(&branch.mutations);
         }
 
         base

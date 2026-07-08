@@ -9,8 +9,6 @@ use super::control_flow::BranchPath;
 use super::control_flow::Truthiness;
 use super::control_flow::evaluate_test_with;
 use super::control_flow::is_irrefutable_match_case;
-use super::import_effects::mutations_for_import;
-use super::import_effects::push_mutations;
 use super::model::PythonBinding;
 use super::model::PythonCompleteness;
 use super::model::PythonDict;
@@ -260,12 +258,6 @@ fn assign_name(
     value: &ast::Expr,
 ) {
     let binding_origin = ctx.origin(value);
-    let copied_mutations = value
-        .name_target()
-        .map(|source_name| renamed_mutations(&state.mutations, source_name, name))
-        .unwrap_or_default();
-    state.mutations.retain(|mutation| mutation.root != name);
-
     if let Some(source_name) = value.name_target()
         && let Some(binding) = state.bindings.get(source_name).cloned()
     {
@@ -275,30 +267,17 @@ fn assign_name(
             bound.binding_origin = binding_origin;
         }
         state.bindings.bind(name, imported_binding);
-        push_mutations(&mut state.mutations, copied_mutations);
+        state
+            .mutations
+            .replace_root_from_assignment(source_name, name);
         return;
     }
 
+    state.mutations.remove_root(name);
     let value = evaluate_value(ctx, state, value);
     state
         .bindings
         .bind(name, PythonBinding::full(name, value, binding_origin));
-}
-
-fn renamed_mutations(
-    mutations: &[PythonMutation],
-    source_name: &str,
-    target_name: &str,
-) -> Vec<PythonMutation> {
-    mutations
-        .iter()
-        .filter(|mutation| mutation.root == source_name)
-        .map(|mutation| {
-            let mut mutation = mutation.clone();
-            mutation.root = target_name.to_string();
-            mutation
-        })
-        .collect()
 }
 
 fn walk_aug_assign(
@@ -410,10 +389,7 @@ fn walk_import_from(
             PythonImportEdge::Resolved { file, .. } => match ctx.resolved_model(*file) {
                 ResolvedImportModel::Available(imported_model) => {
                     state.bindings.merge_star_import(imported_model);
-                    push_mutations(
-                        &mut state.mutations,
-                        mutations_for_import(edge, imported_model),
-                    );
+                    state.mutations.extend_from(imported_model.mutation_set());
                 }
                 ResolvedImportModel::Cycle => state.bindings.mark_all_partial(),
             },
@@ -430,10 +406,13 @@ fn walk_import_from(
                 bind_imported_names_unknown(ctx, state, &import.names);
                 return;
             };
-            push_mutations(
-                &mut state.mutations,
-                mutations_for_import(edge, imported_model),
-            );
+            for (imported_name, bound_name) in edge.named_imports() {
+                state.mutations.extend_renamed_root_from(
+                    imported_model.mutation_set(),
+                    imported_name,
+                    bound_name,
+                );
+            }
             for alias in &import.names {
                 let imported_name = alias.name.as_str();
                 let bound_name = alias
@@ -649,7 +628,7 @@ fn bind_unknown_name(state: &mut PythonSemanticState, name: &str, origin: Origin
 
 fn record_mutation(state: &mut PythonSemanticState, target: &ast::Expr, method: &str) {
     if let Some(target) = MutationTarget::from_expr(target) {
-        state.mutations.push(PythonMutation {
+        state.mutations.insert(PythonMutation {
             root: target.root.to_string(),
             access: target
                 .access

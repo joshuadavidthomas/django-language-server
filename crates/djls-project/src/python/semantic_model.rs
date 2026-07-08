@@ -1,6 +1,5 @@
 mod control_flow;
 mod evaluator;
-mod import_effects;
 mod model;
 mod mutation_target;
 mod source_graph;
@@ -17,6 +16,7 @@ pub(crate) use self::model::ParseStatus;
 use self::model::PythonBindings;
 pub(crate) use self::model::PythonDict;
 pub(crate) use self::model::PythonMutationAccess;
+use self::model::PythonMutations;
 pub(crate) use self::model::PythonSemanticModel;
 pub(crate) use self::model::PythonValue;
 pub(crate) use self::model::PythonValueKind;
@@ -87,7 +87,7 @@ fn cycle_edge_model() -> PythonSemanticModel {
         files_read: Vec::new(),
         source_paths: FxHashMap::default(),
         read_failures: Vec::new(),
-        mutations: Vec::new(),
+        mutations: PythonMutations::default(),
         status: ParseStatus::Unparseable,
     }
 }
