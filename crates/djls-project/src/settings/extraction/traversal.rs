@@ -6,6 +6,12 @@ use crate::ExtractionStatus;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::python::ModuleFactsBuilder;
+use crate::python::ModuleImport;
+use crate::python::ModuleImportResolver;
+use crate::python::ModuleSource;
+use crate::python::Truthiness;
+use crate::python::pattern_bound_names;
 use crate::settings::extraction::AssignmentCompleteness;
 use crate::settings::extraction::KNOWN_SETTINGS;
 use crate::settings::extraction::KnownSetting;
@@ -15,9 +21,6 @@ use crate::settings::extraction::bindings::TouchedBindings;
 use crate::settings::extraction::env::EvalEnv;
 use crate::settings::extraction::installed_apps;
 use crate::settings::extraction::staticfiles;
-use crate::settings::extraction::substrate::SettingsImport;
-use crate::settings::extraction::substrate::SettingsImportResolver;
-use crate::settings::extraction::substrate::SettingsSource;
 use crate::settings::extraction::templates;
 use crate::settings::types::EvaluatedPath;
 use crate::settings::types::InstalledAppsSetting;
@@ -28,15 +31,15 @@ use crate::settings::types::TemplateSettings;
 
 pub(super) struct SettingsBindingsCollector<'a> {
     bindings: SettingsBindings,
-    source: &'a SettingsSource,
-    resolver: &'a mut dyn SettingsImportResolver,
+    source: &'a ModuleSource,
+    resolver: &'a mut dyn ModuleImportResolver,
     extraction: &'a mut SettingsExtraction,
 }
 
 impl<'a> SettingsBindingsCollector<'a> {
     pub(super) fn new(
-        source: &'a SettingsSource,
-        resolver: &'a mut dyn SettingsImportResolver,
+        source: &'a ModuleSource,
+        resolver: &'a mut dyn ModuleImportResolver,
         extraction: &'a mut SettingsExtraction,
     ) -> Self {
         Self {
@@ -75,13 +78,16 @@ impl<'a> SettingsBindingsCollector<'a> {
             ast::Stmt::Expr(expr) => self.walk_expr(&expr.value),
             ast::Stmt::Import(import) => self.walk_import(&import.names),
             ast::Stmt::ImportFrom(import) => self.walk_import_from(import),
-            ast::Stmt::If(stmt_if) => self.walk_if(stmt_if),
+            ast::Stmt::If(stmt_if) => crate::python::walk_if(self, stmt_if),
             ast::Stmt::For(stmt_for) => {
                 self.mark_unknown_targets(&stmt_for.target);
-                self.degrade_touched_bodies(&[&stmt_for.body, &stmt_for.orelse]);
+                crate::python::degrade_touched_bodies(self, &[&stmt_for.body, &stmt_for.orelse]);
             }
             ast::Stmt::While(stmt_while) => {
-                self.degrade_touched_bodies(&[&stmt_while.body, &stmt_while.orelse]);
+                crate::python::degrade_touched_bodies(
+                    self,
+                    &[&stmt_while.body, &stmt_while.orelse],
+                );
             }
             ast::Stmt::With(stmt_with) => {
                 for item in &stmt_with.items {
@@ -91,7 +97,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                 }
                 self.walk_body(&stmt_with.body);
             }
-            ast::Stmt::Try(stmt_try) => self.walk_try(stmt_try),
+            ast::Stmt::Try(stmt_try) => crate::python::walk_try(self, stmt_try),
             ast::Stmt::FunctionDef(function) => self.mark_definition_name(function.name.as_str()),
             ast::Stmt::ClassDef(class) => self.mark_definition_name(class.name.as_str()),
             ast::Stmt::Delete(delete) => {
@@ -100,7 +106,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                 }
             }
             ast::Stmt::TypeAlias(type_alias) => self.mark_unknown_targets(&type_alias.name),
-            ast::Stmt::Match(stmt_match) => self.walk_match(stmt_match),
+            ast::Stmt::Match(stmt_match) => crate::python::walk_match(self, stmt_match),
             ast::Stmt::Return(_)
             | ast::Stmt::Raise(_)
             | ast::Stmt::Assert(_)
@@ -224,7 +230,7 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn walk_import_from(&mut self, import: &ast::StmtImportFrom) {
-        let source_import = SettingsImport {
+        let source_import = ModuleImport {
             level: import.level,
             module: import.module.as_ref().map(ToString::to_string),
         };
@@ -273,154 +279,6 @@ impl<'a> SettingsBindingsCollector<'a> {
                 self.mark_definition_name(bound_name);
             }
         }
-    }
-
-    fn walk_if(&mut self, stmt_if: &ast::StmtIf) {
-        match self.evaluate_test_expr(&stmt_if.test) {
-            Truthiness::AlwaysTrue => self.walk_body(&stmt_if.body),
-            Truthiness::AlwaysFalse => self.walk_false_if_clauses(&stmt_if.elif_else_clauses),
-            Truthiness::Ambiguous => {
-                let mut arms = Vec::with_capacity(stmt_if.elif_else_clauses.len() + 2);
-                arms.push(stmt_if.body.as_slice());
-                arms.extend(
-                    stmt_if
-                        .elif_else_clauses
-                        .iter()
-                        .map(|clause| clause.body.as_slice()),
-                );
-                if !stmt_if
-                    .elif_else_clauses
-                    .iter()
-                    .any(|clause| clause.test.is_none())
-                {
-                    arms.push(&[]);
-                }
-                self.walk_ambiguous_arms(&arms);
-            }
-        }
-    }
-
-    fn walk_false_if_clauses(&mut self, clauses: &[ast::ElifElseClause]) {
-        for (index, clause) in clauses.iter().enumerate() {
-            let Some(test) = &clause.test else {
-                self.walk_body(&clause.body);
-                return;
-            };
-
-            match self.evaluate_test_expr(test) {
-                Truthiness::AlwaysTrue => {
-                    self.walk_body(&clause.body);
-                    return;
-                }
-                Truthiness::AlwaysFalse => {}
-                Truthiness::Ambiguous => {
-                    let ambiguous_clauses = &clauses[index..];
-                    let mut arms: Vec<&[ast::Stmt]> = ambiguous_clauses
-                        .iter()
-                        .map(|clause| clause.body.as_slice())
-                        .collect();
-                    if !ambiguous_clauses.iter().any(|clause| clause.test.is_none()) {
-                        arms.push(&[]);
-                    }
-                    self.walk_ambiguous_arms(&arms);
-                    return;
-                }
-            }
-        }
-    }
-
-    fn walk_try(&mut self, stmt_try: &ast::StmtTry) {
-        if stmt_try.handlers.is_empty() {
-            self.walk_body(&stmt_try.body);
-            self.walk_body(&stmt_try.orelse);
-            self.walk_body(&stmt_try.finalbody);
-            return;
-        }
-
-        let mut paths =
-            Vec::with_capacity(1 + stmt_try.handlers.len() * stmt_try.body.len().max(1));
-        paths.push(AmbiguousPath::Two(
-            stmt_try.body.as_slice(),
-            stmt_try.orelse.as_slice(),
-        ));
-        for handler in &stmt_try.handlers {
-            let ast::ExceptHandler::ExceptHandler(handler) = handler;
-            for prefix_len in 0..stmt_try.body.len().max(1) {
-                paths.push(AmbiguousPath::Two(
-                    &stmt_try.body[..prefix_len],
-                    handler.body.as_slice(),
-                ));
-            }
-        }
-        self.walk_ambiguous_paths(&paths);
-        self.walk_body(&stmt_try.finalbody);
-    }
-
-    fn walk_match(&mut self, stmt_match: &ast::StmtMatch) {
-        if stmt_match.cases.len() == 1 && is_irrefutable_match_case(&stmt_match.cases[0]) {
-            self.mark_pattern_bindings(&stmt_match.cases[0].pattern);
-            self.walk_body(&stmt_match.cases[0].body);
-            return;
-        }
-
-        let mut writes = TouchedBindings::default();
-        for case in &stmt_match.cases {
-            record_pattern_writes(&case.pattern, &mut writes);
-            writes.merge(&collect_known_writes(&case.body));
-        }
-
-        let base = std::mem::take(&mut self.bindings);
-        let mut branch_bindings = Vec::with_capacity(stmt_match.cases.len() + 1);
-        for case in &stmt_match.cases {
-            self.bindings = base.clone();
-            self.mark_pattern_bindings(&case.pattern);
-            self.walk_body(&case.body);
-            branch_bindings.push(std::mem::take(&mut self.bindings));
-        }
-        if !stmt_match.cases.iter().any(is_irrefutable_match_case) {
-            branch_bindings.push(base.clone());
-        }
-        self.bindings = base.join_ambiguous(&branch_bindings, &writes);
-    }
-
-    fn mark_pattern_bindings(&mut self, pattern: &ast::Pattern) {
-        for name in pattern_bound_names(pattern) {
-            self.mark_definition_name(name);
-        }
-    }
-
-    fn degrade_touched_bodies(&mut self, bodies: &[&[ast::Stmt]]) {
-        let mut writes = TouchedBindings::default();
-        for body in bodies {
-            writes.merge(&collect_known_writes(body));
-        }
-        self.bindings.degrade_touched(&writes);
-    }
-
-    fn walk_ambiguous_arms(&mut self, arms: &[&[ast::Stmt]]) {
-        let paths: Vec<AmbiguousPath<'_>> =
-            arms.iter().map(|arm| AmbiguousPath::One(arm)).collect();
-        self.walk_ambiguous_paths(&paths);
-    }
-
-    fn walk_ambiguous_paths(&mut self, paths: &[AmbiguousPath<'_>]) {
-        let mut writes = TouchedBindings::default();
-        for path in paths {
-            for segment in path.segments() {
-                writes.merge(&collect_known_writes(segment));
-            }
-        }
-
-        let base = std::mem::take(&mut self.bindings);
-        let mut branch_bindings = Vec::with_capacity(paths.len());
-        for path in paths {
-            self.bindings = base.clone();
-            for segment in path.segments() {
-                self.walk_body(segment);
-            }
-            branch_bindings.push(std::mem::take(&mut self.bindings));
-        }
-        self.bindings = base.join_ambiguous(&branch_bindings, &writes);
     }
 
     fn evaluate_test_expr(&self, expr: &ast::Expr) -> Truthiness {
@@ -758,45 +616,53 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Truthiness {
-    AlwaysTrue,
-    AlwaysFalse,
-    Ambiguous,
-}
+impl ModuleFactsBuilder for SettingsBindingsCollector<'_> {
+    type State = SettingsBindings;
+    type Writes = TouchedBindings;
 
-#[derive(Debug, Clone, Copy)]
-enum AmbiguousPath<'a> {
-    One(&'a [ast::Stmt]),
-    Two(&'a [ast::Stmt], &'a [ast::Stmt]),
-}
-
-impl<'a> AmbiguousPath<'a> {
-    fn segments(self) -> impl Iterator<Item = &'a [ast::Stmt]> {
-        match self {
-            Self::One(body) => [Some(body), None],
-            Self::Two(first, second) => [Some(first), Some(second)],
-        }
-        .into_iter()
-        .flatten()
-    }
-}
-
-impl Truthiness {
-    const fn from_bool(value: bool) -> Self {
-        if value {
-            Self::AlwaysTrue
-        } else {
-            Self::AlwaysFalse
-        }
+    fn walk_body(&mut self, body: &[ast::Stmt]) {
+        Self::walk_body(self, body);
     }
 
-    const fn negate(self) -> Self {
-        match self {
-            Self::AlwaysTrue => Self::AlwaysFalse,
-            Self::AlwaysFalse => Self::AlwaysTrue,
-            Self::Ambiguous => Self::Ambiguous,
-        }
+    fn evaluate_test(&self, expr: &ast::Expr) -> Truthiness {
+        self.evaluate_test_expr(expr)
+    }
+
+    fn collect_writes(&self, body: &[ast::Stmt]) -> TouchedBindings {
+        collect_known_writes(body)
+    }
+
+    fn merge_writes(&self, writes: &mut TouchedBindings, other: TouchedBindings) {
+        writes.merge(&other);
+    }
+
+    fn degrade_writes(&mut self, writes: TouchedBindings) {
+        self.bindings.degrade_touched(&writes);
+    }
+
+    fn take_state(&mut self) -> SettingsBindings {
+        std::mem::take(&mut self.bindings)
+    }
+
+    fn set_state(&mut self, state: SettingsBindings) {
+        self.bindings = state;
+    }
+
+    fn join_branches(
+        &self,
+        base: SettingsBindings,
+        branches: &[SettingsBindings],
+        writes: &TouchedBindings,
+    ) -> SettingsBindings {
+        base.join_ambiguous(branches, writes)
+    }
+
+    fn bind_pattern_name(&mut self, name: &str) {
+        self.mark_definition_name(name);
+    }
+
+    fn record_name_write(&self, name: &str, writes: &mut TouchedBindings) {
+        record_name_write(name, writes);
     }
 }
 
@@ -1082,77 +948,6 @@ fn expr_touches_name(expr: &ast::Expr, expected: &str) -> bool {
 fn record_pattern_writes(pattern: &ast::Pattern, writes: &mut TouchedBindings) {
     for name in pattern_bound_names(pattern) {
         record_name_write(name, writes);
-    }
-}
-
-fn pattern_bound_names(pattern: &ast::Pattern) -> Vec<&str> {
-    let mut names = Vec::new();
-    collect_pattern_bound_names(pattern, &mut names);
-    names
-}
-
-fn collect_pattern_bound_names<'a>(pattern: &'a ast::Pattern, names: &mut Vec<&'a str>) {
-    match pattern {
-        ast::Pattern::MatchValue(_) | ast::Pattern::MatchSingleton(_) => {}
-        ast::Pattern::MatchSequence(sequence) => {
-            for pattern in &sequence.patterns {
-                collect_pattern_bound_names(pattern, names);
-            }
-        }
-        ast::Pattern::MatchMapping(mapping) => {
-            for pattern in &mapping.patterns {
-                collect_pattern_bound_names(pattern, names);
-            }
-            if let Some(rest) = &mapping.rest {
-                names.push(rest.as_str());
-            }
-        }
-        ast::Pattern::MatchClass(class) => {
-            for pattern in &class.arguments.patterns {
-                collect_pattern_bound_names(pattern, names);
-            }
-            for keyword in &class.arguments.keywords {
-                collect_pattern_bound_names(&keyword.pattern, names);
-            }
-        }
-        ast::Pattern::MatchStar(star) => {
-            if let Some(name) = &star.name {
-                names.push(name.as_str());
-            }
-        }
-        ast::Pattern::MatchAs(match_as) => {
-            if let Some(pattern) = &match_as.pattern {
-                collect_pattern_bound_names(pattern, names);
-            }
-            if let Some(name) = &match_as.name {
-                names.push(name.as_str());
-            }
-        }
-        ast::Pattern::MatchOr(match_or) => {
-            for pattern in &match_or.patterns {
-                collect_pattern_bound_names(pattern, names);
-            }
-        }
-    }
-}
-
-fn is_irrefutable_match_case(case: &ast::MatchCase) -> bool {
-    case.guard.is_none() && is_irrefutable_pattern(&case.pattern)
-}
-
-fn is_irrefutable_pattern(pattern: &ast::Pattern) -> bool {
-    match pattern {
-        ast::Pattern::MatchValue(_)
-        | ast::Pattern::MatchSingleton(_)
-        | ast::Pattern::MatchSequence(_)
-        | ast::Pattern::MatchMapping(_)
-        | ast::Pattern::MatchClass(_)
-        | ast::Pattern::MatchStar(_) => false,
-        ast::Pattern::MatchAs(match_as) => match_as
-            .pattern
-            .as_deref()
-            .is_none_or(is_irrefutable_pattern),
-        ast::Pattern::MatchOr(match_or) => match_or.patterns.iter().any(is_irrefutable_pattern),
     }
 }
 
