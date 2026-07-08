@@ -1,15 +1,13 @@
 use std::collections::BTreeSet;
 
-use camino::Utf8Path;
 use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::ModuleImport;
-use crate::python::ModuleImportResolver;
-use crate::python::ModuleSource;
 use crate::python::PythonImport;
+use crate::python::PythonImportSourceResolver;
 use crate::python::PythonModule;
+use crate::python::PythonModuleSource;
 use crate::python::SearchPath;
 use crate::python::resolve_module_detail;
 use crate::settings::DjangoSettings;
@@ -99,12 +97,12 @@ impl<'db> SettingsImportContext<'db> {
         }
     }
 
-    fn read_source(&mut self, file: File) -> Option<ModuleSource> {
+    fn read_source(&mut self, file: File) -> Option<PythonModuleSource> {
         let source = match self.mode {
             SettingsReadMode::Tracked => file.source(self.db).as_str().to_string(),
             SettingsReadMode::Discovery => self.db.read_file(file.path(self.db)).ok()?,
         };
-        Some(ModuleSource::new(
+        Some(PythonModuleSource::new(
             file,
             file.path(self.db).to_path_buf(),
             source,
@@ -112,22 +110,14 @@ impl<'db> SettingsImportContext<'db> {
     }
 }
 
-impl ModuleImportResolver for SettingsImportContext<'_> {
-    fn resolve_star_import(
-        &mut self,
-        import: &ModuleImport,
-        importer: &Utf8Path,
-    ) -> Option<ModuleSource> {
-        let module = self.resolve_python_import(import, importer)?;
+impl PythonImportSourceResolver for SettingsImportContext<'_> {
+    fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonModuleSource> {
+        let module = self.resolve_python_import(import)?;
         self.read_resolved_module(&module)
     }
 
-    fn resolve_named_import(
-        &mut self,
-        import: &ModuleImport,
-        importer: &Utf8Path,
-    ) -> Option<ModuleSource> {
-        let module = self.resolve_python_import(import, importer)?;
+    fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonModuleSource> {
+        let module = self.resolve_python_import(import)?;
         let detail = resolve_module_detail(self.db, self.project, module.name().clone());
         if !detail
             .selected_root
@@ -142,20 +132,11 @@ impl ModuleImportResolver for SettingsImportContext<'_> {
 }
 
 impl SettingsImportContext<'_> {
-    fn resolve_python_import(
-        &mut self,
-        import: &ModuleImport,
-        importer: &Utf8Path,
-    ) -> Option<PythonModule> {
-        let import = PythonImport {
-            level: import.level,
-            module: import.module.as_deref(),
-            importer,
-        };
+    fn resolve_python_import(&mut self, import: PythonImport<'_>) -> Option<PythonModule> {
         PythonModule::resolve_import(self.db, self.project, import).ok()?
     }
 
-    fn read_resolved_module(&mut self, module: &PythonModule) -> Option<ModuleSource> {
+    fn read_resolved_module(&mut self, module: &PythonModule) -> Option<PythonModuleSource> {
         let file = module.file();
         self.resolved.push(file);
         self.read_source(file)
