@@ -7,7 +7,7 @@ use super::control_flow::if_branches;
 use super::control_flow::is_irrefutable_match_case;
 use super::control_flow::try_paths;
 
-pub(super) trait StatementSemantics {
+pub(super) trait StatementInterpreter {
     type State: Clone;
 
     fn walk_assign(&mut self, state: &mut Self::State, assign: &ast::StmtAssign);
@@ -32,7 +32,7 @@ pub(super) trait StatementSemantics {
 
 pub(super) fn walk_body<S>(semantics: &mut S, mut state: S::State, body: &[ast::Stmt]) -> S::State
 where
-    S: StatementSemantics,
+    S: StatementInterpreter,
 {
     for stmt in body {
         state = walk_stmt(semantics, state, stmt);
@@ -42,7 +42,7 @@ where
 
 fn walk_stmt<S>(semantics: &mut S, mut state: S::State, stmt: &ast::Stmt) -> S::State
 where
-    S: StatementSemantics,
+    S: StatementInterpreter,
 {
     match stmt {
         ast::Stmt::Assign(assign) => semantics.walk_assign(&mut state, assign),
@@ -97,7 +97,7 @@ where
 
 fn walk_if<S>(semantics: &mut S, state: S::State, stmt_if: &ast::StmtIf) -> S::State
 where
-    S: StatementSemantics,
+    S: StatementInterpreter,
 {
     match if_branches(
         &state,
@@ -117,7 +117,7 @@ where
 
 fn walk_try<S>(semantics: &mut S, state: S::State, stmt_try: &ast::StmtTry) -> S::State
 where
-    S: StatementSemantics,
+    S: StatementInterpreter,
 {
     if stmt_try.handlers.is_empty() {
         let state = walk_body(semantics, state, &stmt_try.body);
@@ -131,7 +131,7 @@ where
 
 fn walk_match<S>(semantics: &mut S, mut state: S::State, stmt_match: &ast::StmtMatch) -> S::State
 where
-    S: StatementSemantics,
+    S: StatementInterpreter,
 {
     if stmt_match.cases.is_empty() {
         return state;

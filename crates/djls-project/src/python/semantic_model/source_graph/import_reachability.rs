@@ -18,7 +18,7 @@ use crate::python::semantic_model::control_flow::Truthiness;
 use crate::python::semantic_model::control_flow::evaluate_test_with;
 use crate::python::semantic_model::control_flow::is_irrefutable_match_case;
 use crate::python::semantic_model::statement_walk;
-use crate::python::semantic_model::statement_walk::StatementSemantics;
+use crate::python::semantic_model::statement_walk::StatementInterpreter;
 use crate::python::semantic_model::touched_names::expr_read_names;
 use crate::python::semantic_model::touched_names::first_import_segment;
 use crate::python::semantic_model::touched_names::pattern_bound_names;
@@ -97,12 +97,12 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
         state: ImportCollectionState,
         body: &[ast::Stmt],
     ) -> ImportCollectionState {
-        let mut semantics = ImportReachabilitySemantics {
+        let mut collector = ImportReachabilityCollector {
             builder: self,
             file,
             importer,
         };
-        statement_walk::walk_body(&mut semantics, state, body)
+        statement_walk::walk_body(&mut collector, state, body)
     }
 
     fn collect_import_from(
@@ -181,13 +181,13 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
     }
 }
 
-struct ImportReachabilitySemantics<'builder, 'graph, 'resolver, 'importer> {
+struct ImportReachabilityCollector<'builder, 'graph, 'resolver, 'importer> {
     builder: &'builder mut PythonSourceGraphBuilder<'graph, 'resolver>,
     file: File,
     importer: &'importer Utf8Path,
 }
 
-impl StatementSemantics for ImportReachabilitySemantics<'_, '_, '_, '_> {
+impl StatementInterpreter for ImportReachabilityCollector<'_, '_, '_, '_> {
     type State = ImportCollectionState;
 
     fn walk_assign(&mut self, state: &mut Self::State, assign: &ast::StmtAssign) {
