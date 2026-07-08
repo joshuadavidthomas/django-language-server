@@ -203,15 +203,6 @@ impl PythonImportEdge {
         }
     }
 
-    pub(super) const fn kind(&self) -> PythonImportKind {
-        match self {
-            Self::Resolved { kind, .. }
-            | Self::Unresolved { kind, .. }
-            | Self::SkippedExternal { kind, .. }
-            | Self::ReadFailed { kind, .. } => *kind,
-        }
-    }
-
     pub(super) fn named_imports(&self) -> impl Iterator<Item = (&str, &str)> {
         self.import().names.iter().map(|name| {
             (
