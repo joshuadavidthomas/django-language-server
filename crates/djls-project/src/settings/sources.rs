@@ -4,13 +4,8 @@ use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonImport;
-use crate::python::PythonImportResolver;
-use crate::python::PythonModule;
+use crate::python::ProjectImportSourceResolver;
 use crate::python::PythonSemanticModel;
-use crate::python::PythonSource;
-use crate::python::SearchPath;
-use crate::python::resolve_module_detail;
 use crate::settings::DjangoSettings;
 use crate::settings::extraction::extract_settings;
 
@@ -19,11 +14,11 @@ pub(super) fn django_settings_from_file(
     project: Project,
     file: File,
 ) -> DjangoSettings {
-    let mut context = SettingsImportContext::tracked(db, project);
-    let Some(source) = context.read_source(file) else {
+    let mut resolver = ProjectImportSourceResolver::tracked(db, project);
+    let Some(source) = resolver.read_source(file) else {
         return DjangoSettings::default();
     };
-    extract_settings(&source, &mut context)
+    extract_settings(&source, &mut resolver)
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -58,91 +53,18 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
 
     // The Django Discovery bump set must cover the same settings source graph
     // the extractor would read against current disk content.
-    let mut context = SettingsImportContext::discovery(db, project);
-    let Some(source) = context.read_source(file) else {
+    let mut resolver = ProjectImportSourceResolver::discovery(db, project);
+    let Some(source) = resolver.read_source(file) else {
         return DjangoSettingsSources::from_files(db, [file]);
     };
-    let model = PythonSemanticModel::analyze(&source, &mut context);
+    let model = PythonSemanticModel::analyze(&source, &mut resolver);
 
     DjangoSettingsSources::from_files(
         db,
-        model.files_read().iter().copied().chain(context.resolved),
+        model
+            .files_read()
+            .iter()
+            .copied()
+            .chain(resolver.resolved_files().iter().copied()),
     )
-}
-
-enum SettingsReadMode {
-    Tracked,
-    Discovery,
-}
-
-struct SettingsImportContext<'db> {
-    db: &'db dyn ProjectDb,
-    project: Project,
-    mode: SettingsReadMode,
-    resolved: Vec<File>,
-}
-
-impl<'db> SettingsImportContext<'db> {
-    fn tracked(db: &'db dyn ProjectDb, project: Project) -> Self {
-        Self {
-            db,
-            project,
-            mode: SettingsReadMode::Tracked,
-            resolved: Vec::new(),
-        }
-    }
-
-    fn discovery(db: &'db dyn ProjectDb, project: Project) -> Self {
-        Self {
-            db,
-            project,
-            mode: SettingsReadMode::Discovery,
-            resolved: Vec::new(),
-        }
-    }
-
-    fn read_source(&mut self, file: File) -> Option<PythonSource> {
-        let source = match self.mode {
-            SettingsReadMode::Tracked => file.source(self.db).as_str().to_string(),
-            SettingsReadMode::Discovery => self.db.read_file(file.path(self.db)).ok()?,
-        };
-        Some(PythonSource::new(
-            file,
-            file.path(self.db).to_path_buf(),
-            source,
-        ))
-    }
-}
-
-impl PythonImportResolver for SettingsImportContext<'_> {
-    fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
-        let module = self.resolve_python_import(import)?;
-        self.read_resolved_module(&module)
-    }
-
-    fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
-        let module = self.resolve_python_import(import)?;
-        let detail = resolve_module_detail(self.db, self.project, module.name().clone());
-        if !detail
-            .selected_root
-            .as_ref()
-            .is_some_and(SearchPath::is_first_party)
-        {
-            return None;
-        }
-
-        self.read_resolved_module(&module)
-    }
-}
-
-impl SettingsImportContext<'_> {
-    fn resolve_python_import(&mut self, import: PythonImport<'_>) -> Option<PythonModule> {
-        PythonModule::resolve_import(self.db, self.project, import).ok()?
-    }
-
-    fn read_resolved_module(&mut self, module: &PythonModule) -> Option<PythonSource> {
-        let file = module.file();
-        self.resolved.push(file);
-        self.read_source(file)
-    }
 }

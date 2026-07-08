@@ -1,5 +1,8 @@
 use ruff_python_ast as ast;
 
+use super::semantic_model::PythonSemanticModelBuilder;
+use super::semantic_model::TouchedNames;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Truthiness {
     AlwaysTrue,
@@ -25,27 +28,6 @@ impl Truthiness {
     }
 }
 
-pub(crate) trait BranchAnalyzer {
-    type State: Clone;
-    type Writes: Default;
-
-    fn walk_body(&mut self, body: &[ast::Stmt]);
-    fn evaluate_test(&self, expr: &ast::Expr) -> Truthiness;
-    fn collect_writes(&self, body: &[ast::Stmt]) -> Self::Writes;
-    fn merge_writes(&self, writes: &mut Self::Writes, other: Self::Writes);
-    fn degrade_writes(&mut self, writes: Self::Writes);
-    fn take_state(&mut self) -> Self::State;
-    fn set_state(&mut self, state: Self::State);
-    fn join_branches(
-        &self,
-        base: Self::State,
-        branches: &[Self::State],
-        writes: &Self::Writes,
-    ) -> Self::State;
-    fn bind_pattern_name(&mut self, name: &str);
-    fn record_name_write(&self, name: &str, writes: &mut Self::Writes);
-}
-
 #[derive(Debug, Clone, Copy)]
 enum BranchPath<'a> {
     One(&'a [ast::Stmt]),
@@ -63,7 +45,7 @@ impl<'a> BranchPath<'a> {
     }
 }
 
-pub(crate) fn analyze_if<B: BranchAnalyzer>(builder: &mut B, stmt_if: &ast::StmtIf) {
+pub(crate) fn analyze_if(builder: &mut PythonSemanticModelBuilder<'_>, stmt_if: &ast::StmtIf) {
     match builder.evaluate_test(&stmt_if.test) {
         Truthiness::AlwaysTrue => builder.walk_body(&stmt_if.body),
         Truthiness::AlwaysFalse => analyze_false_if_clauses(builder, &stmt_if.elif_else_clauses),
@@ -88,7 +70,10 @@ pub(crate) fn analyze_if<B: BranchAnalyzer>(builder: &mut B, stmt_if: &ast::Stmt
     }
 }
 
-fn analyze_false_if_clauses<B: BranchAnalyzer>(builder: &mut B, clauses: &[ast::ElifElseClause]) {
+fn analyze_false_if_clauses(
+    builder: &mut PythonSemanticModelBuilder<'_>,
+    clauses: &[ast::ElifElseClause],
+) {
     for (index, clause) in clauses.iter().enumerate() {
         let Some(test) = &clause.test else {
             builder.walk_body(&clause.body);
@@ -117,7 +102,7 @@ fn analyze_false_if_clauses<B: BranchAnalyzer>(builder: &mut B, clauses: &[ast::
     }
 }
 
-pub(crate) fn analyze_try<B: BranchAnalyzer>(builder: &mut B, stmt_try: &ast::StmtTry) {
+pub(crate) fn analyze_try(builder: &mut PythonSemanticModelBuilder<'_>, stmt_try: &ast::StmtTry) {
     if stmt_try.handlers.is_empty() {
         builder.walk_body(&stmt_try.body);
         builder.walk_body(&stmt_try.orelse);
@@ -143,18 +128,21 @@ pub(crate) fn analyze_try<B: BranchAnalyzer>(builder: &mut B, stmt_try: &ast::St
     builder.walk_body(&stmt_try.finalbody);
 }
 
-pub(crate) fn analyze_match<B: BranchAnalyzer>(builder: &mut B, stmt_match: &ast::StmtMatch) {
+pub(crate) fn analyze_match(
+    builder: &mut PythonSemanticModelBuilder<'_>,
+    stmt_match: &ast::StmtMatch,
+) {
     if stmt_match.cases.len() == 1 && is_irrefutable_match_case(&stmt_match.cases[0]) {
         bind_pattern_names(builder, &stmt_match.cases[0].pattern);
         builder.walk_body(&stmt_match.cases[0].body);
         return;
     }
 
-    let mut writes = B::Writes::default();
+    let mut writes = TouchedNames::default();
     for case in &stmt_match.cases {
-        record_pattern_writes(builder, &case.pattern, &mut writes);
-        let body_writes = builder.collect_writes(&case.body);
-        builder.merge_writes(&mut writes, body_writes);
+        record_pattern_writes(&case.pattern, &mut writes);
+        let body_writes = PythonSemanticModelBuilder::collect_writes(&case.body);
+        writes.merge(body_writes);
     }
 
     let base = builder.take_state();
@@ -168,30 +156,33 @@ pub(crate) fn analyze_match<B: BranchAnalyzer>(builder: &mut B, stmt_match: &ast
     if !stmt_match.cases.iter().any(is_irrefutable_match_case) {
         branches.push(base.clone());
     }
-    let joined = builder.join_branches(base, &branches, &writes);
+    let joined = PythonSemanticModelBuilder::join_branches(base, &branches, &writes);
     builder.set_state(joined);
 }
 
-pub(crate) fn degrade_touched_bodies<B: BranchAnalyzer>(builder: &mut B, bodies: &[&[ast::Stmt]]) {
-    let mut writes = B::Writes::default();
+pub(crate) fn degrade_touched_bodies(
+    builder: &mut PythonSemanticModelBuilder<'_>,
+    bodies: &[&[ast::Stmt]],
+) {
+    let mut writes = TouchedNames::default();
     for body in bodies {
-        let body_writes = builder.collect_writes(body);
-        builder.merge_writes(&mut writes, body_writes);
+        let body_writes = PythonSemanticModelBuilder::collect_writes(body);
+        writes.merge(body_writes);
     }
     builder.degrade_writes(writes);
 }
 
-fn analyze_ambiguous_arms<B: BranchAnalyzer>(builder: &mut B, arms: &[&[ast::Stmt]]) {
+fn analyze_ambiguous_arms(builder: &mut PythonSemanticModelBuilder<'_>, arms: &[&[ast::Stmt]]) {
     let paths: Vec<BranchPath<'_>> = arms.iter().map(|arm| BranchPath::One(arm)).collect();
     analyze_ambiguous_paths(builder, &paths);
 }
 
-fn analyze_ambiguous_paths<B: BranchAnalyzer>(builder: &mut B, paths: &[BranchPath<'_>]) {
-    let mut writes = B::Writes::default();
+fn analyze_ambiguous_paths(builder: &mut PythonSemanticModelBuilder<'_>, paths: &[BranchPath<'_>]) {
+    let mut writes = TouchedNames::default();
     for path in paths {
         for segment in path.segments() {
-            let segment_writes = builder.collect_writes(segment);
-            builder.merge_writes(&mut writes, segment_writes);
+            let segment_writes = PythonSemanticModelBuilder::collect_writes(segment);
+            writes.merge(segment_writes);
         }
     }
 
@@ -204,23 +195,19 @@ fn analyze_ambiguous_paths<B: BranchAnalyzer>(builder: &mut B, paths: &[BranchPa
         }
         branches.push(builder.take_state());
     }
-    let joined = builder.join_branches(base, &branches, &writes);
+    let joined = PythonSemanticModelBuilder::join_branches(base, &branches, &writes);
     builder.set_state(joined);
 }
 
-fn bind_pattern_names<B: BranchAnalyzer>(builder: &mut B, pattern: &ast::Pattern) {
+fn bind_pattern_names(builder: &mut PythonSemanticModelBuilder<'_>, pattern: &ast::Pattern) {
     for name in pattern_bound_names(pattern) {
         builder.bind_pattern_name(name);
     }
 }
 
-fn record_pattern_writes<B: BranchAnalyzer>(
-    builder: &B,
-    pattern: &ast::Pattern,
-    writes: &mut B::Writes,
-) {
+fn record_pattern_writes(pattern: &ast::Pattern, writes: &mut TouchedNames) {
     for name in pattern_bound_names(pattern) {
-        builder.record_name_write(name, writes);
+        writes.record(name);
     }
 }
 

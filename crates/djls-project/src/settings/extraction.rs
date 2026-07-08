@@ -473,6 +473,7 @@ mod tests {
 
     use super::*;
     use crate::ExtractionStatus;
+    use crate::python::ImportSourceResolution;
     use crate::python::PythonImport;
     use crate::python::PythonSource;
     use crate::settings::types::EvaluatedPath;
@@ -495,23 +496,29 @@ mod tests {
             self
         }
 
-        fn resolve_mapped_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
-            let module = import.module?;
-            let source = self.modules.get(module)?.clone();
+        fn resolve_mapped_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
+            let Some(module) = import.module else {
+                return ImportSourceResolution::Unresolved;
+            };
+            let Some(source) = self.modules.get(module).cloned() else {
+                return ImportSourceResolution::Unresolved;
+            };
             let path =
                 Utf8PathBuf::from(format!("/project/settings/{}.py", module.replace('.', "/")));
             self.db.add_file(path.as_str(), &source);
-            let file = path_to_file(self.db, &path).ok()?;
-            Some(PythonSource::new(file, path, source))
+            let Ok(file) = path_to_file(self.db, &path) else {
+                return ImportSourceResolution::ReadFailed;
+            };
+            ImportSourceResolution::Resolved(PythonSource::new(file, path, source))
         }
     }
 
     impl PythonImportResolver for MapResolver<'_> {
-        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
+        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
             self.resolve_mapped_import(import)
         }
 
-        fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
+        fn resolve_named_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
             self.resolve_mapped_import(import)
         }
     }
@@ -529,12 +536,12 @@ mod tests {
     }
 
     impl PythonImportResolver for RefusingNamedResolver<'_> {
-        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
+        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> ImportSourceResolution {
             self.inner.resolve_star_import(import)
         }
 
-        fn resolve_named_import(&mut self, _import: PythonImport<'_>) -> Option<PythonSource> {
-            None
+        fn resolve_named_import(&mut self, _import: PythonImport<'_>) -> ImportSourceResolution {
+            ImportSourceResolution::Unresolved
         }
     }
 

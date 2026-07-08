@@ -1,4 +1,5 @@
 mod branches;
+mod import_source;
 mod imports;
 mod interpreter;
 mod module;
@@ -11,6 +12,9 @@ mod source;
 
 pub(crate) use branches::Truthiness;
 pub(crate) use branches::pattern_bound_names;
+pub(crate) use import_source::ImportSourceResolution;
+pub(crate) use import_source::ProjectImportSourceResolver;
+pub(crate) use import_source::PythonImportResolver;
 pub(crate) use imports::ImportBindings;
 pub(crate) use imports::ImportPathResolutionError;
 #[cfg(test)]
@@ -45,7 +49,6 @@ pub use search_paths::SearchPath;
 pub use search_paths::SearchPaths;
 pub(crate) use semantic_model::ParseStatus;
 pub(crate) use semantic_model::PythonDict;
-pub(crate) use semantic_model::PythonImportResolver;
 pub(crate) use semantic_model::PythonMutationAccess;
 pub(crate) use semantic_model::PythonSemanticModel;
 pub(crate) use semantic_model::PythonValue;
