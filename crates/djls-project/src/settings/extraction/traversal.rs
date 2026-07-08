@@ -1,6 +1,5 @@
 use std::ops::ControlFlow;
 
-use camino::Utf8Path;
 use ruff_python_ast as ast;
 
 use crate::ExtractionStatus;
@@ -16,32 +15,33 @@ use crate::settings::extraction::bindings::TouchedBindings;
 use crate::settings::extraction::env::EvalEnv;
 use crate::settings::extraction::installed_apps;
 use crate::settings::extraction::staticfiles;
+use crate::settings::extraction::substrate::SettingsImport;
+use crate::settings::extraction::substrate::SettingsImportResolver;
+use crate::settings::extraction::substrate::SettingsSource;
 use crate::settings::extraction::templates;
+use crate::settings::types::EvaluatedPath;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalListBinding;
 use crate::settings::types::ScalarSetting;
-use crate::settings::types::SettingsImport;
-use crate::settings::types::SettingsSourceResolver;
 use crate::settings::types::StaticFilesDirsSetting;
-use crate::settings::types::TemplateDirPath;
 use crate::settings::types::TemplateSettings;
 
 pub(super) struct SettingsBindingsCollector<'a> {
     bindings: SettingsBindings,
-    module_path: &'a Utf8Path,
-    resolver: &'a mut dyn SettingsSourceResolver,
+    source: &'a SettingsSource,
+    resolver: &'a mut dyn SettingsImportResolver,
     extraction: &'a mut SettingsExtraction,
 }
 
 impl<'a> SettingsBindingsCollector<'a> {
     pub(super) fn new(
-        module_path: &'a Utf8Path,
-        resolver: &'a mut dyn SettingsSourceResolver,
+        source: &'a SettingsSource,
+        resolver: &'a mut dyn SettingsImportResolver,
         extraction: &'a mut SettingsExtraction,
     ) -> Self {
         Self {
             bindings: SettingsBindings::default(),
-            module_path,
+            source,
             resolver,
             extraction,
         }
@@ -55,6 +55,10 @@ impl<'a> SettingsBindingsCollector<'a> {
         for setting in KNOWN_SETTINGS.iter().copied() {
             self.bindings.mark_partial(setting);
         }
+    }
+
+    fn env(&self) -> EvalEnv<'_> {
+        EvalEnv::new(self.source, &self.bindings)
     }
 
     pub(super) fn walk_body(&mut self, body: &[ast::Stmt]) {
@@ -74,12 +78,10 @@ impl<'a> SettingsBindingsCollector<'a> {
             ast::Stmt::If(stmt_if) => self.walk_if(stmt_if),
             ast::Stmt::For(stmt_for) => {
                 self.mark_unknown_targets(&stmt_for.target);
-                self.walk_body(&stmt_for.body);
-                self.walk_body(&stmt_for.orelse);
+                self.degrade_touched_bodies(&[&stmt_for.body, &stmt_for.orelse]);
             }
             ast::Stmt::While(stmt_while) => {
-                self.walk_body(&stmt_while.body);
-                self.walk_body(&stmt_while.orelse);
+                self.degrade_touched_bodies(&[&stmt_while.body, &stmt_while.orelse]);
             }
             ast::Stmt::With(stmt_with) => {
                 for item in &stmt_with.items {
@@ -89,15 +91,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                 }
                 self.walk_body(&stmt_with.body);
             }
-            ast::Stmt::Try(stmt_try) => {
-                self.walk_body(&stmt_try.body);
-                for handler in &stmt_try.handlers {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    self.walk_body(&handler.body);
-                }
-                self.walk_body(&stmt_try.orelse);
-                self.walk_body(&stmt_try.finalbody);
-            }
+            ast::Stmt::Try(stmt_try) => self.walk_try(stmt_try),
             ast::Stmt::FunctionDef(function) => self.mark_definition_name(function.name.as_str()),
             ast::Stmt::ClassDef(class) => self.mark_definition_name(class.name.as_str()),
             ast::Stmt::Delete(delete) => {
@@ -106,12 +100,12 @@ impl<'a> SettingsBindingsCollector<'a> {
                 }
             }
             ast::Stmt::TypeAlias(type_alias) => self.mark_unknown_targets(&type_alias.name),
+            ast::Stmt::Match(stmt_match) => self.walk_match(stmt_match),
             ast::Stmt::Return(_)
             | ast::Stmt::Raise(_)
             | ast::Stmt::Assert(_)
             | ast::Stmt::Global(_)
             | ast::Stmt::Nonlocal(_)
-            | ast::Stmt::Match(_)
             | ast::Stmt::Pass(_)
             | ast::Stmt::Break(_)
             | ast::Stmt::Continue(_)
@@ -201,7 +195,7 @@ impl<'a> SettingsBindingsCollector<'a> {
                 "append"
                     if call.arguments.args.len() == 1 && call.arguments.keywords.is_empty() =>
                 {
-                    let env = EvalEnv::new(self.module_path, &self.bindings);
+                    let env = self.env();
                     let path = env.evaluate_template_dir_path(&call.arguments.args[0]);
                     self.push_template_dir(index, path);
                 }
@@ -239,7 +233,7 @@ impl<'a> SettingsBindingsCollector<'a> {
         if is_star_import {
             let imported_bindings = self
                 .resolver
-                .resolve_star_import(&source_import, self.module_path)
+                .resolve_star_import(&source_import, self.source.path())
                 .and_then(|resolved| {
                     self.extraction
                         .extract_import_source(&resolved, self.resolver)
@@ -256,7 +250,7 @@ impl<'a> SettingsBindingsCollector<'a> {
 
         let imported_bindings = self
             .resolver
-            .resolve_named_import(&source_import, self.module_path)
+            .resolve_named_import(&source_import, self.source.path())
             .and_then(|resolved| {
                 self.extraction
                     .extract_import_source(&resolved, self.resolver)
@@ -335,17 +329,95 @@ impl<'a> SettingsBindingsCollector<'a> {
         }
     }
 
-    fn walk_ambiguous_arms(&mut self, arms: &[&[ast::Stmt]]) {
+    fn walk_try(&mut self, stmt_try: &ast::StmtTry) {
+        if stmt_try.handlers.is_empty() {
+            self.walk_body(&stmt_try.body);
+            self.walk_body(&stmt_try.orelse);
+            self.walk_body(&stmt_try.finalbody);
+            return;
+        }
+
+        let mut paths =
+            Vec::with_capacity(1 + stmt_try.handlers.len() * stmt_try.body.len().max(1));
+        paths.push(AmbiguousPath::Two(
+            stmt_try.body.as_slice(),
+            stmt_try.orelse.as_slice(),
+        ));
+        for handler in &stmt_try.handlers {
+            let ast::ExceptHandler::ExceptHandler(handler) = handler;
+            for prefix_len in 0..stmt_try.body.len().max(1) {
+                paths.push(AmbiguousPath::Two(
+                    &stmt_try.body[..prefix_len],
+                    handler.body.as_slice(),
+                ));
+            }
+        }
+        self.walk_ambiguous_paths(&paths);
+        self.walk_body(&stmt_try.finalbody);
+    }
+
+    fn walk_match(&mut self, stmt_match: &ast::StmtMatch) {
+        if stmt_match.cases.len() == 1 && is_irrefutable_match_case(&stmt_match.cases[0]) {
+            self.mark_pattern_bindings(&stmt_match.cases[0].pattern);
+            self.walk_body(&stmt_match.cases[0].body);
+            return;
+        }
+
         let mut writes = TouchedBindings::default();
-        for arm in arms {
-            writes.merge(&collect_known_writes(arm));
+        for case in &stmt_match.cases {
+            record_pattern_writes(&case.pattern, &mut writes);
+            writes.merge(&collect_known_writes(&case.body));
         }
 
         let base = std::mem::take(&mut self.bindings);
-        let mut branch_bindings = Vec::with_capacity(arms.len());
-        for arm in arms {
+        let mut branch_bindings = Vec::with_capacity(stmt_match.cases.len() + 1);
+        for case in &stmt_match.cases {
             self.bindings = base.clone();
-            self.walk_body(arm);
+            self.mark_pattern_bindings(&case.pattern);
+            self.walk_body(&case.body);
+            branch_bindings.push(std::mem::take(&mut self.bindings));
+        }
+        if !stmt_match.cases.iter().any(is_irrefutable_match_case) {
+            branch_bindings.push(base.clone());
+        }
+        self.bindings = base.join_ambiguous(&branch_bindings, &writes);
+    }
+
+    fn mark_pattern_bindings(&mut self, pattern: &ast::Pattern) {
+        for name in pattern_bound_names(pattern) {
+            self.mark_definition_name(name);
+        }
+    }
+
+    fn degrade_touched_bodies(&mut self, bodies: &[&[ast::Stmt]]) {
+        let mut writes = TouchedBindings::default();
+        for body in bodies {
+            writes.merge(&collect_known_writes(body));
+        }
+        self.bindings.degrade_touched(&writes);
+    }
+
+    fn walk_ambiguous_arms(&mut self, arms: &[&[ast::Stmt]]) {
+        let paths: Vec<AmbiguousPath<'_>> =
+            arms.iter().map(|arm| AmbiguousPath::One(arm)).collect();
+        self.walk_ambiguous_paths(&paths);
+    }
+
+    fn walk_ambiguous_paths(&mut self, paths: &[AmbiguousPath<'_>]) {
+        let mut writes = TouchedBindings::default();
+        for path in paths {
+            for segment in path.segments() {
+                writes.merge(&collect_known_writes(segment));
+            }
+        }
+
+        let base = std::mem::take(&mut self.bindings);
+        let mut branch_bindings = Vec::with_capacity(paths.len());
+        for path in paths {
+            self.bindings = base.clone();
+            for segment in path.segments() {
+                self.walk_body(segment);
+            }
             branch_bindings.push(std::mem::take(&mut self.bindings));
         }
         self.bindings = base.join_ambiguous(&branch_bindings, &writes);
@@ -460,7 +532,7 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn assign_aux(&mut self, name: &str, value: &ast::Expr) {
-        let env = EvalEnv::new(self.module_path, &self.bindings);
+        let env = self.env();
         match installed_apps::evaluate_local_list_assignment(value, &env) {
             Some(extracted) => self.bindings.locals.set_list(name, extracted.into()),
             None => self.bindings.locals.remove_list(name),
@@ -471,15 +543,15 @@ impl<'a> SettingsBindingsCollector<'a> {
             None => self.bindings.locals.remove_bool(name),
         }
 
-        let env = EvalEnv::new(self.module_path, &self.bindings);
+        let env = self.env();
         match env.evaluate_template_dir_path(value) {
-            TemplateDirPath::Resolved(path) => self.bindings.locals.set_path(name, path),
-            TemplateDirPath::Unknown => self.bindings.locals.remove_path(name),
+            EvaluatedPath::Resolved(path) => self.bindings.locals.set_path(name, path),
+            EvaluatedPath::Unknown => self.bindings.locals.remove_path(name),
         }
     }
 
     fn assign_installed_apps(&mut self, value: &ast::Expr) {
-        let env = EvalEnv::new(self.module_path, &self.bindings);
+        let env = self.env();
         match installed_apps::evaluate_assignment(value, &env) {
             installed_apps::AssignmentEffect::Assign(extracted) => {
                 let extraction = if extracted.status.is_complete() {
@@ -504,7 +576,7 @@ impl<'a> SettingsBindingsCollector<'a> {
             return;
         }
 
-        let env = EvalEnv::new(self.module_path, &self.bindings);
+        let env = self.env();
         let extracted = installed_apps::evaluate_list_operand(value, &env);
         let setting = self
             .bindings
@@ -573,7 +645,7 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn assign_templates(&mut self, value: &ast::Expr) {
-        let env = EvalEnv::new(self.module_path, &self.bindings);
+        let env = self.env();
         match templates::evaluate_assignment(value, &env) {
             templates::AssignmentEffect::Assign(backends, completeness) => {
                 self.bindings.templates = Some(TemplateSettings::full(backends));
@@ -588,7 +660,7 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn assign_static_url(&mut self, value: &ast::Expr) {
-        match staticfiles::evaluate_static_url_assignment(value) {
+        match staticfiles::evaluate_static_url_assignment(value, self.source.file()) {
             Some((candidate, completeness)) => {
                 self.bindings.static_url = Some(match completeness {
                     AssignmentCompleteness::Full => ScalarSetting::full(vec![candidate]),
@@ -604,8 +676,9 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn assign_static_root(&mut self, value: &ast::Expr) {
-        let env = EvalEnv::new(self.module_path, &self.bindings);
-        let (candidate, completeness) = staticfiles::evaluate_static_root_assignment(value, &env);
+        let env = self.env();
+        let (candidate, completeness) =
+            staticfiles::evaluate_static_root_assignment(value, &env, self.source.file());
         self.bindings.static_root = Some(match completeness {
             AssignmentCompleteness::Full => ScalarSetting::full(vec![candidate]),
             AssignmentCompleteness::Partial => {
@@ -615,8 +688,8 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn assign_staticfiles_dirs(&mut self, value: &ast::Expr) {
-        let env = EvalEnv::new(self.module_path, &self.bindings);
-        match staticfiles::evaluate_staticfiles_dirs_assignment(value, &env) {
+        let env = self.env();
+        match staticfiles::evaluate_staticfiles_dirs_assignment(value, &env, self.source.file()) {
             Some(extracted) => {
                 let extraction = if extracted.status.is_complete() {
                     ExtractionStatus::Complete
@@ -636,7 +709,7 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 
     fn extend_template_dirs(&mut self, index: usize, value: &ast::Expr) {
-        let env = EvalEnv::new(self.module_path, &self.bindings);
+        let env = self.env();
         match templates::evaluate_dirs_extension(value, &env) {
             templates::DirsExtensionEffect::Extend(paths) => {
                 for path in paths {
@@ -649,8 +722,8 @@ impl<'a> SettingsBindingsCollector<'a> {
         }
     }
 
-    fn push_template_dir(&mut self, index: usize, path: TemplateDirPath) {
-        let path_is_unknown = path == TemplateDirPath::Unknown;
+    fn push_template_dir(&mut self, index: usize, path: EvaluatedPath) {
+        let path_is_unknown = path == EvaluatedPath::Unknown;
 
         let Some(templates) = self.bindings.templates.as_mut() else {
             self.bindings.mark_partial(KnownSetting::Templates);
@@ -690,6 +763,23 @@ enum Truthiness {
     AlwaysTrue,
     AlwaysFalse,
     Ambiguous,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AmbiguousPath<'a> {
+    One(&'a [ast::Stmt]),
+    Two(&'a [ast::Stmt], &'a [ast::Stmt]),
+}
+
+impl<'a> AmbiguousPath<'a> {
+    fn segments(self) -> impl Iterator<Item = &'a [ast::Stmt]> {
+        match self {
+            Self::One(body) => [Some(body), None],
+            Self::Two(first, second) => [Some(first), Some(second)],
+        }
+        .into_iter()
+        .flatten()
+    }
 }
 
 impl Truthiness {
@@ -768,6 +858,12 @@ fn record_stmt_writes(stmt: &ast::Stmt, writes: &mut TouchedBindings) {
                 writes.merge(&collect_known_writes(&clause.body));
             }
         }
+        ast::Stmt::Match(stmt_match) => {
+            for case in &stmt_match.cases {
+                record_pattern_writes(&case.pattern, writes);
+                writes.merge(&collect_known_writes(&case.body));
+            }
+        }
         ast::Stmt::Expr(expr) => {
             for setting in expr_touched_known_settings(&expr.value) {
                 writes.record_setting(setting);
@@ -806,7 +902,6 @@ fn record_stmt_writes(stmt: &ast::Stmt, writes: &mut TouchedBindings) {
         | ast::Stmt::Assert(_)
         | ast::Stmt::Global(_)
         | ast::Stmt::Nonlocal(_)
-        | ast::Stmt::Match(_)
         | ast::Stmt::Pass(_)
         | ast::Stmt::Break(_)
         | ast::Stmt::Continue(_)
@@ -973,8 +1068,91 @@ fn expr_touches_name(expr: &ast::Expr, expected: &str) -> bool {
             .elts
             .iter()
             .any(|expr| expr_touches_name(expr, expected)),
+        ast::Expr::Dict(dict) => dict.items.iter().any(|item| {
+            item.key
+                .as_ref()
+                .is_some_and(|key| expr_touches_name(key, expected))
+                || expr_touches_name(&item.value, expected)
+        }),
         ast::Expr::Starred(starred) => expr_touches_name(&starred.value, expected),
         _ => false,
+    }
+}
+
+fn record_pattern_writes(pattern: &ast::Pattern, writes: &mut TouchedBindings) {
+    for name in pattern_bound_names(pattern) {
+        record_name_write(name, writes);
+    }
+}
+
+fn pattern_bound_names(pattern: &ast::Pattern) -> Vec<&str> {
+    let mut names = Vec::new();
+    collect_pattern_bound_names(pattern, &mut names);
+    names
+}
+
+fn collect_pattern_bound_names<'a>(pattern: &'a ast::Pattern, names: &mut Vec<&'a str>) {
+    match pattern {
+        ast::Pattern::MatchValue(_) | ast::Pattern::MatchSingleton(_) => {}
+        ast::Pattern::MatchSequence(sequence) => {
+            for pattern in &sequence.patterns {
+                collect_pattern_bound_names(pattern, names);
+            }
+        }
+        ast::Pattern::MatchMapping(mapping) => {
+            for pattern in &mapping.patterns {
+                collect_pattern_bound_names(pattern, names);
+            }
+            if let Some(rest) = &mapping.rest {
+                names.push(rest.as_str());
+            }
+        }
+        ast::Pattern::MatchClass(class) => {
+            for pattern in &class.arguments.patterns {
+                collect_pattern_bound_names(pattern, names);
+            }
+            for keyword in &class.arguments.keywords {
+                collect_pattern_bound_names(&keyword.pattern, names);
+            }
+        }
+        ast::Pattern::MatchStar(star) => {
+            if let Some(name) = &star.name {
+                names.push(name.as_str());
+            }
+        }
+        ast::Pattern::MatchAs(match_as) => {
+            if let Some(pattern) = &match_as.pattern {
+                collect_pattern_bound_names(pattern, names);
+            }
+            if let Some(name) = &match_as.name {
+                names.push(name.as_str());
+            }
+        }
+        ast::Pattern::MatchOr(match_or) => {
+            for pattern in &match_or.patterns {
+                collect_pattern_bound_names(pattern, names);
+            }
+        }
+    }
+}
+
+fn is_irrefutable_match_case(case: &ast::MatchCase) -> bool {
+    case.guard.is_none() && is_irrefutable_pattern(&case.pattern)
+}
+
+fn is_irrefutable_pattern(pattern: &ast::Pattern) -> bool {
+    match pattern {
+        ast::Pattern::MatchValue(_)
+        | ast::Pattern::MatchSingleton(_)
+        | ast::Pattern::MatchSequence(_)
+        | ast::Pattern::MatchMapping(_)
+        | ast::Pattern::MatchClass(_)
+        | ast::Pattern::MatchStar(_) => false,
+        ast::Pattern::MatchAs(match_as) => match_as
+            .pattern
+            .as_deref()
+            .is_none_or(is_irrefutable_pattern),
+        ast::Pattern::MatchOr(match_or) => match_or.patterns.iter().any(is_irrefutable_pattern),
     }
 }
 

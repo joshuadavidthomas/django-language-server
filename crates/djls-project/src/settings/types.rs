@@ -1,8 +1,9 @@
-use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_source::Spanned;
+use djls_source::File;
+use djls_source::Span;
 use rustc_hash::FxHashMap;
 use serde::Serialize;
+use serde::ser::SerializeStruct;
 
 use crate::ExtractionStatus;
 use crate::python::InvalidModuleName;
@@ -109,11 +110,11 @@ impl TemplateSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct TemplateBackend {
     pub(crate) backend: Option<String>,
-    pub(crate) dirs: Vec<TemplateDirPath>,
+    pub(crate) dirs: Vec<EvaluatedPath>,
     pub(crate) app_dirs: Option<bool>,
     pub(crate) libraries: Vec<(String, PythonModuleName)>,
     pub(crate) builtins: Vec<PythonModuleName>,
-    pub(crate) context_processors: Vec<Spanned<TemplateContextProcessorPath>>,
+    pub(crate) context_processors: Vec<Originated<TemplateContextProcessorPath>>,
     pub(crate) extraction: ExtractionStatus,
 }
 
@@ -167,17 +168,17 @@ impl TemplateContextProcessorPath {
     }
 }
 
-pub(crate) type ScalarSetting<T> = SettingValues<Spanned<T>>;
+pub(crate) type ScalarSetting<T> = SettingValues<Originated<T>>;
 
 /// The statically extracted subset of Django's staticfiles settings.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub(crate) struct StaticFilesSettings {
     pub(crate) static_url: ScalarSetting<String>,
-    pub(crate) static_root: ScalarSetting<TemplateDirPath>,
+    pub(crate) static_root: ScalarSetting<EvaluatedPath>,
     pub(crate) staticfiles_dirs: StaticFilesDirsSetting,
 }
 
-pub(crate) type StaticFilesDirsSetting = SettingValues<Spanned<TemplateDirPath>>;
+pub(crate) type StaticFilesDirsSetting = SettingValues<Originated<EvaluatedPath>>;
 
 /// The statically extracted subset of a Django settings module.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
@@ -191,40 +192,58 @@ pub(crate) struct DjangoSettings {
 /// A path expression evaluated against the settings file's own location.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum TemplateDirPath {
+pub(crate) enum EvaluatedPath {
     Resolved(Utf8PathBuf),
     Unknown,
 }
 
-/// `from X import name`; the caller resolves the imported source.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct SettingsImport {
-    pub(crate) level: u32,
-    pub(crate) module: Option<String>,
+/// Source location for a value computed from Python settings source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Origin {
+    pub(crate) file: File,
+    pub(crate) span: Span,
 }
 
-/// Resolved source for a settings import.
+impl Origin {
+    pub(crate) fn new(file: File, span: Span) -> Self {
+        Self { file, span }
+    }
+}
+
+/// A settings value paired with the file and span where it was born.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SettingsSource {
-    pub(crate) source: String,
-    pub(crate) path: Utf8PathBuf,
+pub(crate) struct Originated<T> {
+    value: T,
+    origin: Origin,
 }
 
-/// Caller-supplied source lookup for settings imports.
-pub(crate) trait SettingsSourceResolver {
-    /// Return the source for a star-imported module, or `None` if it cannot be resolved.
-    fn resolve_star_import(
-        &mut self,
-        import: &SettingsImport,
-        importer: &Utf8Path,
-    ) -> Option<SettingsSource>;
+impl<T> Originated<T> {
+    pub(crate) fn new(value: T, origin: Origin) -> Self {
+        Self { value, origin }
+    }
 
-    /// Return the source for a named-imported module, or `None` if it cannot be followed.
-    fn resolve_named_import(
-        &mut self,
-        import: &SettingsImport,
-        importer: &Utf8Path,
-    ) -> Option<SettingsSource>;
+    #[must_use]
+    pub(crate) fn value(&self) -> &T {
+        &self.value
+    }
+
+    #[must_use]
+    pub(crate) fn origin(&self) -> Origin {
+        self.origin
+    }
+}
+
+impl<T: Serialize> Serialize for Originated<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let origin = self.origin();
+        let mut state = serializer.serialize_struct("Originated", 2)?;
+        state.serialize_field("value", &self.value)?;
+        state.serialize_field("span", &origin.span)?;
+        state.end()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,6 +265,10 @@ impl LocalListBinding {
             values,
             extraction: ExtractionStatus::Partial,
         }
+    }
+
+    pub(crate) fn mark_partial(&mut self) {
+        self.extraction = ExtractionStatus::Partial;
     }
 
     #[must_use]
@@ -341,6 +364,10 @@ impl LocalBindings {
 
     pub(crate) fn list_binding(&self, name: &str) -> Option<&LocalListBinding> {
         self.lists.get(name)
+    }
+
+    pub(crate) fn list_binding_mut(&mut self, name: &str) -> Option<&mut LocalListBinding> {
+        self.lists.get_mut(name)
     }
 
     pub(crate) fn clear_name(&mut self, name: &str) {

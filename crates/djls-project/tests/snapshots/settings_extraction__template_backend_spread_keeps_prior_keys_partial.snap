@@ -9,8 +9,9 @@ installed_apps:
   extraction: complete
 templates:
   backends:
-    - backend: ~
-      dirs: []
+    - backend: django.template.backends.django.DjangoTemplates
+      dirs:
+        - resolved: /proj/myproject/templates
       app_dirs: true
       libraries: []
       builtins: []

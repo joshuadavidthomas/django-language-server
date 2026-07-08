@@ -1,26 +1,31 @@
-use camino::Utf8Path;
+use djls_source::File;
 use ruff_python_ast as ast;
 
 use crate::python::evaluate_path;
 use crate::settings::extraction::bindings::SettingsBindings;
+use crate::settings::extraction::substrate::SettingsSource;
+use crate::settings::types::EvaluatedPath;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
 use crate::settings::types::LocalListBinding;
-use crate::settings::types::TemplateDirPath;
 
 pub(super) struct EvalEnv<'a> {
-    module_path: &'a Utf8Path,
+    source: &'a SettingsSource,
     locals: &'a LocalBindings,
     installed_apps: Option<&'a InstalledAppsSetting>,
 }
 
 impl<'a> EvalEnv<'a> {
-    pub(super) fn new(module_path: &'a Utf8Path, bindings: &'a SettingsBindings) -> Self {
+    pub(super) fn new(source: &'a SettingsSource, bindings: &'a SettingsBindings) -> Self {
         Self {
-            module_path,
+            source,
             locals: &bindings.locals,
             installed_apps: bindings.installed_apps.as_ref(),
         }
+    }
+
+    pub(super) fn module_file(&self) -> File {
+        self.source.file()
     }
 
     pub(super) fn installed_apps(&self) -> Option<&'a InstalledAppsSetting> {
@@ -31,8 +36,8 @@ impl<'a> EvalEnv<'a> {
         self.locals.list_binding(name)
     }
 
-    pub(super) fn evaluate_template_dir_path(&self, expr: &ast::Expr) -> TemplateDirPath {
-        evaluate_path(expr, self.module_path, self.locals.path_bindings())
-            .map_or(TemplateDirPath::Unknown, TemplateDirPath::Resolved)
+    pub(super) fn evaluate_template_dir_path(&self, expr: &ast::Expr) -> EvaluatedPath {
+        evaluate_path(expr, self.source.path(), self.locals.path_bindings())
+            .map_or(EvaluatedPath::Unknown, EvaluatedPath::Resolved)
     }
 }

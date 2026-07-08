@@ -546,6 +546,32 @@ fn template_context_processors_resolve_module_prefix_and_callable_tail() {
 }
 
 #[test]
+fn template_context_processors_keep_imported_origin_file() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings.local",
+        &[
+            ("/proj/myproject/settings/__init__.py", ""),
+            (
+                "/proj/myproject/settings/base.py",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
+            ),
+            (
+                "/proj/myproject/settings/local.py",
+                "from .base import TEMPLATES\n",
+            ),
+        ],
+    );
+
+    let processors = template_context_processors(&db, project);
+    let processor = processors.processors().first().unwrap();
+    let (file, _) = processor.origin();
+
+    assert_eq!(file.path(&db).as_str(), "/proj/myproject/settings/base.py");
+}
+
+#[test]
 fn template_context_processors_keep_unresolved_facts_with_tail() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
