@@ -1,21 +1,14 @@
 use camino::Utf8PathBuf;
+use djls_source::Origin;
 use serde::Serialize;
 use serde::ser::SerializeStruct;
 
 use crate::ExtractionStatus;
 use crate::python::InvalidModuleName;
-use crate::python::Origin;
+use crate::python::ParseStatus;
 use crate::python::PythonModuleName;
 
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum SettingsParseStatus {
-    #[default]
-    Parsed,
-    Unparseable,
-}
 
 /// Observed values for one extracted Django setting.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -159,7 +152,7 @@ pub(crate) type StaticFilesDirsSetting = SettingValues<Originated<EvaluatedPath>
 /// The statically extracted subset of a Django settings module.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub(crate) struct DjangoSettings {
-    pub(crate) parse_status: SettingsParseStatus,
+    pub(crate) parse_status: ParseStatus,
     pub(crate) installed_apps: InstalledAppsSetting,
     pub(crate) templates: TemplateSettings,
     pub(crate) staticfiles: StaticFilesSettings,
