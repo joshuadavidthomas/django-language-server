@@ -11,20 +11,8 @@ pub(crate) struct PythonPathBindings {
 }
 
 impl PythonPathBindings {
-    pub(crate) fn extend(&mut self, other: Self) {
-        self.paths.extend(other.paths);
-    }
-
-    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
-        self.paths.keys().map(String::as_str)
-    }
-
     pub(crate) fn set(&mut self, name: impl Into<String>, value: Utf8PathBuf) {
         self.paths.insert(name.into(), value);
-    }
-
-    pub(crate) fn remove(&mut self, name: &str) {
-        self.paths.remove(name);
     }
 
     pub(crate) fn get(&self, name: &str) -> Option<&Utf8PathBuf> {

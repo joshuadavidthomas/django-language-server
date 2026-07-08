@@ -18,6 +18,10 @@ templates:
           span:
             start: 267
             length: 33
+        - value: project.context_processors.dynamic
+          span:
+            start: 21
+            length: 36
         - value: project.context_processors.request
           span:
             start: 413

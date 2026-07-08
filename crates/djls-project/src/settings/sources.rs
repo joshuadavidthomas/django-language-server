@@ -5,12 +5,13 @@ use djls_source::File;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonImport;
+use crate::python::PythonImportResolver;
 use crate::python::PythonModule;
+use crate::python::PythonSemanticModel;
 use crate::python::PythonSource;
 use crate::python::SearchPath;
 use crate::python::resolve_module_detail;
 use crate::settings::DjangoSettings;
-use crate::settings::extraction::SettingsImports;
 use crate::settings::extraction::extract_settings;
 
 pub(super) fn django_settings_from_file(
@@ -61,9 +62,12 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
     let Some(source) = context.read_source(file) else {
         return DjangoSettingsSources::from_files(db, [file]);
     };
-    let _ = extract_settings(&source, &mut context);
+    let model = PythonSemanticModel::analyze(&source, &mut context);
 
-    DjangoSettingsSources::from_files(db, std::iter::once(file).chain(context.resolved))
+    DjangoSettingsSources::from_files(
+        db,
+        model.files_read().iter().copied().chain(context.resolved),
+    )
 }
 
 enum SettingsReadMode {
@@ -110,7 +114,7 @@ impl<'db> SettingsImportContext<'db> {
     }
 }
 
-impl SettingsImports for SettingsImportContext<'_> {
+impl PythonImportResolver for SettingsImportContext<'_> {
     fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
         let module = self.resolve_python_import(import)?;
         self.read_resolved_module(&module)
