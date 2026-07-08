@@ -20,7 +20,7 @@ use super::source_graph::PythonImportEdge;
 use super::source_graph::PythonSourceGraph;
 use super::state::PythonSemanticState;
 use super::statement_walk;
-use super::statement_walk::StatementSemantics;
+use super::statement_walk::StatementInterpreter;
 use super::touched_names::TouchedNames;
 use super::touched_names::collect_touched_names;
 use super::touched_names::expr_read_names;
@@ -79,15 +79,15 @@ pub(super) fn evaluate_body(
     state: PythonSemanticState,
     body: &[ast::Stmt],
 ) -> PythonSemanticState {
-    let mut semantics = SemanticSemantics { ctx };
-    statement_walk::walk_body(&mut semantics, state, body)
+    let mut evaluator = SemanticEvaluator { ctx };
+    statement_walk::walk_body(&mut evaluator, state, body)
 }
 
-struct SemanticSemantics<'ctx, 'source> {
+struct SemanticEvaluator<'ctx, 'source> {
     ctx: &'ctx EvaluationContext<'source>,
 }
 
-impl StatementSemantics for SemanticSemantics<'_, '_> {
+impl StatementInterpreter for SemanticEvaluator<'_, '_> {
     type State = PythonSemanticState;
 
     fn walk_assign(&mut self, state: &mut Self::State, assign: &ast::StmtAssign) {
