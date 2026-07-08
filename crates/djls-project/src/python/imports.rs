@@ -11,11 +11,11 @@ use crate::python::PythonModuleName;
 use crate::python::parse_python_module;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ImportTable {
+pub(crate) struct ImportBindings {
     bindings: BTreeMap<String, ImportBinding>,
 }
 
-impl ImportTable {
+impl ImportBindings {
     pub(crate) fn resolve_qualified_path<'a>(
         &self,
         path: impl IntoIterator<Item = &'a str>,
@@ -64,13 +64,13 @@ pub(crate) enum ModuleKind {
 // Salsa tracked-query keys are by-value; `module_name` is a key, not a borrow.
 #[allow(clippy::needless_pass_by_value)]
 #[salsa::tracked(returns(ref))]
-pub(crate) fn import_table(
+pub(crate) fn import_bindings(
     db: &dyn djls_source::Db,
     file: File,
     module_name: PythonModuleName,
-) -> ImportTable {
+) -> ImportBindings {
     let Some(parsed) = parse_python_module(db, file) else {
-        return ImportTable::default();
+        return ImportBindings::default();
     };
 
     let module_kind = if file.path(db).file_name() == Some("__init__.py") {
@@ -78,29 +78,29 @@ pub(crate) fn import_table(
     } else {
         ModuleKind::Module
     };
-    extract_import_table_impl(parsed.body(db), &module_name, module_kind)
+    extract_import_bindings_impl(parsed.body(db), &module_name, module_kind)
 }
 
 #[cfg(test)]
-pub(crate) fn extract_import_table_for_source(
+pub(crate) fn extract_import_bindings_for_source(
     source: &str,
     module_name: &PythonModuleName,
     module_kind: ModuleKind,
-) -> ImportTable {
+) -> ImportBindings {
     let Ok(parsed) = ruff_python_parser::parse_module(source) else {
-        return ImportTable::default();
+        return ImportBindings::default();
     };
 
     let module = parsed.into_syntax();
-    extract_import_table_impl(&module.body, module_name, module_kind)
+    extract_import_bindings_impl(&module.body, module_name, module_kind)
 }
 
-fn extract_import_table_impl(
+fn extract_import_bindings_impl(
     stmts: &[Stmt],
     module_name: &PythonModuleName,
     module_kind: ModuleKind,
-) -> ImportTable {
-    let mut table = ImportTable::default();
+) -> ImportBindings {
+    let mut table = ImportBindings::default();
     for stmt in stmts {
         match stmt {
             Stmt::Import(import) => record_import(&mut table, &import.names),
@@ -122,7 +122,7 @@ fn extract_import_table_impl(
     table
 }
 
-fn record_import(table: &mut ImportTable, aliases: &[Alias]) {
+fn record_import(table: &mut ImportBindings, aliases: &[Alias]) {
     for alias in aliases {
         let imported_name = alias.name.as_str();
         let (local_name, target, binding_range) = if let Some(asname) = &alias.asname {
@@ -154,7 +154,7 @@ fn record_import(table: &mut ImportTable, aliases: &[Alias]) {
 }
 
 fn record_import_from(
-    table: &mut ImportTable,
+    table: &mut ImportBindings,
     module_name: &PythonModuleName,
     module_kind: ModuleKind,
     level: u32,
@@ -237,18 +237,18 @@ mod tests {
     use crate::db::Db as ProjectDb;
     use crate::project::Project;
 
-    fn table(source: &str, module_name: &str, module_kind: ModuleKind) -> ImportTable {
+    fn bindings(source: &str, module_name: &str, module_kind: ModuleKind) -> ImportBindings {
         let module_name = PythonModuleName::parse(module_name).unwrap();
-        extract_import_table_for_source(source, &module_name, module_kind)
+        extract_import_bindings_for_source(source, &module_name, module_kind)
     }
 
-    fn binding<'a>(table: &'a ImportTable, name: &str) -> &'a ImportBinding {
+    fn binding<'a>(table: &'a ImportBindings, name: &str) -> &'a ImportBinding {
         table.bindings.get(name).expect("binding should exist")
     }
 
     #[test]
     fn plain_import_binds_top_level_module() {
-        let table = table("import os\n", "pkg.mod", ModuleKind::Module);
+        let table = bindings("import os\n", "pkg.mod", ModuleKind::Module);
 
         assert_eq!(binding(&table, "os").target.as_str(), "os");
         assert_eq!(binding(&table, "os").binding_range, Span::new(7, 2));
@@ -256,14 +256,14 @@ mod tests {
 
     #[test]
     fn aliased_import_binds_alias_to_full_target() {
-        let table = table("import a.b as c\n", "pkg.mod", ModuleKind::Module);
+        let table = bindings("import a.b as c\n", "pkg.mod", ModuleKind::Module);
 
         assert_eq!(binding(&table, "c").target.as_str(), "a.b");
     }
 
     #[test]
     fn submodule_import_binds_only_top_level_module() {
-        let table = table("import os.path\n", "pkg.mod", ModuleKind::Module);
+        let table = bindings("import os.path\n", "pkg.mod", ModuleKind::Module);
 
         assert_eq!(table.bindings.len(), 1);
         assert_eq!(binding(&table, "os").target.as_str(), "os");
@@ -271,56 +271,56 @@ mod tests {
 
     #[test]
     fn from_import_binds_imported_name_to_qualified_target() {
-        let table = table("from m import x\n", "pkg.mod", ModuleKind::Module);
+        let table = bindings("from m import x\n", "pkg.mod", ModuleKind::Module);
 
         assert_eq!(binding(&table, "x").target.as_str(), "m.x");
     }
 
     #[test]
     fn aliased_from_import_binds_alias_to_qualified_target() {
-        let table = table("from m import x as y\n", "pkg.mod", ModuleKind::Module);
+        let table = bindings("from m import x as y\n", "pkg.mod", ModuleKind::Module);
 
         assert_eq!(binding(&table, "y").target.as_str(), "m.x");
     }
 
     #[test]
     fn relative_import_level_one_uses_containing_package() {
-        let table = table("from . import x\n", "pkg.sub.mod", ModuleKind::Module);
+        let table = bindings("from . import x\n", "pkg.sub.mod", ModuleKind::Module);
 
         assert_eq!(binding(&table, "x").target.as_str(), "pkg.sub.x");
     }
 
     #[test]
     fn relative_import_level_two_strips_one_package_segment() {
-        let table = table("from ..m import y\n", "pkg.sub.mod", ModuleKind::Module);
+        let table = bindings("from ..m import y\n", "pkg.sub.mod", ModuleKind::Module);
 
         assert_eq!(binding(&table, "y").target.as_str(), "pkg.m.y");
     }
 
     #[test]
     fn relative_import_from_package_init_uses_package_as_base() {
-        let table = table("from . import x\n", "pkg.sub", ModuleKind::PackageInit);
+        let table = bindings("from . import x\n", "pkg.sub", ModuleKind::PackageInit);
 
         assert_eq!(binding(&table, "x").target.as_str(), "pkg.sub.x");
     }
 
     #[test]
     fn relative_import_level_overflow_records_no_binding() {
-        let table = table("from ..m import y\n", "pkg.mod", ModuleKind::Module);
+        let table = bindings("from ..m import y\n", "pkg.mod", ModuleKind::Module);
 
         assert!(table.bindings.is_empty());
     }
 
     #[test]
     fn star_import_records_no_binding() {
-        let table = table("from m import *\n", "pkg.mod", ModuleKind::Module);
+        let table = bindings("from m import *\n", "pkg.mod", ModuleKind::Module);
 
         assert!(table.bindings.is_empty());
     }
 
     #[test]
     fn duplicate_bindings_shadow_with_last_assignment_wins() {
-        let table = table(
+        let table = bindings(
             "from a import x\nfrom b import x\n",
             "pkg.mod",
             ModuleKind::Module,
@@ -330,11 +330,11 @@ mod tests {
     }
 
     #[test]
-    fn import_table_query_reads_python_file_source() {
+    fn import_bindings_query_reads_python_file_source() {
         let db = TestDatabase::new();
         db.add_file("/project/pkg/mod.py", "import os\n");
         let file = db.file(camino::Utf8Path::new("/project/pkg/mod.py"));
-        let table = import_table(&db, file, PythonModuleName::parse("pkg.mod").unwrap());
+        let table = import_bindings(&db, file, PythonModuleName::parse("pkg.mod").unwrap());
 
         assert_eq!(binding(table, "os").target.as_str(), "os");
     }

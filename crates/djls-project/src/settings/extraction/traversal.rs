@@ -6,16 +6,16 @@ use crate::ExtractionStatus;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::python::BranchAnalyzer;
 use crate::python::PythonImport;
-use crate::python::PythonImportSourceResolver;
-use crate::python::PythonModuleSource;
-use crate::python::StatementAnalyzer;
+use crate::python::PythonSource;
 use crate::python::Truthiness;
 use crate::python::pattern_bound_names;
 use crate::settings::extraction::AssignmentCompleteness;
 use crate::settings::extraction::KNOWN_SETTINGS;
 use crate::settings::extraction::KnownSetting;
 use crate::settings::extraction::SettingsExtraction;
+use crate::settings::extraction::SettingsImports;
 use crate::settings::extraction::bindings::SettingsBindings;
 use crate::settings::extraction::bindings::TouchedBindings;
 use crate::settings::extraction::env::EvalEnv;
@@ -31,15 +31,15 @@ use crate::settings::types::TemplateSettings;
 
 pub(super) struct SettingsBindingsCollector<'a> {
     bindings: SettingsBindings,
-    source: &'a PythonModuleSource,
-    resolver: &'a mut dyn PythonImportSourceResolver,
+    source: &'a PythonSource,
+    resolver: &'a mut dyn SettingsImports,
     extraction: &'a mut SettingsExtraction,
 }
 
 impl<'a> SettingsBindingsCollector<'a> {
     pub(super) fn new(
-        source: &'a PythonModuleSource,
-        resolver: &'a mut dyn PythonImportSourceResolver,
+        source: &'a PythonSource,
+        resolver: &'a mut dyn SettingsImports,
         extraction: &'a mut SettingsExtraction,
     ) -> Self {
         Self {
@@ -620,7 +620,7 @@ impl<'a> SettingsBindingsCollector<'a> {
     }
 }
 
-impl StatementAnalyzer for SettingsBindingsCollector<'_> {
+impl BranchAnalyzer for SettingsBindingsCollector<'_> {
     type State = SettingsBindings;
     type Writes = TouchedBindings;
 

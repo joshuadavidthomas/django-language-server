@@ -25,7 +25,7 @@ impl Truthiness {
     }
 }
 
-pub(crate) trait StatementAnalyzer {
+pub(crate) trait BranchAnalyzer {
     type State: Clone;
     type Writes: Default;
 
@@ -47,12 +47,12 @@ pub(crate) trait StatementAnalyzer {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum ControlFlowPath<'a> {
+enum BranchPath<'a> {
     One(&'a [ast::Stmt]),
     Two(&'a [ast::Stmt], &'a [ast::Stmt]),
 }
 
-impl<'a> ControlFlowPath<'a> {
+impl<'a> BranchPath<'a> {
     fn segments(self) -> impl Iterator<Item = &'a [ast::Stmt]> {
         match self {
             Self::One(body) => [Some(body), None],
@@ -63,7 +63,7 @@ impl<'a> ControlFlowPath<'a> {
     }
 }
 
-pub(crate) fn analyze_if<B: StatementAnalyzer>(builder: &mut B, stmt_if: &ast::StmtIf) {
+pub(crate) fn analyze_if<B: BranchAnalyzer>(builder: &mut B, stmt_if: &ast::StmtIf) {
     match builder.evaluate_test(&stmt_if.test) {
         Truthiness::AlwaysTrue => builder.walk_body(&stmt_if.body),
         Truthiness::AlwaysFalse => analyze_false_if_clauses(builder, &stmt_if.elif_else_clauses),
@@ -88,10 +88,7 @@ pub(crate) fn analyze_if<B: StatementAnalyzer>(builder: &mut B, stmt_if: &ast::S
     }
 }
 
-fn analyze_false_if_clauses<B: StatementAnalyzer>(
-    builder: &mut B,
-    clauses: &[ast::ElifElseClause],
-) {
+fn analyze_false_if_clauses<B: BranchAnalyzer>(builder: &mut B, clauses: &[ast::ElifElseClause]) {
     for (index, clause) in clauses.iter().enumerate() {
         let Some(test) = &clause.test else {
             builder.walk_body(&clause.body);
@@ -120,7 +117,7 @@ fn analyze_false_if_clauses<B: StatementAnalyzer>(
     }
 }
 
-pub(crate) fn analyze_try<B: StatementAnalyzer>(builder: &mut B, stmt_try: &ast::StmtTry) {
+pub(crate) fn analyze_try<B: BranchAnalyzer>(builder: &mut B, stmt_try: &ast::StmtTry) {
     if stmt_try.handlers.is_empty() {
         builder.walk_body(&stmt_try.body);
         builder.walk_body(&stmt_try.orelse);
@@ -129,14 +126,14 @@ pub(crate) fn analyze_try<B: StatementAnalyzer>(builder: &mut B, stmt_try: &ast:
     }
 
     let mut paths = Vec::with_capacity(1 + stmt_try.handlers.len() * stmt_try.body.len().max(1));
-    paths.push(ControlFlowPath::Two(
+    paths.push(BranchPath::Two(
         stmt_try.body.as_slice(),
         stmt_try.orelse.as_slice(),
     ));
     for handler in &stmt_try.handlers {
         let ast::ExceptHandler::ExceptHandler(handler) = handler;
         for prefix_len in 0..stmt_try.body.len().max(1) {
-            paths.push(ControlFlowPath::Two(
+            paths.push(BranchPath::Two(
                 &stmt_try.body[..prefix_len],
                 handler.body.as_slice(),
             ));
@@ -146,7 +143,7 @@ pub(crate) fn analyze_try<B: StatementAnalyzer>(builder: &mut B, stmt_try: &ast:
     builder.walk_body(&stmt_try.finalbody);
 }
 
-pub(crate) fn analyze_match<B: StatementAnalyzer>(builder: &mut B, stmt_match: &ast::StmtMatch) {
+pub(crate) fn analyze_match<B: BranchAnalyzer>(builder: &mut B, stmt_match: &ast::StmtMatch) {
     if stmt_match.cases.len() == 1 && is_irrefutable_match_case(&stmt_match.cases[0]) {
         bind_pattern_names(builder, &stmt_match.cases[0].pattern);
         builder.walk_body(&stmt_match.cases[0].body);
@@ -175,10 +172,7 @@ pub(crate) fn analyze_match<B: StatementAnalyzer>(builder: &mut B, stmt_match: &
     builder.set_state(joined);
 }
 
-pub(crate) fn degrade_touched_bodies<B: StatementAnalyzer>(
-    builder: &mut B,
-    bodies: &[&[ast::Stmt]],
-) {
+pub(crate) fn degrade_touched_bodies<B: BranchAnalyzer>(builder: &mut B, bodies: &[&[ast::Stmt]]) {
     let mut writes = B::Writes::default();
     for body in bodies {
         let body_writes = builder.collect_writes(body);
@@ -187,13 +181,12 @@ pub(crate) fn degrade_touched_bodies<B: StatementAnalyzer>(
     builder.degrade_writes(writes);
 }
 
-fn analyze_ambiguous_arms<B: StatementAnalyzer>(builder: &mut B, arms: &[&[ast::Stmt]]) {
-    let paths: Vec<ControlFlowPath<'_>> =
-        arms.iter().map(|arm| ControlFlowPath::One(arm)).collect();
+fn analyze_ambiguous_arms<B: BranchAnalyzer>(builder: &mut B, arms: &[&[ast::Stmt]]) {
+    let paths: Vec<BranchPath<'_>> = arms.iter().map(|arm| BranchPath::One(arm)).collect();
     analyze_ambiguous_paths(builder, &paths);
 }
 
-fn analyze_ambiguous_paths<B: StatementAnalyzer>(builder: &mut B, paths: &[ControlFlowPath<'_>]) {
+fn analyze_ambiguous_paths<B: BranchAnalyzer>(builder: &mut B, paths: &[BranchPath<'_>]) {
     let mut writes = B::Writes::default();
     for path in paths {
         for segment in path.segments() {
@@ -215,13 +208,13 @@ fn analyze_ambiguous_paths<B: StatementAnalyzer>(builder: &mut B, paths: &[Contr
     builder.set_state(joined);
 }
 
-fn bind_pattern_names<B: StatementAnalyzer>(builder: &mut B, pattern: &ast::Pattern) {
+fn bind_pattern_names<B: BranchAnalyzer>(builder: &mut B, pattern: &ast::Pattern) {
     for name in pattern_bound_names(pattern) {
         builder.bind_pattern_name(name);
     }
 }
 
-fn record_pattern_writes<B: StatementAnalyzer>(
+fn record_pattern_writes<B: BranchAnalyzer>(
     builder: &B,
     pattern: &ast::Pattern,
     writes: &mut B::Writes,

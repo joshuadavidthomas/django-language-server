@@ -21,8 +21,8 @@ use ruff_python_parser::parse_module;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use crate::python::PythonImportSourceResolver;
-use crate::python::PythonModuleSource;
+use crate::python::PythonImport;
+use crate::python::PythonSource;
 use crate::settings::extraction::bindings::SettingsBindings;
 use crate::settings::extraction::traversal::SettingsBindingsCollector;
 use crate::settings::types::DjangoSettings;
@@ -74,11 +74,17 @@ impl KnownSetting {
     }
 }
 
+pub(super) trait SettingsImports {
+    fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource>;
+
+    fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource>;
+}
+
 /// Extract Django settings from Python source.
 #[must_use]
 pub(crate) fn extract_settings(
-    source: &PythonModuleSource,
-    resolver: &mut dyn PythonImportSourceResolver,
+    source: &PythonSource,
+    resolver: &mut dyn SettingsImports,
 ) -> DjangoSettings {
     let mut extraction = SettingsExtraction::default();
     let (bindings, parse_status) = extraction.extract_module(source, resolver);
@@ -96,8 +102,8 @@ pub(super) struct SettingsExtraction {
 impl SettingsExtraction {
     fn extract_module(
         &mut self,
-        source: &PythonModuleSource,
-        resolver: &mut dyn PythonImportSourceResolver,
+        source: &PythonSource,
+        resolver: &mut dyn SettingsImports,
     ) -> (Arc<SettingsBindings>, SettingsParseStatus) {
         let path = source.path().to_path_buf();
         if let Some(cached) = self.cache.get(&path) {
@@ -129,8 +135,8 @@ impl SettingsExtraction {
 
     fn extract_import_source(
         &mut self,
-        imported: &PythonModuleSource,
-        resolver: &mut dyn PythonImportSourceResolver,
+        imported: &PythonSource,
+        resolver: &mut dyn SettingsImports,
     ) -> Option<Arc<SettingsBindings>> {
         if self.active.contains(imported.path()) {
             return None;
@@ -149,9 +155,7 @@ mod tests {
 
     use super::*;
     use crate::ExtractionStatus;
-    use crate::python::PythonImport;
-    use crate::python::PythonImportSourceResolver;
-    use crate::python::PythonModuleSource;
+    use crate::python::PythonSource;
     use crate::settings::types::EvaluatedPath;
 
     struct MapResolver<'db> {
@@ -172,26 +176,23 @@ mod tests {
             self
         }
 
-        fn resolve_mapped_import(
-            &mut self,
-            import: PythonImport<'_>,
-        ) -> Option<PythonModuleSource> {
+        fn resolve_mapped_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
             let module = import.module?;
             let source = self.modules.get(module)?.clone();
             let path =
                 Utf8PathBuf::from(format!("/project/settings/{}.py", module.replace('.', "/")));
             self.db.add_file(path.as_str(), &source);
             let file = path_to_file(self.db, &path).ok()?;
-            Some(PythonModuleSource::new(file, path, source))
+            Some(PythonSource::new(file, path, source))
         }
     }
 
-    impl PythonImportSourceResolver for MapResolver<'_> {
-        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonModuleSource> {
+    impl SettingsImports for MapResolver<'_> {
+        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
             self.resolve_mapped_import(import)
         }
 
-        fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonModuleSource> {
+        fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
             self.resolve_mapped_import(import)
         }
     }
@@ -208,15 +209,12 @@ mod tests {
         }
     }
 
-    impl PythonImportSourceResolver for RefusingNamedResolver<'_> {
-        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonModuleSource> {
+    impl SettingsImports for RefusingNamedResolver<'_> {
+        fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource> {
             self.inner.resolve_star_import(import)
         }
 
-        fn resolve_named_import(
-            &mut self,
-            _import: PythonImport<'_>,
-        ) -> Option<PythonModuleSource> {
+        fn resolve_named_import(&mut self, _import: PythonImport<'_>) -> Option<PythonSource> {
             None
         }
     }
@@ -230,12 +228,12 @@ mod tests {
     fn extract_with_resolver(
         db: &TestDatabase,
         source: &str,
-        resolver: &mut dyn PythonImportSourceResolver,
+        resolver: &mut dyn SettingsImports,
     ) -> DjangoSettings {
         let path = Utf8Path::new("/project/config/settings.py");
         db.add_file(path.as_str(), source);
         let file = path_to_file(db, path).expect("settings file should exist");
-        let source = PythonModuleSource::new(file, path.to_path_buf(), source.to_string());
+        let source = PythonSource::new(file, path.to_path_buf(), source.to_string());
         extract_settings(&source, resolver)
     }
 

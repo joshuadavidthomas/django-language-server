@@ -14,8 +14,8 @@ use thiserror::Error;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
+use crate::python::ImportBindings;
 use crate::python::ImportPathResolutionError;
-use crate::python::ImportTable;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::resolve_prefix;
@@ -799,7 +799,7 @@ impl ModelGraph {
         &mut self,
         db: &dyn ProjectDb,
         project: Project,
-        import_tables: &BTreeMap<PythonModuleName, &ImportTable>,
+        import_bindings_by_module: &BTreeMap<PythonModuleName, &ImportBindings>,
     ) {
         let mut updates = Vec::new();
         for (scope, model) in &self.models {
@@ -807,7 +807,13 @@ impl ModelGraph {
                 updates.push((
                     scope.clone(),
                     index,
-                    self.resolve_relation_target(db, project, scope, relation, import_tables),
+                    self.resolve_relation_target(
+                        db,
+                        project,
+                        scope,
+                        relation,
+                        import_bindings_by_module,
+                    ),
                 ));
             }
         }
@@ -827,7 +833,7 @@ impl ModelGraph {
         project: Project,
         scope: &ModelId,
         relation: &Relation,
-        import_tables: &BTreeMap<PythonModuleName, &ImportTable>,
+        import_bindings_by_module: &BTreeMap<PythonModuleName, &ImportBindings>,
     ) -> RelationTargetResolution {
         let Some(target) = relation.target_model() else {
             return RelationTargetResolution::Unresolved {
@@ -846,10 +852,10 @@ impl ModelGraph {
                 },
             ),
             RelationTarget::Bare { name } => {
-                let Some(import_table) = import_tables.get(&scope.module_name) else {
+                let Some(imports) = import_bindings_by_module.get(&scope.module_name) else {
                     return self.resolve_same_app_target(scope, name);
                 };
-                match import_table.resolve_qualified_path(std::iter::once(name.as_str())) {
+                match imports.resolve_qualified_path(std::iter::once(name.as_str())) {
                     Ok(target) => self.resolve_imported_relation_target(db, project, &target),
                     Err(ImportPathResolutionError::MissingBinding { .. }) => {
                         self.resolve_same_app_target(scope, name)
@@ -867,14 +873,14 @@ impl ModelGraph {
                         },
                     };
                 };
-                let Some(import_table) = import_tables.get(&scope.module_name) else {
+                let Some(imports) = import_bindings_by_module.get(&scope.module_name) else {
                     return RelationTargetResolution::Unresolved {
                         reason: RelationTargetUnresolvedReason::MissingImportBinding {
                             binding: root.clone(),
                         },
                     };
                 };
-                match import_table.resolve_qualified_path(path.iter().map(String::as_str)) {
+                match imports.resolve_qualified_path(path.iter().map(String::as_str)) {
                     Ok(target) => self.resolve_imported_relation_target(db, project, &target),
                     Err(error) => RelationTargetResolution::Unresolved {
                         reason: unresolved_import_path_reason(error),

@@ -1,7 +1,7 @@
 use djls_source::File;
 use ruff_python_ast as ast;
 
-use crate::python::PythonModuleSource;
+use crate::python::PythonSource;
 use crate::python::evaluate_path;
 use crate::settings::extraction::bindings::SettingsBindings;
 use crate::settings::types::EvaluatedPath;
@@ -10,13 +10,13 @@ use crate::settings::types::LocalBindings;
 use crate::settings::types::LocalListBinding;
 
 pub(super) struct EvalEnv<'a> {
-    source: &'a PythonModuleSource,
+    source: &'a PythonSource,
     locals: &'a LocalBindings,
     installed_apps: Option<&'a InstalledAppsSetting>,
 }
 
 impl<'a> EvalEnv<'a> {
-    pub(super) fn new(source: &'a PythonModuleSource, bindings: &'a SettingsBindings) -> Self {
+    pub(super) fn new(source: &'a PythonSource, bindings: &'a SettingsBindings) -> Self {
         Self {
             source,
             locals: &bindings.locals,
