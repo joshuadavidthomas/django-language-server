@@ -202,13 +202,4 @@ impl PythonImportEdge {
             }
         }
     }
-
-    pub(super) fn named_imports(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.import().names.iter().map(|name| {
-            (
-                name.name.as_str(),
-                name.asname.as_deref().unwrap_or(name.name.as_str()),
-            )
-        })
-    }
 }

@@ -143,12 +143,13 @@ fn finish_model(
         }
     }
 
+    let (bindings, mutations) = state.into_parts();
     PythonSemanticModel {
-        bindings: state.bindings,
+        bindings,
         files_read,
         source_paths,
         read_failures,
-        mutations: state.mutations,
+        mutations,
         status,
     }
 }
