@@ -11,7 +11,9 @@ use serde::Serialize;
 
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
+use crate::python::ImportSourceResolution;
 use crate::python::PythonImport;
+use crate::python::PythonImportResolver;
 use crate::python::PythonPathBindings;
 use crate::python::PythonSource;
 use crate::python::Truthiness;
@@ -68,12 +70,6 @@ impl PythonSemanticModel {
     pub(crate) fn parse_status(&self) -> ParseStatus {
         self.status
     }
-}
-
-pub(crate) trait PythonImportResolver {
-    fn resolve_star_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource>;
-
-    fn resolve_named_import(&mut self, import: PythonImport<'_>) -> Option<PythonSource>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -361,7 +357,7 @@ pub(crate) enum PythonCompleteness {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct PythonSemanticState {
+pub(super) struct PythonSemanticState {
     bindings: PythonBindings,
     mutations: Vec<PythonMutation>,
 }
@@ -466,7 +462,7 @@ impl PythonSemanticModelAnalysis {
     }
 }
 
-struct PythonSemanticModelBuilder<'a> {
+pub(super) struct PythonSemanticModelBuilder<'a> {
     source: &'a PythonSource,
     resolver: &'a mut dyn PythonImportResolver,
     analysis: &'a mut PythonSemanticModelAnalysis,
@@ -501,7 +497,7 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         Origin::new(self.source.file(), ranged.span())
     }
 
-    fn walk_body(&mut self, body: &[ast::Stmt]) {
+    pub(super) fn walk_body(&mut self, body: &[ast::Stmt]) {
         for stmt in body {
             self.walk_stmt(stmt);
         }
@@ -687,6 +683,19 @@ impl<'a> PythonSemanticModelBuilder<'a> {
         }
     }
 
+    fn merge_imported_model(&mut self, imported_model: &PythonSemanticModel) {
+        self.model
+            .files_read
+            .extend(imported_model.files_read.clone());
+        self.model
+            .source_paths
+            .extend(imported_model.source_paths.clone());
+        self.model.status = self.model.status.join(imported_model.status);
+        self.model
+            .mutations
+            .extend(imported_model.mutations.clone());
+    }
+
     fn walk_import_from(&mut self, import: &ast::StmtImportFrom) {
         let source_import = PythonImport {
             level: import.level,
@@ -699,60 +708,53 @@ impl<'a> PythonSemanticModelBuilder<'a> {
 
         let is_star_import = import.names.iter().any(|alias| alias.name.as_str() == "*");
         if is_star_import {
-            if let Some(imported) = self.resolver.resolve_star_import(source_import) {
-                let imported_model = self.analysis.analyze_source(&imported, self.resolver);
-                self.model
-                    .files_read
-                    .extend(imported_model.files_read.clone());
-                self.model
-                    .source_paths
-                    .extend(imported_model.source_paths.clone());
-                self.model.status = self.model.status.join(imported_model.status);
-                self.model
-                    .mutations
-                    .extend(imported_model.mutations.clone());
-                self.model.bindings.merge_star_import(&imported_model);
-            } else {
-                self.model.bindings.mark_all_partial();
+            match self.resolver.resolve_star_import(source_import) {
+                ImportSourceResolution::Resolved(imported) => {
+                    let imported_model = self.analysis.analyze_source(&imported, self.resolver);
+                    self.merge_imported_model(&imported_model);
+                    self.model.bindings.merge_star_import(&imported_model);
+                }
+                ImportSourceResolution::Unresolved
+                | ImportSourceResolution::SkippedExternal
+                | ImportSourceResolution::ReadFailed => self.model.bindings.mark_all_partial(),
             }
             return;
         }
 
-        if let Some(imported) = self.resolver.resolve_named_import(source_import) {
-            let imported_model = self.analysis.analyze_source(&imported, self.resolver);
-            self.model
-                .files_read
-                .extend(imported_model.files_read.clone());
-            self.model
-                .source_paths
-                .extend(imported_model.source_paths.clone());
-            self.model.status = self.model.status.join(imported_model.status);
-            for alias in &import.names {
-                let imported_name = alias.name.as_str();
-                let bound_name = alias
-                    .asname
-                    .as_ref()
-                    .map_or_else(|| imported_name, |asname| asname.as_str());
-                if let Some(binding) = imported_model.binding(imported_name).cloned() {
-                    self.model.bindings.bind(
-                        bound_name,
-                        PythonBinding {
-                            name: bound_name.to_string(),
-                            values: binding.values,
-                            completeness: binding.completeness,
-                        },
-                    );
-                } else {
-                    self.bind_unknown_name(bound_name, self.origin(alias));
+        match self.resolver.resolve_named_import(source_import) {
+            ImportSourceResolution::Resolved(imported) => {
+                let imported_model = self.analysis.analyze_source(&imported, self.resolver);
+                self.merge_imported_model(&imported_model);
+                for alias in &import.names {
+                    let imported_name = alias.name.as_str();
+                    let bound_name = alias
+                        .asname
+                        .as_ref()
+                        .map_or_else(|| imported_name, |asname| asname.as_str());
+                    if let Some(binding) = imported_model.binding(imported_name).cloned() {
+                        self.model.bindings.bind(
+                            bound_name,
+                            PythonBinding {
+                                name: bound_name.to_string(),
+                                values: binding.values,
+                                completeness: binding.completeness,
+                            },
+                        );
+                    } else {
+                        self.bind_unknown_name(bound_name, self.origin(alias));
+                    }
                 }
             }
-        } else {
-            for alias in &import.names {
-                let bound_name = alias
-                    .asname
-                    .as_ref()
-                    .map_or_else(|| alias.name.as_str(), |asname| asname.as_str());
-                self.bind_unknown_name(bound_name, self.origin(alias));
+            ImportSourceResolution::Unresolved
+            | ImportSourceResolution::SkippedExternal
+            | ImportSourceResolution::ReadFailed => {
+                for alias in &import.names {
+                    let bound_name = alias
+                        .asname
+                        .as_ref()
+                        .map_or_else(|| alias.name.as_str(), |asname| asname.as_str());
+                    self.bind_unknown_name(bound_name, self.origin(alias));
+                }
             }
         }
     }
@@ -1070,44 +1072,32 @@ impl<'a> PythonSemanticModelBuilder<'a> {
     }
 }
 
-impl crate::python::branches::BranchAnalyzer for PythonSemanticModelBuilder<'_> {
-    type State = PythonSemanticState;
-    type Writes = TouchedNames;
-
-    fn walk_body(&mut self, body: &[ast::Stmt]) {
-        Self::walk_body(self, body);
-    }
-
-    fn evaluate_test(&self, expr: &ast::Expr) -> Truthiness {
+impl PythonSemanticModelBuilder<'_> {
+    pub(super) fn evaluate_test(&self, expr: &ast::Expr) -> Truthiness {
         self.evaluate_test_expr(expr)
     }
 
-    fn collect_writes(&self, body: &[ast::Stmt]) -> TouchedNames {
+    pub(super) fn collect_writes(body: &[ast::Stmt]) -> TouchedNames {
         collect_touched_names(body)
     }
 
-    fn merge_writes(&self, writes: &mut TouchedNames, other: TouchedNames) {
-        writes.merge(other);
-    }
-
-    fn degrade_writes(&mut self, writes: TouchedNames) {
+    pub(super) fn degrade_writes(&mut self, writes: TouchedNames) {
         self.degrade_names(writes.names);
     }
 
-    fn take_state(&mut self) -> PythonSemanticState {
+    pub(super) fn take_state(&mut self) -> PythonSemanticState {
         PythonSemanticState {
             bindings: std::mem::take(&mut self.model.bindings),
             mutations: std::mem::take(&mut self.model.mutations),
         }
     }
 
-    fn set_state(&mut self, state: PythonSemanticState) {
+    pub(super) fn set_state(&mut self, state: PythonSemanticState) {
         self.model.bindings = state.bindings;
         self.model.mutations = state.mutations;
     }
 
-    fn join_branches(
-        &self,
+    pub(super) fn join_branches(
         mut base: PythonSemanticState,
         branches: &[PythonSemanticState],
         writes: &TouchedNames,
@@ -1144,30 +1134,29 @@ impl crate::python::branches::BranchAnalyzer for PythonSemanticModelBuilder<'_> 
         base
     }
 
-    fn bind_pattern_name(&mut self, name: &str) {
+    pub(super) fn bind_pattern_name(&mut self, name: &str) {
         self.bind_unknown_name(name, Origin::new(self.source.file(), Span::new(0, 0)));
-    }
-
-    fn record_name_write(&self, name: &str, writes: &mut TouchedNames) {
-        writes.record(name);
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct TouchedNames {
+pub(super) struct TouchedNames {
     names: FxHashSet<String>,
 }
 
 impl TouchedNames {
-    fn record(&mut self, name: &str) {
+    pub(super) fn record(&mut self, name: &str) {
         self.names.insert(name.to_string());
     }
 
-    fn merge(&mut self, other: Self) {
+    pub(super) fn merge(&mut self, other: Self) {
         self.names.extend(other.names);
     }
 }
 
+// This must mirror every statement effect that can alter bindings or mutation
+// state. Branch joins and loop degradation use it to decide which names lose
+// straight-line certainty.
 fn collect_touched_names(body: &[ast::Stmt]) -> TouchedNames {
     let mut names = TouchedNames::default();
     for stmt in body {
