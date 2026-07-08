@@ -6,6 +6,7 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::testing::compute_django_discovery;
+use djls_project::testing::django_settings;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
@@ -185,6 +186,316 @@ fn django_discovery_enumerates_settings_star_import_chain() {
         Utf8PathBuf::from("/proj/myproject/settings.py"),
     ];
     assert_eq!(discovery.file_paths(), expected.as_slice());
+}
+
+#[test]
+fn settings_sources_includes_semantically_reached_imports_and_excludes_unreachable_imports() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "from .flags import DEBUG\nif DEBUG:\n    from .unreachable import *\nelse:\n    from .base import *\n",
+            ),
+            ("/proj/myproject/flags.py", "DEBUG = False\n"),
+            ("/proj/myproject/base.py", "INSTALLED_APPS = []\n"),
+            ("/proj/myproject/unreachable.py", "INSTALLED_APPS = [\n"),
+        ],
+    );
+
+    let discovery = compute_django_discovery(&db, project);
+
+    assert_eq!(
+        discovery.file_paths(),
+        [
+            Utf8PathBuf::from("/proj/myproject/base.py"),
+            Utf8PathBuf::from("/proj/myproject/flags.py"),
+            Utf8PathBuf::from("/proj/myproject/settings.py"),
+        ]
+    );
+}
+
+#[test]
+fn settings_sources_excludes_import_guarded_by_imported_false_flag() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "from .flags import DEBUG\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
+            ),
+            ("/proj/myproject/flags.py", "DEBUG = False\n"),
+            ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
+        ],
+    );
+
+    let discovery = compute_django_discovery(&db, project);
+
+    assert_eq!(
+        discovery.file_paths(),
+        [
+            Utf8PathBuf::from("/proj/myproject/flags.py"),
+            Utf8PathBuf::from("/proj/myproject/settings.py"),
+        ]
+    );
+}
+
+#[test]
+fn settings_sources_includes_import_after_unsupported_guard_touch() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "DEBUG = False\nmaybe_enable(DEBUG)\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
+            ),
+            ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
+        ],
+    );
+
+    let discovery = compute_django_discovery(&db, project);
+
+    assert_eq!(
+        discovery.file_paths(),
+        [
+            Utf8PathBuf::from("/proj/myproject/broken.py"),
+            Utf8PathBuf::from("/proj/myproject/settings.py"),
+        ]
+    );
+}
+
+#[test]
+fn settings_sources_includes_import_after_loop_guard_change() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "DEBUG = False\nfor plugin in PLUGINS:\n    DEBUG = True\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
+            ),
+            ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
+        ],
+    );
+
+    let discovery = compute_django_discovery(&db, project);
+
+    assert_eq!(
+        discovery.file_paths(),
+        [
+            Utf8PathBuf::from("/proj/myproject/broken.py"),
+            Utf8PathBuf::from("/proj/myproject/settings.py"),
+        ]
+    );
+}
+
+#[test]
+fn settings_sources_plain_import_alias_makes_guarded_import_reachable() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "DEBUG = False\nimport flags as DEBUG\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
+            ),
+            ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
+        ],
+    );
+
+    let discovery = compute_django_discovery(&db, project);
+
+    assert_eq!(
+        discovery.file_paths(),
+        [
+            Utf8PathBuf::from("/proj/myproject/broken.py"),
+            Utf8PathBuf::from("/proj/myproject/settings.py"),
+        ]
+    );
+}
+
+#[test]
+fn settings_sources_dedupes_duplicate_import_edges() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "from .base import INSTALLED_APPS as FIRST\nfrom .base import INSTALLED_APPS as SECOND\nINSTALLED_APPS = FIRST + SECOND\n",
+            ),
+            ("/proj/myproject/base.py", "INSTALLED_APPS = ['base']\n"),
+        ],
+    );
+
+    let discovery = compute_django_discovery(&db, project);
+
+    assert_eq!(
+        discovery.file_paths(),
+        [
+            Utf8PathBuf::from("/proj/myproject/base.py"),
+            Utf8PathBuf::from("/proj/myproject/settings.py"),
+        ]
+    );
+}
+
+#[test]
+fn imported_unsupported_mutation_marks_setting_partial() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/myproject/settings.py", "from .base import *\n"),
+            (
+                "/proj/myproject/base.py",
+                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
+            ),
+        ],
+    );
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+
+    assert_eq!(
+        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
+        "partial"
+    );
+}
+
+#[test]
+fn cyclic_star_import_marks_imported_setting_partial() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/myproject/settings.py", "from .base import *\n"),
+            (
+                "/proj/myproject/base.py",
+                "STATICFILES_DIRS = ['static']\nfrom .settings import *\n",
+            ),
+        ],
+    );
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+
+    assert_eq!(
+        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
+        "partial"
+    );
+}
+
+#[test]
+fn local_assignment_clears_imported_unsupported_mutation() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "from .base import *\nSTATICFILES_DIRS = []\n",
+            ),
+            (
+                "/proj/myproject/base.py",
+                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
+            ),
+        ],
+    );
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+
+    assert_eq!(
+        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
+        "complete"
+    );
+}
+
+#[test]
+fn named_imported_unsupported_mutation_marks_setting_partial() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "from .base import STATICFILES_DIRS\n",
+            ),
+            (
+                "/proj/myproject/base.py",
+                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
+            ),
+        ],
+    );
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+
+    assert_eq!(
+        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
+        "partial"
+    );
+}
+
+#[test]
+fn aliased_imported_unsupported_mutation_survives_assignment() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "from .base import STATICFILES_DIRS as BASE_STATICFILES_DIRS\nSTATICFILES_DIRS = BASE_STATICFILES_DIRS\n",
+            ),
+            (
+                "/proj/myproject/base.py",
+                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
+            ),
+        ],
+    );
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+
+    assert_eq!(
+        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
+        "partial"
+    );
+}
+
+#[test]
+fn same_name_assignment_preserves_imported_unsupported_mutation() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "from .base import STATICFILES_DIRS\nSTATICFILES_DIRS = STATICFILES_DIRS\n",
+            ),
+            (
+                "/proj/myproject/base.py",
+                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
+            ),
+        ],
+    );
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+
+    assert_eq!(
+        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
+        "partial"
+    );
 }
 
 #[test]

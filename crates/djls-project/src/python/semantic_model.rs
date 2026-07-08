@@ -1,103 +1,177 @@
+mod control_flow;
 mod evaluator;
+mod import_effects;
 mod model;
 mod mutation_target;
+mod source_graph;
 mod state;
+mod statement_walk;
 mod touched_names;
 
-use camino::Utf8PathBuf;
-pub(crate) use model::ParseStatus;
-pub(crate) use model::PythonDict;
-pub(crate) use model::PythonMutationAccess;
-pub(crate) use model::PythonSemanticModel;
-pub(crate) use model::PythonValue;
-pub(crate) use model::PythonValueKind;
-use ruff_python_parser::parse_module;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use self::evaluator::PythonSemanticEvaluator;
+use self::evaluator::EvaluationContext;
+use self::evaluator::evaluate_body;
+pub(crate) use self::model::ParseStatus;
 use self::model::PythonBindings;
+pub(crate) use self::model::PythonDict;
+pub(crate) use self::model::PythonMutationAccess;
+pub(crate) use self::model::PythonSemanticModel;
+pub(crate) use self::model::PythonValue;
+pub(crate) use self::model::PythonValueKind;
+use self::source_graph::PythonImportEdge;
+use self::source_graph::PythonModuleRecord;
+use self::source_graph::PythonSourceGraph;
 use self::state::PythonSemanticState;
 use crate::python::PythonImportResolver;
 use crate::python::PythonSource;
 
 impl PythonSemanticModel {
     pub(crate) fn analyze(source: &PythonSource, resolver: &mut dyn PythonImportResolver) -> Self {
-        PythonSemanticModelAnalysis::default().analyze_source(source, resolver)
+        let graph = PythonSourceGraph::collect(source, resolver);
+        evaluate_root(&graph)
     }
 }
 
 #[derive(Debug, Default)]
-struct PythonSemanticModelAnalysis {
-    active: FxHashSet<Utf8PathBuf>,
-    cache: FxHashMap<Utf8PathBuf, PythonSemanticModel>,
+pub(super) struct EvaluatedModules {
+    visiting: FxHashSet<djls_source::File>,
+    completed: FxHashMap<djls_source::File, PythonSemanticModel>,
+    cycles: FxHashSet<djls_source::File>,
 }
 
-impl PythonSemanticModelAnalysis {
-    fn analyze_source(
-        &mut self,
-        source: &PythonSource,
-        resolver: &mut dyn PythonImportResolver,
-    ) -> PythonSemanticModel {
-        let path = source.path().to_path_buf();
-        if let Some(cached) = self.cache.get(&path) {
-            return cached.clone();
-        }
-        if !self.active.insert(path.clone()) {
-            return PythonSemanticModel {
-                bindings: PythonBindings::default(),
-                files_read: Vec::new(),
-                source_paths: FxHashMap::default(),
-                mutations: Vec::new(),
-                status: ParseStatus::Parsed,
-            };
-        }
+fn evaluate_root(graph: &PythonSourceGraph) -> PythonSemanticModel {
+    let mut evaluated = EvaluatedModules::default();
+    evaluate_file(graph, &mut evaluated, graph.root())
+}
 
-        let parsed = parse_module(source.source());
-        let status = if parsed.is_ok() {
-            ParseStatus::Parsed
-        } else {
-            ParseStatus::Unparseable
-        };
-        let mut evaluator = PythonSemanticEvaluator::new(source, self, resolver);
-        let mut state = PythonSemanticState::default();
-        if let Ok(parsed) = parsed {
-            let module = parsed.into_syntax();
-            state = evaluator.walk_body(state, &module.body);
-        }
+fn evaluate_file(
+    graph: &PythonSourceGraph,
+    evaluated: &mut EvaluatedModules,
+    file: djls_source::File,
+) -> PythonSemanticModel {
+    if let Some(model) = evaluated.completed.get(&file) {
+        return model.clone();
+    }
+    if !evaluated.visiting.insert(file) {
+        evaluated.cycles.insert(file);
+        return cycle_edge_model();
+    }
 
-        let model = finish_model(source, status, state);
-        self.active.remove(&path);
-        self.cache.insert(path, model.clone());
-        model
+    for edge in graph.imports(file) {
+        if let Some(imported_file) = edge.resolved_file() {
+            evaluate_file(graph, evaluated, imported_file);
+        }
+    }
+
+    let state = match graph.module(file) {
+        Some(PythonModuleRecord::Parsed { source, module }) => {
+            let context =
+                EvaluationContext::new(source, graph, &evaluated.completed, &evaluated.cycles);
+            evaluate_body(&context, PythonSemanticState::default(), &module.body)
+        }
+        Some(PythonModuleRecord::Unparseable { .. } | PythonModuleRecord::ReadFailed { .. })
+        | None => PythonSemanticState::default(),
+    };
+
+    let model = finish_model(graph, file, state, evaluated);
+    evaluated.visiting.remove(&file);
+    evaluated.completed.insert(file, model.clone());
+    model
+}
+
+fn cycle_edge_model() -> PythonSemanticModel {
+    PythonSemanticModel {
+        bindings: PythonBindings::default(),
+        files_read: Vec::new(),
+        source_paths: FxHashMap::default(),
+        read_failures: Vec::new(),
+        mutations: Vec::new(),
+        status: ParseStatus::Unparseable,
     }
 }
 
 fn finish_model(
-    source: &PythonSource,
-    current_status: ParseStatus,
+    graph: &PythonSourceGraph,
+    file: djls_source::File,
     state: PythonSemanticState,
+    evaluated: &EvaluatedModules,
 ) -> PythonSemanticModel {
-    let mut files_read = vec![source.file()];
-    let mut source_paths = FxHashMap::from_iter([(source.file(), source.path().to_path_buf())]);
-    let mut status = current_status;
+    let mut files_read = Vec::new();
+    let mut seen_files = FxHashSet::default();
+    let mut source_paths = FxHashMap::default();
+    let mut read_failures = Vec::new();
+    let mut status = ParseStatus::Parsed;
 
-    for (file, path) in state.effects.read_failures {
-        files_read.push(file);
-        source_paths.insert(file, path);
+    if let Some(record) = graph.module(file) {
+        push_file_once(&mut files_read, &mut seen_files, record.file());
+        source_paths.insert(record.file(), record.path().to_path_buf());
+        if let Some(record_status) = record.parse_status() {
+            status = status.join(record_status);
+        }
     }
 
-    for imported_model in state.effects.imported_models {
-        files_read.extend(imported_model.files_read.clone());
-        source_paths.extend(imported_model.source_paths.clone());
-        status = status.join(imported_model.status);
+    for edge in graph.imports(file) {
+        match edge {
+            PythonImportEdge::Resolved { file, .. } => {
+                if let Some(imported_model) = evaluated.completed.get(file) {
+                    for imported_file in &imported_model.files_read {
+                        push_file_once(&mut files_read, &mut seen_files, *imported_file);
+                    }
+                    source_paths.extend(imported_model.source_paths.clone());
+                    for (file, path) in imported_model.read_failures() {
+                        push_read_failure_once(&mut read_failures, *file, path.clone());
+                    }
+                    status = status.join(imported_model.status);
+                } else if evaluated.cycles.contains(file)
+                    && let Some(record) = graph.module(*file)
+                {
+                    push_file_once(&mut files_read, &mut seen_files, record.file());
+                    source_paths.insert(record.file(), record.path().to_path_buf());
+                    if let Some(record_status) = record.parse_status() {
+                        status = status.join(record_status);
+                    }
+                }
+            }
+            PythonImportEdge::ReadFailed { file, path, .. } => {
+                push_file_once(&mut files_read, &mut seen_files, *file);
+                source_paths.insert(*file, path.clone());
+                push_read_failure_once(&mut read_failures, *file, path.clone());
+            }
+            PythonImportEdge::Unresolved { .. } | PythonImportEdge::SkippedExternal { .. } => {}
+        }
     }
 
     PythonSemanticModel {
         bindings: state.bindings,
         files_read,
         source_paths,
+        read_failures,
         mutations: state.mutations,
         status,
+    }
+}
+
+fn push_read_failure_once(
+    read_failures: &mut Vec<(djls_source::File, camino::Utf8PathBuf)>,
+    file: djls_source::File,
+    path: camino::Utf8PathBuf,
+) {
+    if !read_failures
+        .iter()
+        .any(|(existing_file, existing_path)| *existing_file == file && *existing_path == path)
+    {
+        read_failures.push((file, path));
+    }
+}
+
+fn push_file_once(
+    files_read: &mut Vec<djls_source::File>,
+    seen_files: &mut FxHashSet<djls_source::File>,
+    file: djls_source::File,
+) {
+    if seen_files.insert(file) {
+        files_read.push(file);
     }
 }

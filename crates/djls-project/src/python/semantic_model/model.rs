@@ -29,6 +29,7 @@ pub(crate) struct PythonSemanticModel {
     pub(super) bindings: PythonBindings,
     pub(super) files_read: Vec<File>,
     pub(super) source_paths: FxHashMap<File, Utf8PathBuf>,
+    pub(super) read_failures: Vec<(File, Utf8PathBuf)>,
     pub(super) mutations: Vec<PythonMutation>,
     pub(super) status: ParseStatus,
 }
@@ -44,6 +45,10 @@ impl PythonSemanticModel {
 
     pub(crate) fn mutations(&self) -> &[PythonMutation] {
         &self.mutations
+    }
+
+    pub(crate) fn read_failures(&self) -> &[(File, Utf8PathBuf)] {
+        &self.read_failures
     }
 
     pub(crate) fn source_path(&self, file: File) -> Option<&Utf8Path> {
