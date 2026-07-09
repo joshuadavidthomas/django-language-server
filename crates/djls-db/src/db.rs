@@ -215,7 +215,6 @@ mod invalidation_tests {
     use djls_project::Project;
     use djls_project::PythonModule;
     use djls_project::PythonModuleName;
-    use djls_project::resolve_module_detail;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::template_inheritance;
@@ -793,12 +792,6 @@ mod invalidation_tests {
             .expect("unrelated should resolve from the project root");
         assert_eq!(module.path(), unrelated_path.as_path());
         assert_eq!(
-            resolve_module_detail(&db, project, name.clone())
-                .candidates
-                .len(),
-            1
-        );
-        assert_eq!(
             djls_project::testing::settings_module_file(&db, project)
                 .expect("settings module should resolve")
                 .path(&db),
@@ -819,8 +812,9 @@ mod invalidation_tests {
             .add_file(vendor.join("unrelated/marker.txt"), String::new());
         db.bump_file_root_revision(vendor_root);
 
-        let detail = resolve_module_detail(&db, project, name.clone());
-        assert_eq!(detail.candidates.len(), 2);
+        let module = PythonModule::resolve(&db, project, name.clone())
+            .expect("unrelated should stay resolved from the project root");
+        assert_eq!(module.path(), unrelated_path.as_path());
         assert_eq!(
             djls_project::testing::settings_module_file(&db, project)
                 .expect("settings module should stay resolved")
@@ -832,10 +826,6 @@ mod invalidation_tests {
             0
         );
         let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "resolve_module_detail"),
-            "resolve_module_detail should re-execute after a lower-priority namespace portion appears"
-        );
         assert!(
             !was_executed(&db, &events, "settings_module_file"),
             "settings_module_file should backdate through unchanged module identity"
@@ -850,8 +840,9 @@ mod invalidation_tests {
             .add_file(vendor.join("unrelated.py"), String::new());
         db.bump_file_root_revision(vendor_root);
 
-        let detail = resolve_module_detail(&db, project, name);
-        assert_eq!(detail.candidates.len(), 2);
+        let module = PythonModule::resolve(&db, project, name)
+            .expect("unrelated should stay resolved from the project root");
+        assert_eq!(module.path(), unrelated_path.as_path());
         assert_eq!(
             djls_project::testing::settings_module_file(&db, project)
                 .expect("settings module should stay resolved")
@@ -863,10 +854,6 @@ mod invalidation_tests {
             0
         );
         let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "resolve_module_detail"),
-            "resolve_module_detail should re-execute after a lower-priority regular module appears"
-        );
         assert!(
             !was_executed(&db, &events, "settings_module_file"),
             "settings_module_file should backdate through unchanged first-root identity"

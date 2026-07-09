@@ -29,10 +29,6 @@ pub use python::FileModuleResolution;
 pub use python::FileModuleUnresolvedReason;
 pub use python::Interpreter;
 pub use python::InvalidModuleName;
-pub use python::ModuleCandidate;
-pub use python::ModuleCandidateKind;
-pub use python::ModuleResolution;
-pub use python::ModuleUnresolvedReason;
 pub use python::PackageDirs;
 pub use python::PythonModule;
 pub use python::PythonModuleName;
@@ -41,7 +37,6 @@ pub use python::SearchPath;
 pub use python::SearchPaths;
 pub use python::file_to_module;
 pub use python::file_to_module_detail;
-pub use python::resolve_module_detail;
 pub use python::resolve_package_dirs;
 pub use python::resolve_prefix;
 pub use templates::ArgumentCountConstraint;
@@ -268,6 +263,11 @@ pub mod testing {
             .durability(salsa::Durability::LOW)
             .path_durability(salsa::Durability::HIGH)
             .new(db);
-        super::PythonModule::new(module_name, path, file)
+        super::PythonModule::new(
+            module_name,
+            path,
+            file,
+            super::SearchPath::FirstParty(Utf8PathBuf::from("/__djls_testing__")),
+        )
     }
 }

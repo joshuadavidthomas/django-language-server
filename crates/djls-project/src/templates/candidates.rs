@@ -13,6 +13,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::SearchPath;
 use crate::python::resolve_package_dirs;
 use crate::templates::LibraryName;
 
@@ -30,14 +31,19 @@ pub(crate) struct TemplateTagCandidate {
 }
 
 impl TemplateTagCandidate {
-    fn from_source(db: &dyn ProjectDb, source: TemplateTagCandidateSource) -> Option<Self> {
+    fn from_source(
+        db: &dyn ProjectDb,
+        project: Project,
+        source: TemplateTagCandidateSource,
+    ) -> Option<Self> {
         let module_name = templatetag_module(&source.app, &source.name)
             .expect("template tag candidate source should have a valid module name");
         let file = path_to_file(db, &source.path).ok()?;
+        let search_path = search_path_for_source(db, project, &source.path)?;
         Some(Self {
             app: source.app,
             name: source.name,
-            module: PythonModule::new(module_name, source.path, file),
+            module: PythonModule::new(module_name, source.path, file, search_path),
         })
     }
 
@@ -73,6 +79,19 @@ impl TemplateTagCandidateSource {
         templatetag_module(&app, &name)?;
         Some(Self { app, name, path })
     }
+}
+
+fn search_path_for_source(
+    db: &dyn ProjectDb,
+    project: Project,
+    source_path: &Utf8Path,
+) -> Option<SearchPath> {
+    project
+        .search_paths(db)
+        .iter()
+        .filter(|search_path| source_path.starts_with(search_path.path()))
+        .max_by_key(|search_path| search_path.path().as_str().len())
+        .cloned()
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -199,7 +218,8 @@ pub(crate) fn templatetag_package_candidates(
                 Some(package_module),
             ) {
                 CandidateSourceRecognition::Candidate(source) => {
-                    if let Some(candidate) = TemplateTagCandidate::from_source(db, source) {
+                    if let Some(candidate) = TemplateTagCandidate::from_source(db, project, source)
+                    {
                         scan.candidates.push(candidate);
                     }
                 }
@@ -240,6 +260,7 @@ fn walk_candidates(
 
         let scan = discover_templatetag_candidates(
             db,
+            project,
             search_path.path(),
             search_path.root_kind(),
             &excluded_paths,
@@ -271,6 +292,7 @@ fn walk_candidates(
 
 fn discover_templatetag_candidates(
     db: &dyn ProjectDb,
+    project: Project,
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
@@ -286,7 +308,7 @@ fn discover_templatetag_candidates(
     let mut results: Vec<_> = source_scan
         .sources
         .into_iter()
-        .filter_map(|source| TemplateTagCandidate::from_source(db, source))
+        .filter_map(|source| TemplateTagCandidate::from_source(db, project, source))
         .collect();
 
     results.sort_by(TemplateTagCandidate::cmp_by_app_name_path);

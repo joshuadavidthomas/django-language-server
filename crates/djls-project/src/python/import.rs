@@ -14,9 +14,7 @@ use crate::python::PythonImportRequest;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSource;
-use crate::python::SearchPath;
 use crate::python::parse_python_module;
-use crate::python::resolve_module_detail;
 
 pub(crate) enum ImportLoadResult {
     Loaded(PythonSource),
@@ -97,12 +95,7 @@ impl PythonImportLoader for ProjectImportLoader<'_> {
             return ImportLoadResult::Unresolved;
         };
 
-        let detail = resolve_module_detail(self.db, self.project, module.name().clone());
-        if !detail
-            .selected_root
-            .as_ref()
-            .is_some_and(SearchPath::is_first_party)
-        {
+        if !module.search_path().is_first_party() {
             return ImportLoadResult::SkippedExternal;
         }
 

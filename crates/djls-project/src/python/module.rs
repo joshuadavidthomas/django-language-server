@@ -18,13 +18,7 @@ pub struct PythonModule {
     name: PythonModuleName,
     path: Utf8PathBuf,
     file: File,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModuleResolution {
-    pub selected_root: Option<SearchPath>,
-    pub candidates: Vec<ModuleCandidate>,
-    pub unresolved_reason: Option<ModuleUnresolvedReason>,
+    search_path: SearchPath,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,13 +26,6 @@ pub struct FileModuleResolution {
     pub selected_module: Option<PythonModule>,
     pub derivations: Vec<FileModuleDerivation>,
     pub unresolved_reason: Option<FileModuleUnresolvedReason>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModuleCandidate {
-    pub root: SearchPath,
-    pub path: Utf8PathBuf,
-    pub kind: ModuleCandidateKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,23 +37,10 @@ pub struct FileModuleDerivation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ModuleCandidateKind {
-    RegularPackage,
-    FileModule,
-    NamespacePortion,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileModuleDerivationStatus {
     RoundTrips,
     Shadowed,
     Unresolved,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ModuleUnresolvedReason {
-    NotFound,
-    NamespaceOnly,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,23 +60,6 @@ pub struct PackageDirs {
 pub struct ResolvedPrefix {
     pub module: Option<PythonModule>,
     pub unresolved_tail: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum PythonModuleCandidate {
-    RegularPackage {
-        root: SearchPath,
-        dir: Utf8PathBuf,
-        init_file: Utf8PathBuf,
-    },
-    FileModule {
-        root: SearchPath,
-        path: Utf8PathBuf,
-    },
-    NamespacePortion {
-        root: SearchPath,
-        dir: Utf8PathBuf,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -174,49 +131,6 @@ pub(crate) enum PythonImportError {
     ImporterIsNotPythonSource(String),
     #[error("relative import has too many leading dots")]
     TooManyDots,
-}
-
-fn python_module_flat_candidates(
-    db: &dyn ProjectDb,
-    project: Project,
-    name: &PythonModuleName,
-) -> Vec<PythonModuleCandidate> {
-    let relative = name.as_str().replace('.', "/");
-    let mut candidates = Vec::new();
-
-    for search_path in project.search_paths(db).iter() {
-        let root = search_path.clone();
-        let dir = search_path.path().join(&relative);
-        let init_file = dir.join("__init__.py");
-        if db.path_is_file(&init_file) && path_case_matches(db, &init_file, search_path.path()) {
-            candidates.push(PythonModuleCandidate::RegularPackage {
-                root,
-                dir,
-                init_file,
-            });
-            continue;
-        }
-
-        let py_file = dir.with_extension("py");
-        if db.path_is_file(&py_file) && path_case_matches(db, &py_file, search_path.path()) {
-            candidates.push(PythonModuleCandidate::FileModule {
-                root,
-                path: py_file,
-            });
-            continue;
-        }
-
-        if db.path_is_dir(&dir) && path_case_matches(db, &dir, search_path.path()) {
-            candidates.push(PythonModuleCandidate::NamespacePortion { root, dir });
-        }
-    }
-
-    candidates
-}
-
-fn path_case_matches(db: &dyn ProjectDb, path: &Utf8Path, prefix: &Utf8Path) -> bool {
-    let fs = db.file_system();
-    fs.case_sensitivity().is_case_sensitive() || fs.path_exists_case_sensitive(path, prefix)
 }
 
 fn resolve_component(
@@ -399,58 +313,6 @@ pub fn resolve_prefix(db: &dyn ProjectDb, project: Project, dotted_path: &str) -
 // Salsa tracked-query keys are by-value; `name` is a key, not a borrow.
 #[allow(clippy::needless_pass_by_value)]
 #[salsa::tracked]
-pub fn resolve_module_detail(
-    db: &dyn ProjectDb,
-    project: Project,
-    name: PythonModuleName,
-) -> ModuleResolution {
-    project.touch_search_path_roots(db);
-
-    let resolution = resolve_name(db, project, &name);
-    let selected_root = match &resolution {
-        ModuleLookupResult::RegularPackage { root, .. }
-        | ModuleLookupResult::FileModule { root, .. } => Some(root.clone()),
-        ModuleLookupResult::NamespaceOnly { .. } | ModuleLookupResult::NotFound => None,
-    };
-    let unresolved_reason = match &resolution {
-        ModuleLookupResult::RegularPackage { .. } | ModuleLookupResult::FileModule { .. } => None,
-        ModuleLookupResult::NamespaceOnly { .. } => Some(ModuleUnresolvedReason::NamespaceOnly),
-        ModuleLookupResult::NotFound => Some(ModuleUnresolvedReason::NotFound),
-    };
-    let candidates = python_module_flat_candidates(db, project, &name);
-    let candidates = candidates
-        .into_iter()
-        .map(|candidate| match candidate {
-            PythonModuleCandidate::RegularPackage {
-                root, init_file, ..
-            } => ModuleCandidate {
-                root,
-                path: init_file,
-                kind: ModuleCandidateKind::RegularPackage,
-            },
-            PythonModuleCandidate::FileModule { root, path } => ModuleCandidate {
-                root,
-                path,
-                kind: ModuleCandidateKind::FileModule,
-            },
-            PythonModuleCandidate::NamespacePortion { root, dir } => ModuleCandidate {
-                root,
-                path: dir,
-                kind: ModuleCandidateKind::NamespacePortion,
-            },
-        })
-        .collect();
-
-    ModuleResolution {
-        selected_root,
-        candidates,
-        unresolved_reason,
-    }
-}
-
-// Salsa tracked-query keys are by-value; `name` is a key, not a borrow.
-#[allow(clippy::needless_pass_by_value)]
-#[salsa::tracked]
 pub fn resolve_package_dirs(
     db: &dyn ProjectDb,
     project: Project,
@@ -538,8 +400,18 @@ pub fn file_to_module_detail(
 }
 
 impl PythonModule {
-    pub(crate) fn new(name: PythonModuleName, path: Utf8PathBuf, file: File) -> Self {
-        Self { name, path, file }
+    pub(crate) fn new(
+        name: PythonModuleName,
+        path: Utf8PathBuf,
+        file: File,
+        search_path: SearchPath,
+    ) -> Self {
+        Self {
+            name,
+            path,
+            file,
+            search_path,
+        }
     }
 
     pub(crate) fn resolve_import(
@@ -615,6 +487,11 @@ impl PythonModule {
     pub fn file(&self) -> File {
         self.file
     }
+
+    #[must_use]
+    pub fn search_path(&self) -> &SearchPath {
+        &self.search_path
+    }
 }
 
 #[salsa::tracked]
@@ -623,9 +500,14 @@ impl PythonModule {
     pub fn resolve(db: &dyn ProjectDb, project: Project, name: PythonModuleName) -> Option<Self> {
         match resolve_name(db, project, &name) {
             ModuleLookupResult::RegularPackage {
-                init_file, file, ..
-            } => Some(Self::new(name, init_file, file)),
-            ModuleLookupResult::FileModule { path, file, .. } => Some(Self::new(name, path, file)),
+                root,
+                init_file,
+                file,
+                ..
+            } => Some(Self::new(name, init_file, file, root)),
+            ModuleLookupResult::FileModule { root, path, file } => {
+                Some(Self::new(name, path, file, root))
+            }
             ModuleLookupResult::NamespaceOnly { .. } | ModuleLookupResult::NotFound => None,
         }
     }
