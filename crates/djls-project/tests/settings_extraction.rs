@@ -50,6 +50,7 @@ struct SettingValues<T> {
 
 #[derive(Debug, Deserialize)]
 struct TemplateBackend {
+    backend: Option<String>,
     dirs: Vec<EvaluatedPath>,
     libraries: Vec<(String, String)>,
     context_processors: Vec<Originated<String>>,
@@ -162,7 +163,7 @@ INSTALLED_APPS = ["django.contrib.admin", "blog"]
             "/proj/myproject/settings/local.py",
             r#"
 from .base import INSTALLED_APPS
-TEMPLATES = [{"DIRS": ["templates"], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": ["templates"], "APP_DIRS": True}]
 "#,
         )
         .install(&mut db);
@@ -188,7 +189,7 @@ INSTALLED_APPS = ["django.contrib.auth"]
             r#"
 from .base import INSTALLED_APPS as BASE_APPS
 INSTALLED_APPS = BASE_APPS + ["blog"]
-TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
 "#,
         )
         .install(&mut db);
@@ -220,7 +221,7 @@ INSTALLED_APPS = COMMON_APPS + ["blog"]
             "/proj/myproject/settings/local.py",
             r#"
 from .base import INSTALLED_APPS
-TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
 "#,
         )
         .install(&mut db);
@@ -246,7 +247,7 @@ INSTALLED_APPS = ["django.contrib.auth"]
             "/proj/myproject/settings/local.py",
             r#"
 from .base import INSTALLED_APPS
-TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
 "#,
         )
         .install(&mut db);
@@ -277,7 +278,7 @@ INSTALLED_APPS = ["vendor"]
             "/proj/myproject/settings.py",
             r#"
 from vendor_settings import INSTALLED_APPS
-TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
 "#,
         )
         .install(&mut db);
@@ -298,7 +299,7 @@ fn split_settings_star_import_resolves_base_settings() {
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 INSTALLED_APPS = ["django.contrib.auth"]
-TEMPLATES = [{"DIRS": [BASE_DIR / "templates"], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [BASE_DIR / "templates"], "APP_DIRS": True}]
 "#,
         )
         .file(
@@ -326,7 +327,7 @@ fn composed_app_lists_via_literal_aliases_extract() {
 DJANGO_APPS = ["django.contrib.admin"]
 LOCAL_APPS = ["myapp"]
 INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS
-TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
 "#,
         )
         .install(&mut db);
@@ -395,7 +396,7 @@ fn unsupported_template_dirs_insert_mutation_degrades_templates() {
             "/proj/myproject/settings.py",
             r#"
 INSTALLED_APPS = ["blog"]
-TEMPLATES = [{"DIRS": ["base"], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": ["base"], "APP_DIRS": True}]
 TEMPLATES[0]["DIRS"].insert(0, "first")
 "#,
         )
@@ -456,7 +457,7 @@ if FLAG:
 else:
     APPS = ["b"]
 INSTALLED_APPS = APPS
-TEMPLATES = [{"DIRS": [], "APP_DIRS": True}]
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
 "#,
         )
         .install(&mut db);
@@ -553,9 +554,9 @@ TEMPLATES = [
 }
 
 #[test]
-fn implicit_template_backends_from_different_alternatives_remain_distinct() {
+fn explicit_template_backends_from_different_alternatives_remain_distinct() {
     let settings = extract(
-        "if FLAG:\n    TEMPLATES = [{'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'DIRS': ['/b']}]",
+        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]",
     );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
@@ -571,8 +572,10 @@ fn implicit_template_backends_from_different_alternatives_remain_distinct() {
 }
 
 #[test]
-fn duplicate_template_backends_within_one_value_remain_distinct() {
-    let settings = extract("TEMPLATES = [{'DIRS': ['/a']}, {'DIRS': ['/b']}]");
+fn explicit_template_backends_within_one_value_remain_distinct() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]",
+    );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
     assert_eq!(settings.templates.backends.len(), 2);
@@ -1120,11 +1123,11 @@ fn reassignment_replaces_prior_values() {
 #[test]
 fn unsupported_branch_mutation_remains_partial_when_other_branch_assigns() {
     let settings = extract(
-        "TEMPLATES = [{'OPTIONS': {'context_processors': []}}]\n\
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': []}}]\n\
          if FLAG:\n\
              TEMPLATES[0]['OPTIONS']['context_processors'].append('django.template.context_processors.request')\n\
          else:\n\
-             TEMPLATES = [{'OPTIONS': {'context_processors': []}}]",
+             TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': []}}]",
     );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
@@ -1134,9 +1137,9 @@ fn unsupported_branch_mutation_remains_partial_when_other_branch_assigns() {
 #[test]
 fn unsupported_branch_mutation_is_order_independent() {
     let settings = extract(
-        "TEMPLATES = [{'OPTIONS': {'context_processors': []}}]\n\
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': []}}]\n\
          if FLAG:\n\
-             TEMPLATES = [{'OPTIONS': {'context_processors': []}}]\n\
+             TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': []}}]\n\
          else:\n\
              TEMPLATES[0]['OPTIONS']['context_processors'].append('django.template.context_processors.request')",
     );
@@ -1435,7 +1438,7 @@ fn match_as_capture_pattern_is_irrefutable() {
 #[test]
 fn match_capture_pattern_shadows_existing_local_binding() {
     let settings = extract(
-        "from pathlib import Path\nBASE_DIR = Path(__file__).resolve().parent.parent\nmatch ENV:\n    case BASE_DIR:\n        TEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
+        "from pathlib import Path\nBASE_DIR = Path(__file__).resolve().parent.parent\nmatch ENV:\n    case BASE_DIR:\n        TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates']}]",
     );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
@@ -1448,7 +1451,7 @@ fn match_capture_pattern_shadows_existing_local_binding() {
 #[test]
 fn duplicate_context_processor_keys_use_last_value() {
     let settings = extract(
-        "TEMPLATES = [{'OPTIONS': {'context_processors': ['project.context_processors.first'], 'context_processors': ['project.context_processors.second']}}]",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': ['project.context_processors.first'], 'context_processors': ['project.context_processors.second']}}]",
     );
 
     let processors = &settings.templates.backends[0].context_processors;
@@ -1462,7 +1465,7 @@ fn duplicate_context_processor_keys_use_last_value() {
 #[test]
 fn invalid_overwritten_context_processor_value_does_not_mark_partial() {
     let settings = extract(
-        "TEMPLATES = [{'OPTIONS': {'context_processors': [unknown], 'context_processors': ['project.context_processors.second']}}]",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': [unknown], 'context_processors': ['project.context_processors.second']}}]",
     );
 
     let backend = &settings.templates.backends[0];
@@ -1476,7 +1479,7 @@ fn invalid_overwritten_context_processor_value_does_not_mark_partial() {
 #[test]
 fn duplicate_template_library_aliases_use_last_value() {
     let settings = extract(
-        "TEMPLATES = [{'OPTIONS': {'libraries': {'custom': 'project.templatetags.first', 'custom': 'project.templatetags.second'}}}]",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'custom': 'project.templatetags.first', 'custom': 'project.templatetags.second'}}}]",
     );
 
     let libraries = &settings.templates.backends[0].libraries;
@@ -1488,7 +1491,7 @@ fn duplicate_template_library_aliases_use_last_value() {
 #[test]
 fn invalid_overwritten_template_library_value_does_not_mark_partial() {
     let settings = extract(
-        "TEMPLATES = [{'OPTIONS': {'libraries': {'custom': unknown, 'custom': 'project.templatetags.second'}}}]",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'custom': unknown, 'custom': 'project.templatetags.second'}}}]",
     );
 
     let backend = &settings.templates.backends[0];
@@ -1502,7 +1505,9 @@ fn invalid_overwritten_template_library_value_does_not_mark_partial() {
 
 #[test]
 fn invalid_overwritten_template_backend_value_does_not_mark_partial() {
-    let settings = extract("TEMPLATES = [{'DIRS': unknown, 'DIRS': ['templates']}]");
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': unknown, 'DIRS': ['templates']}]",
+    );
 
     let backend = &settings.templates.backends[0];
     assert!(backend.is_fully_extracted());
@@ -1516,7 +1521,9 @@ fn invalid_overwritten_template_backend_value_does_not_mark_partial() {
 
 #[test]
 fn template_backend_spread_keeps_prior_known_facts_partial() {
-    let settings = extract("TEMPLATES = [{'DIRS': ['templates'], **extra}]");
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates'], **extra}]",
+    );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
     assert_eq!(
@@ -1530,7 +1537,7 @@ fn template_backend_spread_keeps_prior_known_facts_partial() {
 #[test]
 fn template_options_spread_keeps_prior_known_facts_partial() {
     let settings = extract(
-        "TEMPLATES = [{'OPTIONS': {'context_processors': ['project.context_processors.first'], **extra}}]",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': ['project.context_processors.first'], **extra}}]",
     );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
@@ -1545,7 +1552,7 @@ fn template_options_spread_keeps_prior_known_facts_partial() {
 #[test]
 fn template_library_spread_keeps_prior_known_aliases_partial() {
     let settings = extract(
-        "TEMPLATES = [{'OPTIONS': {'libraries': {'custom': 'project.templatetags.first', **extra}}}]",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'custom': 'project.templatetags.first', **extra}}}]",
     );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
@@ -1585,7 +1592,7 @@ fn star_imported_bool_overwrites_stale_local_path_binding() {
         "from pathlib import Path\n\
          BASE_DIR = Path(__file__).resolve().parent.parent\n\
          from flags import *\n\
-         TEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
+         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates']}]",
         &[("flags", "BASE_DIR = False")],
     );
 
@@ -1601,7 +1608,7 @@ fn star_imported_path_overwrites_stale_local_bool_binding() {
     let settings = extract_with_modules(
         "BASE_DIR = False\n\
          from paths import *\n\
-         TEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
+         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates']}]",
         &[("paths", "BASE_DIR = Path(__file__).resolve().parent.parent")],
     );
 
@@ -1702,7 +1709,7 @@ fn pathlib_named_import_does_not_affect_extraction_when_unresolved() {
     let settings = extract(
         "from pathlib import Path\n\
          BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         TEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
+         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates']}]",
     );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
@@ -1716,7 +1723,9 @@ fn pathlib_named_import_does_not_affect_extraction_when_unresolved() {
 
 #[test]
 fn template_dirs_string_list_resolves_relative_paths() {
-    let settings = extract("TEMPLATES = [{'DIRS': ['templates']}]");
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates']}]",
+    );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
     assert_eq!(
@@ -1729,7 +1738,9 @@ fn template_dirs_string_list_resolves_relative_paths() {
 
 #[test]
 fn bare_template_dirs_string_is_partial() {
-    let settings = extract("TEMPLATES = [{'DIRS': 'templates'}]");
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': 'templates'}]",
+    );
 
     let backend = &settings.templates.backends[0];
     assert_eq!(backend.extraction, ExtractionStatus::Partial);
@@ -1739,7 +1750,7 @@ fn bare_template_dirs_string_is_partial() {
 #[test]
 fn aliased_non_star_imported_path_can_feed_template_dirs() {
     let settings = extract_with_modules(
-        "from base import BASE_DIR as BD\nTEMPLATES = [{'DIRS': [BD / 'templates']}]",
+        "from base import BASE_DIR as BD\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BD / 'templates']}]",
         &[("base", "BASE_DIR = Path(__file__).resolve().parent.parent")],
     );
 
@@ -1817,7 +1828,7 @@ fn templates_dirs_append_mutates_existing_backend() {
     let settings = extract(
         "from pathlib import Path\n\
          BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         TEMPLATES = [{'DIRS': []}]\n\
+         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': []}]\n\
          TEMPLATES[0]['DIRS'].append(BASE_DIR / 'templates')",
     );
     assert_eq!(
@@ -1833,7 +1844,7 @@ fn templates_dirs_plus_equals_extends_existing_backend() {
     let settings = extract(
         "from pathlib import Path\n\
          BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         TEMPLATES = [{'DIRS': []}]\n\
+         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': []}]\n\
          TEMPLATES[0]['DIRS'] += [BASE_DIR / 'templates']",
     );
     assert_eq!(
@@ -1845,9 +1856,21 @@ fn templates_dirs_plus_equals_extends_existing_backend() {
 }
 
 #[test]
+fn missing_backend_is_partial() {
+    let settings = extract("TEMPLATES = [{'DIRS': []}]");
+    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
+    assert_eq!(settings.templates.backends[0].backend, None);
+    assert_eq!(
+        settings.templates.backends[0].extraction,
+        ExtractionStatus::Partial
+    );
+}
+
+#[test]
 fn non_literal_backend_is_partial() {
     let settings = extract("TEMPLATES = [{'BACKEND': backend_name}]");
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
+    assert_eq!(settings.templates.backends[0].backend, None);
     assert_eq!(
         settings.templates.backends[0].extraction,
         ExtractionStatus::Partial
@@ -1856,7 +1879,9 @@ fn non_literal_backend_is_partial() {
 
 #[test]
 fn template_backend_spread_then_reset_keeps_later_key_fact() {
-    let settings = extract("TEMPLATES = [{'DIRS': ['a'], **extra, 'DIRS': ['b']}]");
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['a'], **extra, 'DIRS': ['b']}]",
+    );
 
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
     assert_eq!(settings.templates.backends[0].dirs.len(), 1);
@@ -1872,7 +1897,7 @@ fn os_path_join_resolves_relative_to_base_dir() {
         "from pathlib import Path\n\
          import os\n\
          BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         TEMPLATES = [{'DIRS': [os.path.join(BASE_DIR, 'templates')]}]",
+         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [os.path.join(BASE_DIR, 'templates')]}]",
     );
     assert_eq!(
         settings.templates.backends[0].dirs,
@@ -1884,7 +1909,9 @@ fn os_path_join_resolves_relative_to_base_dir() {
 
 #[test]
 fn unknown_path_call_becomes_unknown_path_value() {
-    let settings = extract("TEMPLATES = [{'DIRS': [dynamic_path()]}]");
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [dynamic_path()]}]",
+    );
     assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
     assert!(matches!(
         settings.templates.backends[0].dirs[0],

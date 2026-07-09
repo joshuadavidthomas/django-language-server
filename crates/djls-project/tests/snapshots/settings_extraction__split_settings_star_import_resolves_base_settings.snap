@@ -10,7 +10,7 @@ installed_apps:
   extraction: complete
 templates:
   backends:
-    - backend: ~
+    - backend: django.template.backends.django.DjangoTemplates
       dirs:
         - resolved: /proj/myproject/templates
         - resolved: /proj/myproject/local_templates

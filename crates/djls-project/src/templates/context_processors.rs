@@ -80,7 +80,6 @@ pub fn template_context_processors(
     }
 
     let settings = django_settings(db, project);
-    let backend_count = settings.templates.backends.len();
     let mut status = if settings.templates.is_fully_extracted() {
         TemplateInventoryStatus::Complete
     } else {
@@ -92,7 +91,7 @@ pub fn template_context_processors(
         .templates
         .backends
         .iter()
-        .filter(|backend| backend.is_django_templates_backend(backend_count))
+        .filter(|backend| backend.is_django_templates_backend())
     {
         if !backend.is_fully_extracted() {
             status = TemplateInventoryStatus::Incomplete;

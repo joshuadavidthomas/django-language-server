@@ -548,7 +548,7 @@ fn template_dirs_resolve_settings_module_file() {
 }
 
 #[test]
-fn template_dirs_merge_identical_implicit_backend_branches() {
+fn template_dirs_merge_equivalent_explicit_backend_branches() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -557,7 +557,7 @@ fn template_dirs_merge_identical_implicit_backend_branches() {
             ("/proj/templates/index.html", "index"),
             (
                 "/proj/myproject/settings.py",
-                "if FLAG:\n    TEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\nelse:\n    TEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\n",
+                "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\n",
             ),
         ],
     );
@@ -584,7 +584,7 @@ fn template_dirs_merge_identical_implicit_backend_branches() {
 }
 
 #[test]
-fn template_dirs_keep_implicit_backends_from_different_alternatives() {
+fn template_dirs_keep_different_explicit_backend_alternatives() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -594,7 +594,7 @@ fn template_dirs_keep_implicit_backends_from_different_alternatives() {
             ("/proj/b/index.html", "b"),
             (
                 "/proj/myproject/settings.py",
-                "if FLAG:\n    TEMPLATES = [{'DIRS': ['/proj/a']}]\nelse:\n    TEMPLATES = [{'DIRS': ['/proj/b']}]\n",
+                "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/b']}]\n",
             ),
         ],
     );
@@ -616,24 +616,93 @@ fn template_dirs_keep_implicit_backends_from_different_alternatives() {
 }
 
 #[test]
-fn template_dirs_reject_simultaneous_implicit_backends() {
+fn missing_template_backend_is_partial_and_contributes_no_backend_facts() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
         "myproject.settings",
         &[
-            ("/proj/a/index.html", "a"),
-            ("/proj/b/index.html", "b"),
+            ("/proj/templates/index.html", "index"),
+            (
+                "/proj/custom_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
             (
                 "/proj/myproject/settings.py",
-                "TEMPLATES = [{'DIRS': ['/proj/a']}, {'DIRS': ['/proj/b']}]\n",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site'], 'libraries': {'custom': 'custom_tags'}}}]\n",
             ),
         ],
     );
 
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    assert_eq!(settings["templates"]["extraction"], "partial");
+    assert_eq!(
+        settings["templates"]["backends"][0]["extraction"],
+        "partial"
+    );
+    assert_eq!(
+        settings["templates"]["backends"][0]["backend"],
+        serde_json::Value::Null
+    );
+
     let resolution = template_resolution(&db, project);
-    assert_eq!(resolution.known_template_dirs(&db), Some(Vec::new()));
+    assert!(resolution.known_template_dirs(&db).is_none());
     assert_eq!(resolution.origins(&db).count(), 0);
+    assert!(
+        template_context_processors(&db, project)
+            .processors()
+            .is_empty()
+    );
+    assert!(
+        template_libraries(&db, project)
+            .installed_library_str("custom")
+            .is_none()
+    );
+}
+
+#[test]
+fn non_string_template_backend_is_partial_and_contributes_no_backend_facts() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/templates/index.html", "index"),
+            (
+                "/proj/custom_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nBACKEND = object()\nTEMPLATES = [{'BACKEND': BACKEND, 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site'], 'libraries': {'custom': 'custom_tags'}}}]\n",
+            ),
+        ],
+    );
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    assert_eq!(settings["templates"]["extraction"], "partial");
+    assert_eq!(
+        settings["templates"]["backends"][0]["extraction"],
+        "partial"
+    );
+    assert_eq!(
+        settings["templates"]["backends"][0]["backend"],
+        serde_json::Value::Null
+    );
+
+    let resolution = template_resolution(&db, project);
+    assert!(resolution.known_template_dirs(&db).is_none());
+    assert_eq!(resolution.origins(&db).count(), 0);
+    assert!(
+        template_context_processors(&db, project)
+            .processors()
+            .is_empty()
+    );
+    assert!(
+        template_libraries(&db, project)
+            .installed_library_str("custom")
+            .is_none()
+    );
 }
 
 #[test]
