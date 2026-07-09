@@ -1883,23 +1883,6 @@ fn python_module_resolve_rejects_wrong_cased_file_module_on_case_insensitive_fs(
 }
 
 #[test]
-fn resolve_module_detail_rejects_wrong_cased_file_module_candidate_on_case_insensitive_fs() {
-    let db = TestDatabase::case_insensitive();
-    let project = ProjectFixture::new("/project")
-        .file("/project/foo.py", "")
-        .build(&db);
-
-    let detail = resolve_module_detail(&db, project, PythonModuleName::parse("Foo").unwrap());
-
-    assert_eq!(detail.selected_root, None);
-    assert!(detail.candidates.is_empty());
-    assert_eq!(
-        detail.unresolved_reason,
-        Some(ModuleUnresolvedReason::NotFound)
-    );
-}
-
-#[test]
 fn python_module_resolve_rejects_wrong_cased_dotted_file_module_on_case_insensitive_fs() {
     let db = TestDatabase::case_insensitive();
     let project = ProjectFixture::new("/project")
@@ -2027,11 +2010,6 @@ fn python_module_resolve_applies_regular_package_terminality_across_roots() {
         PythonModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap()),
         None
     );
-    assert_eq!(
-        resolve_module_detail(&db, project, PythonModuleName::parse("foo.bar").unwrap())
-            .unresolved_reason,
-        Some(ModuleUnresolvedReason::NotFound)
-    );
 }
 
 #[test]
@@ -2118,7 +2096,7 @@ fn python_module_resolve_returns_none_for_namespace_only_directory() {
 }
 
 #[test]
-fn resolve_module_detail_lists_shadowed_regular_candidates_in_root_order() {
+fn python_module_resolve_records_selected_search_path() {
     let mut db = TestDatabase::new();
     db.add_file("/project/app.py", "");
     db.add_file("/project/vendor/app.py", "");
@@ -2132,86 +2110,14 @@ fn resolve_module_detail_lists_shadowed_regular_candidates_in_root_order() {
     );
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
-    let name = PythonModuleName::parse("app").unwrap();
 
-    let module = PythonModule::resolve(&db, project, name.clone()).expect("app should resolve");
-    let detail = resolve_module_detail(&db, project, name);
+    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
+        .expect("app should resolve");
 
     assert_eq!(module.path(), Utf8Path::new("/project/app.py"));
     assert_eq!(
-        detail.selected_root,
-        Some(SearchPath::FirstParty(Utf8PathBuf::from("/project")))
-    );
-    assert_eq!(detail.unresolved_reason, None);
-    assert_eq!(
-        detail.candidates,
-        vec![
-            ModuleCandidate {
-                root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-                path: Utf8PathBuf::from("/project/app.py"),
-                kind: ModuleCandidateKind::FileModule,
-            },
-            ModuleCandidate {
-                root: SearchPath::FirstParty(Utf8PathBuf::from("/project/vendor")),
-                path: Utf8PathBuf::from("/project/vendor/app.py"),
-                kind: ModuleCandidateKind::FileModule,
-            },
-        ]
-    );
-}
-
-#[test]
-fn resolve_module_detail_reports_namespace_only() {
-    let mut db = TestDatabase::new();
-    db.add_file("/project/app/views.py", "");
-    db.add_file("/vendor/app/models.py", "");
-
-    let pythonpath = vec![Utf8PathBuf::from("/vendor")];
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project"),
-        &Interpreter::Auto,
-        &pythonpath,
-    );
-    search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
-
-    let detail = resolve_module_detail(&db, project, PythonModuleName::parse("app").unwrap());
-
-    assert_eq!(detail.selected_root, None);
-    assert_eq!(
-        detail.unresolved_reason,
-        Some(ModuleUnresolvedReason::NamespaceOnly)
-    );
-    assert_eq!(
-        detail.candidates,
-        vec![
-            ModuleCandidate {
-                root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-                path: Utf8PathBuf::from("/project/app"),
-                kind: ModuleCandidateKind::NamespacePortion,
-            },
-            ModuleCandidate {
-                root: SearchPath::Extra(Utf8PathBuf::from("/vendor")),
-                path: Utf8PathBuf::from("/vendor/app"),
-                kind: ModuleCandidateKind::NamespacePortion,
-            },
-        ]
-    );
-}
-
-#[test]
-fn resolve_module_detail_reports_not_found() {
-    let db = TestDatabase::new();
-    let project = ProjectFixture::new("/project").build(&db);
-
-    let detail = resolve_module_detail(&db, project, PythonModuleName::parse("missing").unwrap());
-
-    assert_eq!(detail.selected_root, None);
-    assert!(detail.candidates.is_empty());
-    assert_eq!(
-        detail.unresolved_reason,
-        Some(ModuleUnresolvedReason::NotFound)
+        module.search_path(),
+        &SearchPath::FirstParty(Utf8PathBuf::from("/project"))
     );
 }
 

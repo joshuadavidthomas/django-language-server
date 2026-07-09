@@ -3,9 +3,6 @@ use std::path::PathBuf;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::FileModuleDerivationStatus;
-use djls_project::ModuleCandidate;
-use djls_project::ModuleCandidateKind;
-use djls_project::ModuleUnresolvedReason;
 use djls_project::Project;
 use djls_project::PythonModule;
 use djls_project::PythonModuleName;
@@ -13,7 +10,6 @@ use djls_project::SearchPath;
 use djls_project::compute_model_graph;
 use djls_project::file_to_module;
 use djls_project::file_to_module_detail;
-use djls_project::resolve_module_detail;
 use djls_project::resolve_package_dirs;
 use djls_project::template_libraries;
 use djls_project::template_resolution;
@@ -135,26 +131,7 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
         .expect("dupe should resolve to the first root");
     assert_eq!(dupe.path(), root.join("dupe.py").as_path());
 
-    let dupe_detail = resolve_module_detail(&db, project, dupe_name);
-    assert_eq!(
-        dupe_detail.selected_root,
-        Some(SearchPath::FirstParty(root.clone()))
-    );
-    assert_eq!(
-        dupe_detail.candidates,
-        vec![
-            ModuleCandidate {
-                root: SearchPath::FirstParty(root.clone()),
-                path: root.join("dupe.py"),
-                kind: ModuleCandidateKind::FileModule,
-            },
-            ModuleCandidate {
-                root: SearchPath::Editable(root.join("vendor")),
-                path: root.join("vendor/dupe.py"),
-                kind: ModuleCandidateKind::FileModule,
-            },
-        ]
-    );
+    assert_eq!(dupe.search_path(), &SearchPath::FirstParty(root.clone()));
 
     let vendor_dupe = root.join("vendor/dupe.py");
     let vendor_module = file_to_module(&db, project, vendor_dupe.clone())
@@ -209,22 +186,5 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     let package_dirs = resolve_package_dirs(&db, project, nsapp_name.clone());
     assert_eq!(package_dirs.dirs, vec![root.join("nsapp")]);
 
-    assert_eq!(
-        PythonModule::resolve(&db, project, nsapp_name.clone()),
-        None
-    );
-    let detail = resolve_module_detail(&db, project, nsapp_name);
-    assert_eq!(detail.selected_root, None);
-    assert_eq!(
-        detail.unresolved_reason,
-        Some(ModuleUnresolvedReason::NamespaceOnly)
-    );
-    assert_eq!(
-        detail.candidates,
-        vec![ModuleCandidate {
-            root: SearchPath::FirstParty(root.clone()),
-            path: root.join("nsapp"),
-            kind: ModuleCandidateKind::NamespacePortion,
-        }]
-    );
+    assert_eq!(PythonModule::resolve(&db, project, nsapp_name), None);
 }
