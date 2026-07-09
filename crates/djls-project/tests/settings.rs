@@ -13,6 +13,7 @@ use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
 use djls_source::WalkEntry;
 use djls_source::WalkOptions;
+use djls_testing::Corpus;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
@@ -52,14 +53,21 @@ fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
         .collect()
 }
 
-struct FailingReadFileSystem {
-    inner: InMemoryFileSystem,
-    unreadable: Utf8PathBuf,
+enum FileSystemFailure {
+    Read(Utf8PathBuf),
+    Walk(Utf8PathBuf),
 }
 
-impl FileSystem for FailingReadFileSystem {
+struct FailingFileSystem {
+    inner: InMemoryFileSystem,
+    failure: FileSystemFailure,
+}
+
+impl FileSystem for FailingFileSystem {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
-        if path == self.unreadable.as_path() {
+        if let FileSystemFailure::Read(unreadable) = &self.failure
+            && path == unreadable
+        {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "test file is unreadable",
@@ -90,42 +98,9 @@ impl FileSystem for FailingReadFileSystem {
     }
 
     fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
-        self.inner.walk_entries(root, options)
-    }
-}
-
-struct FailingWalkFileSystem {
-    inner: InMemoryFileSystem,
-    failing_root: Utf8PathBuf,
-}
-
-impl FileSystem for FailingWalkFileSystem {
-    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
-        self.inner.read_to_string(path)
-    }
-
-    fn exists(&self, path: &Utf8Path) -> bool {
-        self.inner.exists(path)
-    }
-
-    fn is_file(&self, path: &Utf8Path) -> bool {
-        self.inner.is_file(path)
-    }
-
-    fn is_dir(&self, path: &Utf8Path) -> bool {
-        self.inner.is_dir(path)
-    }
-
-    fn case_sensitivity(&self) -> djls_source::CaseSensitivity {
-        self.inner.case_sensitivity()
-    }
-
-    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
-        self.inner.path_exists_case_sensitive(path, prefix)
-    }
-
-    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
-        if root == self.failing_root.as_path() {
+        if let FileSystemFailure::Walk(failing_root) = &self.failure
+            && root == failing_root
+        {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "test root is unwalkable",
@@ -512,9 +487,9 @@ fn django_discovery_includes_deduped_unreadable_settings_source() {
     );
     fs.add_file(unreadable.clone(), "TEMPLATES = []\n".to_string());
 
-    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingReadFileSystem {
+    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingFileSystem {
         inner: fs,
-        unreadable: unreadable.clone(),
+        failure: FileSystemFailure::Read(unreadable.clone()),
     }));
     let root = Utf8PathBuf::from("/proj");
     let interpreter = Interpreter::Auto;
@@ -570,6 +545,95 @@ fn template_dirs_resolve_settings_module_file() {
         .expect("template dirs should be known");
 
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/templates")]);
+}
+
+#[test]
+fn template_dirs_merge_identical_implicit_backend_branches() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/templates/index.html", "index"),
+            (
+                "/proj/myproject/settings.py",
+                "if FLAG:\n    TEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\nelse:\n    TEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\n",
+            ),
+        ],
+    );
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    assert_eq!(
+        settings["templates"]["backends"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(settings["templates"]["extraction"], "partial");
+
+    let origins: Vec<_> = template_resolution(&db, project)
+        .origins(&db)
+        .map(|origin| origin.path_buf(&db).clone())
+        .collect();
+    assert_eq!(origins, [Utf8PathBuf::from("/proj/templates/index.html")]);
+
+    let processors = template_context_processors(&db, project);
+    assert_eq!(processors.processors().len(), 2);
+    assert_ne!(
+        processors.processors()[0].origin(),
+        processors.processors()[1].origin()
+    );
+}
+
+#[test]
+fn template_dirs_keep_implicit_backends_from_different_alternatives() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/a/index.html", "a"),
+            ("/proj/b/index.html", "b"),
+            (
+                "/proj/myproject/settings.py",
+                "if FLAG:\n    TEMPLATES = [{'DIRS': ['/proj/a']}]\nelse:\n    TEMPLATES = [{'DIRS': ['/proj/b']}]\n",
+            ),
+        ],
+    );
+
+    let resolution = template_resolution(&db, project);
+    assert!(resolution.known_template_dirs(&db).is_none());
+
+    let origins: Vec<_> = resolution
+        .origins(&db)
+        .map(|origin| origin.path_buf(&db).clone())
+        .collect();
+    assert_eq!(
+        origins,
+        [
+            Utf8PathBuf::from("/proj/a/index.html"),
+            Utf8PathBuf::from("/proj/b/index.html"),
+        ]
+    );
+}
+
+#[test]
+fn template_dirs_reject_simultaneous_implicit_backends() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/a/index.html", "a"),
+            ("/proj/b/index.html", "b"),
+            (
+                "/proj/myproject/settings.py",
+                "TEMPLATES = [{'DIRS': ['/proj/a']}, {'DIRS': ['/proj/b']}]\n",
+            ),
+        ],
+    );
+
+    let resolution = template_resolution(&db, project);
+    assert_eq!(resolution.known_template_dirs(&db), Some(Vec::new()));
+    assert_eq!(resolution.origins(&db).count(), 0);
 }
 
 #[test]
@@ -1285,9 +1349,9 @@ fn template_libraries_failed_available_candidate_walk_marks_inventory_incomplete
         Utf8PathBuf::from("/proj/myproject/settings.py"),
         "INSTALLED_APPS = []\nTEMPLATES = []\n".to_string(),
     );
-    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingWalkFileSystem {
+    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingFileSystem {
         inner: fs,
-        failing_root: Utf8PathBuf::from("/proj"),
+        failure: FileSystemFailure::Walk(Utf8PathBuf::from("/proj")),
     }));
     let root = Utf8PathBuf::from("/proj");
     let interpreter = Interpreter::Auto;
@@ -1816,13 +1880,20 @@ fn template_libraries_active_libraries_include_only_resolved_libraries() {
     assert!(libraries.installed_library_str("invalid").is_none());
 }
 
-#[test]
-#[ignore = "requires the e2e Django virtualenv with Django installed"]
-fn django_facts_golden_template_dirs_match() {
-    let Ok(_venv) = std::env::var("VIRTUAL_ENV") else {
-        eprintln!("skipping golden comparison because VIRTUAL_ENV is not set");
-        return;
-    };
+fn django_facts_golden_fixture() -> (
+    OsTestDatabase,
+    Project,
+    Utf8PathBuf,
+    Utf8PathBuf,
+    DjangoFactsGolden,
+) {
+    let corpus = Corpus::require();
+    let django_source_root = corpus.root().join("repos/django-5.2");
+    assert!(
+        django_source_root.join("django/__init__.py").is_file(),
+        "pinned Django 5.2 corpus source is missing"
+    );
+
     let workspace = Utf8PathBuf::from_path_buf(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
@@ -1832,30 +1903,43 @@ fn django_facts_golden_template_dirs_match() {
     .unwrap();
     let project_root = workspace.join("tests/project");
     let golden_path = workspace.join("tests/fixtures/django-facts/django-5.2.json");
-    let golden: DjangoFactsGolden =
+    let golden =
         serde_json::from_str(&std::fs::read_to_string(golden_path.as_std_path()).unwrap()).unwrap();
 
     let mut db = OsTestDatabase::new();
-    let settings = djls_conf::Settings::new(project_root.as_path(), None).unwrap();
-    let project = Project::bootstrap(&db, project_root.as_path(), &settings);
+    let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
+    let pythonpath = vec![django_source_root.clone()];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        project_root.as_path(),
+        &interpreter,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = Project::new(
+        &db,
+        project_root.clone(),
+        search_paths,
+        interpreter,
+        Some(PythonModuleName::parse("djls_test.settings").unwrap()),
+        pythonpath,
+        Vec::new(),
+        djls_conf::Settings::default().tagspecs().clone(),
+    );
     db.set_project(project);
 
-    let site_packages = project
-        .search_paths(&db)
-        .iter()
-        .find_map(|search_path| {
-            let path = search_path.path();
-            path.components()
-                .any(|component| matches!(component.as_str(), "site-packages" | "dist-packages"))
-                .then_some(path)
-        })
-        .expect("e2e venv should provide site-packages");
+    (db, project, project_root, django_source_root, golden)
+}
+
+#[test]
+fn django_facts_golden_template_dirs_match() {
+    let (db, project, project_root, django_source_root, golden) = django_facts_golden_fixture();
     let expected: Vec<_> = golden
         .template_dirs
         .into_iter()
         .map(|path| {
             path.replace("${PROJECT}", project_root.as_str())
-                .replace("${SITE_PACKAGES}", site_packages.as_str())
+                .replace("${SITE_PACKAGES}", django_source_root.as_str())
         })
         .collect();
     let actual: Vec<_> = template_resolution(&db, project)
@@ -1869,29 +1953,8 @@ fn django_facts_golden_template_dirs_match() {
 }
 
 #[test]
-#[ignore = "requires the e2e Django virtualenv with Django installed"]
 fn django_facts_golden_template_libraries_match() {
-    let Ok(_venv) = std::env::var("VIRTUAL_ENV") else {
-        eprintln!("skipping golden comparison because VIRTUAL_ENV is not set");
-        return;
-    };
-    let workspace = Utf8PathBuf::from_path_buf(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .canonicalize()
-            .unwrap(),
-    )
-    .unwrap();
-    let project_root = workspace.join("tests/project");
-    let golden_path = workspace.join("tests/fixtures/django-facts/django-5.2.json");
-    let golden: DjangoFactsGolden =
-        serde_json::from_str(&std::fs::read_to_string(golden_path.as_std_path()).unwrap()).unwrap();
-
-    let mut db = OsTestDatabase::new();
-    let settings = djls_conf::Settings::new(project_root.as_path(), None).unwrap();
-    let project = Project::bootstrap(&db, project_root.as_path(), &settings);
-    db.set_project(project);
-
+    let (db, project, _, _, golden) = django_facts_golden_fixture();
     let libraries = template_libraries(&db, project);
     let actual_builtins = active_builtin_modules(libraries);
     assert_eq!(actual_builtins, golden.template_libraries.builtins);

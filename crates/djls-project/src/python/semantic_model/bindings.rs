@@ -53,22 +53,17 @@ impl PythonBinding {
         bindings: impl IntoIterator<Item = Option<Self>>,
     ) -> Option<Self> {
         let mut values: Vec<PythonBindingValue> = Vec::new();
-        let mut completeness = PythonCompleteness::Full;
         let mut saw_binding = false;
 
         for binding in bindings {
             let Some(binding) = binding else {
-                completeness = PythonCompleteness::Partial;
                 continue;
             };
             saw_binding = true;
-            if !binding.is_complete() {
-                completeness = PythonCompleteness::Partial;
-            }
             for value in binding.values {
                 if !values
                     .iter()
-                    .any(|existing| existing.semantically_eq(&value))
+                    .any(|existing| existing.same_originated_fact(&value))
                 {
                     values.push(value);
                 }
@@ -79,14 +74,10 @@ impl PythonBinding {
             return None;
         }
 
-        if values.len() != 1 {
-            completeness = PythonCompleteness::Partial;
-        }
-
         Some(Self {
             name: name.to_string(),
             values,
-            completeness,
+            completeness: PythonCompleteness::Partial,
         })
     }
 }
@@ -117,8 +108,8 @@ impl PythonBindingValue {
         self.value.is_complete()
     }
 
-    pub(super) fn semantically_eq(&self, other: &Self) -> bool {
-        self.value.semantically_eq(&other.value)
+    fn same_originated_fact(&self, other: &Self) -> bool {
+        self.binding_origin == other.binding_origin && self.value.same_originated_fact(&other.value)
     }
 }
 

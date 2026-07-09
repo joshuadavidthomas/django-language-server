@@ -1,0 +1,29 @@
+---
+source: crates/djls-project/tests/settings_extraction.rs
+expression: "django_settings(&db, project)"
+---
+parse_status: parsed
+installed_apps:
+  values: []
+  extraction: partial
+templates:
+  backends: []
+  extraction: partial
+staticfiles:
+  static_url:
+    values:
+      - value: /static/
+        span:
+          start: 30
+          length: 10
+      - value: /static/
+        span:
+          start: 64
+          length: 10
+    extraction: partial
+  static_root:
+    values: []
+    extraction: partial
+  staticfiles_dirs:
+    values: []
+    extraction: partial

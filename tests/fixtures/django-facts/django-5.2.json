@@ -15,6 +15,8 @@
       "admin_list": "django.contrib.admin.templatetags.admin_list",
       "admin_modify": "django.contrib.admin.templatetags.admin_modify",
       "admin_urls": "django.contrib.admin.templatetags.admin_urls",
+      "alpha_tags": "djls_app.templatetags.alpha_tags",
+      "beta_tags": "djls_app.templatetags.beta_tags",
       "cache": "django.templatetags.cache",
       "djls_app_tags": "djls_app.templatetags.djls_app_tags",
       "humanize": "django.contrib.humanize.templatetags.humanize",
@@ -941,6 +943,34 @@
         "load_name": "tz",
         "module": "django.templatetags.tz",
         "name": "timezone"
+      },
+      {
+        "kind": "filter",
+        "library_module": "djls_app.templatetags.alpha_tags",
+        "load_name": "alpha_tags",
+        "module": "djls_app.templatetags.alpha_tags",
+        "name": "ambiguous_shout"
+      },
+      {
+        "kind": "tag",
+        "library_module": "djls_app.templatetags.alpha_tags",
+        "load_name": "alpha_tags",
+        "module": "djls_app.templatetags.alpha_tags",
+        "name": "ambiguous_greeting"
+      },
+      {
+        "kind": "filter",
+        "library_module": "djls_app.templatetags.beta_tags",
+        "load_name": "beta_tags",
+        "module": "djls_app.templatetags.beta_tags",
+        "name": "ambiguous_shout"
+      },
+      {
+        "kind": "tag",
+        "library_module": "djls_app.templatetags.beta_tags",
+        "load_name": "beta_tags",
+        "module": "djls_app.templatetags.beta_tags",
+        "name": "ambiguous_greeting"
       },
       {
         "kind": "filter",

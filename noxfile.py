@@ -23,6 +23,7 @@ PY_DEFAULT = PY_VERSIONS[0]
 PY_LATEST = PY_VERSIONS[-1]
 
 DJ52 = "5.2"
+DJ52_CORPUS_VERSION = "5.2.11"
 DJ60 = "6.0"
 DJMAIN = "main"
 DJMAIN_MIN_PY = PY312
@@ -121,18 +122,6 @@ def e2e(session):
         env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
     )
     session.install(f"django=={DJ_DEFAULT}")
-    session.run(
-        "cargo",
-        "test",
-        "-q",
-        "-p",
-        "djls-semantic",
-        "django_facts_golden",
-        "--",
-        "--ignored",
-        external=True,
-        env={"VIRTUAL_ENV": session.virtualenv.location},
-    )
 
     args = []
     for arg in session.posargs:
@@ -143,6 +132,7 @@ def e2e(session):
 
 @nox.session(python=PY_DEFAULT)
 def fixtures(session):
+    """Generate Django facts against the exact django-5.2 corpus version."""
     session.run_install(
         "uv",
         "sync",
@@ -152,7 +142,7 @@ def fixtures(session):
         session.python,
         env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
     )
-    session.install(f"django=={DJ_DEFAULT}")
+    session.install(f"django=={DJ52_CORPUS_VERSION}")
 
     output = session.run(
         "python",
