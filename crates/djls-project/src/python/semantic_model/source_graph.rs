@@ -8,7 +8,7 @@ use ruff_python_parser::parse_module;
 use rustc_hash::FxHashMap;
 
 use super::model::ParseStatus;
-use crate::python::PythonImportResolver;
+use crate::python::PythonImportLoader;
 use crate::python::PythonSource;
 
 #[derive(Debug, Clone)]
@@ -19,7 +19,7 @@ pub(super) struct PythonSourceGraph {
 }
 
 impl PythonSourceGraph {
-    pub(super) fn collect(source: &PythonSource, resolver: &mut dyn PythonImportResolver) -> Self {
+    pub(super) fn collect(source: &PythonSource, resolver: &mut dyn PythonImportLoader) -> Self {
         let mut graph = Self::from_root_source(source);
         import_reachability::collect_imports(&mut graph, resolver);
         graph

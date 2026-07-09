@@ -12,7 +12,7 @@ use camino::Utf8Path;
 use crate::ExtractionStatus;
 use crate::python::ParseStatus;
 use crate::python::PythonDict;
-use crate::python::PythonImportResolver;
+use crate::python::PythonImportLoader;
 use crate::python::PythonMutationAccess;
 use crate::python::PythonSemanticModel;
 use crate::python::PythonSource;
@@ -65,7 +65,7 @@ impl KnownSetting {
 #[must_use]
 pub(crate) fn extract_settings(
     source: &PythonSource,
-    resolver: &mut dyn PythonImportResolver,
+    resolver: &mut dyn PythonImportLoader,
 ) -> DjangoSettings {
     let model = PythonSemanticModel::analyze(source, resolver);
     settings_from_model(&model)
@@ -473,7 +473,7 @@ mod tests {
 
     use super::*;
     use crate::ExtractionStatus;
-    use crate::python::ImportSourceResolution;
+    use crate::python::ImportLoadResult;
     use crate::python::PythonImportRequest;
     use crate::python::PythonSemanticModel;
     use crate::python::PythonSource;
@@ -497,38 +497,29 @@ mod tests {
             self
         }
 
-        fn resolve_mapped_import(
-            &mut self,
-            import: PythonImportRequest<'_>,
-        ) -> ImportSourceResolution {
+        fn resolve_mapped_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult {
             let Some(module) = import.module else {
-                return ImportSourceResolution::Unresolved;
+                return ImportLoadResult::Unresolved;
             };
             let Some(source) = self.modules.get(module).cloned() else {
-                return ImportSourceResolution::Unresolved;
+                return ImportLoadResult::Unresolved;
             };
             let path =
                 Utf8PathBuf::from(format!("/project/settings/{}.py", module.replace('.', "/")));
             self.db.add_file(path.as_str(), &source);
             let Ok(file) = path_to_file(self.db, &path) else {
-                return ImportSourceResolution::Unresolved;
+                return ImportLoadResult::Unresolved;
             };
-            ImportSourceResolution::Resolved(PythonSource::new(file, path, source))
+            ImportLoadResult::Loaded(PythonSource::new(file, path, source))
         }
     }
 
-    impl PythonImportResolver for MapResolver<'_> {
-        fn resolve_star_import(
-            &mut self,
-            import: PythonImportRequest<'_>,
-        ) -> ImportSourceResolution {
+    impl PythonImportLoader for MapResolver<'_> {
+        fn load_star_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult {
             self.resolve_mapped_import(import)
         }
 
-        fn resolve_named_import(
-            &mut self,
-            import: PythonImportRequest<'_>,
-        ) -> ImportSourceResolution {
+        fn load_named_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult {
             self.resolve_mapped_import(import)
         }
     }
@@ -545,36 +536,24 @@ mod tests {
         }
     }
 
-    impl PythonImportResolver for RefusingNamedResolver<'_> {
-        fn resolve_star_import(
-            &mut self,
-            import: PythonImportRequest<'_>,
-        ) -> ImportSourceResolution {
-            self.inner.resolve_star_import(import)
+    impl PythonImportLoader for RefusingNamedResolver<'_> {
+        fn load_star_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult {
+            self.inner.load_star_import(import)
         }
 
-        fn resolve_named_import(
-            &mut self,
-            _import: PythonImportRequest<'_>,
-        ) -> ImportSourceResolution {
-            ImportSourceResolution::Unresolved
+        fn load_named_import(&mut self, _import: PythonImportRequest<'_>) -> ImportLoadResult {
+            ImportLoadResult::Unresolved
         }
     }
 
     struct PanickingResolver;
 
-    impl PythonImportResolver for PanickingResolver {
-        fn resolve_star_import(
-            &mut self,
-            _import: PythonImportRequest<'_>,
-        ) -> ImportSourceResolution {
+    impl PythonImportLoader for PanickingResolver {
+        fn load_star_import(&mut self, _import: PythonImportRequest<'_>) -> ImportLoadResult {
             panic!("unreachable star import should not be resolved")
         }
 
-        fn resolve_named_import(
-            &mut self,
-            _import: PythonImportRequest<'_>,
-        ) -> ImportSourceResolution {
+        fn load_named_import(&mut self, _import: PythonImportRequest<'_>) -> ImportLoadResult {
             panic!("unreachable named import should not be resolved")
         }
     }
@@ -588,7 +567,7 @@ mod tests {
     fn extract_with_resolver(
         db: &TestDatabase,
         source: &str,
-        resolver: &mut dyn PythonImportResolver,
+        resolver: &mut dyn PythonImportLoader,
     ) -> DjangoSettings {
         let source = settings_source(db, source);
         extract_settings(&source, resolver)

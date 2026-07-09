@@ -4,7 +4,7 @@ use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::ProjectImportSourceResolver;
+use crate::python::ProjectImportLoader;
 use crate::python::PythonSemanticModel;
 use crate::settings::DjangoSettings;
 use crate::settings::extraction::extract_settings;
@@ -14,7 +14,7 @@ pub(super) fn django_settings_from_file(
     project: Project,
     file: File,
 ) -> DjangoSettings {
-    let mut resolver = ProjectImportSourceResolver::tracked(db, project);
+    let mut resolver = ProjectImportLoader::tracked(db, project);
     let Some(source) = resolver.read_source(file) else {
         return DjangoSettings::default();
     };
@@ -53,7 +53,7 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
 
     // The Django Discovery bump set must cover the same settings source graph
     // the extractor would read against current disk content.
-    let mut resolver = ProjectImportSourceResolver::discovery(db, project);
+    let mut resolver = ProjectImportLoader::discovery(db, project);
     let Some(source) = resolver.read_source(file) else {
         return DjangoSettingsSources::from_files(db, [file]);
     };

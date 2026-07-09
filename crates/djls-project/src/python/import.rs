@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use camino::Utf8PathBuf;
 use djls_source::File;
 use djls_source::Span;
 use ruff_python_ast::Alias;
@@ -7,8 +8,107 @@ use ruff_python_ast::Stmt;
 
 use crate::ast::AliasExt;
 use crate::ast::RangedExt;
+use crate::db::Db as ProjectDb;
+use crate::project::Project;
+use crate::python::PythonImportRequest;
+use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::PythonSource;
+use crate::python::SearchPath;
 use crate::python::parse_python_module;
+use crate::python::resolve_module_detail;
+
+pub(crate) enum ImportLoadResult {
+    Loaded(PythonSource),
+    Unresolved,
+    SkippedExternal,
+    ReadFailed { file: File, path: Utf8PathBuf },
+}
+
+pub(crate) trait PythonImportLoader {
+    fn load_star_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult;
+
+    fn load_named_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceReadMode {
+    Tracked,
+    Discovery,
+}
+
+pub(crate) struct ProjectImportLoader<'db> {
+    db: &'db dyn ProjectDb,
+    project: Project,
+    mode: SourceReadMode,
+}
+
+impl<'db> ProjectImportLoader<'db> {
+    pub(crate) fn tracked(db: &'db dyn ProjectDb, project: Project) -> Self {
+        Self::new(db, project, SourceReadMode::Tracked)
+    }
+
+    pub(crate) fn discovery(db: &'db dyn ProjectDb, project: Project) -> Self {
+        Self::new(db, project, SourceReadMode::Discovery)
+    }
+
+    fn new(db: &'db dyn ProjectDb, project: Project, mode: SourceReadMode) -> Self {
+        Self { db, project, mode }
+    }
+
+    pub(crate) fn read_source(&self, file: File) -> Option<PythonSource> {
+        let source = match self.mode {
+            SourceReadMode::Tracked => file.source(self.db).as_str().to_string(),
+            SourceReadMode::Discovery => self.db.read_file(file.path(self.db)).ok()?,
+        };
+        Some(PythonSource::new(
+            file,
+            file.path(self.db).to_path_buf(),
+            source,
+        ))
+    }
+
+    fn find_imported_module(&self, import: PythonImportRequest<'_>) -> Option<PythonModule> {
+        PythonModule::resolve_import(self.db, self.project, import).ok()?
+    }
+
+    fn load_module_source(&mut self, module: &PythonModule) -> ImportLoadResult {
+        let file = module.file();
+        self.read_source(file).map_or_else(
+            || ImportLoadResult::ReadFailed {
+                file,
+                path: file.path(self.db).to_path_buf(),
+            },
+            ImportLoadResult::Loaded,
+        )
+    }
+}
+
+impl PythonImportLoader for ProjectImportLoader<'_> {
+    fn load_star_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult {
+        let Some(module) = self.find_imported_module(import) else {
+            return ImportLoadResult::Unresolved;
+        };
+        self.load_module_source(&module)
+    }
+
+    fn load_named_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult {
+        let Some(module) = self.find_imported_module(import) else {
+            return ImportLoadResult::Unresolved;
+        };
+
+        let detail = resolve_module_detail(self.db, self.project, module.name().clone());
+        if !detail
+            .selected_root
+            .as_ref()
+            .is_some_and(SearchPath::is_first_party)
+        {
+            return ImportLoadResult::SkippedExternal;
+        }
+
+        self.load_module_source(&module)
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ImportBindings {
