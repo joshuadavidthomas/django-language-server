@@ -53,14 +53,10 @@ impl PythonValue {
         self.completeness = PythonCompleteness::Partial;
     }
 
-    pub(super) fn semantically_eq(&self, other: &Self) -> bool {
-        self.completeness == other.completeness
-            && match (&self.kind, &other.kind) {
-                (PythonValueKind::Str(left), PythonValueKind::Str(right)) => {
-                    left == right && self.origin.file == other.origin.file
-                }
-                _ => self.kind.semantically_eq(&other.kind),
-            }
+    pub(super) fn same_originated_fact(&self, other: &Self) -> bool {
+        self.origin == other.origin
+            && self.completeness == other.completeness
+            && self.kind.same_originated_fact(&other.kind)
     }
 }
 
@@ -75,7 +71,7 @@ pub(crate) enum PythonValueKind {
 }
 
 impl PythonValueKind {
-    pub(super) fn semantically_eq(&self, other: &Self) -> bool {
+    fn same_originated_fact(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Str(left), Self::Str(right)) => left == right,
             (Self::Bool(left), Self::Bool(right)) => left == right,
@@ -84,9 +80,9 @@ impl PythonValueKind {
                     && left
                         .iter()
                         .zip(right)
-                        .all(|(left, right)| left.semantically_eq(right))
+                        .all(|(left, right)| left.same_originated_fact(right))
             }
-            (Self::Dict(left), Self::Dict(right)) => left.semantically_eq(right),
+            (Self::Dict(left), Self::Dict(right)) => left.same_originated_fact(right),
             (Self::Path(left), Self::Path(right)) => left == right,
             (Self::Unknown, Self::Unknown) => true,
             _ => false,
@@ -104,13 +100,13 @@ impl PythonDict {
         &self.entries
     }
 
-    pub(super) fn semantically_eq(&self, other: &Self) -> bool {
+    fn same_originated_fact(&self, other: &Self) -> bool {
         self.entries.len() == other.entries.len()
             && self
                 .entries
                 .iter()
                 .zip(&other.entries)
-                .all(|(left, right)| left.semantically_eq(right))
+                .all(|(left, right)| left.same_originated_fact(right))
     }
 
     pub(super) fn get_string_key_mut(&mut self, key: &str) -> Option<&mut PythonValue> {
@@ -139,8 +135,8 @@ impl PythonDictEntry {
         &self.value
     }
 
-    pub(super) fn semantically_eq(&self, other: &Self) -> bool {
-        self.key.semantically_eq(&other.key) && self.value.semantically_eq(&other.value)
+    fn same_originated_fact(&self, other: &Self) -> bool {
+        self.key.same_originated_fact(&other.key) && self.value.same_originated_fact(&other.value)
     }
 }
 

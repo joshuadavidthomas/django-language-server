@@ -75,10 +75,19 @@ impl TemplateSettings {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImplicitTemplateBackend {
+    Unavailable,
+    DjangoTemplates,
+}
+
 /// One entry in Django's `TEMPLATES` setting.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct TemplateBackend {
     pub(crate) backend: Option<String>,
+    /// Whether `BACKEND` was omitted while this was the sole backend in its alternative.
+    #[serde(skip)]
+    implicit_backend: ImplicitTemplateBackend,
     pub(crate) dirs: Vec<EvaluatedPath>,
     pub(crate) app_dirs: Option<bool>,
     pub(crate) libraries: Vec<(String, PythonModuleName)>,
@@ -91,6 +100,7 @@ impl Default for TemplateBackend {
     fn default() -> Self {
         Self {
             backend: None,
+            implicit_backend: ImplicitTemplateBackend::Unavailable,
             dirs: Vec::new(),
             app_dirs: None,
             libraries: Vec::new(),
@@ -102,18 +112,34 @@ impl Default for TemplateBackend {
 }
 
 impl TemplateBackend {
+    pub(crate) fn implicit_django() -> Self {
+        Self {
+            implicit_backend: ImplicitTemplateBackend::DjangoTemplates,
+            ..Self::default()
+        }
+    }
+
     #[must_use]
     pub(crate) fn is_fully_extracted(&self) -> bool {
         self.extraction == ExtractionStatus::Complete
     }
 
     #[must_use]
-    pub(crate) fn is_django_templates_backend(&self, backend_count: usize) -> bool {
+    pub(crate) fn has_same_identity_as(&self, other: &Self) -> bool {
+        self.backend == other.backend && self.implicit_backend == other.implicit_backend
+    }
+
+    #[must_use]
+    pub(crate) fn is_django_templates_backend(&self, _backend_count: usize) -> bool {
         match self.backend.as_deref() {
             Some(DJANGO_TEMPLATES_BACKEND) => true,
-            None if backend_count == 1 => true,
-            _ => false,
+            None => self.implicit_backend == ImplicitTemplateBackend::DjangoTemplates,
+            Some(_) => false,
         }
+    }
+
+    pub(crate) fn mark_explicit_backend(&mut self) {
+        self.implicit_backend = ImplicitTemplateBackend::Unavailable;
     }
 
     pub(crate) fn mark_partial(&mut self) {
