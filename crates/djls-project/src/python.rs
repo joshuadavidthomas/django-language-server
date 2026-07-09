@@ -1,5 +1,4 @@
-mod import_source;
-mod imports;
+mod import;
 mod interpreter;
 mod module;
 mod name;
@@ -9,16 +8,16 @@ mod search_paths;
 mod semantic_model;
 mod source;
 
-pub(crate) use import_source::ImportSourceResolution;
-pub(crate) use import_source::ProjectImportSourceResolver;
-pub(crate) use import_source::PythonImportResolver;
-pub(crate) use imports::ImportBindings;
-pub(crate) use imports::ImportPathResolutionError;
+pub(crate) use import::ImportBindings;
+pub(crate) use import::ImportLoadResult;
+pub(crate) use import::ImportPathResolutionError;
 #[cfg(test)]
-pub(crate) use imports::ModuleKind;
+pub(crate) use import::ModuleKind;
+pub(crate) use import::ProjectImportLoader;
+pub(crate) use import::PythonImportLoader;
 #[cfg(test)]
-pub(crate) use imports::extract_import_bindings_for_source;
-pub(crate) use imports::import_bindings;
+pub(crate) use import::extract_import_bindings_for_source;
+pub(crate) use import::import_bindings;
 pub use interpreter::Interpreter;
 pub use module::FileModuleDerivation;
 pub use module::FileModuleDerivationStatus;

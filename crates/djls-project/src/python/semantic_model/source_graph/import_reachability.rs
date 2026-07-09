@@ -10,9 +10,9 @@ use super::PythonImportEdge;
 use super::PythonModuleRecord;
 use super::PythonSourceGraph;
 use crate::ast::ExprExt;
-use crate::python::ImportSourceResolution;
+use crate::python::ImportLoadResult;
+use crate::python::PythonImportLoader;
 use crate::python::PythonImportRequest;
-use crate::python::PythonImportResolver;
 use crate::python::semantic_model::control_flow::BranchPath;
 use crate::python::semantic_model::control_flow::Truthiness;
 use crate::python::semantic_model::control_flow::evaluate_test_with;
@@ -31,14 +31,14 @@ use crate::python::semantic_model::touched_names::target_write_names;
 // outside that narrow fact model becomes unknown so the graph includes rather than hides imports.
 pub(super) fn collect_imports(
     graph: &mut PythonSourceGraph,
-    resolver: &mut dyn PythonImportResolver,
+    resolver: &mut dyn PythonImportLoader,
 ) {
     PythonSourceGraphBuilder::new(graph, resolver).collect();
 }
 
 struct PythonSourceGraphBuilder<'graph, 'resolver> {
     graph: &'graph mut PythonSourceGraph,
-    resolver: &'resolver mut dyn PythonImportResolver,
+    resolver: &'resolver mut dyn PythonImportLoader,
     collecting: FxHashSet<File>,
     collected: FxHashSet<File>,
     summaries: FxHashMap<File, GuardState>,
@@ -47,7 +47,7 @@ struct PythonSourceGraphBuilder<'graph, 'resolver> {
 impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
     fn new(
         graph: &'graph mut PythonSourceGraph,
-        resolver: &'resolver mut dyn PythonImportResolver,
+        resolver: &'resolver mut dyn PythonImportLoader,
     ) -> Self {
         Self {
             graph,
@@ -125,11 +125,11 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
         };
 
         let resolution = match kind {
-            ImportKind::Star => self.resolver.resolve_star_import(python_import),
-            ImportKind::Named => self.resolver.resolve_named_import(python_import),
+            ImportKind::Star => self.resolver.load_star_import(python_import),
+            ImportKind::Named => self.resolver.load_named_import(python_import),
         };
         let edge = match resolution {
-            ImportSourceResolution::Resolved(source) => {
+            ImportLoadResult::Loaded(source) => {
                 let imported_file = source.file();
                 if !self.collecting.contains(&imported_file) {
                     self.graph
@@ -149,15 +149,15 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
                     kind,
                 }
             }
-            ImportSourceResolution::Unresolved => {
+            ImportLoadResult::Unresolved => {
                 state.apply_unresolved_import(import, kind);
                 PythonImportEdge::Unresolved { import: key, kind }
             }
-            ImportSourceResolution::SkippedExternal => {
+            ImportLoadResult::SkippedExternal => {
                 state.apply_unresolved_import(import, kind);
                 PythonImportEdge::SkippedExternal { import: key, kind }
             }
-            ImportSourceResolution::ReadFailed { file, path } => {
+            ImportLoadResult::ReadFailed { file, path } => {
                 self.graph
                     .modules
                     .entry(file)

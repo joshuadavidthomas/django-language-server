@@ -27,11 +27,11 @@ use self::state::PythonSemanticState;
 pub(crate) use self::values::PythonDict;
 pub(crate) use self::values::PythonValue;
 pub(crate) use self::values::PythonValueKind;
-use crate::python::PythonImportResolver;
+use crate::python::PythonImportLoader;
 use crate::python::PythonSource;
 
 impl PythonSemanticModel {
-    pub(crate) fn analyze(source: &PythonSource, resolver: &mut dyn PythonImportResolver) -> Self {
+    pub(crate) fn analyze(source: &PythonSource, resolver: &mut dyn PythonImportLoader) -> Self {
         let graph = PythonSourceGraph::collect(source, resolver);
         evaluate_root(&graph)
     }
