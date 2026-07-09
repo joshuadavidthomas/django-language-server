@@ -177,16 +177,6 @@ pub mod testing {
         crate::settings::settings_module_file(db, project)
     }
 
-    pub fn django_settings_template_backend_count(
-        db: &dyn super::Db,
-        project: super::Project,
-    ) -> usize {
-        crate::settings::django_settings(db, project)
-            .templates
-            .backends
-            .len()
-    }
-
     pub fn django_settings(
         db: &dyn super::Db,
         project: super::Project,

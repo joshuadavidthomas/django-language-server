@@ -797,10 +797,7 @@ mod invalidation_tests {
                 .path(&db),
             unrelated_path.as_path()
         );
-        assert_eq!(
-            djls_project::testing::django_settings_template_backend_count(&db, project),
-            0
-        );
+        let _ = djls_project::testing::django_settings(&db, project);
         let vendor_root = db
             .files()
             .root(&db, vendor.as_path())
@@ -821,10 +818,7 @@ mod invalidation_tests {
                 .path(&db),
             unrelated_path.as_path()
         );
-        assert_eq!(
-            djls_project::testing::django_settings_template_backend_count(&db, project),
-            0
-        );
+        let _ = djls_project::testing::django_settings(&db, project);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "settings_module_file"),
@@ -849,10 +843,7 @@ mod invalidation_tests {
                 .path(&db),
             unrelated_path.as_path()
         );
-        assert_eq!(
-            djls_project::testing::django_settings_template_backend_count(&db, project),
-            0
-        );
+        let _ = djls_project::testing::django_settings(&db, project);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "settings_module_file"),

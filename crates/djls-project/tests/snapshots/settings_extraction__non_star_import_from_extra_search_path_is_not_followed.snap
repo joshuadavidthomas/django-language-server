@@ -8,7 +8,7 @@ installed_apps:
   extraction: partial
 templates:
   backends:
-    - backend: ~
+    - backend: django.template.backends.django.DjangoTemplates
       dirs: []
       app_dirs: true
       libraries: []

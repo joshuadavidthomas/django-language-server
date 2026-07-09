@@ -570,12 +570,11 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         }
     }
 
-    let backend_count = settings.templates.backends.len();
     for backend in settings
         .templates
         .backends
         .iter()
-        .filter(|backend| backend.is_django_templates_backend(backend_count))
+        .filter(|backend| backend.is_django_templates_backend())
     {
         inventory_complete &= backend.is_fully_extracted();
 

@@ -46,13 +46,12 @@ pub(crate) fn template_dirs(db: &dyn ProjectDb, project: Project) -> TemplateDir
     let settings = django_settings(db, project);
     let mut dirs = Vec::new();
     let mut complete = settings.templates.is_fully_extracted();
-    let backend_count = settings.templates.backends.len();
 
     for backend in settings
         .templates
         .backends
         .iter()
-        .filter(|backend| backend.is_django_templates_backend(backend_count))
+        .filter(|backend| backend.is_django_templates_backend())
     {
         complete &= backend.is_fully_extracted();
 

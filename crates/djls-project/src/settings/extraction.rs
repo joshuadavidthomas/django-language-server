@@ -186,15 +186,14 @@ fn extract_templates(model: &PythonSemanticModel) -> TemplateSettings {
             continue;
         };
 
-        let existing_backend_count = backends.len();
-        let mut matched_existing = vec![false; existing_backend_count];
-        let sole_backend_in_alternative = elements.len() == 1;
+        let existing_backend_len = backends.len();
+        let mut matched_existing = vec![false; existing_backend_len];
         for element in elements {
             let PythonValueKind::Dict(dict) = element.kind() else {
                 complete = false;
                 continue;
             };
-            let backend = extract_template_backend(model, dict, sole_backend_in_alternative);
+            let backend = extract_template_backend(model, dict);
             if !backend.is_fully_extracted() || !element.is_complete() {
                 complete = false;
             }
@@ -235,7 +234,7 @@ fn merge_alternative_template_backend(
 }
 
 fn template_backends_are_equivalent(left: &TemplateBackend, right: &TemplateBackend) -> bool {
-    left.has_same_identity_as(right)
+    left.backend == right.backend
         && left.dirs == right.dirs
         && left.app_dirs == right.app_dirs
         && left.libraries == right.libraries
@@ -257,29 +256,18 @@ fn distinct_context_processor_values(
     values
 }
 
-fn extract_template_backend(
-    model: &PythonSemanticModel,
-    dict: &PythonDict,
-    sole_backend_in_alternative: bool,
-) -> TemplateBackend {
-    let mut backend = if sole_backend_in_alternative {
-        TemplateBackend::implicit_django()
-    } else {
-        TemplateBackend::default()
-    };
+fn extract_template_backend(model: &PythonSemanticModel, dict: &PythonDict) -> TemplateBackend {
+    let mut backend = TemplateBackend::default();
     for entry in dict.entries() {
         let PythonValueKind::Str(key) = entry.key().kind() else {
             backend.mark_partial();
             continue;
         };
         match key.as_str() {
-            "BACKEND" => {
-                backend.mark_explicit_backend();
-                match entry.value().kind() {
-                    PythonValueKind::Str(value) => backend.backend = Some(value.clone()),
-                    _ => backend.mark_partial(),
-                }
-            }
+            "BACKEND" => match entry.value().kind() {
+                PythonValueKind::Str(value) => backend.backend = Some(value.clone()),
+                _ => backend.mark_partial(),
+            },
             "DIRS" => extract_template_dirs(model, entry.value(), &mut backend),
             "APP_DIRS" => match entry.value().kind() {
                 PythonValueKind::Bool(value) => backend.app_dirs = Some(*value),
@@ -291,6 +279,9 @@ fn extract_template_backend(
         if !entry.value().is_complete() {
             backend.mark_partial();
         }
+    }
+    if backend.backend.is_none() {
+        backend.mark_partial();
     }
     backend
 }
