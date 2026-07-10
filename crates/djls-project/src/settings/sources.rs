@@ -15,7 +15,7 @@ pub(super) fn django_settings_from_file(
     file: File,
 ) -> DjangoSettings {
     let mut resolver = ProjectImportLoader::tracked(db, project);
-    let Some(source) = resolver.read_source(file) else {
+    let Ok(source) = resolver.read_source(file) else {
         return DjangoSettings::default();
     };
     extract_settings(&source, &mut resolver)
@@ -51,10 +51,8 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
         return DjangoSettingsSources::from_files(db, []);
     };
 
-    // The Django Discovery bump set must cover the same settings source graph
-    // the extractor would read against current disk content.
-    let mut resolver = ProjectImportLoader::discovery(db, project);
-    let Some(source) = resolver.read_source(file) else {
+    let mut resolver = ProjectImportLoader::tracked(db, project);
+    let Ok(source) = resolver.read_source(file) else {
         return DjangoSettingsSources::from_files(db, [file]);
     };
     let model = PythonSemanticModel::analyze(&source, &mut resolver);

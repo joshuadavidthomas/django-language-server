@@ -70,9 +70,9 @@ fn incremental(bencher: Bencher) {
                 db.set_file_contents(template.file, contents, revision);
                 revision = revision.wrapping_add(1);
 
-                if let Some(nodelist) = djls_templates::parse_template(&db, template.file) {
-                    total_nodes += nodelist.nodelist(&db).len();
-                }
+                let nodelist = djls_templates::parse_template(&db, template.file)
+                    .expect("benchmark template should parse");
+                total_nodes += nodelist.nodelist(&db).len();
             }
         }
         divan::black_box(total_nodes);

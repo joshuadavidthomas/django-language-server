@@ -219,11 +219,13 @@ mod invalidation_tests {
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::template_inheritance;
     use djls_semantic::template_symbols;
+    use djls_source::ChangeEvent;
     use djls_source::Db as SourceDb;
     use djls_source::File;
     use djls_source::InMemoryFileSystem;
     use djls_source::Offset;
     use djls_source::OsFileSystem;
+    use djls_source::SourceChanges;
     use djls_source::SourceFiles;
     use djls_source::path_to_file;
     use djls_templates::parse_template;
@@ -464,7 +466,8 @@ mod invalidation_tests {
             settings_path,
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'builtins': []}}]\n".to_string(),
         );
-        db.bump_file_revision(settings_file);
+        SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
+            .apply(&mut db);
 
         let specs = db.tag_specs();
         assert!(
@@ -679,7 +682,8 @@ mod invalidation_tests {
                 "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{other_templates_dir}'], 'APP_DIRS': False}}]\n"
             ),
         );
-        db.bump_file_revision(settings_file);
+        SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
+            .apply(&mut db);
 
         assert_eq!(db.template_dirs().unwrap(), vec![other_templates_dir]);
         let events = event_log.take();
@@ -933,6 +937,8 @@ env_file = ".env.local"
 
         let settings = Settings::new(root.as_path(), None).unwrap();
         db.apply_project_settings(settings);
+        let environment = djls_project::testing::compute_django_environment(&db, project);
+        djls_project::apply_django_environment(&mut db, environment);
 
         assert_eq!(db.project(), Some(project));
         assert_eq!(
@@ -1095,7 +1101,7 @@ env_file = ".env.local"
         // Bump the file revision — but the source is still empty (file not in FS)
         file.set_revision(&mut db).to(1);
 
-        // Salsa's backdate optimization: file.source() returns the same empty text,
+        // Salsa's backdate optimization: file.try_source() returns the same empty text,
         // so extract_filter_arities does NOT re-execute (correct behavior)
         let _result = djls_project::extract_filter_arities(
             &db,
@@ -1313,7 +1319,13 @@ def my_filter(value, arg):
         );
         let extra_file =
             path_to_file(&db, &extra_settings_path).expect("fixture file should exist");
-        assert!(extra_file.source(&db).as_str().contains("old_tags"));
+        assert!(
+            extra_file
+                .try_source(&db)
+                .expect("extra template tag file should be readable")
+                .as_str()
+                .contains("old_tags")
+        );
 
         {
             let mut fs = fs.lock().unwrap();
@@ -1328,14 +1340,76 @@ def my_filter(value, arg):
         assert_custom_library_module(&db, "new_tags");
     }
 
+    #[test]
+    fn one_reload_observes_deleted_and_recreated_settings_import() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let base_settings_path = root.join("base.py");
+
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(
+                root.join("settings.py"),
+                "from .base import *\n".to_string(),
+            );
+            fs.add_file(
+                base_settings_path.clone(),
+                settings_with_custom_library("old_tags"),
+            );
+            fs.add_file(
+                root.join("old_tags.py"),
+                template_tag_library_source("old_tag"),
+            );
+            fs.add_file(
+                root.join("new_tags.py"),
+                template_tag_library_source("new_tag"),
+            );
+        }
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            storage: salsa::Storage::default(),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+        assert_custom_library_module(&db, "old_tags");
+
+        fs.lock().unwrap().remove_file(&base_settings_path);
+        apply_project_discovery(&mut db);
+        assert!(
+            db.template_libraries()
+                .installed_library_str("custom")
+                .is_none()
+        );
+
+        fs.lock()
+            .unwrap()
+            .add_file(base_settings_path, settings_with_custom_library("new_tags"));
+        apply_project_discovery(&mut db);
+        assert_custom_library_module(&db, "new_tags");
+    }
+
     fn apply_project_discovery(db: &mut DjangoDatabase) {
         let project = db.project().expect("project should exist");
-        let discovery = djls_project::testing::compute_django_discovery(db, project);
-        djls_project::apply_django_discovery(db, discovery);
+        let environment = djls_project::testing::compute_django_environment(db, project);
+        djls_project::apply_django_environment(db, environment);
+        let _facts = djls_project::testing::compute_project_facts(db, project);
     }
 
     #[test]
-    fn apply_django_discovery_bumps_roots_but_not_unchanged_file_contents() {
+    fn environment_apply_bumps_roots_but_not_unchanged_file_contents() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -1370,10 +1444,11 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let discovery = djls_project::testing::compute_django_discovery(&db, project);
-        let file_paths: Vec<_> = discovery.file_paths().to_vec();
+        let environment = djls_project::testing::compute_django_environment(&db, project);
+        djls_project::apply_django_environment(&mut db, environment);
+        let facts = djls_project::testing::compute_project_facts(&db, project);
+        let file_paths: Vec<_> = facts.file_paths().to_vec();
         assert!(!file_paths.is_empty());
-        djls_project::apply_django_discovery(&mut db, discovery);
 
         let project = db.project().expect("project should exist");
         let file_revisions: Vec<_> = file_paths
@@ -1393,8 +1468,9 @@ def my_filter(value, arg):
             .collect();
         assert!(!root_revisions.is_empty());
 
-        let discovery = djls_project::testing::compute_django_discovery(&db, project);
-        djls_project::apply_django_discovery(&mut db, discovery);
+        let environment = djls_project::testing::compute_django_environment(&db, project);
+        djls_project::apply_django_environment(&mut db, environment);
+        let _facts = djls_project::testing::compute_project_facts(&db, project);
 
         let unchanged_file_revisions: Vec<_> = file_paths
             .iter()
@@ -1526,7 +1602,8 @@ def my_filter(value, arg):
             tag_path,
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n".to_string(),
         );
-        db.bump_file_revision(tag_file);
+        SourceChanges::new([ChangeEvent::ContentChanged(tag_file.path(&db).clone())])
+            .apply(&mut db);
 
         let libraries = db.template_libraries();
         let custom = libraries.installed_library_str("custom").unwrap();
@@ -1636,7 +1713,8 @@ def my_filter(value, arg):
             "from django.db import models\nclass FirstRenamed(models.Model):\n    pass\n"
                 .to_string(),
         );
-        db.bump_file_revision(first_model);
+        SourceChanges::new([ChangeEvent::ContentChanged(first_model.path(&db).clone())])
+            .apply(&mut db);
 
         let graph = db.model_graph();
         assert!(graph.models_named("First").next().is_none());
@@ -1685,7 +1763,8 @@ def my_filter(value, arg):
             child_path,
             "{% extends \"base.html\" %}\n{% block content %}{{ two }}{% endblock %}".to_string(),
         );
-        db.bump_file_revision(child_file);
+        SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
+            .apply(&mut db);
 
         let nodelist = parse_template(&db, child_file).expect("child should parse");
         let symbols = template_symbols(&db, nodelist);
@@ -1725,7 +1804,8 @@ def my_filter(value, arg):
             child_path,
             "{% extends \"next.html\" %}\n{% block content %}{{ one }}{% endblock %}".to_string(),
         );
-        db.bump_file_revision(child_file);
+        SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
+            .apply(&mut db);
 
         let inheritance = template_inheritance(&db, project, child_file);
         assert!(inheritance.ancestors(&db)[0].file(&db) == other_file);
@@ -1757,7 +1837,8 @@ def my_filter(value, arg):
             parent_path,
             "{% block sidebar %}Base{% endblock %}".to_string(),
         );
-        db.bump_file_revision(parent_file);
+        SourceChanges::new([ChangeEvent::ContentChanged(parent_file.path(&db).clone())])
+            .apply(&mut db);
 
         let inheritance = template_inheritance(&db, project, child_file);
         assert!(inheritance.ancestors(&db)[0].file(&db) == parent_file);

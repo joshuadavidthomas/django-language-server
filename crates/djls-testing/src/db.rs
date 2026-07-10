@@ -172,10 +172,12 @@ impl TestDatabase {
             self.file_system().is_file(path),
             "fixture file should exist before creating tracked file: {path}"
         );
-        File::builder(path.to_owned(), revision, FileStatus::Exists)
+        let file = File::builder(path.to_owned(), revision, FileStatus::Exists)
             .durability(salsa::Durability::LOW)
             .path_durability(salsa::Durability::HIGH)
-            .new(self)
+            .new(self);
+        self.files.register_file(self, file);
+        file
     }
 }
 

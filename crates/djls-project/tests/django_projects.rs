@@ -14,7 +14,7 @@ use djls_project::file_to_module_resolution;
 use djls_project::resolve_package_dirs;
 use djls_project::template_libraries;
 use djls_project::template_resolution;
-use djls_project::testing::compute_django_discovery;
+use djls_project::testing::compute_project_facts;
 use djls_testing::OsTestDatabase;
 
 fn fixture_root(name: &str) -> Utf8PathBuf {
@@ -67,7 +67,7 @@ fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
         ]
     );
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
     assert!(
         discovery
             .file_paths()

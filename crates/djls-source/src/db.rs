@@ -47,12 +47,4 @@ pub trait Db: salsa::Database {
         let new_rev = current_rev + 1;
         root.set_revision(self).to(new_rev);
     }
-
-    /// Bump a tracked file and, when discovery changed, its containing source root.
-    fn bump_file_and_maybe_root_revision(&mut self, file: File, path: &Utf8Path, bump_root: bool) {
-        self.bump_file_revision(file);
-        if bump_root && let Some(root) = self.files().root(self, path) {
-            self.bump_file_root_revision(root);
-        }
-    }
 }

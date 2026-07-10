@@ -16,7 +16,10 @@ pub fn collect_diagnostics(
     db: &dyn djls_semantic::Db,
     file: File,
 ) -> Option<Vec<ls_types::Diagnostic>> {
-    if *file.source(db).kind() != FileKind::Template {
+    let Ok(source) = file.try_source(db) else {
+        return None;
+    };
+    if *source.kind() != FileKind::Template {
         return None;
     }
 

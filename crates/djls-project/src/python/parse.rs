@@ -1,5 +1,6 @@
 use djls_source::File;
 use djls_source::FileKind;
+use djls_source::FileReadError;
 use djls_source::Span;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::PySourceType;
@@ -7,10 +8,11 @@ use ruff_python_ast::Stmt;
 
 use crate::ast::RangedExt;
 
-#[derive(Clone, Copy, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, PartialEq, Eq, salsa::Update)]
 enum PythonParseResult<'db> {
     Parsed(PythonParse<'db>),
     NotPython,
+    Unreadable(FileReadError),
 }
 
 /// The internal product of one recovered Ruff parse.
@@ -35,17 +37,19 @@ impl<'db> RecoveredPythonModule<'db> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, PartialEq, Eq, salsa::Update)]
 pub(crate) enum RecoveredPythonModuleResult<'db> {
     Module(RecoveredPythonModule<'db>),
     NotPython,
+    Unreadable(FileReadError),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, PartialEq, Eq, salsa::Update)]
 pub(crate) enum ExactPythonModule<'db> {
     Ready(RecoveredPythonModule<'db>),
     OrdinarySyntaxErrors,
     NotPython,
+    Unreadable(FileReadError),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -119,6 +123,7 @@ pub(crate) fn recovered_python_module(
             RecoveredPythonModuleResult::Module(RecoveredPythonModule { parse })
         }
         PythonParseResult::NotPython => RecoveredPythonModuleResult::NotPython,
+        PythonParseResult::Unreadable(error) => RecoveredPythonModuleResult::Unreadable(error),
     }
 }
 
@@ -131,6 +136,7 @@ pub(crate) fn exact_python_module(db: &dyn djls_source::Db, file: File) -> Exact
             ExactPythonModule::Ready(RecoveredPythonModule { parse })
         }
         PythonParseResult::NotPython => ExactPythonModule::NotPython,
+        PythonParseResult::Unreadable(error) => ExactPythonModule::Unreadable(error),
     }
 }
 
@@ -140,7 +146,7 @@ pub(crate) fn python_syntax_errors(
 ) -> Option<&Vec<PythonSyntaxError>> {
     match parse_python_file(db, file) {
         PythonParseResult::Parsed(parse) => Some(parse.syntax_errors(db)),
-        PythonParseResult::NotPython => None,
+        PythonParseResult::NotPython | PythonParseResult::Unreadable(_) => None,
     }
 }
 
@@ -152,7 +158,10 @@ fn has_ordinary_syntax_errors(errors: &[PythonSyntaxError]) -> bool {
 
 #[salsa::tracked]
 fn parse_python_file(db: &dyn djls_source::Db, file: File) -> PythonParseResult<'_> {
-    let source = file.source(db);
+    let source = match file.try_source(db) {
+        Ok(source) => source,
+        Err(error) => return PythonParseResult::Unreadable(error),
+    };
     if *source.kind() != FileKind::Python {
         return PythonParseResult::NotPython;
     }

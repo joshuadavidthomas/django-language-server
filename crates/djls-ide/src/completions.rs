@@ -476,12 +476,16 @@ pub fn completion(
     encoding: PositionEncoding,
     supports_snippets: bool,
 ) -> Option<ls_types::CompletionResponse> {
-    let source = file.source(db);
+    let Ok(source) = file.try_source(db) else {
+        return None;
+    };
     if *source.kind() != FileKind::Template {
         return None;
     }
 
-    let tokens = djls_templates::lex_template(db, file);
+    let Ok(tokens) = djls_templates::lex_template(db, file) else {
+        return None;
+    };
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
     let available_symbols =
@@ -587,8 +591,13 @@ fn available_symbols_for_completion(
     match context {
         CompletionOffsetContext::Template(
             TemplateCompletionContext::TagName { .. } | TemplateCompletionContext::Filter { .. },
-        ) => djls_templates::parse_template(db, file)
-            .map(|nodelist| djls_semantic::available_symbols_at(db, nodelist, offset.get())),
+        ) => match djls_templates::parse_template(db, file) {
+            djls_templates::TemplateParseResult::Parsed(nodelist) => Some(
+                djls_semantic::available_symbols_at(db, nodelist, offset.get()),
+            ),
+            djls_templates::TemplateParseResult::NotTemplate
+            | djls_templates::TemplateParseResult::Unreadable(_) => None,
+        },
         CompletionOffsetContext::Template(
             TemplateCompletionContext::Text
             | TemplateCompletionContext::TagArgument { .. }

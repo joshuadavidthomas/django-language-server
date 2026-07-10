@@ -27,8 +27,8 @@
 //! ## Example
 //!
 //! ```ignore
-//! // Parse a template and get its AST
-//! let nodelist = parse_template(db, file);
+//! // Parse a readable template and get its AST
+//! let nodelist = parse_template(db, file).expect("template should be readable");
 //!
 //! // Retrieve accumulated errors
 //! let errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file);

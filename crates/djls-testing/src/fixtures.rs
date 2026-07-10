@@ -545,9 +545,8 @@ pub fn collect_errors_with_revision(
     db.add_file(path, source);
     let file = db.create_file_with_revision(Utf8Path::new(path), revision);
 
-    let Some(nodelist) = parse_template(db, file) else {
-        return Vec::new();
-    };
+    let nodelist =
+        parse_template(db, file).expect("validation fixture should be a readable template");
 
     djls_semantic::validate_nodelist(db, nodelist);
 
@@ -577,9 +576,8 @@ pub fn collect_argument_validation_errors_with_revision(
     db.add_file(path, source);
     let file = db.create_file_with_revision(Utf8Path::new(path), revision);
 
-    let Some(nodelist) = parse_template(db, file) else {
-        return Vec::new();
-    };
+    let nodelist =
+        parse_template(db, file).expect("validation fixture should be a readable template");
 
     djls_semantic::validate_nodelist(db, nodelist);
 
@@ -691,9 +689,8 @@ pub fn snapshot_validate_files<'a>(
 
     let file = db.create_file_with_revision(Utf8Path::new(primary_path), 0);
 
-    let Some(nodelist) = parse_template(&db, file) else {
-        return String::new();
-    };
+    let nodelist =
+        parse_template(&db, file).expect("validation fixture should be a readable template");
 
     djls_semantic::validate_nodelist(&db, nodelist);
 

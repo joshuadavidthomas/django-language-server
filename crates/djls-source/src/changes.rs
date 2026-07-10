@@ -74,15 +74,15 @@ fn apply_visible_path_change(
     file_set_membership: FileSetMembership,
 ) {
     File::sync_path(db, path);
-    let Ok(file) = path_to_file(db, path) else {
+    if path_to_file(db, path).is_err() {
         return;
-    };
+    }
 
-    db.bump_file_and_maybe_root_revision(
-        file,
-        path,
-        matches!(file_set_membership, FileSetMembership::Changed),
-    );
+    if matches!(file_set_membership, FileSetMembership::Changed)
+        && let Some(root) = db.files().root(db, path)
+    {
+        db.bump_file_root_revision(root);
+    }
 }
 
 fn apply_content_change(db: &mut dyn Db, path: &Utf8Path) {
@@ -91,7 +91,6 @@ fn apply_content_change(db: &mut dyn Db, path: &Utf8Path) {
     };
 
     file.sync(db);
-    db.bump_file_revision(file);
 }
 
 fn apply_deleted_path(db: &mut dyn Db, path: &Utf8Path) {

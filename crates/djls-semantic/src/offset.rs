@@ -47,7 +47,7 @@ pub enum SemanticOffsetContext<'db> {
 
 impl<'db> SemanticOffsetContext<'db> {
     pub fn from_offset(db: &'db dyn SemanticDb, file: File, offset: Offset) -> Self {
-        let Some(nodelist) = parse_template(db, file) else {
+        let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
             return Self::None;
         };
 

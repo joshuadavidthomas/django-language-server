@@ -6,7 +6,8 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::testing::PythonSyntaxErrorClass;
-use djls_project::testing::compute_django_discovery;
+use djls_project::testing::compute_django_environment;
+use djls_project::testing::compute_project_facts;
 use djls_project::testing::django_settings;
 use djls_project::testing::python_syntax_errors;
 use djls_project::*;
@@ -207,8 +208,9 @@ fn project_with_settings(
 
 fn apply_project_discovery(db: &mut TestDatabase) {
     let project = db.project().expect("project should be configured");
-    let discovery = compute_django_discovery(db, project);
-    apply_django_discovery(db, discovery);
+    let environment = compute_django_environment(db, project);
+    apply_django_environment(db, environment);
+    let _facts = compute_project_facts(db, project);
 }
 
 #[test]
@@ -234,7 +236,7 @@ fn django_discovery_enumerates_settings_star_import_chain() {
         ],
     );
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     let expected = [
         Utf8PathBuf::from("/proj/myproject/base.py"),
@@ -262,7 +264,7 @@ fn settings_sources_includes_semantically_reached_imports_and_excludes_unreachab
         ],
     );
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -290,7 +292,7 @@ fn settings_sources_excludes_import_guarded_by_imported_false_flag() {
         ],
     );
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -316,7 +318,7 @@ fn settings_sources_includes_import_after_unsupported_guard_touch() {
         ],
     );
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -342,7 +344,7 @@ fn settings_sources_includes_import_after_loop_guard_change() {
         ],
     );
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -368,7 +370,7 @@ fn settings_sources_plain_import_alias_makes_guarded_import_reachable() {
         ],
     );
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -394,7 +396,7 @@ fn settings_sources_dedupes_duplicate_import_edges() {
         ],
     );
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -596,11 +598,10 @@ fn django_discovery_includes_deduped_unreadable_settings_source() {
     );
     db.set_project(project);
 
-    let settings_sources =
-        DiscoveryPhase::ProjectFacts(ProjectFactsPhase::SettingsSources).run(&db, project);
+    let settings_sources = ProjectFactsPhase::SettingsSources.run(&db, project);
     assert_eq!(settings_sources.count(), 3);
 
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     let expected = [
         Utf8PathBuf::from("/proj/myproject/base.py"),

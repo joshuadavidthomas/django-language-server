@@ -24,10 +24,10 @@ fn template_tree_cold(bencher: Bencher) {
 
         let mut total_regions = 0;
         for file in &files {
-            if let Some(nodelist) = djls_templates::parse_template(&db, *file) {
-                let tree = djls_semantic::build_template_tree(&db, nodelist);
-                total_regions += tree.regions(&db).iter().count();
-            }
+            let nodelist = djls_templates::parse_template(&db, *file)
+                .expect("benchmark template should parse");
+            let tree = djls_semantic::build_template_tree(&db, nodelist);
+            total_regions += tree.regions(&db).iter().count();
         }
         divan::black_box(total_regions);
     });
@@ -41,10 +41,10 @@ fn validate_cold(bencher: Bencher) {
 
         let mut validated = 0;
         for file in &files {
-            if let Some(nodelist) = djls_templates::parse_template(&db, *file) {
-                djls_semantic::validate_nodelist(&db, nodelist);
-                validated += 1;
-            }
+            let nodelist = djls_templates::parse_template(&db, *file)
+                .expect("benchmark template should parse");
+            djls_semantic::validate_nodelist(&db, nodelist);
+            validated += 1;
         }
         divan::black_box(validated);
     });
@@ -67,9 +67,9 @@ fn validate_incremental(bencher: Bencher) {
         .map(|fixture| {
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
-            if let Some(nodelist) = djls_templates::parse_template(&db, file) {
-                djls_semantic::validate_nodelist(&db, nodelist);
-            }
+            let nodelist =
+                djls_templates::parse_template(&db, file).expect("benchmark template should parse");
+            djls_semantic::validate_nodelist(&db, nodelist);
 
             let original = fixture.source.clone();
             let modified = {
@@ -103,10 +103,10 @@ fn validate_incremental(bencher: Bencher) {
                 db.set_file_contents(template.file, contents, revision);
                 revision = revision.wrapping_add(1);
 
-                if let Some(nodelist) = djls_templates::parse_template(&db, template.file) {
-                    djls_semantic::validate_nodelist(&db, nodelist);
-                    validated += 1;
-                }
+                let nodelist = djls_templates::parse_template(&db, template.file)
+                    .expect("benchmark template should parse");
+                djls_semantic::validate_nodelist(&db, nodelist);
+                validated += 1;
             }
         }
         divan::black_box(validated);
@@ -121,10 +121,10 @@ fn opaque_regions_cold(bencher: Bencher) {
 
         let mut opaque_files = 0;
         for file in &files {
-            if let Some(nodelist) = djls_templates::parse_template(&db, *file) {
-                let regions = djls_semantic::compute_opaque_regions(&db, nodelist);
-                opaque_files += usize::from(!regions.is_empty());
-            }
+            let nodelist = djls_templates::parse_template(&db, *file)
+                .expect("benchmark template should parse");
+            let regions = djls_semantic::compute_opaque_regions(&db, nodelist);
+            opaque_files += usize::from(!regions.is_empty());
         }
         divan::black_box(opaque_files);
     });

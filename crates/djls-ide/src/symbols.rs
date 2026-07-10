@@ -8,7 +8,9 @@ use crate::ext::SpanExt;
 
 #[must_use]
 pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentSymbol> {
-    let Some(nodelist) = djls_templates::parse_template(db, file) else {
+    let djls_templates::TemplateParseResult::Parsed(nodelist) =
+        djls_templates::parse_template(db, file)
+    else {
         return Vec::new();
     };
 

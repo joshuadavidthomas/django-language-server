@@ -88,32 +88,55 @@ pub struct FileRoot {
     pub revision: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("failed to read {path}: {kind:?}")]
+pub struct FileReadError {
+    path: Utf8PathBuf,
+    kind: std::io::ErrorKind,
+}
+
+impl FileReadError {
+    #[must_use]
+    pub fn path(&self) -> &Utf8Path {
+        &self.path
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> std::io::ErrorKind {
+        self.kind
+    }
+}
+
 #[salsa::tracked]
 impl File {
     #[salsa::tracked]
-    pub fn source(self, db: &dyn Db) -> SourceText {
+    pub fn try_source(self, db: &dyn Db) -> Result<SourceText, FileReadError> {
         let _ = self.revision(db);
-        let path = self.path(db);
-        let source = db.read_file(path).unwrap_or_default();
-        SourceText::new(path, source)
+        db.files().source(db, self)
+    }
+
+    #[salsa::tracked]
+    pub(crate) fn source_or_empty(self, db: &dyn Db) -> SourceText {
+        self.try_source(db)
+            .unwrap_or_else(|_| SourceText::new(self.path(db), String::new()))
     }
 
     #[salsa::tracked(returns(ref))]
     pub fn line_index(self, db: &dyn Db) -> LineIndex {
-        let text = self.source(db);
+        let text = self.source_or_empty(db);
         LineIndex::from(text.as_str())
     }
 
     #[must_use]
     pub fn end_line_col(self, db: &dyn Db, encoding: PositionEncoding) -> LineCol {
-        let source = self.source(db);
+        let source = self.source_or_empty(db);
         let line_index = self.line_index(db);
         line_index.end_line_col(source.as_str(), encoding)
     }
 
-    pub fn sync(self, db: &mut dyn Db) {
+    pub(crate) fn sync(self, db: &mut dyn Db) {
         let path = self.path(db).clone();
-        Self::sync_path(db, &path);
+        sync_file(db, &path);
     }
 
     pub fn sync_path(db: &mut dyn Db, path: &Utf8Path) {
@@ -247,8 +270,13 @@ pub struct SourceFiles(Arc<SourceFilesInner>);
 
 #[derive(Default)]
 struct SourceFilesInner {
-    by_path: FxDashMap<Utf8PathBuf, File>,
+    by_path: FxDashMap<Utf8PathBuf, SourceFileEntry>,
     roots: RwLock<Vec<FileRoot>>,
+}
+
+struct SourceFileEntry {
+    file: File,
+    source: Result<SourceText, FileReadError>,
 }
 
 /// Classification used to assign durability to files under a root.
@@ -274,17 +302,54 @@ impl SourceFiles {
     #[must_use]
     fn get_or_create_file(&self, db: &dyn Db, path: &Utf8Path) -> File {
         let path = path.to_owned();
-        *self.0.by_path.entry(path.clone()).or_insert_with(|| {
-            File::builder(path.clone(), 0, file_status(db, &path))
-                .durability(self.durability_for(db, &path))
-                .path_durability(Durability::HIGH)
-                .new(db)
-        })
+        self.0
+            .by_path
+            .entry(path.clone())
+            .or_insert_with(|| SourceFileEntry {
+                file: File::builder(path.clone(), 0, file_status(db, &path))
+                    .durability(self.durability_for(db, &path))
+                    .path_durability(Durability::HIGH)
+                    .new(db),
+                source: read_source(db, &path),
+            })
+            .file
     }
 
     #[must_use]
     pub fn try_file(&self, path: &Utf8Path) -> Option<File> {
-        self.0.by_path.get(path).map(|entry| *entry.value())
+        self.0.by_path.get(path).map(|entry| entry.value().file)
+    }
+
+    /// Register an explicitly constructed file and synchronize its source outcome.
+    ///
+    /// Normal callers should use [`path_to_file`]. This supports fixture databases
+    /// that need distinct file identities for the same path across revisions.
+    pub fn register_file(&self, db: &dyn Db, file: File) {
+        let path = file.path(db).clone();
+        self.0.by_path.insert(
+            path.clone(),
+            SourceFileEntry {
+                file,
+                source: read_source(db, &path),
+            },
+        );
+    }
+
+    fn source(&self, db: &dyn Db, file: File) -> Result<SourceText, FileReadError> {
+        self.0
+            .by_path
+            .get(file.path(db))
+            .expect("interned file should have a synchronized source outcome")
+            .source
+            .clone()
+    }
+
+    fn set_source(&self, path: &Utf8Path, source: Result<SourceText, FileReadError>) {
+        self.0
+            .by_path
+            .get_mut(path)
+            .expect("interned file should have a synchronized source outcome")
+            .source = source;
     }
 
     #[must_use]
@@ -405,19 +470,34 @@ pub(crate) fn sync_known_paths(db: &mut dyn Db) {
     }
 }
 
+fn read_source(db: &dyn Db, path: &Utf8Path) -> Result<SourceText, FileReadError> {
+    db.read_file(path)
+        .map(|source| SourceText::new(path, source))
+        .map_err(|error| FileReadError {
+            path: path.to_owned(),
+            kind: error.kind(),
+        })
+}
+
 fn sync_file(db: &mut dyn Db, path: &Utf8Path) {
     let Some(file) = db.files().try_file(path) else {
         return;
     };
 
     let current_status = file.status(db);
+    let current_source = db.files().source(db, file);
     let next_status = file_status(db, path);
-    if current_status == next_status {
+    let next_source = read_source(db, path);
+
+    if current_status == next_status && current_source == next_source {
         return;
     }
 
-    file.set_status(db).to(next_status);
-    if matches!(current_status, FileStatus::Exists) != matches!(next_status, FileStatus::Exists) {
-        db.bump_file_revision(file);
+    if current_status != next_status {
+        file.set_status(db).to(next_status);
     }
+    if current_source != next_source {
+        db.files().set_source(path, next_source);
+    }
+    db.bump_file_revision(file);
 }

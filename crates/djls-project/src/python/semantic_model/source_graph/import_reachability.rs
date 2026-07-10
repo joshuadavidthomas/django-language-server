@@ -157,7 +157,8 @@ impl<'graph, 'resolver> PythonSourceGraphBuilder<'graph, 'resolver> {
                 state.apply_unresolved_import(import, kind);
                 PythonImportEdge::SkippedExternal { import: key, kind }
             }
-            ImportLoadResult::ReadFailed { file, path } => {
+            ImportLoadResult::ReadFailed { file, error } => {
+                let path = error.path().to_path_buf();
                 self.graph
                     .modules
                     .entry(file)

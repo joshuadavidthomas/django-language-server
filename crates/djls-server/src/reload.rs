@@ -16,12 +16,16 @@ use djls_ide::WarmCachePart;
 use djls_ide::WarmCachePhase;
 use djls_ide::warm_cache_phases;
 use djls_project::Db as ProjectDb;
-use djls_project::DiscoveryPhase;
-use djls_project::DjangoDiscoveryData;
-use djls_project::DjangoDiscoveryPart;
+use djls_project::DjangoEnvironmentData;
+use djls_project::EnvironmentPart;
+use djls_project::EnvironmentPhase;
 use djls_project::Project;
-use djls_project::apply_django_discovery;
-use djls_project::django_discovery_phases;
+use djls_project::ProjectFactsData;
+use djls_project::ProjectFactsPart;
+use djls_project::ProjectFactsPhase;
+use djls_project::apply_django_environment;
+use djls_project::environment_phases;
+use djls_project::project_facts_phases;
 use djls_source::path_to_file;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
@@ -130,7 +134,6 @@ impl From<djls_ide::CountLabel> for CountLabel {
 }
 
 struct DiscoveryJobCount {
-    phase: DiscoveryPhase,
     label: CountLabel,
     count: usize,
 }
@@ -155,26 +158,24 @@ async fn reload_project(session: Arc<Mutex<Session>>, client: Client, client_inf
         return;
     }
 
+    let Some(environment) =
+        compute_environment(&session, &progress, &mut environment_progress).await
+    else {
+        return;
+    };
+    if !apply_environment(&session, environment).await {
+        finish_progress(&mut environment_progress, ProgressEnd::Skipped).await;
+        return;
+    }
+    finish_progress(&mut environment_progress, ProgressEnd::Complete).await;
+
     let mut facts_progress = None;
-    let Some(discovery) = compute_project_discovery(
-        &session,
-        &progress,
-        &mut environment_progress,
-        &mut facts_progress,
-    )
-    .await
+    let Some(_facts) = compute_project_facts_data(&session, &progress, &mut facts_progress).await
     else {
         return;
     };
 
-    if facts_progress.is_none() {
-        facts_progress = Some(progress.begin(DISCOVER_PROJECT_FACTS_TITLE).await);
-    }
-    if let Some(progress) = facts_progress.as_ref() {
-        progress.report("Applying project facts").await;
-    }
-
-    let Some((snapshot, documents)) = apply_project_facts(&session, discovery).await else {
+    let Some((snapshot, documents)) = snapshot_session(&session).await else {
         finish_progress(&mut facts_progress, ProgressEnd::Skipped).await;
         return;
     };
@@ -226,18 +227,25 @@ async fn apply_project_settings(session: &Arc<Mutex<Session>>, settings: Setting
     true
 }
 
-async fn apply_project_facts(
+async fn apply_environment(
     session: &Arc<Mutex<Session>>,
-    discovery: DjangoDiscoveryData,
-) -> Option<(SessionSnapshot, Vec<TextDocument>)> {
+    environment: DjangoEnvironmentData,
+) -> bool {
     let mut session_lock = session.lock().await;
     let db = session_lock.db_mut();
-    db.project()?;
+    if db.project().is_none() {
+        return false;
+    }
 
-    let t = std::time::Instant::now();
-    apply_django_discovery(db, discovery);
-    tracing::info!("Django Discovery apply completed in {:?}", t.elapsed());
+    apply_django_environment(db, environment);
+    true
+}
 
+async fn snapshot_session(
+    session: &Arc<Mutex<Session>>,
+) -> Option<(SessionSnapshot, Vec<TextDocument>)> {
+    let session_lock = session.lock().await;
+    session_lock.db().project()?;
     Some((session_lock.snapshot(), session_lock.open_documents()))
 }
 
@@ -270,64 +278,170 @@ async fn load_project_settings(session: &Arc<Mutex<Session>>) -> Option<Settings
     }
 }
 
-type DiscoveryJobResult = Result<DjangoDiscoveryPart, salsa::Cancelled>;
-type DiscoveryJobSet = JoinSet<DiscoveryJobResult>;
+type EnvironmentJobResult = Result<EnvironmentPart, salsa::Cancelled>;
+type ProjectFactsJobResult = Result<ProjectFactsPart, salsa::Cancelled>;
 
-async fn compute_project_discovery(
+async fn compute_environment(
     session: &Arc<Mutex<Session>>,
-    progress: &ProgressReporter,
-    environment_progress: &mut Option<ProgressItem>,
-    facts_progress: &mut Option<ProgressItem>,
-) -> Option<DjangoDiscoveryData> {
-    // Cancellation here usually means a document edit, not a config change:
-    // nothing bumps the epoch or resubmits, so dropping the compute would lose
-    // the Django Discovery run. Retry with a fresh database clone instead,
-    // like the snapshot reads do.
+    reporter: &ProgressReporter,
+    progress: &mut Option<ProgressItem>,
+) -> Option<DjangoEnvironmentData> {
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
         let Some((compute_db, project)) = capture_discovery_db(session).await else {
-            finish_progress(environment_progress, ProgressEnd::Skipped).await;
-            finish_progress(facts_progress, ProgressEnd::Skipped).await;
+            finish_progress(progress, ProgressEnd::Skipped).await;
             return None;
         };
 
-        let handles = spawn_discovery_jobs(
-            compute_db,
-            project,
-            progress,
-            environment_progress,
-            facts_progress,
-        )
-        .await;
-        let result = collect_discovery_jobs(handles, environment_progress, facts_progress).await;
+        let mut jobs: JoinSet<EnvironmentJobResult> = JoinSet::new();
+        for phase in environment_phases() {
+            let db = compute_db.clone();
+            jobs.spawn_blocking(move || {
+                salsa::Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)))
+            });
+            report_environment_phase(phase, reporter, progress).await;
+        }
 
+        let result = collect_environment_jobs(jobs, progress.as_ref()).await;
         match result {
-            Ok(discovery) => {
-                finish_progress(environment_progress, ProgressEnd::Complete).await;
-                return Some(discovery);
-            }
+            Ok(environment) => return Some(environment),
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                finish_progress(environment_progress, ProgressEnd::Retrying).await;
-                finish_progress(facts_progress, ProgressEnd::Retrying).await;
+                finish_progress(progress, ProgressEnd::Retrying).await;
                 tracing::debug!(
                     ?cancelled,
                     attempt = attempt + 1,
-                    "Django Discovery compute cancelled; retrying with fresh database clone"
+                    "Environment compute cancelled; retrying with fresh database clone"
                 );
             }
             Err(cancelled) => {
-                finish_progress(environment_progress, ProgressEnd::Cancelled).await;
-                finish_progress(facts_progress, ProgressEnd::Cancelled).await;
+                finish_progress(progress, ProgressEnd::Cancelled).await;
                 tracing::warn!(
                     ?cancelled,
                     retries = SNAPSHOT_CANCEL_RETRIES,
-                    "Django Discovery compute cancelled repeatedly; project facts may be stale until the next Django Discovery run"
+                    "Environment compute cancelled repeatedly; project reload cancelled"
                 );
                 return None;
             }
         }
     }
+    unreachable!("Environment retry loop must return")
+}
 
-    unreachable!("Django Discovery retry loop must return")
+async fn collect_environment_jobs(
+    mut jobs: JoinSet<EnvironmentJobResult>,
+    progress: Option<&ProgressItem>,
+) -> Result<DjangoEnvironmentData, salsa::Cancelled> {
+    let mut cancellation = None;
+    let mut parts = Vec::new();
+    let mut done = 0;
+    let total = environment_phases().count();
+
+    while let Some(joined) = jobs.join_next().await {
+        match joined.expect("Environment phase must not panic") {
+            Ok(part) => {
+                done += 1;
+                let phase_progress = part.phase().progress();
+                report_count(
+                    progress,
+                    done,
+                    total,
+                    part.count(),
+                    phase_progress.count_label.into(),
+                )
+                .await;
+                parts.push(part);
+            }
+            Err(cancelled) => remember_cancellation(&mut cancellation, cancelled),
+        }
+    }
+    cancellation.map_or_else(|| Ok(DjangoEnvironmentData::assemble(parts)), Err)
+}
+
+async fn compute_project_facts_data(
+    session: &Arc<Mutex<Session>>,
+    reporter: &ProgressReporter,
+    progress: &mut Option<ProgressItem>,
+) -> Option<ProjectFactsData> {
+    // Capture happens after Environment application, so every attempt observes
+    // registered, rescanned roots and overlay-authoritative file contents.
+    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+        let Some((compute_db, project)) = capture_discovery_db(session).await else {
+            finish_progress(progress, ProgressEnd::Skipped).await;
+            return None;
+        };
+
+        let mut jobs: JoinSet<ProjectFactsJobResult> = JoinSet::new();
+        for phase in project_facts_phases() {
+            let db = compute_db.clone();
+            jobs.spawn_blocking(move || {
+                salsa::Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)))
+            });
+            report_project_facts_phase(phase, reporter, progress).await;
+        }
+
+        let result = collect_project_facts_jobs(jobs, progress.as_ref()).await;
+        match result {
+            Ok(facts) => return Some(facts),
+            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+                finish_progress(progress, ProgressEnd::Retrying).await;
+                tracing::debug!(
+                    ?cancelled,
+                    attempt = attempt + 1,
+                    "Project Facts compute cancelled; retrying with fresh database clone"
+                );
+            }
+            Err(cancelled) => {
+                finish_progress(progress, ProgressEnd::Cancelled).await;
+                tracing::warn!(
+                    ?cancelled,
+                    retries = SNAPSHOT_CANCEL_RETRIES,
+                    "Project Facts compute cancelled repeatedly; project facts may be stale until the next reload"
+                );
+                return None;
+            }
+        }
+    }
+    unreachable!("Project Facts retry loop must return")
+}
+
+async fn collect_project_facts_jobs(
+    mut jobs: JoinSet<ProjectFactsJobResult>,
+    progress: Option<&ProgressItem>,
+) -> Result<ProjectFactsData, salsa::Cancelled> {
+    let mut cancellation = None;
+    let mut counts = Vec::new();
+    let mut parts = Vec::new();
+
+    while let Some(joined) = jobs.join_next().await {
+        match joined.expect("Project Facts phase must not panic") {
+            Ok(part) => {
+                let phase = part.phase();
+                counts.push(DiscoveryJobCount {
+                    label: phase.progress().count_label.into(),
+                    count: part.count(),
+                });
+                parts.push(part);
+            }
+            Err(cancelled) => remember_cancellation(&mut cancellation, cancelled),
+        }
+    }
+    if let Some(cancelled) = cancellation {
+        return Err(cancelled);
+    }
+
+    let facts = ProjectFactsData::assemble(parts);
+    let total = project_facts_phases().count() + 1;
+    for (index, summary) in counts.into_iter().enumerate() {
+        report_count(progress, index + 1, total, summary.count, summary.label).await;
+    }
+    report_count(
+        progress,
+        total,
+        total,
+        facts.discovered_file_count(),
+        ProjectFactsData::discovered_file_count_label().into(),
+    )
+    .await;
+    Ok(facts)
 }
 
 async fn capture_discovery_db(session: &Arc<Mutex<Session>>) -> Option<(DjangoDatabase, Project)> {
@@ -337,119 +451,49 @@ async fn capture_discovery_db(session: &Arc<Mutex<Session>>) -> Option<(DjangoDa
         tracing::info!("Task: No project configured, skipping initialization.");
         return None;
     };
-
     Some((db.clone(), project))
 }
 
-async fn spawn_discovery_jobs(
-    compute_db: DjangoDatabase,
-    project: Project,
+async fn report_environment_phase(
+    phase: EnvironmentPhase,
     reporter: &ProgressReporter,
-    environment_progress: &mut Option<ProgressItem>,
-    facts_progress: &mut Option<ProgressItem>,
-) -> DiscoveryJobSet {
-    let mut jobs = JoinSet::new();
-    for phase in django_discovery_phases() {
-        let db = compute_db.clone();
-        jobs.spawn_blocking(move || {
-            salsa::Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)))
-        });
-    }
-
-    for phase in django_discovery_phases() {
-        report_discovery_phase(phase, reporter, environment_progress, facts_progress).await;
-    }
-
-    jobs
-}
-
-async fn collect_discovery_jobs(
-    mut jobs: DiscoveryJobSet,
-    environment_progress: &mut Option<ProgressItem>,
-    facts_progress: &mut Option<ProgressItem>,
-) -> Result<DjangoDiscoveryData, salsa::Cancelled> {
-    let mut cancellation = None;
-    let mut counts = Vec::new();
-    let mut parts = Vec::new();
-
-    while let Some(joined) = jobs.join_next().await {
-        match joined.expect("Django Discovery phase must not panic") {
-            Ok(part) => {
-                let phase = part.phase();
-                let progress = phase.progress();
-                counts.push(DiscoveryJobCount {
-                    phase,
-                    label: progress.count_label.into(),
-                    count: part.count(),
-                });
-                parts.push(part);
-            }
-            Err(cancelled) => remember_cancellation(&mut cancellation, cancelled),
-        }
-    }
-
-    if let Some(cancelled) = cancellation {
-        return Err(cancelled);
-    }
-
-    let discovery = DjangoDiscoveryData::assemble(parts);
-    report_discovery_job_counts(
-        counts,
-        discovery.discovered_file_count(),
-        environment_progress.as_ref(),
-        facts_progress.as_ref(),
-    )
-    .await;
-
-    Ok(discovery)
-}
-
-async fn report_discovery_job_counts(
-    counts: Vec<DiscoveryJobCount>,
-    discovered_file_count: usize,
-    environment_progress: Option<&ProgressItem>,
-    facts_progress: Option<&ProgressItem>,
+    progress: &mut Option<ProgressItem>,
 ) {
-    let environment_total = DiscoveryPhase::environment_phase_count();
-    let facts_total = DiscoveryPhase::project_facts_phase_count() + 1;
-    let mut environment_done = 0;
-    let mut facts_done = 0;
-
-    for summary in counts {
-        match summary.phase {
-            DiscoveryPhase::Environment(_) => {
-                environment_done += 1;
-                report_count(
-                    environment_progress,
-                    environment_done,
-                    environment_total,
-                    summary.count,
-                    summary.label,
-                )
-                .await;
-            }
-            DiscoveryPhase::ProjectFacts(_) => {
-                facts_done += 1;
-                report_count(
-                    facts_progress,
-                    facts_done,
-                    facts_total,
-                    summary.count,
-                    summary.label,
-                )
-                .await;
-            }
-        }
-    }
-
-    report_count(
-        facts_progress,
-        facts_total,
-        facts_total,
-        discovered_file_count,
-        DjangoDiscoveryData::discovered_file_count_label().into(),
+    report_discovery_phase(
+        phase.progress().message,
+        reporter,
+        progress,
+        RESOLVE_ENVIRONMENT_TITLE,
     )
     .await;
+}
+
+async fn report_project_facts_phase(
+    phase: ProjectFactsPhase,
+    reporter: &ProgressReporter,
+    progress: &mut Option<ProgressItem>,
+) {
+    report_discovery_phase(
+        phase.progress().message,
+        reporter,
+        progress,
+        DISCOVER_PROJECT_FACTS_TITLE,
+    )
+    .await;
+}
+
+async fn report_discovery_phase(
+    message: &str,
+    reporter: &ProgressReporter,
+    progress: &mut Option<ProgressItem>,
+    title: &'static str,
+) {
+    if progress.is_none() {
+        *progress = Some(reporter.begin(title).await);
+    }
+    if let Some(progress) = progress.as_ref() {
+        progress.report(message).await;
+    }
 }
 
 async fn report_count(
@@ -460,7 +504,6 @@ async fn report_count(
     label: CountLabel,
 ) {
     let message = count_message(count, label);
-
     if let Some(progress) = progress {
         progress.report_fraction(done, total, &message).await;
     }
@@ -478,34 +521,6 @@ fn count_message(count: usize, label: CountLabel) -> String {
 fn remember_cancellation(cancellation: &mut Option<salsa::Cancelled>, cancelled: salsa::Cancelled) {
     if cancellation.is_none() {
         *cancellation = Some(cancelled);
-    }
-}
-
-async fn report_discovery_phase(
-    phase: DiscoveryPhase,
-    reporter: &ProgressReporter,
-    environment_progress: &mut Option<ProgressItem>,
-    facts_progress: &mut Option<ProgressItem>,
-) {
-    let phase_progress = phase.progress();
-    let (progress, title) = discovery_phase_progress(phase, environment_progress, facts_progress);
-
-    if progress.is_none() {
-        *progress = Some(reporter.begin(title).await);
-    }
-    if let Some(progress) = progress.as_ref() {
-        progress.report(phase_progress.message).await;
-    }
-}
-
-fn discovery_phase_progress<'a>(
-    phase: DiscoveryPhase,
-    environment_progress: &'a mut Option<ProgressItem>,
-    facts_progress: &'a mut Option<ProgressItem>,
-) -> (&'a mut Option<ProgressItem>, &'static str) {
-    match phase {
-        DiscoveryPhase::Environment(_) => (environment_progress, RESOLVE_ENVIRONMENT_TITLE),
-        DiscoveryPhase::ProjectFacts(_) => (facts_progress, DISCOVER_PROJECT_FACTS_TITLE),
     }
 }
 
@@ -836,6 +851,67 @@ mod tests {
 
         assert_eq!(run_count.load(Ordering::SeqCst), 2);
         assert!(!overlap_detected.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn project_facts_use_fresh_post_environment_clone() {
+        let tempdir = tempdir().unwrap();
+        let base = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let root = base.join("project");
+        let vendor = base.join("vendor");
+        std::fs::create_dir_all(root.as_std_path()).unwrap();
+        std::fs::create_dir_all(vendor.join("blog").as_std_path()).unwrap();
+        std::fs::write(vendor.join("blog/models.py").as_std_path(), "").unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            format!(
+                "venv_path = \"{}\"\npythonpath = [\"{vendor}\"]\n",
+                root.join(".venv")
+            ),
+        )
+        .unwrap();
+
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root.as_std_path()).unwrap(),
+                name: "test_project".to_string(),
+            }]),
+            ..Default::default()
+        };
+        let session = Arc::new(Mutex::new(Session::new(&params)));
+        let settings = load_project_settings(&session)
+            .await
+            .expect("project settings should load");
+        assert!(apply_project_settings(&session, settings).await);
+
+        let (pre_environment_db, project) = capture_discovery_db(&session)
+            .await
+            .expect("project should exist");
+        assert!(
+            !project
+                .search_paths(&pre_environment_db)
+                .iter()
+                .any(|path| path.path() == vendor)
+        );
+        let environment = DjangoEnvironmentData::assemble(
+            environment_phases().map(|phase| phase.run(&pre_environment_db, project)),
+        );
+        drop(pre_environment_db);
+        assert!(apply_environment(&session, environment).await);
+
+        let (facts_db, project) = capture_discovery_db(&session)
+            .await
+            .expect("project should still exist");
+        assert!(
+            project
+                .search_paths(&facts_db)
+                .iter()
+                .any(|path| path.path() == vendor)
+        );
+        let facts = ProjectFactsData::assemble(
+            project_facts_phases().map(|phase| phase.run(&facts_db, project)),
+        );
+        assert!(facts.file_paths().contains(&vendor.join("blog/models.py")));
     }
 
     #[tokio::test]

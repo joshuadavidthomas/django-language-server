@@ -16,7 +16,9 @@ pub fn format_document(
     backend: FormatBackend,
     formatting_options: &ls_types::FormattingOptions,
 ) -> Vec<ls_types::TextEdit> {
-    let source = file.source(db);
+    let Ok(source) = file.try_source(db) else {
+        return Vec::new();
+    };
     let path = file.path(db);
 
     let indent_width = u8::try_from(formatting_options.tab_size)

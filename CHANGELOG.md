@@ -38,6 +38,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Changed unreadable files to be skipped instead of analyzed as empty source.
 - Changed Python model and template-spec extraction to retain known facts after recoverable syntax errors.
 - Changed template goto definition to return origin ranges for clients that support definition links.
 - Changed template tag library discovery to derive libraries from project source and Django settings instead of the runtime inspector.

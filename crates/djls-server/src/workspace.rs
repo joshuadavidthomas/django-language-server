@@ -581,7 +581,21 @@ mod tests {
         workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
         SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
         let file = path_to_file(&db, &file_path).expect("opened document should be interned");
-        assert_eq!(file.source(&db).as_str(), "buffer template");
+        assert_eq!(
+            file.try_source(&db)
+                .expect("buffer should be readable")
+                .as_str(),
+            "buffer template"
+        );
+
+        std::fs::write(file_path.as_std_path(), "changed disk template").unwrap();
+        SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+        assert_eq!(
+            file.try_source(&db)
+                .expect("overlay should remain authoritative during rescan")
+                .as_str(),
+            "buffer template"
+        );
 
         workspace
             .update_document(
@@ -592,10 +606,20 @@ mod tests {
             )
             .unwrap();
         SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
-        assert_eq!(file.source(&db).as_str(), "updated template");
+        assert_eq!(
+            file.try_source(&db)
+                .expect("buffer should be readable")
+                .as_str(),
+            "updated template"
+        );
 
         workspace.close_document(&file_path).unwrap();
         SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
-        assert_eq!(file.source(&db).as_str(), "disk template");
+        assert_eq!(
+            file.try_source(&db)
+                .expect("disk file should be readable")
+                .as_str(),
+            "changed disk template"
+        );
     }
 }

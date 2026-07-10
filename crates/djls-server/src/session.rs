@@ -282,7 +282,7 @@ impl SessionSnapshot {
         request: &str,
     ) -> Option<(File, Offset)> {
         let file = self.file_for_document_request(text_document, request)?;
-        let source = file.source(&self.db);
+        let source = file.try_source(&self.db).ok()?;
         let line_index = file.line_index(&self.db);
         let offset = position.to_offset(
             source.as_str(),
@@ -301,7 +301,7 @@ impl SessionSnapshot {
         request: &str,
     ) -> Option<(File, Span)> {
         let file = self.file_for_document_request(text_document, request)?;
-        let source = file.source(&self.db);
+        let source = file.try_source(&self.db).ok()?;
         let line_index = file.line_index(&self.db);
         let start = range.start.to_offset(
             source.as_str(),
@@ -357,7 +357,10 @@ mod tests {
 
         let db = session.db();
         let file = path_to_file(db, &path).expect("open buffer should be visible to the overlay");
-        let content = file.source(db).to_string();
+        let content = file
+            .try_source(db)
+            .expect("open buffer should be readable")
+            .to_string();
         assert_eq!(content, "print('hello')");
 
         let close_doc = ls_types::TextDocumentIdentifier { uri };
@@ -392,7 +395,10 @@ mod tests {
 
         let db = session.db();
         let file = path_to_file(db, &path).expect("open buffer should be visible to the overlay");
-        let content = file.source(db).to_string();
+        let content = file
+            .try_source(db)
+            .expect("open buffer should be readable")
+            .to_string();
         assert_eq!(content, "updated");
     }
 

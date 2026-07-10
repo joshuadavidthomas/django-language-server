@@ -13,11 +13,15 @@ pub fn collect_folding_ranges(
     db: &dyn djls_semantic::Db,
     file: File,
 ) -> Vec<ls_types::FoldingRange> {
-    let Some(nodelist) = djls_templates::parse_template(db, file) else {
+    let djls_templates::TemplateParseResult::Parsed(nodelist) =
+        djls_templates::parse_template(db, file)
+    else {
         return Vec::new();
     };
 
-    let source = file.source(db);
+    let Ok(source) = file.try_source(db) else {
+        return Vec::new();
+    };
     let template_tree = djls_semantic::build_template_tree(db, nodelist);
     let semantic_folds = djls_semantic::build_template_folds(db, template_tree);
     let folds =

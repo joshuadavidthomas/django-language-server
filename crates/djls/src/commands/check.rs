@@ -183,16 +183,19 @@ impl Command for Check {
                 for path in files {
                     let db = db.clone();
                     let tx = tx.clone();
-                    scope.spawn(move |_| {
-                        let result = check_file_with_source(&db, &path);
-                        if result.check.has_diagnostics() {
-                            let _ = tx.send(result);
+                    scope.spawn(move |_| match check_file_with_source(&db, &path) {
+                        Ok(result) if result.check.has_diagnostics() => {
+                            let _ = tx.send(Ok(result));
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            let _ = tx.send(Err(error));
                         }
                     });
                 }
             });
 
-            rx.into_iter().collect()
+            rx.into_iter().collect::<Result<Vec<_>>>()?
         };
         raw_results.sort_by(|left, right| left.path.cmp(&right.path));
 
@@ -256,7 +259,7 @@ fn check_stdin(
     let mut db = DjangoDatabase::new(fs, settings, Some(project_root));
     db.apply_project_settings(settings.clone());
 
-    let result = check_file_with_source(&db, &stdin_path);
+    let result = check_file_with_source(&db, &stdin_path)?;
     if quiet {
         return if result.renderable_diagnostic_count(config) > 0 {
             Ok(Exit::error())
@@ -280,25 +283,25 @@ fn check_stdin(
 }
 
 /// Run validation and capture the source text for later rendering.
-fn check_file_with_source(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
+fn check_file_with_source(db: &DjangoDatabase, path: &Utf8Path) -> Result<FileCheckResult> {
     let Ok(file) = path_to_file(db, path) else {
-        return FileCheckResult {
+        return Ok(FileCheckResult {
             path: path.to_owned(),
             source: SourceText::default(),
             check: CheckResult {
                 template_errors: Vec::new(),
                 validation_errors: Vec::new(),
             },
-        };
+        });
     };
-    let source = file.source(db);
+    let source = file.try_source(db)?;
     let check = check_file(db, file);
 
-    FileCheckResult {
+    Ok(FileCheckResult {
         path: path.to_owned(),
         source,
         check,
-    }
+    })
 }
 
 fn check_file(db: &dyn djls_semantic::Db, file: File) -> CheckResult {

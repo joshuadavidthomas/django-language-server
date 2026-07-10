@@ -57,7 +57,10 @@ fn corpus_template_inheritance_terminates() {
         let project = fixture.build(&db);
         for template_path in templates {
             let file = db.file(&template_path);
-            if parse_template(&db, file).is_none() {
+            if !matches!(
+                parse_template(&db, file),
+                djls_templates::TemplateParseResult::Parsed(_)
+            ) {
                 continue;
             }
 
