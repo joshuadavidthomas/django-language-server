@@ -5,8 +5,10 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::compute_django_discovery;
 use djls_project::testing::django_settings;
+use djls_project::testing::python_syntax_errors;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
@@ -51,6 +53,86 @@ fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
         .filter(|&library| library.load_name().is_none())
         .map(|library| library.module_name().as_str().to_string())
         .collect()
+}
+
+#[test]
+fn settings_remain_fail_closed_after_recovered_syntax_error() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = ['blog']\ndef broken(",
+        )
+        .install(&mut db);
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+
+    assert_eq!(settings["parse_status"], "unparseable");
+    assert_eq!(settings["installed_apps"]["values"], serde_json::json!([]));
+    assert_eq!(settings["installed_apps"]["extraction"], "partial");
+    assert_eq!(settings["templates"]["backends"], serde_json::json!([]));
+    assert_eq!(settings["templates"]["extraction"], "partial");
+}
+
+#[test]
+fn imported_settings_remain_fail_closed_after_recovered_syntax_error() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings.local")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings/__init__.py", "")
+        .file(
+            "/proj/myproject/settings/base.py",
+            "INSTALLED_APPS = ['blog']\ndef broken(",
+        )
+        .file(
+            "/proj/myproject/settings/local.py",
+            "from .base import INSTALLED_APPS, TEMPLATES",
+        )
+        .install(&mut db);
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+
+    assert_eq!(settings["parse_status"], "unparseable");
+    assert_eq!(settings["installed_apps"]["values"], serde_json::json!([]));
+    assert_eq!(settings["installed_apps"]["extraction"], "partial");
+    assert_eq!(settings["templates"]["backends"], serde_json::json!([]));
+    assert_eq!(settings["templates"]["extraction"], "partial");
+}
+
+#[test]
+fn settings_accept_supported_python_newer_than_ruff_default_target() {
+    let mut db = TestDatabase::new();
+    let path = Utf8Path::new("/proj/myproject/settings.py");
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            path.as_str(),
+            "type AppName = str\nINSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+        )
+        .install(&mut db);
+
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let errors = python_syntax_errors(&db, db.file(path)).expect("file should be Python");
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.class == PythonSyntaxErrorClass::Unsupported)
+    );
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.class != PythonSyntaxErrorClass::Ordinary)
+    );
+    assert_eq!(settings["parse_status"], "parsed");
+    assert_eq!(
+        settings["installed_apps"]["values"],
+        serde_json::json!(["blog"])
+    );
 }
 
 enum FileSystemFailure {
@@ -1373,7 +1455,10 @@ fn template_libraries_failed_discovered_library_marks_inventory_incomplete() {
         &[
             ("/proj/django/__init__.py", ""),
             ("/proj/blog/templatetags/__init__.py", ""),
-            ("/proj/blog/templatetags/broken.py", "def broken(:\n"),
+            (
+                "/proj/blog/templatetags/broken.py",
+                "from django import template\nregister = template.Library()\n@register.filter\ndef known(value):\n    return value\ndef broken(",
+            ),
             (
                 "/proj/myproject/settings.py",
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
@@ -1385,6 +1470,44 @@ fn template_libraries_failed_discovered_library_marks_inventory_incomplete() {
 
     assert!(libraries.inventory_may_omit_loaded_symbols());
     assert!(libraries.installed_library_str("broken").is_none());
+}
+
+#[test]
+fn template_libraries_accept_supported_python_newer_than_ruff_default_target() {
+    let mut db = TestDatabase::new();
+    let path = Utf8Path::new("/proj/blog/templatetags/modern.py");
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/django/__init__.py", ""),
+            ("/proj/blog/templatetags/__init__.py", ""),
+            (
+                path.as_str(),
+                "type FilterValue = str\nfrom django import template\nregister = template.Library()\n@register.filter\ndef known(value):\n    return value\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+            ),
+        ],
+    );
+
+    let libraries = template_libraries(&db, project);
+    let errors = python_syntax_errors(&db, db.file(path)).expect("file should be Python");
+
+    assert!(libraries.inventory_is_complete());
+    assert!(libraries.installed_library_str("modern").is_some());
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.class == PythonSyntaxErrorClass::Unsupported)
+    );
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.class != PythonSyntaxErrorClass::Ordinary)
+    );
 }
 
 #[test]

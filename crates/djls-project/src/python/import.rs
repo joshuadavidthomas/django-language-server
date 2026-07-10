@@ -13,6 +13,7 @@ use crate::project::Project;
 use crate::python::PythonImportRequest;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::PythonParseResult;
 use crate::python::PythonSource;
 use crate::python::parse_python_module;
 
@@ -162,7 +163,7 @@ pub(crate) fn import_bindings(
     file: File,
     module_name: PythonModuleName,
 ) -> ImportBindings {
-    let Some(parsed) = parse_python_module(db, file) else {
+    let PythonParseResult::Parsed(parsed) = parse_python_module(db, file) else {
         return ImportBindings::default();
     };
 

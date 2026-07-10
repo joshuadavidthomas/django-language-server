@@ -91,7 +91,6 @@ pub use templates::template_resolution;
 pub(crate) enum ExtractionStatus {
     Complete,
     Partial,
-    Unparseable,
 }
 
 // Test and benchmark support only; not part of the stable Project Facts façade.
@@ -105,6 +104,20 @@ pub mod testing {
     pub use crate::discovery::compute_django_discovery;
     pub use crate::models::model_modules;
     pub use crate::models::resolve_model_graph_from_modules;
+    pub use crate::python::PythonSyntaxError;
+    pub use crate::python::PythonSyntaxErrorClass;
+
+    pub fn python_syntax_errors(
+        db: &dyn djls_source::Db,
+        file: djls_source::File,
+    ) -> Option<Vec<PythonSyntaxError>> {
+        match crate::python::parse_python_module(db, file) {
+            crate::python::PythonParseResult::Parsed(parsed) => {
+                Some(parsed.syntax_errors(db).clone())
+            }
+            crate::python::PythonParseResult::NotPython => None,
+        }
+    }
 
     pub fn extract_model_graph(
         db: &dyn djls_source::Db,
@@ -112,22 +125,6 @@ pub mod testing {
         module_name: super::PythonModuleName,
     ) -> &super::ModelGraph {
         crate::models::extract_models(db, file, module_name).graph()
-    }
-
-    pub fn model_status(
-        db: &dyn djls_source::Db,
-        file: djls_source::File,
-        module_name: super::PythonModuleName,
-    ) -> impl serde::Serialize {
-        crate::models::extract_models(db, file, module_name).status()
-    }
-
-    pub fn filter_arity_status(
-        db: &dyn djls_source::Db,
-        file: djls_source::File,
-        module_name: super::PythonModuleName,
-    ) -> impl serde::Serialize {
-        crate::templates::extract_filter_arities(db, file, module_name).status()
     }
 
     #[must_use]

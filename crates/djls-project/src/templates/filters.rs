@@ -4,29 +4,23 @@ use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::ExtractionStatus;
 use crate::python::PythonModuleName;
+use crate::python::PythonParseResult;
 use crate::python::parse_python_module;
 use crate::templates::SymbolKey;
 use crate::templates::for_each_registration;
 
 pub type FilterArityMap = FxHashMap<SymbolKey, FilterArity>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct FilterArityExtraction {
     arities: FilterArityMap,
-    status: ExtractionStatus,
 }
 
 impl FilterArityExtraction {
     #[must_use]
     pub fn arities(&self) -> &FilterArityMap {
         &self.arities
-    }
-
-    #[must_use]
-    pub(crate) fn status(&self) -> ExtractionStatus {
-        self.status
     }
 }
 
@@ -52,11 +46,8 @@ pub fn extract_filter_arities(
     file: File,
     registration_module: PythonModuleName,
 ) -> FilterArityExtraction {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return FilterArityExtraction {
-            arities: FilterArityMap::default(),
-            status: ExtractionStatus::Unparseable,
-        };
+    let PythonParseResult::Parsed(parsed) = parse_python_module(db, file) else {
+        return FilterArityExtraction::default();
     };
 
     let registration_module = registration_module.into_string();
@@ -70,8 +61,6 @@ pub fn extract_filter_arities(
 
     FilterArityExtraction {
         arities: filter_arities,
-        // Filter extraction skips unsupported signature shapes in v1.
-        status: ExtractionStatus::Partial,
     }
 }
 

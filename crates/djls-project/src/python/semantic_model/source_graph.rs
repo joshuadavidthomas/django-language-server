@@ -4,12 +4,12 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
 use ruff_python_ast as ast;
-use ruff_python_parser::parse_module;
 use rustc_hash::FxHashMap;
 
 use super::model::ParseStatus;
 use crate::python::PythonImportLoader;
 use crate::python::PythonSource;
+use crate::python::parse::parse_unchecked_source;
 
 #[derive(Debug, Clone)]
 pub(super) struct PythonSourceGraph {
@@ -81,12 +81,14 @@ pub(super) enum PythonModuleRecord {
 
 impl PythonModuleRecord {
     pub(super) fn parse(source: PythonSource) -> Self {
-        match parse_module(source.source()) {
-            Ok(parsed) => Self::Parsed {
+        let parsed = parse_unchecked_source(source.source());
+        if parsed.has_parse_errors() {
+            Self::Unparseable { source }
+        } else {
+            Self::Parsed {
                 source,
-                module: Box::new(parsed.into_syntax()),
-            },
-            Err(_) => Self::Unparseable { source },
+                module: Box::new(parsed.module),
+            }
         }
     }
 

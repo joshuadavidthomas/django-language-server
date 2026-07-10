@@ -18,6 +18,7 @@ use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
+use crate::python::PythonParseResult;
 use crate::python::parse_python_module;
 
 /// Decorator helper names on `django.template.Library` that register filters.
@@ -403,9 +404,12 @@ pub(crate) enum TemplateLibraryAnalysis {
 
 impl TemplateLibraryAnalysis {
     pub(crate) fn from_file(db: &dyn ProjectDb, file: File) -> Self {
-        let Some(parsed) = parse_python_module(db, file) else {
+        let PythonParseResult::Parsed(parsed) = parse_python_module(db, file) else {
             return Self::Failed;
         };
+        if parsed.has_parse_errors(db) {
+            return Self::Failed;
+        }
 
         let mut symbols = Vec::new();
         for registration in collect_registrations_from_body(parsed.body(db)) {

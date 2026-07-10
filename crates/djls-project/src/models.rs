@@ -16,6 +16,7 @@ use crate::models::extract::extract_models_impl;
 use crate::models::resolve::resolve_deferred_models;
 use crate::project::Project;
 use crate::python::PythonModuleName;
+use crate::python::PythonParseResult;
 use crate::python::import_bindings;
 use crate::python::parse_python_module;
 
@@ -71,8 +72,8 @@ pub fn extract_models(
     file: File,
     module_name: PythonModuleName,
 ) -> ModelExtraction {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return ModelExtraction::unparseable();
+    let PythonParseResult::Parsed(parsed) = parse_python_module(db, file) else {
+        return ModelExtraction::default();
     };
 
     let imports = import_bindings(db, file, module_name.clone());
