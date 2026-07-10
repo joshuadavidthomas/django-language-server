@@ -38,6 +38,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Changed Python model and template-spec extraction to retain known facts after recoverable syntax errors.
 - Changed template goto definition to return origin ranges for clients that support definition links.
 - Changed template tag library discovery to derive libraries from project source and Django settings instead of the runtime inspector.
 - Changed static Django discovery to preserve inactive-app evidence for `S118`, `S119`, and `S121` diagnostics without runtime introspection.

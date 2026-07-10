@@ -9,7 +9,6 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 
-use crate::ExtractionStatus;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::ast::Recurse;
@@ -27,30 +26,16 @@ use crate::python::ImportBindings;
 use crate::python::ModuleKind;
 use crate::python::PythonModuleName;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ModelExtraction {
     pub(super) graph: ModelGraph,
     pub(super) deferred: Vec<DeferredModel>,
-    status: ExtractionStatus,
 }
 
 impl ModelExtraction {
-    pub(crate) fn unparseable() -> Self {
-        Self {
-            graph: ModelGraph::new(),
-            deferred: Vec::new(),
-            status: ExtractionStatus::Unparseable,
-        }
-    }
-
     #[must_use]
     pub(crate) fn graph(&self) -> &ModelGraph {
         &self.graph
-    }
-
-    #[must_use]
-    pub(crate) fn status(&self) -> ExtractionStatus {
-        self.status
     }
 }
 
@@ -240,8 +225,6 @@ pub(super) fn extract_models_impl(
     ModelExtraction {
         graph: collector.graph,
         deferred,
-        // Model extraction skips unsupported bases and dynamic constructs in v1.
-        status: ExtractionStatus::Partial,
     }
 }
 

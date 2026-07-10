@@ -16,7 +16,8 @@ use ruff_python_ast::StmtFunctionDef;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::python::PythonModuleName;
-use crate::python::parse_python_module;
+use crate::python::RecoveredPythonModuleResult;
+use crate::python::recovered_python_module;
 use crate::templates::for_each_registration;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
@@ -71,14 +72,15 @@ pub(crate) struct HelperCall<'db> {
     cycle_fn=analyze_helper_cycle_recover,
 )]
 pub(crate) fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> AbstractValue {
-    let Some(parsed) = parse_python_module(db, call.file(db)) else {
+    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, call.file(db))
+    else {
         return AbstractValue::Unknown;
     };
 
     let callee_name = call.callee_name(db);
     let args = call.args(db);
 
-    let Some(callee) = find_function_def(parsed.body(db), callee_name) else {
+    let Some(callee) = find_function_def(module.body(db), callee_name) else {
         return AbstractValue::Unknown;
     };
 
@@ -199,11 +201,11 @@ fn with_parsed_body<M: Default>(
     file: File,
     f: impl FnOnce(&[Stmt]) -> M,
 ) -> M {
-    let Some(parsed) = parse_python_module(db, file) else {
+    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file) else {
         return M::default();
     };
 
-    f(parsed.body(db))
+    f(module.body(db))
 }
 
 #[cfg(test)]

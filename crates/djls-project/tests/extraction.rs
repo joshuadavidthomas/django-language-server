@@ -2,10 +2,17 @@ use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
+use djls_project::extract_tag_rules;
+use djls_project::testing::PythonSyntaxErrorClass;
+use djls_project::testing::python_syntax_errors;
+use djls_source::Db as _;
+use djls_source::Span;
 use djls_testing::ExtractionBundle;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
 use djls_testing::sorted_snapshot;
+use salsa::Database as _;
 
 const ALLAUTH_TAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/allauth_tags.py");
 const CUSTOM_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_custom.py");
@@ -29,6 +36,18 @@ fn extract_source(source: &str, module_name: &str) -> ExtractionBundle {
     db.add_file(path.as_str(), source);
     let file = db.file(path);
     extract_bundle(&db, file, PythonModuleName::parse(module_name).unwrap())
+}
+
+fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
+    events
+        .iter()
+        .filter(|event| match &event.kind {
+            salsa::EventKind::WillExecute { database_key } => db
+                .ingredient_debug_name(database_key.ingredient_index())
+                .ends_with(query_name),
+            _ => false,
+        })
+        .count()
 }
 
 // Corpus: `no_params` in tests/template_tests/templatetags/custom.py —
@@ -92,6 +111,89 @@ fn extract_bundle_empty_source() {
 fn extract_bundle_invalid_python() {
     let result = extract_source("def {invalid python", "test.module");
     assert!(result.is_empty());
+}
+
+#[test]
+fn recovered_syntax_retains_tag_block_and_filter_facts_with_error_span() {
+    let source = r#"from django import template
+register = template.Library()
+
+@register.filter
+def known_filter(value, arg):
+    return value
+
+@register.tag("known_tag")
+def do_known(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 1:
+        raise template.TemplateSyntaxError("expected no arguments")
+    nodelist = parser.parse(("endknown_tag",))
+    parser.delete_first_token()
+    return nodelist
+
+def broken("#;
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/test/templatetags/known.py");
+    db.add_file(path.as_str(), source);
+    let file = db.file(path);
+    let module_name = PythonModuleName::parse("test.templatetags.known").unwrap();
+
+    let result = extract_bundle(&db, file, module_name);
+    let filter = SymbolKey::filter("test.templatetags.known", "known_filter");
+    let tag = SymbolKey::tag("test.templatetags.known", "known_tag");
+    assert!(result.filter_arities.contains_key(&filter));
+    assert!(result.tag_rules.contains_key(&tag));
+    assert_eq!(
+        result.block_specs.as_map()[&tag].end_tag.as_deref(),
+        Some("endknown_tag")
+    );
+
+    let errors = python_syntax_errors(&db, file).expect("file should be Python");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].class, PythonSyntaxErrorClass::Ordinary);
+    assert_eq!(
+        errors[0].span,
+        Span::new(u32::try_from(source.len()).unwrap(), 0)
+    );
+    assert!(!errors[0].message.is_empty());
+}
+
+#[test]
+fn parser_distinguishes_empty_python_from_non_python() {
+    let db = TestDatabase::new();
+    db.add_file("/test/empty.py", "");
+    db.add_file("/test/notes.txt", "");
+
+    assert_eq!(
+        python_syntax_errors(&db, db.file(Utf8Path::new("/test/empty.py"))),
+        Some(Vec::new())
+    );
+    assert_eq!(
+        python_syntax_errors(&db, db.file(Utf8Path::new("/test/notes.txt"))),
+        None
+    );
+}
+
+#[test]
+fn comment_only_edit_backdates_parsed_body_consumers() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let path = Utf8Path::new("/test/templatetags/known.py");
+    let source = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known():\n    return 'known'\n";
+    db.add_file(path.as_str(), source);
+    let file = db.file(path);
+    let module_name = PythonModuleName::parse("test.templatetags.known").unwrap();
+
+    assert!(!extract_tag_rules(&db, file, module_name.clone()).is_empty());
+    let _ = event_log.take();
+
+    db.add_file(path.as_str(), &format!("{source}# comment only\n"));
+    db.bump_file_revision(file);
+
+    assert!(!extract_tag_rules(&db, file, module_name).is_empty());
+    let events = event_log.take();
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 0);
 }
 
 // (b) Edge case — valid Python with no registrations

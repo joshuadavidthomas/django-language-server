@@ -6,10 +6,14 @@ use djls_project::Interpreter;
 use djls_project::ModelGraph;
 use djls_project::ModelId;
 use djls_project::Project;
+use djls_project::PythonModuleName;
 use djls_project::SearchPaths;
 use djls_project::compute_model_graph;
+use djls_project::testing::PythonSyntaxErrorClass;
+use djls_project::testing::extract_model_graph;
 use djls_project::testing::model_location;
 use djls_project::testing::model_relation_locations;
+use djls_project::testing::python_syntax_errors;
 use djls_source::Db as SourceDb;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
@@ -115,6 +119,32 @@ fn model_graph_span_probe(
 
 fn probe_model(db: &TestDatabase, project: Project, module_name: &str, model_name: &str) -> u32 {
     model_graph_span_probe(db, project, module_name.to_string(), model_name.to_string())
+}
+
+#[test]
+fn recovered_syntax_retains_imports_and_model_facts_with_error_span() {
+    let source =
+        "from django.db import models\n\nclass Post(models.Model):\n    pass\n\ndef broken(";
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/project/blog/models.py");
+    db.add_file(path.as_str(), source);
+    let file = db.file(path);
+    let module_name = PythonModuleName::parse("blog.models").unwrap();
+
+    let graph = extract_model_graph(&db, file, module_name);
+    assert!(
+        graph
+            .models_named("Post")
+            .any(|(id, _)| id.module_name().as_str() == "blog.models")
+    );
+
+    let errors = python_syntax_errors(&db, file).expect("file should be Python");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].class, PythonSyntaxErrorClass::Ordinary);
+    assert_eq!(
+        errors[0].span,
+        Span::new(u32::try_from(source.len()).unwrap(), 0)
+    );
 }
 
 #[test]
