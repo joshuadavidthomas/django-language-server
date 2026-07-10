@@ -62,8 +62,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
-- Fixed static Django settings extraction to require an explicit `TEMPLATES[*]["BACKEND"]`, matching Django's configuration contract.
-- Fixed conditional Django `TEMPLATES` extraction to preserve possible template directories and context-processor origins without treating branch alternatives as simultaneous backends.
 - Fixed Django relative template paths (`./`, `../`) in `{% extends %}` and `{% include %}` resolution, including inheritance chains, document links, goto definition, and find references.
 - Fixed false tag argument errors for manually parsed tags that strip trailing assignment clauses, such as `{% now ... as var %}` and `{% url ... as var %}`.
 
