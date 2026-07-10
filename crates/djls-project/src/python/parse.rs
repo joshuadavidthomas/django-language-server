@@ -8,20 +8,44 @@ use ruff_python_ast::Stmt;
 use crate::ast::RangedExt;
 
 #[derive(Clone, Copy, PartialEq, Eq, salsa::Update)]
-pub(crate) enum PythonParseResult<'db> {
-    Parsed(ParsedPythonModule<'db>),
+enum PythonParseResult<'db> {
+    Parsed(PythonParse<'db>),
     NotPython,
 }
 
-/// Parsed Python module AST and syntax errors, cached by Salsa.
+/// The internal product of one recovered Ruff parse.
 #[salsa::tracked]
-pub(crate) struct ParsedPythonModule<'db> {
+struct PythonParse<'db> {
     #[tracked]
     #[returns(ref)]
-    pub(crate) body: Vec<Stmt>,
+    body: Vec<Stmt>,
     #[tracked]
     #[returns(ref)]
-    pub(crate) syntax_errors: Vec<PythonSyntaxError>,
+    syntax_errors: Vec<PythonSyntaxError>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, salsa::Update)]
+pub(crate) struct RecoveredPythonModule<'db> {
+    parse: PythonParse<'db>,
+}
+
+impl<'db> RecoveredPythonModule<'db> {
+    pub(crate) fn body(self, db: &'db dyn djls_source::Db) -> &'db [Stmt] {
+        self.parse.body(db)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, salsa::Update)]
+pub(crate) enum RecoveredPythonModuleResult<'db> {
+    Module(RecoveredPythonModule<'db>),
+    NotPython,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, salsa::Update)]
+pub(crate) enum ExactPythonModule<'db> {
+    Ready(RecoveredPythonModule<'db>),
+    OrdinarySyntaxErrors,
+    NotPython,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -37,32 +61,21 @@ pub struct PythonSyntaxError {
     pub message: String,
 }
 
-pub(super) struct ParsedPythonSource {
-    pub(super) module: ModModule,
+struct PythonParseOutput {
+    module: ModModule,
     syntax_errors: Vec<PythonSyntaxError>,
 }
 
-impl ParsedPythonSource {
-    pub(super) fn has_parse_errors(&self) -> bool {
-        self.syntax_errors
-            .iter()
-            .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
-    }
-}
-
-impl ParsedPythonModule<'_> {
-    pub(crate) fn has_parse_errors(self, db: &dyn djls_source::Db) -> bool {
-        self.syntax_errors(db)
-            .iter()
-            .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
-    }
+pub(super) enum ExactPythonSource {
+    Ready(ModModule),
+    OrdinarySyntaxErrors,
 }
 
 /// Convert Ruff's recovered parser output into project-owned syntax evidence.
 ///
 /// Keeping this pure lets tracked parsing and the legacy settings graph share
 /// exactly the same recovery and error-normalization policy.
-pub(super) fn parse_unchecked_source(source: &str) -> ParsedPythonSource {
+fn parse_python_source(source: &str) -> PythonParseOutput {
     let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
     let mut syntax_errors =
         Vec::with_capacity(parsed.errors().len() + parsed.unsupported_syntax_errors().len());
@@ -82,22 +95,70 @@ pub(super) fn parse_unchecked_source(source: &str) -> ParsedPythonSource {
     syntax_errors.sort_by_key(|error| (error.span.start(), error.span.length(), error.class));
     syntax_errors.dedup_by(|left, right| left.span == right.span && left.class == right.class);
 
-    ParsedPythonSource {
+    PythonParseOutput {
         module: parsed.into_syntax(),
         syntax_errors,
     }
 }
 
-/// Parse a Python source file into a cached recovered AST.
+pub(super) fn parse_exact_python_source(source: &str) -> ExactPythonSource {
+    let parsed = parse_python_source(source);
+    if has_ordinary_syntax_errors(&parsed.syntax_errors) {
+        ExactPythonSource::OrdinarySyntaxErrors
+    } else {
+        ExactPythonSource::Ready(parsed.module)
+    }
+}
+
+pub(crate) fn recovered_python_module(
+    db: &dyn djls_source::Db,
+    file: File,
+) -> RecoveredPythonModuleResult<'_> {
+    match parse_python_file(db, file) {
+        PythonParseResult::Parsed(parse) => {
+            RecoveredPythonModuleResult::Module(RecoveredPythonModule { parse })
+        }
+        PythonParseResult::NotPython => RecoveredPythonModuleResult::NotPython,
+    }
+}
+
+pub(crate) fn exact_python_module(db: &dyn djls_source::Db, file: File) -> ExactPythonModule<'_> {
+    match parse_python_file(db, file) {
+        PythonParseResult::Parsed(parse) if has_ordinary_syntax_errors(parse.syntax_errors(db)) => {
+            ExactPythonModule::OrdinarySyntaxErrors
+        }
+        PythonParseResult::Parsed(parse) => {
+            ExactPythonModule::Ready(RecoveredPythonModule { parse })
+        }
+        PythonParseResult::NotPython => ExactPythonModule::NotPython,
+    }
+}
+
+pub(crate) fn python_syntax_errors(
+    db: &dyn djls_source::Db,
+    file: File,
+) -> Option<&Vec<PythonSyntaxError>> {
+    match parse_python_file(db, file) {
+        PythonParseResult::Parsed(parse) => Some(parse.syntax_errors(db)),
+        PythonParseResult::NotPython => None,
+    }
+}
+
+fn has_ordinary_syntax_errors(errors: &[PythonSyntaxError]) -> bool {
+    errors
+        .iter()
+        .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
+}
+
 #[salsa::tracked]
-pub(crate) fn parse_python_module(db: &dyn djls_source::Db, file: File) -> PythonParseResult<'_> {
+fn parse_python_file(db: &dyn djls_source::Db, file: File) -> PythonParseResult<'_> {
     let source = file.source(db);
     if *source.kind() != FileKind::Python {
         return PythonParseResult::NotPython;
     }
 
-    let parsed = parse_unchecked_source(source.as_ref());
-    PythonParseResult::Parsed(ParsedPythonModule::new(
+    let parsed = parse_python_source(source.as_ref());
+    PythonParseResult::Parsed(PythonParse::new(
         db,
         parsed.module.body,
         parsed.syntax_errors,

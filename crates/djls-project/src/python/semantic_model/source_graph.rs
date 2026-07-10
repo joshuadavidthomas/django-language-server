@@ -9,7 +9,8 @@ use rustc_hash::FxHashMap;
 use super::model::ParseStatus;
 use crate::python::PythonImportLoader;
 use crate::python::PythonSource;
-use crate::python::parse::parse_unchecked_source;
+use crate::python::parse::ExactPythonSource;
+use crate::python::parse::parse_exact_python_source;
 
 #[derive(Debug, Clone)]
 pub(super) struct PythonSourceGraph {
@@ -81,14 +82,12 @@ pub(super) enum PythonModuleRecord {
 
 impl PythonModuleRecord {
     pub(super) fn parse(source: PythonSource) -> Self {
-        let parsed = parse_unchecked_source(source.source());
-        if parsed.has_parse_errors() {
-            Self::Unparseable { source }
-        } else {
-            Self::Parsed {
+        match parse_exact_python_source(source.source()) {
+            ExactPythonSource::Ready(module) => Self::Parsed {
                 source,
-                module: Box::new(parsed.module),
-            }
+                module: Box::new(module),
+            },
+            ExactPythonSource::OrdinarySyntaxErrors => Self::Unparseable { source },
         }
     }
 

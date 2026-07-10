@@ -111,12 +111,7 @@ pub mod testing {
         db: &dyn djls_source::Db,
         file: djls_source::File,
     ) -> Option<Vec<PythonSyntaxError>> {
-        match crate::python::parse_python_module(db, file) {
-            crate::python::PythonParseResult::Parsed(parsed) => {
-                Some(parsed.syntax_errors(db).clone())
-            }
-            crate::python::PythonParseResult::NotPython => None,
-        }
+        crate::python::python_syntax_errors(db, file).cloned()
     }
 
     pub fn extract_model_graph(

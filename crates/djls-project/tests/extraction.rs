@@ -192,7 +192,7 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
 
     assert!(!extract_tag_rules(&db, file, module_name).is_empty());
     let events = event_log.take();
-    assert_eq!(execution_count(&db, &events, "parse_python_module"), 1);
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 0);
 }
 

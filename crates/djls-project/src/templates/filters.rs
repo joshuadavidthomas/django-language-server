@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::python::PythonModuleName;
-use crate::python::PythonParseResult;
-use crate::python::parse_python_module;
+use crate::python::RecoveredPythonModuleResult;
+use crate::python::recovered_python_module;
 use crate::templates::SymbolKey;
 use crate::templates::for_each_registration;
 
@@ -46,14 +46,14 @@ pub fn extract_filter_arities(
     file: File,
     registration_module: PythonModuleName,
 ) -> FilterArityExtraction {
-    let PythonParseResult::Parsed(parsed) = parse_python_module(db, file) else {
+    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file) else {
         return FilterArityExtraction::default();
     };
 
     let registration_module = registration_module.into_string();
     let mut filter_arities = FilterArityMap::default();
 
-    for_each_registration(parsed.body(db), &registration_module, |reg, func, key| {
+    for_each_registration(module.body(db), &registration_module, |reg, func, key| {
         if let Some(arity) = reg.kind.extract_filter_arity(func) {
             filter_arities.insert(key, arity);
         }

@@ -16,9 +16,9 @@ use crate::models::extract::extract_models_impl;
 use crate::models::resolve::resolve_deferred_models;
 use crate::project::Project;
 use crate::python::PythonModuleName;
-use crate::python::PythonParseResult;
+use crate::python::RecoveredPythonModuleResult;
 use crate::python::import_bindings;
-use crate::python::parse_python_module;
+use crate::python::recovered_python_module;
 
 /// Compute a merged `ModelGraph` from discovered model sources.
 #[salsa::tracked(returns(ref))]
@@ -72,10 +72,10 @@ pub fn extract_models(
     file: File,
     module_name: PythonModuleName,
 ) -> ModelExtraction {
-    let PythonParseResult::Parsed(parsed) = parse_python_module(db, file) else {
+    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file) else {
         return ModelExtraction::default();
     };
 
     let imports = import_bindings(db, file, module_name.clone());
-    extract_models_impl(parsed.body(db), module_name, file, imports)
+    extract_models_impl(module.body(db), module_name, file, imports)
 }

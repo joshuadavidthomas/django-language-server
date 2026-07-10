@@ -13,9 +13,9 @@ use crate::project::Project;
 use crate::python::PythonImportRequest;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::python::PythonParseResult;
 use crate::python::PythonSource;
-use crate::python::parse_python_module;
+use crate::python::RecoveredPythonModuleResult;
+use crate::python::recovered_python_module;
 
 pub(crate) enum ImportLoadResult {
     Loaded(PythonSource),
@@ -163,7 +163,7 @@ pub(crate) fn import_bindings(
     file: File,
     module_name: PythonModuleName,
 ) -> ImportBindings {
-    let PythonParseResult::Parsed(parsed) = parse_python_module(db, file) else {
+    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file) else {
         return ImportBindings::default();
     };
 
@@ -172,7 +172,7 @@ pub(crate) fn import_bindings(
     } else {
         ModuleKind::Module
     };
-    extract_import_bindings_impl(parsed.body(db), &module_name, module_kind)
+    extract_import_bindings_impl(module.body(db), &module_name, module_kind)
 }
 
 #[cfg(test)]
