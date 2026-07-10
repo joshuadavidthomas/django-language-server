@@ -22,33 +22,27 @@ pub struct PythonModule {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FileModuleResolution {
-    pub selected_module: Option<PythonModule>,
-    pub derivations: Vec<FileModuleDerivation>,
-    pub unresolved_reason: Option<FileModuleUnresolvedReason>,
+pub enum FileModuleResolution {
+    Candidates {
+        first: FileModuleCandidate,
+        rest: Vec<FileModuleCandidate>,
+    },
+    OutsideSearchPaths,
+    InvalidModuleName,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FileModuleDerivation {
-    pub root: SearchPath,
-    pub name: PythonModuleName,
-    pub resolved_path: Option<Utf8PathBuf>,
-    pub status: FileModuleDerivationStatus,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FileModuleDerivationStatus {
-    RoundTrips,
-    Shadowed,
-    Unresolved,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FileModuleUnresolvedReason {
-    Shadowed { winner: Utf8PathBuf },
-    NotUnderAnyRoot,
-    NoValidDerivation,
-    NotFound,
+pub enum FileModuleCandidate {
+    Resolved(PythonModule),
+    Shadowed {
+        root: SearchPath,
+        name: PythonModuleName,
+        winner: PythonModule,
+    },
+    NotFound {
+        root: SearchPath,
+        name: PythonModuleName,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -101,13 +95,6 @@ enum ResolvedComponent {
         file: File,
     },
     NamespacePortion(CandidateDirectory),
-}
-
-struct FileModuleDerivationResult {
-    root: SearchPath,
-    name: PythonModuleName,
-    resolved_module: Option<PythonModule>,
-    status: FileModuleDerivationStatus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -247,36 +234,24 @@ fn file_module_names<'a>(
         })
 }
 
-fn file_module_derivation_result(
+fn file_module_candidate(
     db: &dyn ProjectDb,
     project: Project,
     source_path: &Utf8Path,
     search_path: &SearchPath,
     name: PythonModuleName,
-) -> FileModuleDerivationResult {
-    let resolved_module = PythonModule::resolve(db, project, name.clone());
-    let status = match resolved_module.as_ref().map(PythonModule::path) {
-        Some(resolved_path) if resolved_path == source_path => {
-            FileModuleDerivationStatus::RoundTrips
-        }
-        Some(_) => FileModuleDerivationStatus::Shadowed,
-        None => FileModuleDerivationStatus::Unresolved,
-    };
-
-    FileModuleDerivationResult {
-        root: search_path.clone(),
-        name,
-        resolved_module,
-        status,
-    }
-}
-
-fn selected_file_module(selected: Option<&FileModuleDerivationResult>) -> Option<PythonModule> {
-    let selected = selected?;
-    if selected.status == FileModuleDerivationStatus::RoundTrips {
-        selected.resolved_module.clone()
-    } else {
-        None
+) -> FileModuleCandidate {
+    match PythonModule::resolve(db, project, name.clone()) {
+        Some(module) if module.path() == source_path => FileModuleCandidate::Resolved(module),
+        Some(winner) => FileModuleCandidate::Shadowed {
+            root: search_path.clone(),
+            name,
+            winner,
+        },
+        None => FileModuleCandidate::NotFound {
+            root: search_path.clone(),
+            name,
+        },
     }
 }
 
@@ -337,65 +312,51 @@ pub fn file_to_module(
     project: Project,
     source_path: Utf8PathBuf,
 ) -> Option<PythonModule> {
-    let selected = file_module_names(db, project, source_path.as_path())
+    let candidate = file_module_names(db, project, source_path.as_path())
         .next()
-        .map(|(root, name)| {
-            file_module_derivation_result(db, project, source_path.as_path(), root, name)
-        });
-    selected_file_module(selected.as_ref())
+        .map(|(root, name)| file_module_candidate(db, project, source_path.as_path(), root, name));
+
+    match candidate {
+        Some(FileModuleCandidate::Resolved(module)) => Some(module),
+        Some(
+            FileModuleCandidate::Shadowed {
+                root: _,
+                name: _,
+                winner: _,
+            }
+            | FileModuleCandidate::NotFound { root: _, name: _ },
+        )
+        | None => None,
+    }
 }
 
 // Salsa tracked-query keys are by-value; `source_path` is a key, not a borrow.
 #[allow(clippy::needless_pass_by_value)]
-#[salsa::tracked]
-pub fn file_to_module_detail(
+#[salsa::tracked(returns(ref))]
+pub fn file_to_module_resolution(
     db: &dyn ProjectDb,
     project: Project,
     source_path: Utf8PathBuf,
 ) -> FileModuleResolution {
     project.touch_search_path_roots(db);
 
-    let results = file_module_names(db, project, source_path.as_path())
-        .map(|(root, name)| {
-            file_module_derivation_result(db, project, source_path.as_path(), root, name)
-        })
-        .collect::<Vec<_>>();
-    let selected_module = selected_file_module(results.first());
-    let unresolved_reason = if selected_module.is_some() {
-        None
-    } else if let Some(selected) = results.first() {
-        match selected.resolved_module.as_ref().map(PythonModule::path) {
-            Some(winner) => Some(FileModuleUnresolvedReason::Shadowed {
-                winner: winner.to_path_buf(),
-            }),
-            None => Some(FileModuleUnresolvedReason::NotFound),
-        }
-    } else if project
-        .search_paths(db)
-        .iter()
-        .any(|search_path| source_path.strip_prefix(search_path.path()).is_ok())
-    {
-        Some(FileModuleUnresolvedReason::NoValidDerivation)
-    } else {
-        Some(FileModuleUnresolvedReason::NotUnderAnyRoot)
+    let mut candidates = file_module_names(db, project, source_path.as_path())
+        .map(|(root, name)| file_module_candidate(db, project, source_path.as_path(), root, name));
+    let Some(first) = candidates.next() else {
+        return if project
+            .search_paths(db)
+            .iter()
+            .any(|search_path| source_path.starts_with(search_path.path()))
+        {
+            FileModuleResolution::InvalidModuleName
+        } else {
+            FileModuleResolution::OutsideSearchPaths
+        };
     };
-    let derivations = results
-        .iter()
-        .map(|derivation| FileModuleDerivation {
-            root: derivation.root.clone(),
-            name: derivation.name.clone(),
-            resolved_path: derivation
-                .resolved_module
-                .as_ref()
-                .map(|module| module.path().to_path_buf()),
-            status: derivation.status,
-        })
-        .collect();
 
-    FileModuleResolution {
-        selected_module,
-        derivations,
-        unresolved_reason,
+    FileModuleResolution::Candidates {
+        first,
+        rest: candidates.collect(),
     }
 }
 

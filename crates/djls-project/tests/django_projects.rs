@@ -2,14 +2,15 @@ use std::path::PathBuf;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::FileModuleDerivationStatus;
+use djls_project::FileModuleCandidate;
+use djls_project::FileModuleResolution;
 use djls_project::Project;
 use djls_project::PythonModule;
 use djls_project::PythonModuleName;
 use djls_project::SearchPath;
 use djls_project::compute_model_graph;
 use djls_project::file_to_module;
-use djls_project::file_to_module_detail;
+use djls_project::file_to_module_resolution;
 use djls_project::resolve_package_dirs;
 use djls_project::template_libraries;
 use djls_project::template_resolution;
@@ -139,19 +140,17 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
     assert_eq!(vendor_module.name().as_str(), "vendor.dupe");
     assert_eq!(vendor_module.path(), vendor_dupe.as_path());
 
-    let vendor_detail = file_to_module_detail(&db, project, vendor_dupe.clone());
-    let selected = vendor_detail
-        .selected_module
-        .expect("vendored dupe should be selected through the first-party namespace");
-    assert_eq!(selected.name().as_str(), "vendor.dupe");
-    assert_eq!(selected.path(), vendor_dupe.as_path());
-    assert_eq!(vendor_detail.unresolved_reason, None);
-    assert!(vendor_detail.derivations.iter().any(|derivation| {
-        derivation.root == SearchPath::Editable(root.join("vendor"))
-            && derivation.name.as_str() == "dupe"
-            && derivation.resolved_path == Some(root.join("dupe.py"))
-            && derivation.status == FileModuleDerivationStatus::Shadowed
-    }));
+    assert_eq!(
+        file_to_module_resolution(&db, project, vendor_dupe),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Resolved(vendor_module),
+            rest: vec![FileModuleCandidate::Shadowed {
+                root: SearchPath::Editable(root.join("vendor")),
+                name: dupe_name,
+                winner: dupe,
+            }],
+        }
+    );
 }
 
 #[test]

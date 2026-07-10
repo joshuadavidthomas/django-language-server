@@ -101,6 +101,21 @@ fn will_execute_count(db: &TestDatabase, events: &[salsa::Event], query_name: &s
         .count()
 }
 
+fn will_execute_query_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
+    events
+        .iter()
+        .filter(|event| match &event.kind {
+            salsa::EventKind::WillExecute { database_key } => {
+                db.ingredient_debug_name(database_key.ingredient_index())
+                    .rsplit("::")
+                    .next()
+                    == Some(query_name)
+            }
+            _ => false,
+        })
+        .count()
+}
+
 fn assert_no_will_execute_events(events: &[salsa::Event]) {
     assert!(
         events
@@ -1832,13 +1847,12 @@ fn ty_file_to_module_where_one_search_path_is_subdirectory_of_other() {
     assert_eq!(module.name().as_str(), "foo");
     assert_eq!(module.path(), installed_foo_module.as_path());
 
-    let detail = file_to_module_detail(&db, project, installed_foo_module);
-    assert_eq!(detail.derivations.len(), 1);
-    assert_eq!(detail.derivations[0].root.path(), site_packages.as_path());
-    assert_eq!(detail.derivations[0].name.as_str(), "foo");
     assert_eq!(
-        detail.derivations[0].status,
-        FileModuleDerivationStatus::RoundTrips
+        file_to_module_resolution(&db, project, installed_foo_module),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Resolved(module),
+            rest: Vec::new(),
+        }
     );
 }
 
@@ -2243,17 +2257,12 @@ fn file_to_module_returns_unique_module_for_source_and_init_files() {
     assert_eq!(app.name().as_str(), "app");
     assert_eq!(app.path(), Utf8Path::new("/project/app/__init__.py"));
 
-    let detail = file_to_module_detail(&db, project, Utf8PathBuf::from("/project/app/models.py"));
-    assert_eq!(detail.selected_module, Some(models));
-    assert_eq!(detail.unresolved_reason, None);
     assert_eq!(
-        detail.derivations,
-        vec![FileModuleDerivation {
-            root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-            name: PythonModuleName::parse("app.models").unwrap(),
-            resolved_path: Some(Utf8PathBuf::from("/project/app/models.py")),
-            status: FileModuleDerivationStatus::RoundTrips,
-        }]
+        file_to_module_resolution(&db, project, Utf8PathBuf::from("/project/app/models.py"),),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Resolved(models),
+            rest: Vec::new(),
+        }
     );
 }
 
@@ -2280,25 +2289,157 @@ fn file_to_module_uses_first_containing_root_for_nested_first_party_paths() {
     assert_eq!(module.name().as_str(), "lib.pkg.mod");
     assert_eq!(module.path(), Utf8Path::new("/project/lib/pkg/mod.py"));
 
-    let expected = vec![
-        FileModuleDerivation {
-            root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-            name: PythonModuleName::parse("lib.pkg.mod").unwrap(),
-            resolved_path: Some(source_path.clone()),
-            status: FileModuleDerivationStatus::RoundTrips,
-        },
-        FileModuleDerivation {
-            root: SearchPath::FirstParty(Utf8PathBuf::from("/project/lib")),
-            name: PythonModuleName::parse("pkg.mod").unwrap(),
-            resolved_path: Some(source_path.clone()),
-            status: FileModuleDerivationStatus::RoundTrips,
-        },
-    ];
-    let detail = file_to_module_detail(&db, project, source_path);
+    let later_module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+            .expect("later root should also derive a round-tripping module");
+    assert_eq!(
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Resolved(module),
+            rest: vec![FileModuleCandidate::Resolved(later_module)],
+        }
+    );
+}
 
-    assert_eq!(detail.selected_module, Some(module));
-    assert_eq!(detail.derivations, expected);
-    assert_eq!(detail.unresolved_reason, None);
+#[test]
+fn file_to_module_does_not_rescue_not_found_first_candidate() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/lib.py", "");
+    db.add_file("/project/lib/pkg/mod.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/project/lib")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let source_path = Utf8PathBuf::from("/project/lib/pkg/mod.py");
+
+    assert_eq!(file_to_module(&db, project, source_path.clone()), None);
+
+    let later_module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+            .expect("later candidate should resolve");
+    assert_eq!(
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::NotFound {
+                root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+                name: PythonModuleName::parse("lib.pkg.mod").unwrap(),
+            },
+            rest: vec![FileModuleCandidate::Resolved(later_module)],
+        }
+    );
+}
+
+#[test]
+fn file_to_module_does_not_rescue_shadowed_first_candidate() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/src/lib/pkg/mod.py", "");
+    db.add_file("/project/lib/pkg/mod.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/project/lib")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let source_path = Utf8PathBuf::from("/project/lib/pkg/mod.py");
+
+    assert_eq!(file_to_module(&db, project, source_path.clone()), None);
+
+    let winner = PythonModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("lib.pkg.mod").unwrap(),
+    )
+    .expect("first candidate should resolve to the shadowing module");
+    let later_module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+            .expect("later candidate should resolve to the source");
+    assert_eq!(
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Shadowed {
+                root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+                name: PythonModuleName::parse("lib.pkg.mod").unwrap(),
+                winner,
+            },
+            rest: vec![FileModuleCandidate::Resolved(later_module)],
+        }
+    );
+}
+
+#[test]
+fn file_to_module_identity_ignores_later_candidate_changes() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    db.add_file("/project/lib/pkg/mod.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/project/lib")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let source_path = Utf8PathBuf::from("/project/lib/pkg/mod.py");
+
+    let module =
+        file_to_module(&db, project, source_path.clone()).expect("first candidate should resolve");
+    let later_module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+            .expect("later candidate should initially resolve to the source");
+    assert_eq!(
+        file_to_module_resolution(&db, project, source_path.clone()),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Resolved(module.clone()),
+            rest: vec![FileModuleCandidate::Resolved(later_module)],
+        }
+    );
+    let _ = event_log.take();
+
+    db.add_file("/project/pkg/mod.py", "");
+    File::sync_path(&mut db, Utf8Path::new("/project/pkg/mod.py"));
+
+    let winner = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+        .expect("new higher-priority module should shadow the later candidate");
+    assert_eq!(
+        file_to_module_resolution(&db, project, source_path.clone()),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Resolved(module.clone()),
+            rest: vec![FileModuleCandidate::Shadowed {
+                root: SearchPath::FirstParty(Utf8PathBuf::from("/project/lib")),
+                name: PythonModuleName::parse("pkg.mod").unwrap(),
+                winner,
+            }],
+        }
+    );
+    assert_eq!(
+        file_to_module(&db, project, source_path),
+        Some(module),
+        "a later candidate must not affect file identity"
+    );
+
+    let events = event_log.take();
+    assert_eq!(
+        will_execute_query_count(&db, &events, "file_to_module_resolution"),
+        1,
+        "resolution should execute after a later candidate changes: {events:#?}"
+    );
+    assert_eq!(
+        will_execute_query_count(&db, &events, "file_to_module"),
+        0,
+        "identity should remain memoized after a later candidate changes: {events:#?}"
+    );
 }
 
 #[test]
@@ -2322,25 +2463,18 @@ fn file_to_module_uses_src_layout_root_first() {
     assert_eq!(module.name().as_str(), "blog.models");
     assert_eq!(module.path(), Utf8Path::new("/project/src/blog/models.py"));
 
-    let detail = file_to_module_detail(&db, project, source_path);
-    assert_eq!(detail.selected_module, Some(module));
-    assert_eq!(detail.unresolved_reason, None);
+    let project_relative_module = PythonModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("src.blog.models").unwrap(),
+    )
+    .expect("project root should provide the later candidate");
     assert_eq!(
-        detail.derivations,
-        vec![
-            FileModuleDerivation {
-                root: SearchPath::FirstParty(Utf8PathBuf::from("/project/src")),
-                name: PythonModuleName::parse("blog.models").unwrap(),
-                resolved_path: Some(Utf8PathBuf::from("/project/src/blog/models.py")),
-                status: FileModuleDerivationStatus::RoundTrips,
-            },
-            FileModuleDerivation {
-                root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-                name: PythonModuleName::parse("src.blog.models").unwrap(),
-                resolved_path: Some(Utf8PathBuf::from("/project/src/blog/models.py")),
-                status: FileModuleDerivationStatus::RoundTrips,
-            },
-        ]
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Resolved(module),
+            rest: vec![FileModuleCandidate::Resolved(project_relative_module)],
+        }
     );
 }
 
@@ -2363,22 +2497,18 @@ fn file_to_module_reports_shadowed_cross_root_file() {
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let detail = file_to_module_detail(&db, project, source_path);
-    assert_eq!(detail.selected_module, None);
+    let winner = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
+        .expect("project app should shadow the vendor file");
     assert_eq!(
-        detail.derivations,
-        vec![FileModuleDerivation {
-            root: SearchPath::Extra(Utf8PathBuf::from("/vendor")),
-            name: PythonModuleName::parse("app").unwrap(),
-            resolved_path: Some(Utf8PathBuf::from("/project/app.py")),
-            status: FileModuleDerivationStatus::Shadowed,
-        }]
-    );
-    assert_eq!(
-        detail.unresolved_reason,
-        Some(FileModuleUnresolvedReason::Shadowed {
-            winner: Utf8PathBuf::from("/project/app.py"),
-        })
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Shadowed {
+                root: SearchPath::Extra(Utf8PathBuf::from("/vendor")),
+                name: PythonModuleName::parse("app").unwrap(),
+                winner,
+            },
+            rest: Vec::new(),
+        }
     );
 }
 
@@ -2393,22 +2523,18 @@ fn file_to_module_reports_shadowed_sibling_precedence_file() {
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let detail = file_to_module_detail(&db, project, source_path);
-    assert_eq!(detail.selected_module, None);
+    let winner = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
+        .expect("package should win sibling precedence");
     assert_eq!(
-        detail.derivations,
-        vec![FileModuleDerivation {
-            root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-            name: PythonModuleName::parse("app").unwrap(),
-            resolved_path: Some(Utf8PathBuf::from("/project/app/__init__.py")),
-            status: FileModuleDerivationStatus::Shadowed,
-        }]
-    );
-    assert_eq!(
-        detail.unresolved_reason,
-        Some(FileModuleUnresolvedReason::Shadowed {
-            winner: Utf8PathBuf::from("/project/app/__init__.py"),
-        })
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::Shadowed {
+                root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+                name: PythonModuleName::parse("app").unwrap(),
+                winner,
+            },
+            rest: Vec::new(),
+        }
     );
 }
 
@@ -2420,17 +2546,14 @@ fn file_to_module_reports_not_under_any_root() {
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let detail = file_to_module_detail(&db, project, source_path);
-    assert_eq!(detail.selected_module, None);
-    assert!(detail.derivations.is_empty());
     assert_eq!(
-        detail.unresolved_reason,
-        Some(FileModuleUnresolvedReason::NotUnderAnyRoot)
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::OutsideSearchPaths
     );
 }
 
 #[test]
-fn file_to_module_reports_no_valid_derivation() {
+fn file_to_module_reports_invalid_module_name() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file("/project/app.txt", "")
@@ -2439,12 +2562,9 @@ fn file_to_module_reports_no_valid_derivation() {
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let detail = file_to_module_detail(&db, project, source_path);
-    assert_eq!(detail.selected_module, None);
-    assert!(detail.derivations.is_empty());
     assert_eq!(
-        detail.unresolved_reason,
-        Some(FileModuleUnresolvedReason::NoValidDerivation)
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::InvalidModuleName
     );
 }
 
@@ -2456,20 +2576,15 @@ fn file_to_module_reports_not_found_for_missing_source_file() {
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let detail = file_to_module_detail(&db, project, source_path);
-    assert_eq!(detail.selected_module, None);
     assert_eq!(
-        detail.derivations,
-        vec![FileModuleDerivation {
-            root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-            name: PythonModuleName::parse("missing").unwrap(),
-            resolved_path: None,
-            status: FileModuleDerivationStatus::Unresolved,
-        }]
-    );
-    assert_eq!(
-        detail.unresolved_reason,
-        Some(FileModuleUnresolvedReason::NotFound)
+        file_to_module_resolution(&db, project, source_path),
+        &FileModuleResolution::Candidates {
+            first: FileModuleCandidate::NotFound {
+                root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+                name: PythonModuleName::parse("missing").unwrap(),
+            },
+            rest: Vec::new(),
+        }
     );
 }
 
