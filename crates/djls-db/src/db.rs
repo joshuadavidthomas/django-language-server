@@ -1340,27 +1340,22 @@ def my_filter(value, arg):
         )
     }
 
-    fn known_library<'a>(
-        libraries: &'a djls_project::TemplateLibraries,
-        name: &str,
-    ) -> Option<&'a djls_project::TemplateLibrary> {
-        match libraries.loadable_library_str(name) {
-            djls_project::LoadableLibraryLookup::Found(library) => Some(library),
-            djls_project::LoadableLibraryLookup::Inconclusive(candidates)
-            | djls_project::LoadableLibraryLookup::Ambiguous(candidates) => {
-                candidates.into_iter().next()
-            }
-            djls_project::LoadableLibraryLookup::Absent => None,
-        }
-    }
-
     fn assert_custom_library_module(db: &DjangoDatabase, module_name: &str) {
-        assert_eq!(
-            known_library(db.template_libraries(), "custom")
-                .unwrap()
-                .module_name_str(),
-            module_name
-        );
+        match db.template_libraries().loadable_library_str("custom") {
+            djls_project::LoadableLibraryLookup::Found(custom) => {
+                assert_eq!(custom.module_name_str(), module_name);
+            }
+            djls_project::LoadableLibraryLookup::Inconclusive(candidates) => {
+                assert_eq!(candidates.len(), 1);
+                assert_eq!(candidates[0].module_name_str(), module_name);
+            }
+            djls_project::LoadableLibraryLookup::Ambiguous(candidates) => {
+                panic!("custom library should not be ambiguous: {candidates:?}");
+            }
+            djls_project::LoadableLibraryLookup::Absent => {
+                panic!("custom library candidate should be known");
+            }
+        }
     }
 
     fn assert_django_discovery_updates_star_imported_settings_source(settings_source: &str) {
@@ -1696,8 +1691,11 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let libraries = db.template_libraries();
-        let custom = known_library(libraries, "custom").expect("custom library should be derived");
+        let djls_project::LoadableLibraryLookup::Found(custom) =
+            db.template_libraries().loadable_library_str("custom")
+        else {
+            panic!("custom library should resolve definitively");
+        };
         assert_eq!(custom.module_name_str(), "blog.templatetags.custom");
         assert!(
             custom
@@ -1752,8 +1750,11 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let libraries = db.template_libraries();
-        let custom = known_library(libraries, "custom").unwrap();
+        let djls_project::LoadableLibraryLookup::Found(custom) =
+            db.template_libraries().loadable_library_str("custom")
+        else {
+            panic!("custom library should resolve definitively");
+        };
         assert!(
             custom
                 .symbols()
@@ -1770,8 +1771,11 @@ def my_filter(value, arg):
         SourceChanges::new([ChangeEvent::ContentChanged(tag_file.path(&db).clone())])
             .apply(&mut db);
 
-        let libraries = db.template_libraries();
-        let custom = known_library(libraries, "custom").unwrap();
+        let djls_project::LoadableLibraryLookup::Found(custom) =
+            db.template_libraries().loadable_library_str("custom")
+        else {
+            panic!("custom library should resolve definitively");
+        };
         assert!(
             custom
                 .symbols()
