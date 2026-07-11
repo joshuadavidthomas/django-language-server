@@ -137,14 +137,15 @@ pub(crate) fn check_load_libraries_rule(
 
         match template_libraries.missing_library_lookup(&load_name) {
             MissingLibraryLookup::Inconclusive => {}
-            MissingLibraryLookup::FoundInApps { primary_app, apps } => {
+            MissingLibraryLookup::FoundInApps(apps) => {
                 let candidates = apps
-                    .into_iter()
+                    .as_slice()
+                    .iter()
                     .map(|app| app.as_str().to_string())
                     .collect();
                 ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
                     name: lib.as_str().to_string(),
-                    app: primary_app.as_str().to_string(),
+                    app: apps.primary().as_str().to_string(),
                     candidates,
                     span: lib.span(),
                 })

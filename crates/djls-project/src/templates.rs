@@ -16,6 +16,7 @@ pub use filters::FilterArity;
 pub use filters::FilterArityExtraction;
 pub use filters::FilterArityMap;
 pub use filters::extract_filter_arities;
+pub use libraries::AvailableAppCandidates;
 pub use libraries::LoadableLibraryLookup;
 pub use libraries::MissingLibraryLookup;
 pub use libraries::TemplateLibraries;

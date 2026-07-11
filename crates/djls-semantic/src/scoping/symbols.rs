@@ -277,14 +277,26 @@ mod tests {
         library_module: &str,
         module: &str,
     ) -> serde_json::Value {
-        serde_json::json!({
-            "kind": kind,
-            "name": name,
-            "load_name": load_name,
-            "library_module": library_module,
-            "module": module,
-            "doc": null,
-        })
+        if let Some(load_name) = load_name {
+            serde_json::json!({
+                "kind": kind,
+                "name": name,
+                "library_kind": "installed",
+                "load_name": load_name,
+                "library_module": library_module,
+                "module": module,
+                "doc": null,
+            })
+        } else {
+            serde_json::json!({
+                "kind": kind,
+                "name": name,
+                "library_kind": "builtin",
+                "library_module": library_module,
+                "module": module,
+                "doc": null,
+            })
+        }
     }
 
     fn make_template_libraries(

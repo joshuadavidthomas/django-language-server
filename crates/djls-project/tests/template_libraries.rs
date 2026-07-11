@@ -61,7 +61,12 @@ fn available(
 }
 
 fn libraries(open: bool, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraries {
-    testing::template_libraries(&TestDatabase::new(), open, inputs)
+    let db = TestDatabase::new();
+    if open {
+        testing::template_libraries_with_omissions(&db, inputs)
+    } else {
+        testing::template_libraries(&db, inputs)
+    }
 }
 
 fn backend(loadable: Vec<(&str, &str)>, builtins: Vec<&str>) -> TemplateBackendLibrariesInput {
@@ -206,13 +211,13 @@ fn available_library_guidance_is_sorted_and_deduplicated() {
             available("shared", "alpha", "alpha.templatetags.shared", Vec::new()),
         ],
     );
-    assert_eq!(
-        libraries.missing_library_lookup(&library_name("shared")),
-        MissingLibraryLookup::FoundInApps {
-            primary_app: module("alpha"),
-            apps: vec![module("alpha"), module("beta")],
-        }
-    );
+    let MissingLibraryLookup::FoundInApps(apps) =
+        libraries.missing_library_lookup(&library_name("shared"))
+    else {
+        panic!("shared should have available app candidates");
+    };
+    assert_eq!(apps.primary(), &module("alpha"));
+    assert_eq!(apps.as_slice(), [module("alpha"), module("beta")]);
 }
 
 #[test]
@@ -263,7 +268,6 @@ fn resolved_libraries_retain_duplicate_builtins_in_order() {
     let db = TestDatabase::new();
     let libraries = testing::template_libraries(
         &db,
-        false,
         vec![
             builtin("django.template.defaulttags", Vec::new()),
             builtin("project.builtins", Vec::new()),

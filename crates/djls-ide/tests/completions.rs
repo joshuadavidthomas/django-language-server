@@ -13,7 +13,8 @@ use djls_testing::TestDatabase;
 use djls_testing::builtin_tag;
 use djls_testing::library_filter;
 use djls_testing::library_tag;
-use djls_testing::make_template_libraries_with_open_remainder;
+use djls_testing::make_template_libraries;
+use djls_testing::make_template_libraries_with_omissions;
 use tower_lsp_server::ls_types;
 
 fn tag_libraries(db: &TestDatabase) -> TemplateLibraries {
@@ -29,14 +30,18 @@ fn tag_libraries_with_open_remainder(db: &TestDatabase, open: bool) -> TemplateL
     let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
     let builtins = vec!["django.template.defaulttags".to_string()];
 
-    make_template_libraries_with_open_remainder(db, &tags, &[], &libraries, &builtins, open)
+    if open {
+        make_template_libraries_with_omissions(db, &tags, &[], &libraries, &builtins)
+    } else {
+        make_template_libraries(db, &tags, &[], &libraries, &builtins)
+    }
 }
 
 fn filter_libraries(db: &TestDatabase) -> TemplateLibraries {
     let filters = vec![library_filter("trans", "i18n", "django.templatetags.i18n")];
     let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
 
-    make_template_libraries_with_open_remainder(db, &[], &filters, &libraries, &[], false)
+    make_template_libraries(db, &[], &filters, &libraries, &[])
 }
 
 fn project_only_specs() -> TagSpecs {

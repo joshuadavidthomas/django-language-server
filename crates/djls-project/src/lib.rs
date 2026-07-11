@@ -41,6 +41,7 @@ pub use python::resolve_package_dirs;
 pub use python::resolve_prefix;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
+pub use templates::AvailableAppCandidates;
 pub use templates::BlockSpec;
 pub use templates::BlockSpecs;
 pub use templates::ChoiceAt;
@@ -207,8 +208,23 @@ pub mod testing {
     #[must_use]
     pub fn template_libraries(
         db: &dyn super::Db,
-        open: bool,
         inputs: Vec<TemplateLibraryInput>,
+    ) -> super::TemplateLibraries {
+        build_template_libraries(db, inputs, false)
+    }
+
+    #[must_use]
+    pub fn template_libraries_with_omissions(
+        db: &dyn super::Db,
+        inputs: Vec<TemplateLibraryInput>,
+    ) -> super::TemplateLibraries {
+        build_template_libraries(db, inputs, true)
+    }
+
+    fn build_template_libraries(
+        db: &dyn super::Db,
+        inputs: Vec<TemplateLibraryInput>,
+        has_omissions: bool,
     ) -> super::TemplateLibraries {
         let libraries = inputs
             .into_iter()
@@ -239,7 +255,7 @@ pub mod testing {
             })
             .collect();
 
-        super::TemplateLibraries::from_libraries(open, libraries)
+        super::TemplateLibraries::from_libraries(has_omissions, libraries)
     }
 
     #[must_use]
@@ -248,7 +264,7 @@ pub mod testing {
         inputs: Vec<TemplateLibraryInput>,
         configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
     ) -> super::TemplateLibraries {
-        configure_template_libraries(template_libraries(db, false, inputs), configurations)
+        configure_template_libraries(template_libraries(db, inputs), configurations)
     }
 
     #[must_use]
@@ -257,7 +273,10 @@ pub mod testing {
         inputs: Vec<TemplateLibraryInput>,
         configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
     ) -> super::TemplateLibraries {
-        configure_template_libraries(template_libraries(db, true, inputs), configurations)
+        configure_template_libraries(
+            template_libraries_with_omissions(db, inputs),
+            configurations,
+        )
     }
 
     fn configure_template_libraries(

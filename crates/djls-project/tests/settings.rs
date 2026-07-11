@@ -48,18 +48,6 @@ fn library_name(name: &str) -> LibraryName {
     LibraryName::parse(name).unwrap()
 }
 
-fn known_loadable_library<'a>(
-    libraries: &'a TemplateLibraries,
-    name: &str,
-) -> Option<&'a TemplateLibrary> {
-    match libraries.loadable_library_str(name) {
-        LoadableLibraryLookup::Found(library) => Some(library),
-        LoadableLibraryLookup::Ambiguous(candidates)
-        | LoadableLibraryLookup::Inconclusive(candidates) => candidates.into_iter().next(),
-        LoadableLibraryLookup::Absent => None,
-    }
-}
-
 fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
     libraries
         .resolved_libraries()
@@ -1589,7 +1577,9 @@ fn template_libraries_discover_namespace_package_templatetags() {
 
     let libraries = template_libraries(&db, project);
 
-    let custom = known_loadable_library(libraries, "custom")
+    let custom = libraries
+        .loadable_library_str("custom")
+        .found()
         .expect("namespace package templatetag should be discovered");
     assert_eq!(custom.module_name_str(), "nsapp.templatetags.custom");
     assert!(
@@ -1664,7 +1654,9 @@ fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
     let libraries = template_libraries(&db, project);
 
     assert!(libraries.loadable_library_str("helpers").found().is_none());
-    let orphan = known_loadable_library(libraries, "orphan")
+    let orphan = libraries
+        .loadable_library_str("orphan")
+        .found()
         .expect("symbol-bearing modules are template libraries even without register assignment");
     assert!(
         orphan
@@ -1735,7 +1727,7 @@ fn template_libraries_accept_supported_python_newer_than_ruff_default_target() {
     let libraries = template_libraries(&db, project);
     let errors = python_syntax_errors(&db, db.file(path)).expect("file should be Python");
 
-    assert!(known_loadable_library(libraries, "modern").is_some());
+    assert!(libraries.loadable_library_str("modern").found().is_some());
     assert!(
         errors
             .iter()
@@ -1855,14 +1847,15 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
 
     let libraries = template_libraries(&db, project);
 
-    let MissingLibraryLookup::FoundInApps { primary_app, apps } =
+    let MissingLibraryLookup::FoundInApps(apps) =
         libraries.missing_library_lookup(&library_name("crispy"))
     else {
         panic!("crispy should be reported as an available-app library candidate");
     };
-    assert_eq!(primary_app.as_str(), "crispy");
+    assert_eq!(apps.primary().as_str(), "crispy");
     assert_eq!(
-        apps.iter()
+        apps.as_slice()
+            .iter()
             .map(PythonModuleName::as_str)
             .collect::<Vec<_>>(),
         vec!["crispy"]
@@ -1943,7 +1936,7 @@ fn template_libraries_available_candidates_rerun_after_search_root_revision_bump
 
     assert!(matches!(
         libraries.missing_library_lookup(&library_name("crispy")),
-        MissingLibraryLookup::FoundInApps { .. }
+        MissingLibraryLookup::FoundInApps(_)
     ));
 }
 

@@ -187,50 +187,88 @@ pub enum TemplateSymbolLookup {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailableAppCandidates(Vec<PythonModuleName>);
+
+impl AvailableAppCandidates {
+    /// Return the first available app in deterministic lookup order.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the private non-empty candidate invariant is violated.
+    #[must_use]
+    pub fn primary(&self) -> &PythonModuleName {
+        self.0
+            .first()
+            .expect("available app candidates should be non-empty")
+    }
+
+    #[must_use]
+    pub fn as_slice(&self) -> &[PythonModuleName] {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MissingLibraryLookup {
-    FoundInApps {
-        primary_app: PythonModuleName,
-        apps: Vec<PythonModuleName>,
-    },
+    FoundInApps(AvailableAppCandidates),
     Absent,
     Inconclusive,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TemplateLibraryIssue {
-    OpenSettings,
     Discovery,
-    Source(Option<LibraryName>),
+    NamedSource(LibraryName),
+    BuiltinSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TemplateConfigurationOmission {
+    Settings,
+    Backend,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TemplateLibraryConfigurations {
     Exhaustive(Vec<Vec<TemplateBackendLibraries>>),
-    WithOmissions(Vec<Vec<TemplateBackendLibraries>>),
+    WithOmissions {
+        known: Vec<Vec<TemplateBackendLibraries>>,
+        omissions: Vec<TemplateConfigurationOmission>,
+    },
 }
 
 impl TemplateLibraryConfigurations {
     fn known(&self) -> &[Vec<TemplateBackendLibraries>] {
         match self {
-            Self::Exhaustive(known) | Self::WithOmissions(known) => known,
+            Self::Exhaustive(known) | Self::WithOmissions { known, .. } => known,
         }
     }
 
     const fn has_omissions(&self) -> bool {
-        matches!(self, Self::WithOmissions(_))
+        matches!(self, Self::WithOmissions { .. })
     }
 
     fn replace_known(&mut self, known: Vec<Vec<TemplateBackendLibraries>>) {
-        *self = if self.has_omissions() {
-            Self::WithOmissions(known)
-        } else {
-            Self::Exhaustive(known)
-        };
+        match self {
+            Self::Exhaustive(_) => *self = Self::Exhaustive(known),
+            Self::WithOmissions {
+                known: existing, ..
+            } => *existing = known,
+        }
     }
 
-    fn mark_omissions(&mut self) {
-        if let Self::Exhaustive(known) = self {
-            *self = Self::WithOmissions(std::mem::take(known));
+    fn omit(&mut self, omission: TemplateConfigurationOmission) {
+        match self {
+            Self::Exhaustive(known) => {
+                *self = Self::WithOmissions {
+                    known: std::mem::take(known),
+                    omissions: vec![omission],
+                };
+            }
+            Self::WithOmissions { omissions, .. } if !omissions.contains(&omission) => {
+                omissions.push(omission);
+            }
+            Self::WithOmissions { .. } => {}
         }
     }
 }
@@ -264,9 +302,12 @@ impl Default for TemplateLibraries {
         Self {
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
-            configurations: TemplateLibraryConfigurations::WithOmissions(Vec::new()),
+            configurations: TemplateLibraryConfigurations::WithOmissions {
+                known: Vec::new(),
+                omissions: vec![TemplateConfigurationOmission::Settings],
+            },
             available_by_name: BTreeMap::new(),
-            issues: vec![TemplateLibraryIssue::OpenSettings],
+            issues: Vec::new(),
         }
     }
 }
@@ -285,20 +326,17 @@ impl TemplateLibraries {
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
             configurations: if open {
-                TemplateLibraryConfigurations::WithOmissions(vec![vec![
-                    TemplateBackendLibraries::default(),
-                ]])
+                TemplateLibraryConfigurations::WithOmissions {
+                    known: vec![vec![TemplateBackendLibraries::default()]],
+                    omissions: vec![TemplateConfigurationOmission::Settings],
+                }
             } else {
                 TemplateLibraryConfigurations::Exhaustive(vec![vec![
                     TemplateBackendLibraries::default(),
                 ]])
             },
             available_by_name: BTreeMap::new(),
-            issues: if open {
-                vec![TemplateLibraryIssue::OpenSettings]
-            } else {
-                Vec::new()
-            },
+            issues: Vec::new(),
         };
 
         for library in libraries {
@@ -321,8 +359,9 @@ impl TemplateLibraries {
                     .map(|(loadable, builtins)| TemplateBackendLibraries {
                         loadable_by_name: loadable
                             .into_iter()
-                            .filter_map(|(name, module)| {
-                                self.libraries
+                            .map(|(name, module)| {
+                                let (index, _library) = self
+                                    .libraries
                                     .iter()
                                     .enumerate()
                                     .rev()
@@ -333,22 +372,26 @@ impl TemplateLibraries {
                                                 if load_name == &name
                                         ) && library.module_name() == &module
                                     })
-                                    .map(|(index, _library)| {
-                                        (name, TemplateLibraryReference::Resolved(index))
-                                    })
+                                    .unwrap_or_else(|| {
+                                        panic!(
+                                            "configured test library {name} should resolve to {module}"
+                                        )
+                                    });
+                                (name, TemplateLibraryReference::Resolved(index))
                             })
                             .collect(),
                         builtin_indices: builtins
                             .into_iter()
-                            .filter_map(|module| {
+                            .map(|module| {
                                 self.libraries
                                     .iter()
                                     .enumerate()
                                     .find(|(_index, library)| {
                                         matches!(&library.kind, TemplateLibraryKind::Builtin)
                                             && library.module_name() == &module
-                                    })
-                                    .map(|(index, _library)| index)
+                                    }).map_or_else(|| {
+                                        panic!("configured test builtin should resolve to {module}")
+                                    }, |(index, _library)| index)
                             })
                             .collect(),
                     })
@@ -485,10 +528,8 @@ impl TemplateLibraries {
             || (records.is_empty()
                 && self.issues.iter().any(|issue| match issue {
                     TemplateLibraryIssue::Discovery => true,
-                    TemplateLibraryIssue::Source(Some(source_name)) => source_name == name,
-                    TemplateLibraryIssue::OpenSettings | TemplateLibraryIssue::Source(None) => {
-                        false
-                    }
+                    TemplateLibraryIssue::NamedSource(source_name) => source_name == name,
+                    TemplateLibraryIssue::BuiltinSource => false,
                 }))
         {
             return LoadableLibraryLookup::Inconclusive(records);
@@ -550,21 +591,21 @@ impl TemplateLibraries {
             LoadableLibraryLookup::Inconclusive(_) | LoadableLibraryLookup::Absent => {}
         }
         let candidates = self.available_library_candidates(name);
-        if let Some(first) = candidates.first()
-            && let Some(primary_app) = first.available_app().cloned()
-        {
+        if !candidates.is_empty() {
             let mut apps: Vec<_> = candidates
                 .iter()
                 .filter_map(|candidate| candidate.available_app().cloned())
                 .collect();
             apps.dedup();
-            return MissingLibraryLookup::FoundInApps { primary_app, apps };
+            if !apps.is_empty() {
+                return MissingLibraryLookup::FoundInApps(AvailableAppCandidates(apps));
+            }
         }
         if self.configurations.has_omissions()
             || self.issues.iter().any(|issue| match issue {
-                TemplateLibraryIssue::Discovery | TemplateLibraryIssue::OpenSettings => true,
-                TemplateLibraryIssue::Source(Some(source_name)) => source_name == name,
-                TemplateLibraryIssue::Source(None) => false,
+                TemplateLibraryIssue::Discovery => true,
+                TemplateLibraryIssue::NamedSource(source_name) => source_name == name,
+                TemplateLibraryIssue::BuiltinSource => false,
             })
         {
             MissingLibraryLookup::Inconclusive
@@ -732,18 +773,18 @@ impl TemplateLibraries {
             match TemplateLibraryAnalysis::from_file(db, candidate.module.file()) {
                 TemplateLibraryAnalysis::Failed => {
                     self.issues
-                        .push(TemplateLibraryIssue::Source(Some(candidate.name.clone())));
+                        .push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
                 }
                 TemplateLibraryAnalysis::ParsedNotLibrary { source } => {
                     if source == TemplateLibrarySource::Recovered {
                         self.issues
-                            .push(TemplateLibraryIssue::Source(Some(candidate.name.clone())));
+                            .push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
                     }
                 }
                 TemplateLibraryAnalysis::Library { symbols, source } => {
                     if source == TemplateLibrarySource::Recovered {
                         self.issues
-                            .push(TemplateLibraryIssue::Source(Some(candidate.name.clone())));
+                            .push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
                     }
                     self.insert_library(TemplateLibrary::available(
                         candidate.name.clone(),
@@ -861,8 +902,9 @@ fn insert_backend_libraries(
     libraries: &mut TemplateLibraries,
 ) -> TemplateBackendLibraries {
     if !backend.is_fully_extracted() {
-        libraries.configurations.mark_omissions();
-        libraries.issues.push(TemplateLibraryIssue::OpenSettings);
+        libraries
+            .configurations
+            .omit(TemplateConfigurationOmission::Backend);
     }
 
     let mut result = TemplateBackendLibraries {
@@ -871,7 +913,9 @@ fn insert_backend_libraries(
     };
     for (load_name, module_name) in &backend.libraries {
         let Ok(load_name) = LibraryName::parse(load_name) else {
-            libraries.issues.push(TemplateLibraryIssue::OpenSettings);
+            libraries
+                .configurations
+                .omit(TemplateConfigurationOmission::Backend);
             continue;
         };
         let Some((module, symbols, source)) =
@@ -885,7 +929,7 @@ fn insert_backend_libraries(
         if source == TemplateLibrarySource::Recovered {
             libraries
                 .issues
-                .push(TemplateLibraryIssue::Source(Some(load_name.clone())));
+                .push(TemplateLibraryIssue::NamedSource(load_name.clone()));
         }
         let index = libraries.insert_library(TemplateLibrary::installed(
             load_name.clone(),
@@ -905,12 +949,12 @@ fn insert_backend_libraries(
         match library_from_module_name(db, project, module_name) {
             Some((module, symbols, source)) => {
                 if source == TemplateLibrarySource::Recovered {
-                    libraries.issues.push(TemplateLibraryIssue::Source(None));
+                    libraries.issues.push(TemplateLibraryIssue::BuiltinSource);
                 }
                 let index = libraries.insert_library(TemplateLibrary::builtin(module, symbols));
                 result.builtin_indices.push(index);
             }
-            None => libraries.issues.push(TemplateLibraryIssue::Source(None)),
+            None => libraries.issues.push(TemplateLibraryIssue::BuiltinSource),
         }
     }
 
@@ -944,16 +988,16 @@ fn templatetag_package_libraries(
     for candidate in candidates {
         match TemplateLibraryAnalysis::from_file(db, candidate.module.file()) {
             TemplateLibraryAnalysis::Failed => {
-                issues.push(TemplateLibraryIssue::Source(Some(candidate.name.clone())));
+                issues.push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
             }
             TemplateLibraryAnalysis::ParsedNotLibrary { source } => {
                 if source == TemplateLibrarySource::Recovered {
-                    issues.push(TemplateLibraryIssue::Source(Some(candidate.name.clone())));
+                    issues.push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
                 }
             }
             TemplateLibraryAnalysis::Library { symbols, source } => {
                 if source == TemplateLibrarySource::Recovered {
-                    issues.push(TemplateLibraryIssue::Source(Some(candidate.name.clone())));
+                    issues.push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
                 }
                 libraries.push((
                     candidate.name.clone(),

@@ -14,7 +14,7 @@ use djls_testing::TestDatabase;
 use djls_testing::builtin_tag;
 use djls_testing::library_filter;
 use djls_testing::library_tag;
-use djls_testing::make_template_libraries_with_open_remainder;
+use djls_testing::make_template_libraries;
 use tower_lsp_server::ls_types;
 
 const TEMPLATE_PATH: &str = "/test/project/templates/template.html";
@@ -47,7 +47,7 @@ fn template_libraries(db: &TestDatabase) -> TemplateLibraries {
         ),
     ]);
 
-    make_template_libraries_with_open_remainder(
+    make_template_libraries(
         db,
         &tags,
         &filters,
@@ -56,7 +56,6 @@ fn template_libraries(db: &TestDatabase) -> TemplateLibraries {
             "django.template.defaulttags".to_string(),
             "django.template.loader_tags".to_string(),
         ],
-        false,
     )
 }
 

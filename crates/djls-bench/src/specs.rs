@@ -212,7 +212,7 @@ fn build_template_libraries(
     db: &dyn ProjectDb,
     inputs: &[TemplateLibraryInput],
 ) -> djls_project::TemplateLibraries {
-    testing::template_libraries(db, false, inputs.to_vec())
+    testing::template_libraries(db, inputs.to_vec())
 }
 
 fn build_realistic_specs() -> RealisticSpecs {

@@ -20,8 +20,9 @@ use djls_testing::builtin_filter;
 use djls_testing::builtin_tag;
 use djls_testing::collect_errors;
 use djls_testing::library_tag;
-use djls_testing::make_template_libraries_with_available_and_open_remainder;
-use djls_testing::make_template_libraries_with_open_remainder;
+use djls_testing::make_template_libraries_with_available;
+use djls_testing::make_template_libraries_with_available_and_omissions;
+use djls_testing::make_template_libraries_with_omissions;
 
 fn default_builtins_module() -> &'static str {
     "django.template.defaulttags"
@@ -70,15 +71,25 @@ fn standard_inventory_with_available(
         default_builtins_module().to_string(),
         default_filters_module().to_string(),
     ];
-    make_template_libraries_with_available_and_open_remainder(
-        db,
-        &tags,
-        &filters,
-        &libraries,
-        &builtins,
-        available_libraries,
-        open,
-    )
+    if open {
+        make_template_libraries_with_available_and_omissions(
+            db,
+            &tags,
+            &filters,
+            &libraries,
+            &builtins,
+            available_libraries,
+        )
+    } else {
+        make_template_libraries_with_available(
+            db,
+            &tags,
+            &filters,
+            &libraries,
+            &builtins,
+            available_libraries,
+        )
+    }
 }
 
 fn standard_arities() -> FilterAritySpecs {
@@ -146,9 +157,8 @@ fn partial_ambiguous_db() -> TestDatabase {
     ]);
     let builtins = vec![default_builtins_module().to_string()];
     let db = TestDatabase::new();
-    let libraries = make_template_libraries_with_open_remainder(
-        &db, &tags, &filters, &libraries, &builtins, true,
-    );
+    let libraries =
+        make_template_libraries_with_omissions(&db, &tags, &filters, &libraries, &builtins);
     db.with_template_libraries(libraries)
 }
 
