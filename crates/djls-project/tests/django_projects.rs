@@ -93,9 +93,9 @@ fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
     assert_eq!(models_module.name().as_str(), "blog.models");
 
     let libraries = template_libraries(&db, project);
-    assert!(libraries.inventory_is_complete());
     let blog_tags = libraries
-        .installed_library_str("blog_tags")
+        .loadable_library_str("blog_tags")
+        .found()
         .expect("blog_tags should be installed");
     assert_eq!(blog_tags.module_name_str(), "blog.templatetags.blog_tags");
 }
@@ -121,9 +121,9 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
     assert!(dirs.contains(&root.join("vendor/shoutbox/templates")));
 
     let libraries = template_libraries(&db, project);
-    assert!(libraries.inventory_is_complete());
     let shout_tags = libraries
-        .installed_library_str("shout_tags")
+        .loadable_library_str("shout_tags")
+        .found()
         .expect("shout_tags should be installed");
     assert_eq!(
         shout_tags.module_name_str(),
@@ -178,9 +178,9 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     assert!(dirs.contains(&root.join("weird/templates")));
 
     let libraries = template_libraries(&db, project);
-    assert!(libraries.inventory_is_complete());
     let ns_tags = libraries
-        .installed_library_str("ns_tags")
+        .loadable_library_str("ns_tags")
+        .found()
         .expect("ns_tags should be installed from namespace app");
     assert_eq!(ns_tags.module_name_str(), "nsapp.templatetags.ns_tags");
 

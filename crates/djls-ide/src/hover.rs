@@ -1,6 +1,7 @@
 use std::fmt::Write as _;
 
 use djls_project::FindTemplateResult;
+use djls_project::LoadableLibraryLookup;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
@@ -68,7 +69,11 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             Some((sections.join("\n---\n"), span))
         }
         SemanticOffsetContext::LoadLibrary { name, span } => {
-            let library = db.template_libraries().installed_library_str(&name)?;
+            let LoadableLibraryLookup::Found(library) =
+                db.template_libraries().loadable_library_str(&name)
+            else {
+                return None;
+            };
             Some((
                 format!(
                     "```text\n(library) {name}\n```\n---\n```python\n{}\n```",

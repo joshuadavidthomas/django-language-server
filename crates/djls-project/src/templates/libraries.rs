@@ -5,10 +5,11 @@ use std::collections::BTreeSet;
 use djls_source::File;
 
 use super::candidates::templatetag_candidates;
-use super::candidates::templatetag_package_candidates;
+use super::candidates::templatetag_candidates_in_package;
 use super::installed_app_package_module;
 use super::names::LibraryName;
 use super::registrations::TemplateLibraryAnalysis;
+use super::registrations::TemplateLibrarySource;
 use super::symbols::TemplateSymbol;
 use super::symbols::TemplateSymbolKind;
 use crate::db::Db as ProjectDb;
@@ -17,6 +18,7 @@ use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
+use crate::settings::types::TemplateBackend;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",
@@ -24,19 +26,22 @@ const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.loader_tags",
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TemplateLibraryStatus {
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateLibraryKind {
     Builtin,
-    Installed,
-    Available,
+    Installed {
+        load_name: LibraryName,
+    },
+    Available {
+        load_name: LibraryName,
+        app: PythonModuleName,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibrary {
-    load_name: Option<LibraryName>,
-    app: Option<PythonModuleName>,
     module: PythonModule,
-    status: TemplateLibraryStatus,
+    kind: TemplateLibraryKind,
     symbols: Vec<TemplateSymbol>,
 }
 
@@ -44,10 +49,8 @@ impl TemplateLibrary {
     #[must_use]
     pub(crate) fn builtin(module: PythonModule, symbols: Vec<TemplateSymbol>) -> Self {
         Self {
-            load_name: None,
-            app: None,
             module,
-            status: TemplateLibraryStatus::Builtin,
+            kind: TemplateLibraryKind::Builtin,
             symbols: merge_symbols(symbols),
         }
     }
@@ -59,10 +62,8 @@ impl TemplateLibrary {
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self {
-            load_name: Some(load_name),
-            app: None,
             module,
-            status: TemplateLibraryStatus::Installed,
+            kind: TemplateLibraryKind::Installed { load_name },
             symbols: merge_symbols(symbols),
         }
     }
@@ -75,17 +76,19 @@ impl TemplateLibrary {
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self {
-            load_name: Some(load_name),
-            app: Some(app),
             module,
-            status: TemplateLibraryStatus::Available,
+            kind: TemplateLibraryKind::Available { load_name, app },
             symbols: merge_symbols(symbols),
         }
     }
 
     #[must_use]
     pub fn load_name(&self) -> Option<&LibraryName> {
-        self.load_name.as_ref()
+        match &self.kind {
+            TemplateLibraryKind::Builtin => None,
+            TemplateLibraryKind::Installed { load_name }
+            | TemplateLibraryKind::Available { load_name, .. } => Some(load_name),
+        }
     }
 
     #[must_use]
@@ -110,9 +113,9 @@ impl TemplateLibrary {
 
     #[must_use]
     fn available_app(&self) -> Option<&PythonModuleName> {
-        match self.status {
-            TemplateLibraryStatus::Available => self.app.as_ref(),
-            TemplateLibraryStatus::Builtin | TemplateLibraryStatus::Installed => None,
+        match &self.kind {
+            TemplateLibraryKind::Available { app, .. } => Some(app),
+            TemplateLibraryKind::Builtin | TemplateLibraryKind::Installed { .. } => None,
         }
     }
 }
@@ -155,57 +158,156 @@ pub struct TemplateSymbolCandidate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UnknownSymbolOutcome {
-    Suppressed,
-    Available {
-        app: PythonModuleName,
-        load_name: LibraryName,
-    },
-    TrulyUnknown,
+pub enum LoadableLibraryLookup<'a> {
+    Found(&'a TemplateLibrary),
+    Ambiguous(Vec<&'a TemplateLibrary>),
+    Inconclusive(Vec<&'a TemplateLibrary>),
+    Absent,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UnknownLibraryOutcome {
-    Suppressed,
-    AvailableInApps {
-        primary_app: PythonModuleName,
-        apps: Vec<PythonModuleName>,
-    },
-    TrulyUnknown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TemplateInventoryStatus {
-    NotDiscovered,
-    Complete,
-    Incomplete,
-}
-
-impl TemplateInventoryStatus {
-    fn from_complete(complete: bool) -> Self {
-        if complete {
-            Self::Complete
-        } else {
-            Self::Incomplete
+impl<'a> LoadableLibraryLookup<'a> {
+    /// Return the library only when every feasible configuration agrees.
+    #[must_use]
+    pub fn found(self) -> Option<&'a TemplateLibrary> {
+        match self {
+            Self::Found(library) => Some(library),
+            Self::Ambiguous(_) | Self::Inconclusive(_) | Self::Absent => None,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TemplateSymbolLookup {
+    FoundInApp {
+        app: PythonModuleName,
+        load_name: LibraryName,
+    },
+    Absent,
+    Inconclusive,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailableAppCandidates(Vec<PythonModuleName>);
+
+impl AvailableAppCandidates {
+    /// Return the first available app in deterministic lookup order.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the private non-empty candidate invariant is violated.
+    #[must_use]
+    pub fn primary(&self) -> &PythonModuleName {
+        self.0
+            .first()
+            .expect("available app candidates should be non-empty")
+    }
+
+    #[must_use]
+    pub fn as_slice(&self) -> &[PythonModuleName] {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MissingLibraryLookup {
+    FoundInApps(AvailableAppCandidates),
+    Absent,
+    Inconclusive,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateLibraryIssue {
+    Discovery,
+    NamedSource(LibraryName),
+    BuiltinSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TemplateConfigurationOmission {
+    Settings,
+    Backend,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateLibraryConfigurations {
+    Exhaustive(Vec<Vec<TemplateBackendLibraries>>),
+    WithOmissions {
+        known: Vec<Vec<TemplateBackendLibraries>>,
+        omissions: Vec<TemplateConfigurationOmission>,
+    },
+}
+
+impl TemplateLibraryConfigurations {
+    fn known(&self) -> &[Vec<TemplateBackendLibraries>] {
+        match self {
+            Self::Exhaustive(known) | Self::WithOmissions { known, .. } => known,
+        }
+    }
+
+    const fn has_omissions(&self) -> bool {
+        matches!(self, Self::WithOmissions { .. })
+    }
+
+    fn replace_known(&mut self, known: Vec<Vec<TemplateBackendLibraries>>) {
+        match self {
+            Self::Exhaustive(_) => *self = Self::Exhaustive(known),
+            Self::WithOmissions {
+                known: existing, ..
+            } => *existing = known,
+        }
+    }
+
+    fn omit(&mut self, omission: TemplateConfigurationOmission) {
+        match self {
+            Self::Exhaustive(known) => {
+                *self = Self::WithOmissions {
+                    known: std::mem::take(known),
+                    omissions: vec![omission],
+                };
+            }
+            Self::WithOmissions { omissions, .. } if !omissions.contains(&omission) => {
+                omissions.push(omission);
+            }
+            Self::WithOmissions { .. } => {}
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TemplateLibraryReference {
+    Resolved(usize),
+    Unresolved,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct TemplateBackendLibraries {
+    loadable_by_name: BTreeMap<LibraryName, TemplateLibraryReference>,
+    builtin_indices: Vec<usize>,
+}
+
+type TestingBackendConfiguration = (Vec<(LibraryName, PythonModuleName)>, Vec<PythonModuleName>);
+type DiscoveredLibrary = (LibraryName, PythonModule, Vec<TemplateSymbol>);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibraries {
-    status: TemplateInventoryStatus,
     libraries: Vec<TemplateLibrary>,
     installed_by_name: BTreeMap<LibraryName, usize>,
+    configurations: TemplateLibraryConfigurations,
     available_by_name: BTreeMap<LibraryName, Vec<usize>>,
+    issues: Vec<TemplateLibraryIssue>,
 }
 
 impl Default for TemplateLibraries {
     fn default() -> Self {
         Self {
-            status: TemplateInventoryStatus::NotDiscovered,
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
+            configurations: TemplateLibraryConfigurations::WithOmissions {
+                known: Vec::new(),
+                omissions: vec![TemplateConfigurationOmission::Settings],
+            },
             available_by_name: BTreeMap::new(),
+            issues: Vec::new(),
         }
     }
 }
@@ -219,40 +321,116 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub(crate) fn from_libraries(
-        status: TemplateInventoryStatus,
+    pub(crate) fn from_libraries(libraries: Vec<TemplateLibrary>) -> Self {
+        Self::from_libraries_and_configurations(
+            libraries,
+            TemplateLibraryConfigurations::Exhaustive(vec![vec![
+                TemplateBackendLibraries::default(),
+            ]]),
+        )
+    }
+
+    pub(crate) fn from_libraries_with_omissions(libraries: Vec<TemplateLibrary>) -> Self {
+        Self::from_libraries_and_configurations(
+            libraries,
+            TemplateLibraryConfigurations::WithOmissions {
+                known: vec![vec![TemplateBackendLibraries::default()]],
+                omissions: vec![TemplateConfigurationOmission::Settings],
+            },
+        )
+    }
+
+    fn from_libraries_and_configurations(
         libraries: Vec<TemplateLibrary>,
+        configurations: TemplateLibraryConfigurations,
     ) -> Self {
-        let mut inventory = Self::from_status(status);
+        let mut inventory = Self {
+            libraries: Vec::new(),
+            installed_by_name: BTreeMap::new(),
+            configurations,
+            available_by_name: BTreeMap::new(),
+            issues: Vec::new(),
+        };
 
         for library in libraries {
             inventory.insert_library(library);
         }
-
+        inventory.rebuild_configuration();
         inventory.sort_and_dedup_available();
         inventory
     }
 
-    fn from_status(status: TemplateInventoryStatus) -> Self {
-        Self {
-            status,
-            ..Self::default()
-        }
+    pub(crate) fn set_testing_configurations(
+        &mut self,
+        configurations: Vec<Vec<TestingBackendConfiguration>>,
+    ) {
+        let known = configurations
+            .into_iter()
+            .map(|backends| {
+                backends
+                    .into_iter()
+                    .map(|(loadable, builtins)| TemplateBackendLibraries {
+                        loadable_by_name: loadable
+                            .into_iter()
+                            .map(|(name, module)| {
+                                let (index, _library) = self
+                                    .libraries
+                                    .iter()
+                                    .enumerate()
+                                    .rev()
+                                    .find(|(_index, library)| {
+                                        matches!(
+                                            &library.kind,
+                                            TemplateLibraryKind::Installed { load_name }
+                                                if load_name == &name
+                                        ) && library.module_name() == &module
+                                    })
+                                    .unwrap_or_else(|| {
+                                        panic!(
+                                            "configured test library {name} should resolve to {module}"
+                                        )
+                                    });
+                                (name, TemplateLibraryReference::Resolved(index))
+                            })
+                            .collect(),
+                        builtin_indices: builtins
+                            .into_iter()
+                            .map(|module| {
+                                self.libraries
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_index, library)| {
+                                        matches!(&library.kind, TemplateLibraryKind::Builtin)
+                                            && library.module_name() == &module
+                                    }).map_or_else(|| {
+                                        panic!("configured test builtin should resolve to {module}")
+                                    }, |(index, _library)| index)
+                            })
+                            .collect(),
+                    })
+                    .collect()
+            })
+            .collect();
+        self.configurations.replace_known(known);
     }
 
-    #[must_use]
-    pub fn has_symbol_inventory(&self) -> bool {
-        !matches!(self.status, TemplateInventoryStatus::NotDiscovered)
-    }
-
-    #[must_use]
-    pub fn inventory_is_complete(&self) -> bool {
-        matches!(self.status, TemplateInventoryStatus::Complete)
-    }
-
-    #[must_use]
-    pub fn inventory_may_omit_loaded_symbols(&self) -> bool {
-        matches!(self.status, TemplateInventoryStatus::Incomplete)
+    fn rebuild_configuration(&mut self) {
+        let backend = TemplateBackendLibraries {
+            loadable_by_name: self
+                .installed_by_name
+                .iter()
+                .map(|(name, index)| (name.clone(), TemplateLibraryReference::Resolved(*index)))
+                .collect(),
+            builtin_indices: self
+                .libraries
+                .iter()
+                .enumerate()
+                .filter_map(|(index, library)| {
+                    matches!(&library.kind, TemplateLibraryKind::Builtin).then_some(index)
+                })
+                .collect(),
+        };
+        self.configurations.replace_known(vec![vec![backend]]);
     }
 
     #[must_use]
@@ -262,7 +440,15 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn completion_library_names(&self) -> Vec<LibraryName> {
-        self.installed_by_name.keys().cloned().collect()
+        self.configurations
+            .known()
+            .iter()
+            .flatten()
+            .flat_map(|backend| backend.loadable_by_name.keys())
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
 
     #[must_use]
@@ -311,87 +497,187 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn installed_library(&self, name: &LibraryName) -> Option<&TemplateLibrary> {
-        self.installed_by_name
-            .get(name)
-            .and_then(|index| self.libraries.get(*index))
-    }
-
-    #[must_use]
-    pub fn installed_library_str(&self, name: &str) -> Option<&TemplateLibrary> {
-        let name = LibraryName::parse(name).ok()?;
-        self.installed_library(&name)
-    }
-
-    #[must_use]
-    pub fn installed_library_module(&self, name: &LibraryName) -> Option<&PythonModuleName> {
-        self.installed_library(name)
-            .map(TemplateLibrary::module_name)
-    }
-
-    #[must_use]
-    pub fn unknown_tag_outcome(&self, name: &str) -> UnknownSymbolOutcome {
-        if !self.inventory_is_complete() {
-            return UnknownSymbolOutcome::Suppressed;
+    pub fn loadable_library(&self, name: &LibraryName) -> LoadableLibraryLookup<'_> {
+        let mut outcomes = Vec::new();
+        let mut indexes = Vec::new();
+        let mut unresolved = false;
+        for configuration in self.configurations.known() {
+            let mut configuration_matches = Vec::new();
+            let mut absent = configuration.is_empty();
+            for backend in configuration {
+                match backend.loadable_by_name.get(name).copied() {
+                    Some(TemplateLibraryReference::Resolved(index))
+                        if !configuration_matches.contains(&index) =>
+                    {
+                        configuration_matches.push(index);
+                        if !indexes.contains(&index) {
+                            indexes.push(index);
+                        }
+                    }
+                    Some(TemplateLibraryReference::Resolved(_)) => {}
+                    Some(TemplateLibraryReference::Unresolved) => unresolved = true,
+                    None => absent = true,
+                }
+            }
+            outcomes.push((configuration_matches, absent));
         }
 
-        let candidates = self.available_symbol_candidates(name, TemplateSymbolKind::Tag);
-        unknown_symbol_candidate_outcome(&candidates)
-    }
-
-    #[must_use]
-    pub fn unknown_filter_outcome(&self, name: &str) -> UnknownSymbolOutcome {
-        if !self.inventory_is_complete() {
-            return UnknownSymbolOutcome::Suppressed;
-        }
-
-        let candidates = self.available_symbol_candidates(name, TemplateSymbolKind::Filter);
-        unknown_symbol_candidate_outcome(&candidates)
-    }
-
-    #[must_use]
-    pub fn unknown_library_outcome(&self, name: &LibraryName) -> UnknownLibraryOutcome {
-        if !self.inventory_is_complete() || self.installed_by_name.contains_key(name) {
-            return UnknownLibraryOutcome::Suppressed;
-        }
-
-        let candidates = self.available_library_candidates(name);
-        let Some(first) = candidates.first() else {
-            return UnknownLibraryOutcome::TrulyUnknown;
-        };
-        let Some(primary_app) = first.available_app().cloned() else {
-            return UnknownLibraryOutcome::TrulyUnknown;
-        };
-        let mut apps: Vec<_> = candidates
+        indexes.sort_unstable();
+        let records: Vec<_> = indexes
             .iter()
-            .filter_map(|candidate| candidate.available_app().cloned())
+            .filter_map(|index| self.libraries.get(*index))
             .collect();
-        apps.dedup();
+        let unanimous_index = outcomes
+            .first()
+            .and_then(|(matches, absent)| (!*absent && matches.len() == 1).then(|| matches[0]));
+        let unanimous = unanimous_index.is_some_and(|index| {
+            outcomes
+                .iter()
+                .all(|(matches, absent)| !*absent && matches.as_slice() == [index])
+        });
 
-        UnknownLibraryOutcome::AvailableInApps { primary_app, apps }
+        if self.configurations.has_omissions()
+            || unresolved
+            || (records.is_empty()
+                && self.issues.iter().any(|issue| match issue {
+                    TemplateLibraryIssue::Discovery => true,
+                    TemplateLibraryIssue::NamedSource(source_name) => source_name == name,
+                    TemplateLibraryIssue::BuiltinSource => false,
+                }))
+        {
+            return LoadableLibraryLookup::Inconclusive(records);
+        }
+        if unanimous && let Some(library) = records.first() {
+            return LoadableLibraryLookup::Found(library);
+        }
+        if outcomes
+            .iter()
+            .all(|(matches, absent)| matches.is_empty() && *absent)
+        {
+            LoadableLibraryLookup::Absent
+        } else {
+            LoadableLibraryLookup::Ambiguous(records)
+        }
     }
 
-    pub fn active_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
-        let libraries = &self.libraries;
-        self.installed_by_name
-            .values()
-            .copied()
-            .chain(libraries.iter().enumerate().filter_map(|(index, library)| {
-                (library.status == TemplateLibraryStatus::Builtin).then_some(index)
-            }))
-            .filter_map(|index| libraries.get(index))
+    #[must_use]
+    pub fn loadable_library_str(&self, name: &str) -> LoadableLibraryLookup<'_> {
+        match LibraryName::parse(name) {
+            Ok(name) => self.loadable_library(&name),
+            Err(_) => LoadableLibraryLookup::Absent,
+        }
+    }
+
+    #[must_use]
+    pub fn template_symbol_lookup(
+        &self,
+        name: &str,
+        kind: TemplateSymbolKind,
+    ) -> TemplateSymbolLookup {
+        let candidates = self.available_symbol_candidates(name, kind);
+        if let Some(candidate) = candidates.first()
+            && let (Some(app), Some(load_name)) = (candidate.available_app(), candidate.load_name())
+        {
+            return TemplateSymbolLookup::FoundInApp {
+                app: app.clone(),
+                load_name: load_name.clone(),
+            };
+        }
+        if self.configurations.has_omissions() || !self.issues.is_empty() {
+            TemplateSymbolLookup::Inconclusive
+        } else {
+            TemplateSymbolLookup::Absent
+        }
+    }
+
+    #[must_use]
+    pub fn missing_library_lookup(&self, name: &LibraryName) -> MissingLibraryLookup {
+        match self.loadable_library(name) {
+            LoadableLibraryLookup::Found(_) | LoadableLibraryLookup::Ambiguous(_) => {
+                return MissingLibraryLookup::Inconclusive;
+            }
+            LoadableLibraryLookup::Inconclusive(candidates)
+                if !candidates.is_empty() || self.has_unresolved_reference(name) =>
+            {
+                return MissingLibraryLookup::Inconclusive;
+            }
+            LoadableLibraryLookup::Inconclusive(_) | LoadableLibraryLookup::Absent => {}
+        }
+        let candidates = self.available_library_candidates(name);
+        if !candidates.is_empty() {
+            let mut apps: Vec<_> = candidates
+                .iter()
+                .filter_map(|candidate| candidate.available_app().cloned())
+                .collect();
+            apps.dedup();
+            if !apps.is_empty() {
+                return MissingLibraryLookup::FoundInApps(AvailableAppCandidates(apps));
+            }
+        }
+        if self.configurations.has_omissions()
+            || self.issues.iter().any(|issue| match issue {
+                TemplateLibraryIssue::Discovery => true,
+                TemplateLibraryIssue::NamedSource(source_name) => source_name == name,
+                TemplateLibraryIssue::BuiltinSource => false,
+            })
+        {
+            MissingLibraryLookup::Inconclusive
+        } else {
+            MissingLibraryLookup::Absent
+        }
+    }
+
+    pub fn resolved_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
+        let mut indexes = Vec::new();
+        for configuration in self.configurations.known() {
+            for backend in configuration {
+                for index in backend
+                    .loadable_by_name
+                    .values()
+                    .filter_map(|reference| match reference {
+                        TemplateLibraryReference::Resolved(index) => Some(*index),
+                        TemplateLibraryReference::Unresolved => None,
+                    })
+                    .chain(backend.builtin_indices.iter().copied())
+                {
+                    if !indexes.contains(&index) {
+                        indexes.push(index);
+                    }
+                }
+            }
+        }
+        indexes
+            .into_iter()
+            .filter_map(|index| self.libraries.get(index))
+    }
+
+    pub fn definitely_loaded_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
+        let known_configurations = self.configurations.known();
+        let closed_single_backend = !self.configurations.has_omissions()
+            && known_configurations.len() == 1
+            && known_configurations[0].len() == 1;
+        self.resolved_libraries()
+            .filter(move |_| closed_single_backend)
+    }
+
+    fn has_unresolved_reference(&self, name: &LibraryName) -> bool {
+        self.configurations.known().iter().flatten().any(|backend| {
+            backend.loadable_by_name.get(name) == Some(&TemplateLibraryReference::Unresolved)
+        })
     }
 
     fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
-        self.libraries
-            .iter()
-            .filter(|library| library.status == TemplateLibraryStatus::Builtin)
+        self.resolved_libraries()
+            .filter(|library| matches!(&library.kind, TemplateLibraryKind::Builtin))
     }
 
     fn installed_libraries(&self) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
-        self.installed_by_name
-            .iter()
-            .filter_map(|(name, index)| self.libraries.get(*index).map(|library| (name, library)))
+        self.resolved_libraries().filter_map(|library| {
+            let TemplateLibraryKind::Installed { load_name } = &library.kind else {
+                return None;
+            };
+            Some((load_name, library))
+        })
     }
 
     #[must_use]
@@ -425,48 +711,47 @@ impl TemplateLibraries {
         candidates
     }
 
-    fn insert_library(&mut self, library: TemplateLibrary) {
-        match library.status {
-            TemplateLibraryStatus::Builtin => self.libraries.push(library),
-            TemplateLibraryStatus::Installed => {
-                let name = library
-                    .load_name
-                    .clone()
-                    .expect("installed libraries should carry a load name");
-                if let Some(index) = self.installed_by_name.get(&name).copied() {
-                    self.libraries[index] = library;
-                } else {
-                    let index = self.libraries.len();
-                    self.libraries.push(library);
-                    self.installed_by_name.insert(name, index);
-                }
+    fn insert_library(&mut self, library: TemplateLibrary) -> usize {
+        match &library.kind {
+            TemplateLibraryKind::Builtin => {
+                let index = self.libraries.len();
+                self.libraries.push(library);
+                index
             }
-            TemplateLibraryStatus::Available => {
-                let name = library
-                    .load_name
-                    .clone()
-                    .expect("available libraries should carry a load name");
-                let app = library
-                    .app
-                    .clone()
-                    .expect("available libraries should carry an app");
+            TemplateLibraryKind::Installed { load_name } => {
+                let load_name = load_name.clone();
+                let index = self.libraries.len();
+                self.libraries.push(library);
+                self.installed_by_name.insert(load_name, index);
+                index
+            }
+            TemplateLibraryKind::Available { load_name, app } => {
+                let load_name = load_name.clone();
+                let app = app.clone();
                 let module_name = library.module_name().clone();
                 if let Some(existing_index) = self.libraries.iter().position(|existing| {
-                    existing.status == TemplateLibraryStatus::Available
-                        && existing.load_name() == Some(&name)
-                        && existing.app.as_ref() == Some(&app)
-                        && existing.module_name() == &module_name
+                    matches!(
+                        &existing.kind,
+                        TemplateLibraryKind::Available {
+                            load_name: existing_name,
+                            app: existing_app,
+                        } if existing_name == &load_name && existing_app == &app
+                    ) && existing.module_name() == &module_name
                 }) {
-                    let indexes = self.available_by_name.entry(name).or_default();
+                    let indexes = self.available_by_name.entry(load_name).or_default();
                     if !indexes.contains(&existing_index) {
                         indexes.push(existing_index);
                     }
-                    return;
+                    return existing_index;
                 }
 
                 let index = self.libraries.len();
                 self.libraries.push(library);
-                self.available_by_name.entry(name).or_default().push(index);
+                self.available_by_name
+                    .entry(load_name)
+                    .or_default()
+                    .push(index);
+                index
             }
         }
     }
@@ -476,7 +761,7 @@ impl TemplateLibraries {
         db: &dyn ProjectDb,
         project: Project,
         installed_template_library_modules: &BTreeSet<PythonModuleName>,
-    ) -> bool {
+    ) {
         let mut excluded_modules: BTreeSet<_> = self
             .installed_libraries()
             .map(|(_name, library)| library.module_name().clone())
@@ -490,16 +775,30 @@ impl TemplateLibraries {
         excluded_modules.extend(installed_template_library_modules.iter().cloned());
 
         let candidates = templatetag_candidates(db, project);
-        let mut complete = candidates.is_complete();
+        if candidates.has_omissions() {
+            self.issues.push(TemplateLibraryIssue::Discovery);
+        }
         for candidate in candidates.candidates().iter().cloned() {
             if excluded_modules.contains(candidate.module.name()) {
                 continue;
             }
 
             match TemplateLibraryAnalysis::from_file(db, candidate.module.file()) {
-                TemplateLibraryAnalysis::Failed => complete = false,
-                TemplateLibraryAnalysis::ParsedNotLibrary => {}
-                TemplateLibraryAnalysis::Library { symbols } => {
+                TemplateLibraryAnalysis::Failed => {
+                    self.issues
+                        .push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
+                }
+                TemplateLibraryAnalysis::ParsedNotLibrary { source } => {
+                    if source == TemplateLibrarySource::Recovered {
+                        self.issues
+                            .push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
+                    }
+                }
+                TemplateLibraryAnalysis::Library { symbols, source } => {
+                    if source == TemplateLibrarySource::Recovered {
+                        self.issues
+                            .push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
+                    }
                     self.insert_library(TemplateLibrary::available(
                         candidate.name.clone(),
                         candidate.app.clone(),
@@ -511,7 +810,6 @@ impl TemplateLibraries {
         }
 
         self.sort_and_dedup_available();
-        complete
     }
 
     fn sort_and_dedup_available(&mut self) {
@@ -542,140 +840,205 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     }
 
     let settings = django_settings(db, project);
-    let mut inventory_complete =
-        settings.installed_apps.is_fully_extracted() && settings.templates.is_fully_extracted();
-    let mut libraries = TemplateLibraries::from_status(TemplateInventoryStatus::Incomplete);
+    let open =
+        !settings.installed_apps.is_fully_extracted() || !settings.templates.is_fully_extracted();
+    let mut libraries = if open {
+        TemplateLibraries::from_libraries_with_omissions(Vec::new())
+    } else {
+        TemplateLibraries::from_libraries(Vec::new())
+    };
     let mut installed_template_library_modules = BTreeSet::new();
 
     let django_module = PythonModuleName::parse("django").expect("django is a valid module name");
-    let (scan_complete, discovered_libraries) =
-        templatetag_package_libraries(db, project, &django_module);
-    inventory_complete &= scan_complete;
-    for (load_name, module, symbols) in discovered_libraries {
-        installed_template_library_modules.insert(module.name().clone());
-        libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
-    }
+    let (discovered, issues) = templatetag_package_libraries(db, project, &django_module);
+    libraries.issues.extend(issues);
+    insert_installed_libraries(
+        &mut libraries,
+        &mut installed_template_library_modules,
+        discovered,
+    );
 
     for installed_app in &settings.installed_apps.values {
         let Some(package_module) = installed_app_package_module(db, project, installed_app) else {
-            inventory_complete = false;
+            libraries.issues.push(TemplateLibraryIssue::Discovery);
             continue;
         };
-        let (scan_complete, discovered_libraries) =
-            templatetag_package_libraries(db, project, &package_module);
-        inventory_complete &= scan_complete;
-        for (load_name, module, symbols) in discovered_libraries {
-            installed_template_library_modules.insert(module.name().clone());
-            libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
-        }
+        let (discovered, issues) = templatetag_package_libraries(db, project, &package_module);
+        libraries.issues.extend(issues);
+        insert_installed_libraries(
+            &mut libraries,
+            &mut installed_template_library_modules,
+            discovered,
+        );
     }
 
+    let app_libraries = libraries.installed_by_name.clone();
+    let mut backend_configurations = Vec::new();
     for backend in settings
         .templates
         .backends
         .iter()
         .filter(|backend| backend.is_django_templates_backend())
     {
-        inventory_complete &= backend.is_fully_extracted();
+        backend_configurations.push(insert_backend_libraries(
+            db,
+            project,
+            backend,
+            &app_libraries,
+            &mut libraries,
+        ));
+    }
 
-        for (load_name, module_name) in &backend.libraries {
-            let Ok(load_name) = LibraryName::parse(load_name) else {
-                inventory_complete = false;
-                continue;
-            };
-            let (library_complete, library) =
-                library_from_module_name(db, project, module_name.clone());
-            inventory_complete &= library_complete;
-            let Some((module, symbols)) = library else {
-                continue;
-            };
-            libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
+    if backend_configurations.is_empty() {
+        backend_configurations.push(TemplateBackendLibraries {
+            loadable_by_name: resolved_library_references(&app_libraries),
+            builtin_indices: Vec::new(),
+        });
+    }
+    libraries
+        .configurations
+        .replace_known(vec![backend_configurations]);
+    libraries.insert_available_candidates(db, project, &installed_template_library_modules);
+    libraries
+}
+
+fn resolved_library_references(
+    libraries: &BTreeMap<LibraryName, usize>,
+) -> BTreeMap<LibraryName, TemplateLibraryReference> {
+    libraries
+        .iter()
+        .map(|(name, index)| (name.clone(), TemplateLibraryReference::Resolved(*index)))
+        .collect()
+}
+
+fn insert_backend_libraries(
+    db: &dyn ProjectDb,
+    project: Project,
+    backend: &TemplateBackend,
+    app_libraries: &BTreeMap<LibraryName, usize>,
+    libraries: &mut TemplateLibraries,
+) -> TemplateBackendLibraries {
+    if !backend.is_fully_extracted() {
+        libraries
+            .configurations
+            .omit(TemplateConfigurationOmission::Backend);
+    }
+
+    let mut result = TemplateBackendLibraries {
+        loadable_by_name: resolved_library_references(app_libraries),
+        builtin_indices: Vec::new(),
+    };
+    for (load_name, module_name) in &backend.libraries {
+        let Ok(load_name) = LibraryName::parse(load_name) else {
+            libraries
+                .configurations
+                .omit(TemplateConfigurationOmission::Backend);
+            continue;
+        };
+        let Some((module, symbols, source)) =
+            library_from_module_name(db, project, module_name.clone())
+        else {
+            result
+                .loadable_by_name
+                .insert(load_name, TemplateLibraryReference::Unresolved);
+            continue;
+        };
+        if source == TemplateLibrarySource::Recovered {
+            libraries
+                .issues
+                .push(TemplateLibraryIssue::NamedSource(load_name.clone()));
         }
+        let index = libraries.insert_library(TemplateLibrary::installed(
+            load_name.clone(),
+            module,
+            symbols,
+        ));
+        result
+            .loadable_by_name
+            .insert(load_name, TemplateLibraryReference::Resolved(index));
+    }
 
-        for module_name in DEFAULT_TEMPLATE_BUILTINS.iter().copied() {
-            let module_name = PythonModuleName::parse(module_name)
-                .expect("default builtin is a valid module name");
-            let (library_complete, library) = library_from_module_name(db, project, module_name);
-            inventory_complete &= library_complete;
-            let Some((module, symbols)) = library else {
-                continue;
-            };
-            libraries.insert_library(TemplateLibrary::builtin(module, symbols));
-        }
-
-        for module_name in &backend.builtins {
-            let (library_complete, library) =
-                library_from_module_name(db, project, module_name.clone());
-            inventory_complete &= library_complete;
-            let Some((module, symbols)) = library else {
-                continue;
-            };
-            libraries.insert_library(TemplateLibrary::builtin(module, symbols));
+    let builtins = DEFAULT_TEMPLATE_BUILTINS
+        .iter()
+        .map(|name| PythonModuleName::parse(name).expect("default builtin is a valid module name"))
+        .chain(backend.builtins.iter().cloned());
+    for module_name in builtins {
+        match library_from_module_name(db, project, module_name) {
+            Some((module, symbols, source)) => {
+                if source == TemplateLibrarySource::Recovered {
+                    libraries.issues.push(TemplateLibraryIssue::BuiltinSource);
+                }
+                let index = libraries.insert_library(TemplateLibrary::builtin(module, symbols));
+                result.builtin_indices.push(index);
+            }
+            None => libraries.issues.push(TemplateLibraryIssue::BuiltinSource),
         }
     }
 
-    inventory_complete &=
-        libraries.insert_available_candidates(db, project, &installed_template_library_modules);
-    libraries.status = TemplateInventoryStatus::from_complete(inventory_complete);
-    libraries
+    result
+}
+
+fn insert_installed_libraries(
+    libraries: &mut TemplateLibraries,
+    installed_modules: &mut BTreeSet<PythonModuleName>,
+    discovered: Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>,
+) {
+    for (load_name, module, symbols) in discovered {
+        installed_modules.insert(module.name().clone());
+        libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
+    }
 }
 
 fn templatetag_package_libraries(
     db: &dyn ProjectDb,
     project: Project,
     package_module: &PythonModuleName,
-) -> (bool, Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>) {
-    let (mut complete, candidates) =
-        templatetag_package_candidates(db, project, package_module).into_parts();
+) -> (Vec<DiscoveredLibrary>, Vec<TemplateLibraryIssue>) {
+    let (candidates, candidate_issues) =
+        templatetag_candidates_in_package(db, project, package_module).into_parts();
+    let mut issues = candidate_issues
+        .into_iter()
+        .map(|_| TemplateLibraryIssue::Discovery)
+        .collect::<Vec<_>>();
     let mut libraries = Vec::new();
 
     for candidate in candidates {
         match TemplateLibraryAnalysis::from_file(db, candidate.module.file()) {
-            TemplateLibraryAnalysis::Failed => complete = false,
-            TemplateLibraryAnalysis::ParsedNotLibrary => {}
-            TemplateLibraryAnalysis::Library { symbols } => libraries.push((
-                candidate.name.clone(),
-                candidate.into_python_module(),
-                symbols,
-            )),
+            TemplateLibraryAnalysis::Failed => {
+                issues.push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
+            }
+            TemplateLibraryAnalysis::ParsedNotLibrary { source } => {
+                if source == TemplateLibrarySource::Recovered {
+                    issues.push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
+                }
+            }
+            TemplateLibraryAnalysis::Library { symbols, source } => {
+                if source == TemplateLibrarySource::Recovered {
+                    issues.push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
+                }
+                libraries.push((
+                    candidate.name.clone(),
+                    candidate.into_python_module(),
+                    symbols,
+                ));
+            }
         }
     }
 
-    (complete, libraries)
+    (libraries, issues)
 }
 
 fn library_from_module_name(
     db: &dyn ProjectDb,
     project: Project,
     module_name: PythonModuleName,
-) -> (bool, Option<(PythonModule, Vec<TemplateSymbol>)>) {
-    let Some(module) = PythonModule::resolve(db, project, module_name) else {
-        return (false, None);
-    };
+) -> Option<(PythonModule, Vec<TemplateSymbol>, TemplateLibrarySource)> {
+    let module = PythonModule::resolve(db, project, module_name)?;
 
     match TemplateLibraryAnalysis::from_file(db, module.file()) {
-        TemplateLibraryAnalysis::Failed | TemplateLibraryAnalysis::ParsedNotLibrary => {
-            (false, None)
-        }
-        TemplateLibraryAnalysis::Library { symbols } => (true, Some((module, symbols))),
+        TemplateLibraryAnalysis::Failed | TemplateLibraryAnalysis::ParsedNotLibrary { .. } => None,
+        TemplateLibraryAnalysis::Library { symbols, source } => Some((module, symbols, source)),
     }
-}
-
-fn unknown_symbol_candidate_outcome(candidates: &[&TemplateLibrary]) -> UnknownSymbolOutcome {
-    if let Some(candidate) = candidates.first() {
-        return UnknownSymbolOutcome::Available {
-            app: candidate
-                .available_app()
-                .expect("available candidates should carry an app")
-                .clone(),
-            load_name: candidate
-                .load_name()
-                .expect("available candidates should carry a load name")
-                .clone(),
-        };
-    }
-
-    UnknownSymbolOutcome::TrulyUnknown
 }
 
 fn cmp_available_libraries(left: &TemplateLibrary, right: &TemplateLibrary) -> Ordering {

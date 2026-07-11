@@ -23,7 +23,6 @@ use djls_project::SplitPosition;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
-use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
@@ -53,7 +52,7 @@ pub fn builtin_tag(name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
         "kind": "tag",
         "name": name,
-        "load_name": null,
+        "library_kind": "builtin",
         "library_module": module,
         "module": module,
         "doc": null,
@@ -65,6 +64,7 @@ pub fn library_tag(name: &str, load_name: &str, module: &str) -> serde_json::Val
     serde_json::json!({
         "kind": "tag",
         "name": name,
+        "library_kind": "installed",
         "load_name": load_name,
         "library_module": module,
         "module": module,
@@ -77,7 +77,7 @@ pub fn builtin_filter(name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
         "kind": "filter",
         "name": name,
-        "load_name": null,
+        "library_kind": "builtin",
         "library_module": module,
         "module": module,
         "doc": null,
@@ -89,6 +89,7 @@ pub fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::
     serde_json::json!({
         "kind": "filter",
         "name": name,
+        "library_kind": "installed",
         "load_name": load_name,
         "library_module": module,
         "module": module,
@@ -126,8 +127,9 @@ pub fn available_library_tag(
     serde_json::json!({
         "kind": "tag",
         "name": name,
+        "library_kind": "available",
         "load_name": load_name,
-        "available_app": app,
+        "app": app,
         "library_module": module,
         "module": module,
         "doc": null,
@@ -144,8 +146,9 @@ pub fn available_library_filter(
     serde_json::json!({
         "kind": "filter",
         "name": name,
+        "library_kind": "available",
         "load_name": load_name,
-        "available_app": app,
+        "app": app,
         "library_module": module,
         "module": module,
         "doc": null,
@@ -156,14 +159,20 @@ pub fn available_library_filter(
 struct TemplateSymbolFixture {
     kind: TemplateSymbolKind,
     name: String,
-    #[serde(default)]
-    load_name: Option<String>,
-    #[serde(default)]
-    available_app: Option<String>,
+    #[serde(flatten)]
+    library: TemplateSymbolLibraryFixture,
     library_module: String,
     module: String,
     #[serde(default)]
     doc: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "library_kind", rename_all = "snake_case")]
+enum TemplateSymbolLibraryFixture {
+    Builtin,
+    Installed { load_name: String },
+    Available { load_name: String, app: String },
 }
 
 /// Build Template Library facts from JSON fixture rows.
@@ -178,53 +187,75 @@ pub fn make_template_libraries(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    make_template_libraries_with_status(
-        db,
-        tags,
-        filters,
-        libraries,
-        builtins,
-        TemplateInventoryStatus::Complete,
-    )
+    build_template_libraries(db, tags, filters, libraries, builtins, &[], false)
 }
 
-/// Build Template Library facts from JSON fixture rows with explicit inventory status.
+/// Build Template Library facts from JSON fixture rows with explicit open-remainder evidence.
 ///
 /// # Panics
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_status(
+pub fn make_template_libraries_with_omissions(
     db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
-    status: TemplateInventoryStatus,
 ) -> TemplateLibraries {
-    make_template_libraries_with_available_and_status(
-        db,
-        tags,
-        filters,
-        libraries,
-        builtins,
-        &[],
-        status,
-    )
+    build_template_libraries(db, tags, filters, libraries, builtins, &[], true)
 }
 
-/// Build Template Library facts from JSON fixture rows plus available libraries with explicit inventory status.
+/// Build Template Library facts from JSON fixture rows plus available libraries with explicit open-remainder evidence.
 ///
 /// # Panics
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_available_and_status(
+pub fn make_template_libraries_with_available(
     db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
     available_libraries: &[AvailableTemplateLibraryFixture],
-    status: TemplateInventoryStatus,
+) -> TemplateLibraries {
+    build_template_libraries(
+        db,
+        tags,
+        filters,
+        libraries,
+        builtins,
+        available_libraries,
+        false,
+    )
+}
+
+pub fn make_template_libraries_with_available_and_omissions(
+    db: &dyn ProjectDb,
+    tags: &[serde_json::Value],
+    filters: &[serde_json::Value],
+    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
+    builtins: &[String],
+    available_libraries: &[AvailableTemplateLibraryFixture],
+) -> TemplateLibraries {
+    build_template_libraries(
+        db,
+        tags,
+        filters,
+        libraries,
+        builtins,
+        available_libraries,
+        true,
+    )
+}
+
+fn build_template_libraries(
+    db: &dyn ProjectDb,
+    tags: &[serde_json::Value],
+    filters: &[serde_json::Value],
+    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
+    builtins: &[String],
+    available_libraries: &[AvailableTemplateLibraryFixture],
+    open: bool,
 ) -> TemplateLibraries {
     let mut builtin_symbols = builtin_symbol_buckets(builtins);
     let mut installed_symbols = installed_symbol_buckets(libraries);
@@ -272,7 +303,11 @@ pub fn make_template_libraries_with_available_and_status(
         },
     ));
 
-    testing::template_libraries(db, status, library_inputs)
+    if open {
+        testing::template_libraries_with_omissions(db, library_inputs)
+    } else {
+        testing::template_libraries(db, library_inputs)
+    }
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;
@@ -332,8 +367,7 @@ fn add_fixture_symbol(
     let TemplateSymbolFixture {
         kind,
         name,
-        load_name,
-        available_app,
+        library,
         library_module,
         module,
         doc,
@@ -350,13 +384,15 @@ fn add_fixture_symbol(
         doc,
     };
 
-    match (load_name, available_app) {
-        (None, _) => add_builtin_symbol(builtin_symbols, &library_module, &symbol),
-        (Some(load_name), Some(app)) => {
-            add_available_symbol(available_symbols, &load_name, &app, &library_module, symbol);
+    match library {
+        TemplateSymbolLibraryFixture::Builtin => {
+            add_builtin_symbol(builtin_symbols, &library_module, &symbol);
         }
-        (Some(load_name), None) => {
+        TemplateSymbolLibraryFixture::Installed { load_name } => {
             add_installed_symbol(installed_symbols, &load_name, &library_module, symbol);
+        }
+        TemplateSymbolLibraryFixture::Available { load_name, app } => {
+            add_available_symbol(available_symbols, &load_name, &app, &library_module, symbol);
         }
     }
 }

@@ -41,6 +41,7 @@ pub use python::resolve_package_dirs;
 pub use python::resolve_prefix;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
+pub use templates::AvailableAppCandidates;
 pub use templates::BlockSpec;
 pub use templates::BlockSpecs;
 pub use templates::ChoiceAt;
@@ -56,6 +57,8 @@ pub use templates::InconclusiveTemplateSearch;
 pub use templates::InvalidTemplateIdentifier;
 pub use templates::KnownOptions;
 pub use templates::LibraryName;
+pub use templates::LoadableLibraryLookup;
+pub use templates::MissingLibraryLookup;
 pub use templates::RequiredKeyword;
 pub use templates::SplitPosition;
 pub use templates::SymbolDefinition;
@@ -68,7 +71,6 @@ pub use templates::TemplateContextProcessor;
 pub use templates::TemplateContextProcessors;
 pub use templates::TemplateDirectories;
 pub use templates::TemplateDoesNotExist;
-pub use templates::TemplateInventoryStatus;
 pub use templates::TemplateLibraries;
 pub use templates::TemplateLibrary;
 pub use templates::TemplateName;
@@ -78,9 +80,8 @@ pub use templates::TemplateSymbol;
 pub use templates::TemplateSymbolAvailability;
 pub use templates::TemplateSymbolCandidate;
 pub use templates::TemplateSymbolKind;
+pub use templates::TemplateSymbolLookup;
 pub use templates::TemplateSymbolName;
-pub use templates::UnknownLibraryOutcome;
-pub use templates::UnknownSymbolOutcome;
 pub use templates::extract_block_specs;
 pub use templates::extract_filter_arities;
 pub use templates::extract_tag_rules;
@@ -180,6 +181,12 @@ pub mod testing {
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct TemplateBackendLibrariesInput {
+        pub loadable: Vec<(super::LibraryName, super::PythonModuleName)>,
+        pub builtins: Vec<super::PythonModuleName>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TemplateLibraryInput {
         Builtin {
             module: super::PythonModuleName,
@@ -201,8 +208,23 @@ pub mod testing {
     #[must_use]
     pub fn template_libraries(
         db: &dyn super::Db,
-        status: super::TemplateInventoryStatus,
         inputs: Vec<TemplateLibraryInput>,
+    ) -> super::TemplateLibraries {
+        build_template_libraries(db, inputs, false)
+    }
+
+    #[must_use]
+    pub fn template_libraries_with_omissions(
+        db: &dyn super::Db,
+        inputs: Vec<TemplateLibraryInput>,
+    ) -> super::TemplateLibraries {
+        build_template_libraries(db, inputs, true)
+    }
+
+    fn build_template_libraries(
+        db: &dyn super::Db,
+        inputs: Vec<TemplateLibraryInput>,
+        has_omissions: bool,
     ) -> super::TemplateLibraries {
         let libraries = inputs
             .into_iter()
@@ -233,7 +255,50 @@ pub mod testing {
             })
             .collect();
 
-        super::TemplateLibraries::from_libraries(status, libraries)
+        if has_omissions {
+            super::TemplateLibraries::from_libraries_with_omissions(libraries)
+        } else {
+            super::TemplateLibraries::from_libraries(libraries)
+        }
+    }
+
+    #[must_use]
+    pub fn template_libraries_with_configurations(
+        db: &dyn super::Db,
+        inputs: Vec<TemplateLibraryInput>,
+        configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
+    ) -> super::TemplateLibraries {
+        configure_template_libraries(template_libraries(db, inputs), configurations)
+    }
+
+    #[must_use]
+    pub fn template_libraries_with_configuration_omissions(
+        db: &dyn super::Db,
+        inputs: Vec<TemplateLibraryInput>,
+        configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
+    ) -> super::TemplateLibraries {
+        configure_template_libraries(
+            template_libraries_with_omissions(db, inputs),
+            configurations,
+        )
+    }
+
+    fn configure_template_libraries(
+        mut libraries: super::TemplateLibraries,
+        configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
+    ) -> super::TemplateLibraries {
+        libraries.set_testing_configurations(
+            configurations
+                .into_iter()
+                .map(|backends| {
+                    backends
+                        .into_iter()
+                        .map(|backend| (backend.loadable, backend.builtins))
+                        .collect()
+                })
+                .collect(),
+        );
+        libraries
     }
 
     fn testing_module(

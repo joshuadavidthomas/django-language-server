@@ -161,22 +161,15 @@ impl<'a> TemplateValidator<'a> {
                 );
 
                 // 2. Filter Arity
-                let unknown_load_can_shadow_filter =
-                    self.template_libraries.inventory_may_omit_loaded_symbols()
-                        && self
-                            .loaded_libraries
-                            .has_unknown_load_that_can_shadow_symbol_before(
-                                variable.span.start(),
-                                &filter.name,
-                                self.template_libraries,
-                            );
-                if !unknown_load_can_shadow_filter {
-                    filters::check_filter_arity_rule(
-                        self.db,
-                        filter,
-                        self.filter_arity_specs,
-                        self.template_libraries.has_symbol_inventory(),
+                let unknown_load_can_shadow_filter = self
+                    .loaded_libraries
+                    .has_unknown_load_that_can_shadow_symbol_before(
+                        variable.span.start(),
+                        &filter.name,
+                        self.template_libraries,
                     );
+                if !unknown_load_can_shadow_filter {
+                    filters::check_filter_arity_rule(self.db, filter, self.filter_arity_specs);
                 }
             }
         }

@@ -9,32 +9,41 @@ use crate::settings::TemplateContextProcessorPath;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
 use crate::settings::types::Originated;
-use crate::templates::libraries::TemplateInventoryStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateContextProcessors {
-    status: TemplateInventoryStatus,
-    processors: Vec<TemplateContextProcessor>,
+enum ContextProcessorOmission {
+    Settings,
+    Backend,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TemplateContextProcessors(TemplateContextProcessorDiscovery);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateContextProcessorDiscovery {
+    Exhaustive(Vec<TemplateContextProcessor>),
+    WithOmissions {
+        processors: Vec<TemplateContextProcessor>,
+        omissions: Vec<ContextProcessorOmission>,
+    },
 }
 
 impl Default for TemplateContextProcessors {
     fn default() -> Self {
-        Self {
-            status: TemplateInventoryStatus::NotDiscovered,
+        Self(TemplateContextProcessorDiscovery::WithOmissions {
             processors: Vec::new(),
-        }
+            omissions: vec![ContextProcessorOmission::Settings],
+        })
     }
 }
 
 impl TemplateContextProcessors {
     #[must_use]
-    pub fn status(&self) -> TemplateInventoryStatus {
-        self.status
-    }
-
-    #[must_use]
     pub fn processors(&self) -> &[TemplateContextProcessor] {
-        &self.processors
+        match &self.0 {
+            TemplateContextProcessorDiscovery::Exhaustive(processors)
+            | TemplateContextProcessorDiscovery::WithOmissions { processors, .. } => processors,
+        }
     }
 }
 
@@ -80,10 +89,10 @@ pub fn template_context_processors(
     }
 
     let settings = django_settings(db, project);
-    let mut status = if settings.templates.is_fully_extracted() {
-        TemplateInventoryStatus::Complete
+    let mut omissions = if settings.templates.is_fully_extracted() {
+        Vec::new()
     } else {
-        TemplateInventoryStatus::Incomplete
+        vec![ContextProcessorOmission::Settings]
     };
     let mut processors = Vec::new();
 
@@ -94,7 +103,7 @@ pub fn template_context_processors(
         .filter(|backend| backend.is_django_templates_backend())
     {
         if !backend.is_fully_extracted() {
-            status = TemplateInventoryStatus::Incomplete;
+            omissions.push(ContextProcessorOmission::Backend);
         }
 
         for path in &backend.context_processors {
@@ -107,5 +116,12 @@ pub fn template_context_processors(
         }
     }
 
-    TemplateContextProcessors { status, processors }
+    if omissions.is_empty() {
+        TemplateContextProcessors(TemplateContextProcessorDiscovery::Exhaustive(processors))
+    } else {
+        TemplateContextProcessors(TemplateContextProcessorDiscovery::WithOmissions {
+            processors,
+            omissions,
+        })
+    }
 }

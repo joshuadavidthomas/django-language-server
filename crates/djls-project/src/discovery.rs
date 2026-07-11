@@ -248,7 +248,7 @@ impl ProjectFactsPhase {
                 .map(|module| module.path().to_path_buf())
                 .collect(),
             Self::TemplateLibrarySources => template_libraries(db, project)
-                .active_libraries()
+                .resolved_libraries()
                 .map(|library| library.file().path(db).to_path_buf())
                 .collect(),
             Self::TemplateTagCandidates => discover_templatetag_candidate_paths(db, project),

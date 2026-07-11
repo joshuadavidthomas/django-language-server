@@ -475,7 +475,7 @@ fn template_libraries_tolerate_unregistered_search_paths() {
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries.active_libraries().collect();
+    let active: Vec<_> = libraries.resolved_libraries().collect();
 
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].module_name().as_str(), "django.templatetags.i18n");
@@ -508,7 +508,7 @@ fn template_library_resolution_uses_project_venv_site_packages_root() {
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries.active_libraries().collect();
+    let active: Vec<_> = libraries.resolved_libraries().collect();
 
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].module_name().as_str(), "django.templatetags.i18n");
@@ -548,7 +548,7 @@ fn template_library_resolution_prefers_first_party_module_shadowing_dependency()
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries.active_libraries().collect();
+    let active: Vec<_> = libraries.resolved_libraries().collect();
 
     assert_eq!(active.len(), 1);
     assert_eq!(
@@ -585,7 +585,7 @@ fn active_template_libraries_preserve_builtin_order_across_roots() {
 
     let libraries = template_libraries(&db, project);
     let module_names: Vec<_> = libraries
-        .active_libraries()
+        .resolved_libraries()
         .map(|library| library.module_name().as_str().to_string())
         .collect();
 
@@ -623,7 +623,7 @@ fn active_template_libraries_yield_installed_before_builtins() {
 
     let libraries = template_libraries(&db, project);
     let module_names: Vec<_> = libraries
-        .active_libraries()
+        .resolved_libraries()
         .map(|library| library.module_name().as_str().to_string())
         .collect();
 
@@ -672,7 +672,7 @@ def duplicate(value, arg):
 
     let libraries = template_libraries(&db, project);
     let module_names: Vec<_> = libraries
-        .active_libraries()
+        .resolved_libraries()
         .map(|library| library.module_name().as_str().to_string())
         .collect();
 
