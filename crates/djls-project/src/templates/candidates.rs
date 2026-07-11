@@ -18,12 +18,6 @@ use crate::python::SearchPath;
 use crate::python::resolve_package_dirs;
 use crate::templates::LibraryName;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TemplateTagDiscoveryMode {
-    ActivePackage,
-    AvailableCandidate,
-}
-
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TemplateTagCandidate {
     pub(crate) app: PythonModuleName,
@@ -143,6 +137,14 @@ impl TemplateTagCandidateScan {
         }
     }
 
+    fn extend(&mut self, other: Self) {
+        let (candidates, issues) = other.into_parts();
+        self.candidates_mut().extend(candidates);
+        for issue in issues {
+            self.issue(issue);
+        }
+    }
+
     fn sort(&mut self) {
         self.candidates_mut()
             .sort_by(TemplateTagCandidate::cmp_by_app_name_path);
@@ -171,21 +173,21 @@ pub(crate) fn templatetag_candidates(
     project: Project,
 ) -> TemplateTagCandidateScan {
     project.touch_search_path_roots(db);
-    walk_candidates(db, project, TemplateTagDiscoveryMode::AvailableCandidate)
+    search_path_templatetag_candidates(db, project)
 }
 
 pub(crate) fn discover_templatetag_candidate_paths(
     db: &dyn ProjectDb,
     project: Project,
 ) -> Vec<Utf8PathBuf> {
-    walk_candidates(db, project, TemplateTagDiscoveryMode::AvailableCandidate)
+    search_path_templatetag_candidates(db, project)
         .into_candidates()
         .into_iter()
         .map(TemplateTagCandidate::into_path)
         .collect()
 }
 
-pub(crate) fn templatetag_package_candidates(
+pub(crate) fn templatetag_candidates_in_package(
     db: &dyn ProjectDb,
     project: Project,
     package_module: &PythonModuleName,
@@ -204,59 +206,23 @@ pub(crate) fn templatetag_package_candidates(
             continue;
         }
 
-        let entries = match db.walk_root(&templatetags_dir, &WalkOptions::shallow()) {
-            RootWalk::Directory { entries, issues } => {
-                if !issues.is_empty() {
-                    tracing::warn!(
-                        "Partially walked template tag package {templatetags_dir}: {issues:?}"
-                    );
-                    scan.issue(TemplateTagCandidateIssue::Walk);
-                }
-                entries
-            }
-            RootWalk::Missing | RootWalk::File(_) => continue,
-            RootWalk::Inaccessible(kind) => {
-                tracing::warn!("Failed to walk template tag package {templatetags_dir}: {kind:?}");
-                scan.issue(TemplateTagCandidateIssue::Walk);
-                continue;
-            }
-        };
-
-        for entry in entries {
-            if entry.kind != WalkEntryKind::File {
-                continue;
-            }
-
-            match recognize_candidate_source(
-                db.file_system(),
-                &package_dir,
-                entry.path,
-                &[],
-                TemplateTagDiscoveryMode::ActivePackage,
-                Some(package_module),
-            ) {
-                CandidateSourceRecognition::Candidate { app, name, path } => {
-                    match TemplateTagCandidate::from_parts(db, project, app, name, path) {
-                        Ok(candidate) => scan.candidate(candidate),
-                        Err(issue) => scan.issue(issue),
-                    }
-                }
-                CandidateSourceRecognition::InvalidIdentifier => {
-                    scan.issue(TemplateTagCandidateIssue::InvalidIdentifier);
-                }
-                CandidateSourceRecognition::NotCandidate => {}
-            }
-        }
+        scan.extend(scan_templatetag_root(
+            db,
+            project,
+            &templatetags_dir,
+            &WalkOptions::shallow(),
+            &[],
+            Some(package_module),
+        ));
     }
 
     scan.sort();
     scan
 }
 
-fn walk_candidates(
+fn search_path_templatetag_candidates(
     db: &dyn ProjectDb,
     project: Project,
-    mode: TemplateTagDiscoveryMode,
 ) -> TemplateTagCandidateScan {
     let search_paths = project.search_paths(db);
     let mut candidates_by_path: Vec<(usize, TemplateTagCandidate)> = Vec::new();
@@ -277,13 +243,17 @@ fn walk_candidates(
         };
         let search_path_len = search_path.path().as_str().len();
 
-        let scan = discover_templatetag_candidates(
+        let options = match search_path.root_kind() {
+            FileRootKind::Project => WalkOptions::project(),
+            FileRootKind::SearchPath => WalkOptions::library_search_path(),
+        };
+        let scan = scan_templatetag_root(
             db,
             project,
             search_path.path(),
-            search_path.root_kind(),
+            &options,
             &excluded_paths,
-            mode,
+            None,
         );
         let (scan_candidates, scan_issues) = scan.into_parts();
         issues.extend(scan_issues);
@@ -314,23 +284,18 @@ fn walk_candidates(
     scan
 }
 
-fn discover_templatetag_candidates(
+fn scan_templatetag_root(
     db: &dyn ProjectDb,
     project: Project,
     base_dir: &Utf8Path,
-    root_kind: FileRootKind,
+    options: &WalkOptions,
     excluded_roots: &[Utf8PathBuf],
-    mode: TemplateTagDiscoveryMode,
+    active_package: Option<&PythonModuleName>,
 ) -> TemplateTagCandidateScan {
     let fs = db.file_system();
-    let options = match root_kind {
-        FileRootKind::Project => WalkOptions::project(),
-        FileRootKind::SearchPath => WalkOptions::library_search_path(),
-    };
-
     let mut scan = TemplateTagCandidateScan::new();
 
-    let entries = match fs.walk_root(base_dir, &options) {
+    let entries = match fs.walk_root(base_dir, options) {
         RootWalk::Directory {
             entries,
             issues: walk_issues,
@@ -358,7 +323,7 @@ fn discover_templatetag_candidates(
             continue;
         }
         let path = entry.path;
-        match recognize_candidate_source(fs, base_dir, path, excluded_roots, mode, None) {
+        match recognize_candidate_source(fs, base_dir, path, excluded_roots, active_package) {
             CandidateSourceRecognition::Candidate { app, name, path } => {
                 match TemplateTagCandidate::from_parts(db, project, app, name, path) {
                     Ok(candidate) => scan.candidate(candidate),
@@ -391,7 +356,6 @@ fn recognize_candidate_source(
     base_dir: &Utf8Path,
     path: Utf8PathBuf,
     excluded_roots: &[Utf8PathBuf],
-    mode: TemplateTagDiscoveryMode,
     active_package: Option<&PythonModuleName>,
 ) -> CandidateSourceRecognition {
     if path.extension() != Some("py") {
@@ -421,28 +385,22 @@ fn recognize_candidate_source(
         return CandidateSourceRecognition::NotCandidate;
     }
 
-    let app = match mode {
-        TemplateTagDiscoveryMode::ActivePackage => {
-            let Some(package_module) = active_package else {
-                return CandidateSourceRecognition::NotCandidate;
-            };
-            package_module.clone()
+    let app = if let Some(package_module) = active_package {
+        package_module.clone()
+    } else {
+        let Some(app_dir) = templatetags_dir.parent() else {
+            return CandidateSourceRecognition::NotCandidate;
+        };
+        if app_dir == base_dir || !fs.exists(&app_dir.join("__init__.py")) {
+            return CandidateSourceRecognition::NotCandidate;
         }
-        TemplateTagDiscoveryMode::AvailableCandidate => {
-            let Some(app_dir) = templatetags_dir.parent() else {
-                return CandidateSourceRecognition::NotCandidate;
-            };
-            if app_dir == base_dir || !fs.exists(&app_dir.join("__init__.py")) {
-                return CandidateSourceRecognition::NotCandidate;
-            }
-            let Ok(app_rel) = app_dir.strip_prefix(base_dir) else {
-                return CandidateSourceRecognition::NotCandidate;
-            };
-            let Ok(app) = PythonModuleName::from_relative_package_path(app_rel) else {
-                return CandidateSourceRecognition::NotCandidate;
-            };
-            app
-        }
+        let Ok(app_rel) = app_dir.strip_prefix(base_dir) else {
+            return CandidateSourceRecognition::NotCandidate;
+        };
+        let Ok(app) = PythonModuleName::from_relative_package_path(app_rel) else {
+            return CandidateSourceRecognition::NotCandidate;
+        };
+        app
     };
 
     let Ok(name) = LibraryName::parse(stem) else {
@@ -491,7 +449,6 @@ mod tests {
                     Utf8Path::new("/root"),
                     path.into(),
                     &[],
-                    TemplateTagDiscoveryMode::AvailableCandidate,
                     None,
                 ) {
                     CandidateSourceRecognition::Candidate { app, name, path } => {
@@ -511,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn recognizer_modes_keep_active_and_available_package_shape_distinct() {
+    fn known_package_identity_accepts_namespace_package_shape() {
         let mut fs = InMemoryFileSystem::new();
         fs.add_file(
             "/root/namespace_app/templatetags/__init__.py".into(),
@@ -529,17 +486,9 @@ mod tests {
             Utf8Path::new("/root/namespace_app"),
             path.clone(),
             &[],
-            TemplateTagDiscoveryMode::ActivePackage,
             Some(&package),
         );
-        let available = recognize_candidate_source(
-            &fs,
-            Utf8Path::new("/root"),
-            path,
-            &[],
-            TemplateTagDiscoveryMode::AvailableCandidate,
-            None,
-        );
+        let available = recognize_candidate_source(&fs, Utf8Path::new("/root"), path, &[], None);
 
         let CandidateSourceRecognition::Candidate { app, name, .. } = active else {
             panic!("active package scan should accept namespace package templatetags");

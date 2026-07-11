@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use djls_source::File;
 
 use super::candidates::templatetag_candidates;
-use super::candidates::templatetag_package_candidates;
+use super::candidates::templatetag_candidates_in_package;
 use super::installed_app_package_module;
 use super::names::LibraryName;
 use super::registrations::TemplateLibraryAnalysis;
@@ -909,7 +909,7 @@ fn templatetag_package_libraries(
     package_module: &PythonModuleName,
 ) -> (Vec<DiscoveredLibrary>, Vec<TemplateLibraryIssue>) {
     let (candidates, candidate_issues) =
-        templatetag_package_candidates(db, project, package_module).into_parts();
+        templatetag_candidates_in_package(db, project, package_module).into_parts();
     let mut issues = candidate_issues
         .into_iter()
         .map(|_| TemplateLibraryIssue::Discovery)
