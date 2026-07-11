@@ -321,20 +321,33 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub(crate) fn from_libraries(open: bool, libraries: Vec<TemplateLibrary>) -> Self {
+    pub(crate) fn from_libraries(libraries: Vec<TemplateLibrary>) -> Self {
+        Self::from_libraries_and_configurations(
+            libraries,
+            TemplateLibraryConfigurations::Exhaustive(vec![vec![
+                TemplateBackendLibraries::default(),
+            ]]),
+        )
+    }
+
+    pub(crate) fn from_libraries_with_omissions(libraries: Vec<TemplateLibrary>) -> Self {
+        Self::from_libraries_and_configurations(
+            libraries,
+            TemplateLibraryConfigurations::WithOmissions {
+                known: vec![vec![TemplateBackendLibraries::default()]],
+                omissions: vec![TemplateConfigurationOmission::Settings],
+            },
+        )
+    }
+
+    fn from_libraries_and_configurations(
+        libraries: Vec<TemplateLibrary>,
+        configurations: TemplateLibraryConfigurations,
+    ) -> Self {
         let mut inventory = Self {
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
-            configurations: if open {
-                TemplateLibraryConfigurations::WithOmissions {
-                    known: vec![vec![TemplateBackendLibraries::default()]],
-                    omissions: vec![TemplateConfigurationOmission::Settings],
-                }
-            } else {
-                TemplateLibraryConfigurations::Exhaustive(vec![vec![
-                    TemplateBackendLibraries::default(),
-                ]])
-            },
+            configurations,
             available_by_name: BTreeMap::new(),
             issues: Vec::new(),
         };
@@ -829,7 +842,11 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     let settings = django_settings(db, project);
     let open =
         !settings.installed_apps.is_fully_extracted() || !settings.templates.is_fully_extracted();
-    let mut libraries = TemplateLibraries::from_libraries(open, Vec::new());
+    let mut libraries = if open {
+        TemplateLibraries::from_libraries_with_omissions(Vec::new())
+    } else {
+        TemplateLibraries::from_libraries(Vec::new())
+    };
     let mut installed_template_library_modules = BTreeSet::new();
 
     let django_module = PythonModuleName::parse("django").expect("django is a valid module name");

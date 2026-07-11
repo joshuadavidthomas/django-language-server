@@ -255,7 +255,11 @@ pub mod testing {
             })
             .collect();
 
-        super::TemplateLibraries::from_libraries(has_omissions, libraries)
+        if has_omissions {
+            super::TemplateLibraries::from_libraries_with_omissions(libraries)
+        } else {
+            super::TemplateLibraries::from_libraries(libraries)
+        }
     }
 
     #[must_use]
