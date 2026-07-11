@@ -32,21 +32,23 @@ pub(crate) struct TemplateTagCandidate {
 }
 
 impl TemplateTagCandidate {
-    fn from_source(
+    fn from_parts(
         db: &dyn ProjectDb,
         project: Project,
-        source: TemplateTagCandidateSource,
+        app: PythonModuleName,
+        name: LibraryName,
+        path: Utf8PathBuf,
     ) -> Result<Self, TemplateTagCandidateIssue> {
-        let module_name = templatetag_module(&source.app, &source.name)
-            .expect("template tag candidate source should have a valid module name");
-        let file = path_to_file(db, &source.path)
-            .map_err(|_| TemplateTagCandidateIssue::FileConversion)?;
-        let search_path = search_path_for_source(db, project, &source.path)
+        let module_name = templatetag_module(&app, &name)
+            .expect("recognized template tag candidate should have a valid module name");
+        let file =
+            path_to_file(db, &path).map_err(|_| TemplateTagCandidateIssue::FileConversion)?;
+        let search_path = search_path_for_source(db, project, &path)
             .ok_or(TemplateTagCandidateIssue::RootAssociation)?;
         Ok(Self {
-            app: source.app,
-            name: source.name,
-            module: PythonModule::new(module_name, source.path, file, search_path),
+            app,
+            name,
+            module: PythonModule::new(module_name, path, file, search_path),
         })
     }
 
@@ -67,20 +69,6 @@ impl TemplateTagCandidate {
             .cmp(&other.app)
             .then_with(|| self.name.cmp(&other.name))
             .then_with(|| self.path().cmp(other.path()))
-    }
-}
-
-#[derive(Clone, PartialEq, Eq)]
-struct TemplateTagCandidateSource {
-    app: PythonModuleName,
-    name: LibraryName,
-    path: Utf8PathBuf,
-}
-
-impl TemplateTagCandidateSource {
-    fn new(app: PythonModuleName, name: LibraryName, path: Utf8PathBuf) -> Option<Self> {
-        templatetag_module(&app, &name)?;
-        Some(Self { app, name, path })
     }
 }
 
@@ -107,55 +95,79 @@ pub(crate) enum TemplateTagCandidateIssue {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct TemplateTagCandidates {
-    candidates: Vec<TemplateTagCandidate>,
-    issues: Vec<TemplateTagCandidateIssue>,
+pub(crate) enum TemplateTagCandidateScan {
+    Exhaustive(Vec<TemplateTagCandidate>),
+    WithOmissions {
+        candidates: Vec<TemplateTagCandidate>,
+        first: TemplateTagCandidateIssue,
+        rest: Vec<TemplateTagCandidateIssue>,
+    },
 }
 
-impl TemplateTagCandidates {
-    fn new(candidates: Vec<TemplateTagCandidate>, issues: Vec<TemplateTagCandidateIssue>) -> Self {
-        Self { candidates, issues }
+impl TemplateTagCandidateScan {
+    fn new() -> Self {
+        Self::Exhaustive(Vec::new())
     }
 
     #[must_use]
     pub(crate) fn candidates(&self) -> &[TemplateTagCandidate] {
-        &self.candidates
-    }
-
-    #[must_use]
-    pub(crate) fn issues(&self) -> &[TemplateTagCandidateIssue] {
-        &self.issues
-    }
-
-    fn into_candidates(self) -> Vec<TemplateTagCandidate> {
-        self.candidates
-    }
-}
-
-struct TemplateTagCandidateSourceScan {
-    sources: Vec<TemplateTagCandidateSource>,
-    issues: Vec<TemplateTagCandidateIssue>,
-}
-
-pub(crate) struct TemplateTagPackageScan {
-    candidates: Vec<TemplateTagCandidate>,
-    issues: Vec<TemplateTagCandidateIssue>,
-}
-
-impl TemplateTagPackageScan {
-    fn new() -> Self {
-        Self {
-            candidates: Vec::new(),
-            issues: Vec::new(),
+        match self {
+            Self::Exhaustive(candidates) | Self::WithOmissions { candidates, .. } => candidates,
         }
     }
 
+    #[must_use]
+    pub(crate) const fn has_omissions(&self) -> bool {
+        matches!(self, Self::WithOmissions { .. })
+    }
+
+    fn candidates_mut(&mut self) -> &mut Vec<TemplateTagCandidate> {
+        match self {
+            Self::Exhaustive(candidates) | Self::WithOmissions { candidates, .. } => candidates,
+        }
+    }
+
+    fn candidate(&mut self, candidate: TemplateTagCandidate) {
+        self.candidates_mut().push(candidate);
+    }
+
     fn issue(&mut self, issue: TemplateTagCandidateIssue) {
-        self.issues.push(issue);
+        match self {
+            Self::Exhaustive(candidates) => {
+                let candidates = std::mem::take(candidates);
+                *self = Self::WithOmissions {
+                    candidates,
+                    first: issue,
+                    rest: Vec::new(),
+                };
+            }
+            Self::WithOmissions { rest, .. } => rest.push(issue),
+        }
+    }
+
+    fn sort(&mut self) {
+        self.candidates_mut()
+            .sort_by(TemplateTagCandidate::cmp_by_app_name_path);
+    }
+
+    fn into_candidates(self) -> Vec<TemplateTagCandidate> {
+        match self {
+            Self::Exhaustive(candidates) | Self::WithOmissions { candidates, .. } => candidates,
+        }
     }
 
     pub(crate) fn into_parts(self) -> (Vec<TemplateTagCandidate>, Vec<TemplateTagCandidateIssue>) {
-        (self.candidates, self.issues)
+        match self {
+            Self::Exhaustive(candidates) => (candidates, Vec::new()),
+            Self::WithOmissions {
+                candidates,
+                first,
+                mut rest,
+            } => {
+                rest.insert(0, first);
+                (candidates, rest)
+            }
+        }
     }
 }
 
@@ -163,7 +175,7 @@ impl TemplateTagPackageScan {
 pub(crate) fn templatetag_candidates(
     db: &dyn ProjectDb,
     project: Project,
-) -> TemplateTagCandidates {
+) -> TemplateTagCandidateScan {
     project.touch_search_path_roots(db);
     walk_candidates(db, project, TemplateTagDiscoveryMode::AvailableCandidate)
 }
@@ -183,8 +195,8 @@ pub(crate) fn templatetag_package_candidates(
     db: &dyn ProjectDb,
     project: Project,
     package_module: &PythonModuleName,
-) -> TemplateTagPackageScan {
-    let mut scan = TemplateTagPackageScan::new();
+) -> TemplateTagCandidateScan {
+    let mut scan = TemplateTagCandidateScan::new();
 
     let package_dirs = resolve_package_dirs(db, project, package_module.clone());
     if package_dirs.dirs.is_empty() {
@@ -229,9 +241,9 @@ pub(crate) fn templatetag_package_candidates(
                 TemplateTagDiscoveryMode::ActivePackage,
                 Some(package_module),
             ) {
-                CandidateSourceRecognition::Candidate(source) => {
-                    match TemplateTagCandidate::from_source(db, project, source) {
-                        Ok(candidate) => scan.candidates.push(candidate),
+                CandidateSourceRecognition::Candidate { app, name, path } => {
+                    match TemplateTagCandidate::from_parts(db, project, app, name, path) {
+                        Ok(candidate) => scan.candidate(candidate),
                         Err(issue) => scan.issue(issue),
                     }
                 }
@@ -243,8 +255,7 @@ pub(crate) fn templatetag_package_candidates(
         }
     }
 
-    scan.candidates
-        .sort_by(TemplateTagCandidate::cmp_by_app_name_path);
+    scan.sort();
     scan
 }
 
@@ -252,7 +263,7 @@ fn walk_candidates(
     db: &dyn ProjectDb,
     project: Project,
     mode: TemplateTagDiscoveryMode,
-) -> TemplateTagCandidates {
+) -> TemplateTagCandidateScan {
     let search_paths = project.search_paths(db);
     let mut candidates_by_path: Vec<(usize, TemplateTagCandidate)> = Vec::new();
     let mut path_indexes: FxHashMap<Utf8PathBuf, usize> = FxHashMap::default();
@@ -280,9 +291,10 @@ fn walk_candidates(
             &excluded_paths,
             mode,
         );
-        issues.extend_from_slice(scan.issues());
+        let (scan_candidates, scan_issues) = scan.into_parts();
+        issues.extend(scan_issues);
 
-        for candidate in scan.into_candidates() {
+        for candidate in scan_candidates {
             let path = candidate.path().to_path_buf();
             if let Some(index) = path_indexes.get(&path).copied() {
                 let (existing_search_path_len, existing) = &mut candidates_by_path[index];
@@ -301,7 +313,11 @@ fn walk_candidates(
         .into_iter()
         .map(|(_search_path_len, candidate)| candidate)
         .collect();
-    TemplateTagCandidates::new(candidates, issues)
+    let mut scan = TemplateTagCandidateScan::Exhaustive(candidates);
+    for issue in issues {
+        scan.issue(issue);
+    }
+    scan
 }
 
 fn discover_templatetag_candidates(
@@ -311,41 +327,14 @@ fn discover_templatetag_candidates(
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
     mode: TemplateTagDiscoveryMode,
-) -> TemplateTagCandidates {
-    let source_scan = discover_templatetag_candidate_sources(
-        db.file_system(),
-        base_dir,
-        root_kind,
-        excluded_roots,
-        mode,
-    );
-    let mut issues = source_scan.issues;
-    let mut results = Vec::new();
-    for source in source_scan.sources {
-        match TemplateTagCandidate::from_source(db, project, source) {
-            Ok(candidate) => results.push(candidate),
-            Err(issue) => issues.push(issue),
-        }
-    }
-
-    results.sort_by(TemplateTagCandidate::cmp_by_app_name_path);
-    TemplateTagCandidates::new(results, issues)
-}
-
-fn discover_templatetag_candidate_sources(
-    fs: &dyn FileSystem,
-    base_dir: &Utf8Path,
-    root_kind: FileRootKind,
-    excluded_roots: &[Utf8PathBuf],
-    mode: TemplateTagDiscoveryMode,
-) -> TemplateTagCandidateSourceScan {
+) -> TemplateTagCandidateScan {
+    let fs = db.file_system();
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
         FileRootKind::SearchPath => WalkOptions::library_search_path(),
     };
 
-    let mut results = Vec::new();
-    let mut issues = Vec::new();
+    let mut scan = TemplateTagCandidateScan::new();
 
     let entries = match fs.walk_root(base_dir, &options) {
         RootWalk::Directory {
@@ -358,18 +347,15 @@ fn discover_templatetag_candidate_sources(
                     base_dir,
                     walk_issues
                 );
-                issues.push(TemplateTagCandidateIssue::Walk);
+                scan.issue(TemplateTagCandidateIssue::Walk);
             }
             entries
         }
         RootWalk::Missing | RootWalk::File(_) => Vec::new(),
         RootWalk::Inaccessible(kind) => {
             tracing::warn!("Failed to walk Python source root {}: {:?}", base_dir, kind);
-            issues.push(TemplateTagCandidateIssue::Walk);
-            return TemplateTagCandidateSourceScan {
-                sources: results,
-                issues,
-            };
+            scan.issue(TemplateTagCandidateIssue::Walk);
+            return scan;
         }
     };
 
@@ -379,22 +365,29 @@ fn discover_templatetag_candidate_sources(
         }
         let path = entry.path;
         match recognize_candidate_source(fs, base_dir, path, excluded_roots, mode, None) {
-            CandidateSourceRecognition::Candidate(candidate) => results.push(candidate),
+            CandidateSourceRecognition::Candidate { app, name, path } => {
+                match TemplateTagCandidate::from_parts(db, project, app, name, path) {
+                    Ok(candidate) => scan.candidate(candidate),
+                    Err(issue) => scan.issue(issue),
+                }
+            }
             CandidateSourceRecognition::InvalidIdentifier => {
-                issues.push(TemplateTagCandidateIssue::InvalidIdentifier);
+                scan.issue(TemplateTagCandidateIssue::InvalidIdentifier);
             }
             CandidateSourceRecognition::NotCandidate => {}
         }
     }
 
-    TemplateTagCandidateSourceScan {
-        sources: results,
-        issues,
-    }
+    scan.sort();
+    scan
 }
 
 enum CandidateSourceRecognition {
-    Candidate(TemplateTagCandidateSource),
+    Candidate {
+        app: PythonModuleName,
+        name: LibraryName,
+        path: Utf8PathBuf,
+    },
     InvalidIdentifier,
     NotCandidate,
 }
@@ -461,10 +454,10 @@ fn recognize_candidate_source(
     let Ok(name) = LibraryName::parse(stem) else {
         return CandidateSourceRecognition::InvalidIdentifier;
     };
-    let Some(candidate) = TemplateTagCandidateSource::new(app, name, path) else {
+    if templatetag_module(&app, &name).is_none() {
         return CandidateSourceRecognition::InvalidIdentifier;
-    };
-    CandidateSourceRecognition::Candidate(candidate)
+    }
+    CandidateSourceRecognition::Candidate { app, name, path }
 }
 
 fn templatetag_module(app: &PythonModuleName, name: &LibraryName) -> Option<PythonModuleName> {
@@ -490,20 +483,37 @@ mod tests {
         fs.add_file("/root/loose/templatetags/__init__.py".into(), String::new());
         fs.add_file("/root/loose/templatetags/baz.py".into(), String::new());
 
-        let discovered = discover_templatetag_candidate_sources(
-            &fs,
-            Utf8Path::new("/root"),
-            FileRootKind::Project,
-            &[],
-            TemplateTagDiscoveryMode::AvailableCandidate,
-        );
+        let paths = [
+            "/root/pkg_a/templatetags/foo.py",
+            "/root/pkg_a/templatetags/_private.py",
+            "/root/pkg_b/templatetags/bar.py",
+            "/root/loose/templatetags/baz.py",
+        ];
+        let discovered = paths
+            .into_iter()
+            .filter_map(|path| {
+                match recognize_candidate_source(
+                    &fs,
+                    Utf8Path::new("/root"),
+                    path.into(),
+                    &[],
+                    TemplateTagDiscoveryMode::AvailableCandidate,
+                    None,
+                ) {
+                    CandidateSourceRecognition::Candidate { app, name, path } => {
+                        Some((app, name, path))
+                    }
+                    CandidateSourceRecognition::InvalidIdentifier
+                    | CandidateSourceRecognition::NotCandidate => None,
+                }
+            })
+            .collect::<Vec<_>>();
 
-        assert!(discovered.issues.is_empty());
-        assert_eq!(discovered.sources.len(), 1);
-        let candidate = &discovered.sources[0];
-        assert_eq!(candidate.app.as_str(), "pkg_a");
-        assert_eq!(candidate.name.as_str(), "foo");
-        assert_eq!(candidate.path.as_str(), "/root/pkg_a/templatetags/foo.py");
+        assert_eq!(discovered.len(), 1);
+        let (app, name, path) = &discovered[0];
+        assert_eq!(app.as_str(), "pkg_a");
+        assert_eq!(name.as_str(), "foo");
+        assert_eq!(path.as_str(), "/root/pkg_a/templatetags/foo.py");
     }
 
     #[test]
@@ -537,11 +547,11 @@ mod tests {
             None,
         );
 
-        let CandidateSourceRecognition::Candidate(candidate) = active else {
+        let CandidateSourceRecognition::Candidate { app, name, .. } = active else {
             panic!("active package scan should accept namespace package templatetags");
         };
-        assert_eq!(candidate.app.as_str(), "namespace_app");
-        assert_eq!(candidate.name.as_str(), "tools");
+        assert_eq!(app.as_str(), "namespace_app");
+        assert_eq!(name.as_str(), "tools");
         assert!(matches!(
             available,
             CandidateSourceRecognition::NotCandidate

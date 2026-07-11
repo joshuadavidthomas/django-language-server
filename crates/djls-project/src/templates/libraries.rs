@@ -688,7 +688,7 @@ impl TemplateLibraries {
         excluded_modules.extend(installed_template_library_modules.iter().cloned());
 
         let candidates = templatetag_candidates(db, project);
-        if !candidates.issues().is_empty() {
+        if candidates.has_omissions() {
             self.issues.push(TemplateLibraryIssue::Discovery);
         }
         for candidate in candidates.candidates().iter().cloned() {
