@@ -23,7 +23,6 @@ use djls_project::SplitPosition;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
-use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
@@ -178,53 +177,46 @@ pub fn make_template_libraries(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    make_template_libraries_with_status(
-        db,
-        tags,
-        filters,
-        libraries,
-        builtins,
-        TemplateInventoryStatus::Complete,
-    )
+    make_template_libraries_with_open_remainder(db, tags, filters, libraries, builtins, false)
 }
 
-/// Build Template Library facts from JSON fixture rows with explicit inventory status.
+/// Build Template Library facts from JSON fixture rows with explicit open-remainder evidence.
 ///
 /// # Panics
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_status(
+pub fn make_template_libraries_with_open_remainder(
     db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
-    status: TemplateInventoryStatus,
+    open: bool,
 ) -> TemplateLibraries {
-    make_template_libraries_with_available_and_status(
+    make_template_libraries_with_available_and_open_remainder(
         db,
         tags,
         filters,
         libraries,
         builtins,
         &[],
-        status,
+        open,
     )
 }
 
-/// Build Template Library facts from JSON fixture rows plus available libraries with explicit inventory status.
+/// Build Template Library facts from JSON fixture rows plus available libraries with explicit open-remainder evidence.
 ///
 /// # Panics
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_available_and_status(
+pub fn make_template_libraries_with_available_and_open_remainder(
     db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
     available_libraries: &[AvailableTemplateLibraryFixture],
-    status: TemplateInventoryStatus,
+    open: bool,
 ) -> TemplateLibraries {
     let mut builtin_symbols = builtin_symbol_buckets(builtins);
     let mut installed_symbols = installed_symbol_buckets(libraries);
@@ -272,7 +264,7 @@ pub fn make_template_libraries_with_available_and_status(
         },
     ));
 
-    testing::template_libraries(db, status, library_inputs)
+    testing::template_libraries(db, open, library_inputs)
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;

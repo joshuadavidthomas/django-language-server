@@ -1,4 +1,5 @@
 use djls_project::FindTemplateResult;
+use djls_project::LoadableLibraryLookup;
 use djls_project::template_resolution;
 use djls_semantic::resolve_reference_name;
 use djls_semantic::template_library_references_in_file;
@@ -62,9 +63,12 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
             .as_slice(db)
             .iter()
             .filter_map(|reference| {
-                let library = db
+                let LoadableLibraryLookup::Found(library) = db
                     .template_libraries()
-                    .installed_library(reference.load_name())?;
+                    .loadable_library(reference.load_name())
+                else {
+                    return None;
+                };
                 Some(ls_types::DocumentLink {
                     range: reference.span().to_lsp_range(line_index),
                     target: Some(library.file().path(db).to_lsp_uri()?),

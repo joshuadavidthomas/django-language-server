@@ -56,6 +56,8 @@ pub use templates::InconclusiveTemplateSearch;
 pub use templates::InvalidTemplateIdentifier;
 pub use templates::KnownOptions;
 pub use templates::LibraryName;
+pub use templates::LoadableLibraryLookup;
+pub use templates::MissingLibraryLookup;
 pub use templates::RequiredKeyword;
 pub use templates::SplitPosition;
 pub use templates::SymbolDefinition;
@@ -68,7 +70,6 @@ pub use templates::TemplateContextProcessor;
 pub use templates::TemplateContextProcessors;
 pub use templates::TemplateDirectories;
 pub use templates::TemplateDoesNotExist;
-pub use templates::TemplateInventoryStatus;
 pub use templates::TemplateLibraries;
 pub use templates::TemplateLibrary;
 pub use templates::TemplateName;
@@ -78,9 +79,8 @@ pub use templates::TemplateSymbol;
 pub use templates::TemplateSymbolAvailability;
 pub use templates::TemplateSymbolCandidate;
 pub use templates::TemplateSymbolKind;
+pub use templates::TemplateSymbolLookup;
 pub use templates::TemplateSymbolName;
-pub use templates::UnknownLibraryOutcome;
-pub use templates::UnknownSymbolOutcome;
 pub use templates::extract_block_specs;
 pub use templates::extract_filter_arities;
 pub use templates::extract_tag_rules;
@@ -180,6 +180,17 @@ pub mod testing {
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct TemplateBackendLibrariesInput {
+        pub loadable: Vec<(super::LibraryName, super::PythonModuleName)>,
+        pub builtins: Vec<super::PythonModuleName>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct TemplateLibraryConfigurationInput {
+        pub backends: Vec<TemplateBackendLibrariesInput>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TemplateLibraryInput {
         Builtin {
             module: super::PythonModuleName,
@@ -201,7 +212,7 @@ pub mod testing {
     #[must_use]
     pub fn template_libraries(
         db: &dyn super::Db,
-        status: super::TemplateInventoryStatus,
+        open: bool,
         inputs: Vec<TemplateLibraryInput>,
     ) -> super::TemplateLibraries {
         let libraries = inputs
@@ -233,7 +244,30 @@ pub mod testing {
             })
             .collect();
 
-        super::TemplateLibraries::from_libraries(status, libraries)
+        super::TemplateLibraries::from_libraries(open, libraries)
+    }
+
+    #[must_use]
+    pub fn template_libraries_with_configurations(
+        db: &dyn super::Db,
+        inputs: Vec<TemplateLibraryInput>,
+        configurations: Vec<TemplateLibraryConfigurationInput>,
+        open: bool,
+    ) -> super::TemplateLibraries {
+        let mut libraries = template_libraries(db, open, inputs);
+        libraries.set_testing_configurations(
+            configurations
+                .into_iter()
+                .map(|configuration| {
+                    configuration
+                        .backends
+                        .into_iter()
+                        .map(|backend| (backend.loadable, backend.builtins))
+                        .collect()
+                })
+                .collect(),
+        );
+        libraries
     }
 
     fn testing_module(

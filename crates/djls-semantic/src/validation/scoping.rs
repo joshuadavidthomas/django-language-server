@@ -1,7 +1,8 @@
 use djls_project::LibraryName;
+use djls_project::MissingLibraryLookup;
 use djls_project::TemplateLibraries;
-use djls_project::UnknownLibraryOutcome;
-use djls_project::UnknownSymbolOutcome;
+use djls_project::TemplateSymbolKind;
+use djls_project::TemplateSymbolLookup;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::TagBit;
@@ -22,33 +23,31 @@ pub(crate) fn check_tag_scoping_rule(
     symbols: &AvailableSymbols,
     template_libraries: &TemplateLibraries,
 ) {
-    if !template_libraries.has_symbol_inventory() {
-        return;
-    }
-
     let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
 
     match symbols.check_tag(name) {
         SymbolAvailability::Available => {}
-        SymbolAvailability::Unknown => match template_libraries.unknown_tag_outcome(name) {
-            UnknownSymbolOutcome::Suppressed => {}
-            UnknownSymbolOutcome::Available { app, load_name } => {
-                ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
-                    tag: name.to_string(),
-                    app: app.as_str().to_string(),
-                    load_name: load_name.as_str().to_string(),
-                    span: full_span,
-                })
-                .accumulate(db);
+        SymbolAvailability::Unknown => {
+            match template_libraries.template_symbol_lookup(name, TemplateSymbolKind::Tag) {
+                TemplateSymbolLookup::Inconclusive => {}
+                TemplateSymbolLookup::FoundInApp { app, load_name } => {
+                    ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
+                        tag: name.to_string(),
+                        app: app.as_str().to_string(),
+                        load_name: load_name.as_str().to_string(),
+                        span: full_span,
+                    })
+                    .accumulate(db);
+                }
+                TemplateSymbolLookup::Absent => {
+                    ValidationErrorAccumulator(ValidationError::UnknownTag {
+                        tag: name.to_string(),
+                        span: full_span,
+                    })
+                    .accumulate(db);
+                }
             }
-            UnknownSymbolOutcome::TrulyUnknown => {
-                ValidationErrorAccumulator(ValidationError::UnknownTag {
-                    tag: name.to_string(),
-                    span: full_span,
-                })
-                .accumulate(db);
-            }
-        },
+        }
         SymbolAvailability::Unloaded { library } => {
             ValidationErrorAccumulator(ValidationError::UnloadedTag {
                 tag: name.to_string(),
@@ -75,16 +74,14 @@ pub(crate) fn check_filter_scoping_rule(
     symbols: &AvailableSymbols,
     template_libraries: &TemplateLibraries,
 ) {
-    if !template_libraries.has_symbol_inventory() {
-        return;
-    }
-
     match symbols.check_filter(&filter.name) {
         SymbolAvailability::Available => {}
         SymbolAvailability::Unknown => {
-            match template_libraries.unknown_filter_outcome(&filter.name) {
-                UnknownSymbolOutcome::Suppressed => {}
-                UnknownSymbolOutcome::Available { app, load_name } => {
+            match template_libraries
+                .template_symbol_lookup(&filter.name, TemplateSymbolKind::Filter)
+            {
+                TemplateSymbolLookup::Inconclusive => {}
+                TemplateSymbolLookup::FoundInApp { app, load_name } => {
                     ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
                         filter: filter.name.clone(),
                         app: app.as_str().to_string(),
@@ -93,7 +90,7 @@ pub(crate) fn check_filter_scoping_rule(
                     })
                     .accumulate(db);
                 }
-                UnknownSymbolOutcome::TrulyUnknown => {
+                TemplateSymbolLookup::Absent => {
                     ValidationErrorAccumulator(ValidationError::UnknownFilter {
                         filter: filter.name.clone(),
                         span: filter.span,
@@ -128,10 +125,6 @@ pub(crate) fn check_load_libraries_rule(
     bits: &[TagBit],
     template_libraries: &TemplateLibraries,
 ) {
-    if !template_libraries.has_symbol_inventory() {
-        return;
-    }
-
     let Some(kind) = crate::scoping::LoadKind::from_tag(name, bits) else {
         return;
     };
@@ -142,9 +135,9 @@ pub(crate) fn check_load_libraries_rule(
             continue;
         };
 
-        match template_libraries.unknown_library_outcome(&load_name) {
-            UnknownLibraryOutcome::Suppressed => {}
-            UnknownLibraryOutcome::AvailableInApps { primary_app, apps } => {
+        match template_libraries.missing_library_lookup(&load_name) {
+            MissingLibraryLookup::Inconclusive => {}
+            MissingLibraryLookup::FoundInApps { primary_app, apps } => {
                 let candidates = apps
                     .into_iter()
                     .map(|app| app.as_str().to_string())
@@ -157,7 +150,7 @@ pub(crate) fn check_load_libraries_rule(
                 })
                 .accumulate(db);
             }
-            UnknownLibraryOutcome::TrulyUnknown => {
+            MissingLibraryLookup::Absent => {
                 ValidationErrorAccumulator(ValidationError::UnknownLibrary {
                     name: lib.as_str().to_string(),
                     span: lib.span(),

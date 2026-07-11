@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use djls_project::LoadableLibraryLookup;
 use djls_project::TemplateLibraries;
 use djls_source::Span;
 use djls_templates::TagBit;
@@ -205,15 +206,16 @@ impl LoadedLibraries {
 
             match &stmt.kind {
                 LoadKind::FullLoad { libraries } => libraries.iter().any(|library| {
-                    template_libraries
-                        .installed_library_str(library.as_str())
-                        .is_none()
+                    matches!(
+                        template_libraries.loadable_library_str(library.as_str()),
+                        LoadableLibraryLookup::Inconclusive(_)
+                    )
                 }),
                 LoadKind::SelectiveImport { symbols, library } => {
-                    template_libraries
-                        .installed_library_str(library.as_str())
-                        .is_none()
-                        && symbols.iter().any(|loaded| loaded.as_str() == symbol)
+                    matches!(
+                        template_libraries.loadable_library_str(library.as_str()),
+                        LoadableLibraryLookup::Inconclusive(_)
+                    ) && symbols.iter().any(|loaded| loaded.as_str() == symbol)
                 }
             }
         })

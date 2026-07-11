@@ -19,7 +19,9 @@ use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
 use crate::python::ExactPythonModule;
+use crate::python::RecoveredPythonModuleResult;
 use crate::python::exact_python_module;
+use crate::python::recovered_python_module;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];
@@ -398,14 +400,35 @@ fn callable_name(expr: &Expr) -> Option<String> {
 
 pub(crate) enum TemplateLibraryAnalysis {
     Failed,
-    ParsedNotLibrary,
-    Library { symbols: Vec<TemplateSymbol> },
+    ParsedNotLibrary {
+        source: TemplateLibrarySource,
+    },
+    Library {
+        symbols: Vec<TemplateSymbol>,
+        source: TemplateLibrarySource,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TemplateLibrarySource {
+    Exact,
+    Recovered,
 }
 
 impl TemplateLibraryAnalysis {
     pub(crate) fn from_file(db: &dyn ProjectDb, file: File) -> Self {
-        let ExactPythonModule::Ready(module) = exact_python_module(db, file) else {
-            return Self::Failed;
+        let (module, source) = match exact_python_module(db, file) {
+            ExactPythonModule::Ready(module) => (module, TemplateLibrarySource::Exact),
+            ExactPythonModule::OrdinarySyntaxErrors => {
+                let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file)
+                else {
+                    return Self::Failed;
+                };
+                (module, TemplateLibrarySource::Recovered)
+            }
+            ExactPythonModule::NotPython | ExactPythonModule::Unreadable(_) => {
+                return Self::Failed;
+            }
         };
 
         let mut symbols = Vec::new();
@@ -426,9 +449,9 @@ impl TemplateLibraryAnalysis {
 
         let defines_library = module.body(db).iter().any(Self::stmt_defines_library);
         if defines_library || !symbols.is_empty() {
-            Self::Library { symbols }
+            Self::Library { symbols, source }
         } else {
-            Self::ParsedNotLibrary
+            Self::ParsedNotLibrary { source }
         }
     }
 

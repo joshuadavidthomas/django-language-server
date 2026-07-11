@@ -98,7 +98,7 @@ fn insert_template_symbols(
     template_libraries: &TemplateLibraries,
 ) {
     for library in template_libraries
-        .active_libraries()
+        .definitely_loaded_libraries()
         .filter(|library| library.load_name().is_none())
     {
         for symbol in library.symbols() {
@@ -109,8 +109,10 @@ fn insert_template_symbols(
         }
     }
 
+    // Known loadable records remain useful as unloaded candidates even when an
+    // open configuration remainder prevents asserting that any one is active.
     for library in template_libraries
-        .active_libraries()
+        .resolved_libraries()
         .filter(|library| library.load_name().is_some())
     {
         let load_name = library

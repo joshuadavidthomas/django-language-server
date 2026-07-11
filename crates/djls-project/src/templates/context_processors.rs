@@ -9,29 +9,19 @@ use crate::settings::TemplateContextProcessorPath;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
 use crate::settings::types::Originated;
-use crate::templates::libraries::TemplateInventoryStatus;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateContextProcessors {
-    status: TemplateInventoryStatus,
-    processors: Vec<TemplateContextProcessor>,
+enum ContextProcessorOmission {
+    Settings,
+    Backend,
 }
 
-impl Default for TemplateContextProcessors {
-    fn default() -> Self {
-        Self {
-            status: TemplateInventoryStatus::NotDiscovered,
-            processors: Vec::new(),
-        }
-    }
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TemplateContextProcessors {
+    processors: Vec<TemplateContextProcessor>,
+    omissions: Vec<ContextProcessorOmission>,
 }
 
 impl TemplateContextProcessors {
-    #[must_use]
-    pub fn status(&self) -> TemplateInventoryStatus {
-        self.status
-    }
-
     #[must_use]
     pub fn processors(&self) -> &[TemplateContextProcessor] {
         &self.processors
@@ -80,10 +70,10 @@ pub fn template_context_processors(
     }
 
     let settings = django_settings(db, project);
-    let mut status = if settings.templates.is_fully_extracted() {
-        TemplateInventoryStatus::Complete
+    let mut omissions = if settings.templates.is_fully_extracted() {
+        Vec::new()
     } else {
-        TemplateInventoryStatus::Incomplete
+        vec![ContextProcessorOmission::Settings]
     };
     let mut processors = Vec::new();
 
@@ -94,7 +84,7 @@ pub fn template_context_processors(
         .filter(|backend| backend.is_django_templates_backend())
     {
         if !backend.is_fully_extracted() {
-            status = TemplateInventoryStatus::Incomplete;
+            omissions.push(ContextProcessorOmission::Backend);
         }
 
         for path in &backend.context_processors {
@@ -107,5 +97,8 @@ pub fn template_context_processors(
         }
     }
 
-    TemplateContextProcessors { status, processors }
+    TemplateContextProcessors {
+        processors,
+        omissions,
+    }
 }

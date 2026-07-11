@@ -8,7 +8,6 @@ use djls_project::LibraryName;
 use djls_project::PythonModuleName;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
-use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
@@ -213,7 +212,7 @@ fn build_template_libraries(
     db: &dyn ProjectDb,
     inputs: &[TemplateLibraryInput],
 ) -> djls_project::TemplateLibraries {
-    testing::template_libraries(db, TemplateInventoryStatus::Complete, inputs.to_vec())
+    testing::template_libraries(db, false, inputs.to_vec())
 }
 
 fn build_realistic_specs() -> RealisticSpecs {

@@ -1,20 +1,26 @@
 use djls_project::LibraryName;
+use djls_project::LoadableLibraryLookup;
+use djls_project::MissingLibraryLookup;
 use djls_project::PythonModuleName;
 use djls_project::SymbolDefinition;
-use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
+use djls_project::TemplateSymbolLookup;
 use djls_project::TemplateSymbolName;
-use djls_project::UnknownLibraryOutcome;
-use djls_project::UnknownSymbolOutcome;
 use djls_project::testing;
+use djls_project::testing::TemplateBackendLibrariesInput;
+use djls_project::testing::TemplateLibraryConfigurationInput;
 use djls_project::testing::TemplateLibraryInput;
 use djls_testing::TestDatabase;
 
 fn module(name: &str) -> PythonModuleName {
     PythonModuleName::parse(name).unwrap()
+}
+
+fn library_name(name: &str) -> LibraryName {
+    LibraryName::parse(name).unwrap()
 }
 
 fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TemplateSymbol {
@@ -26,316 +32,201 @@ fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TemplateSy
     }
 }
 
-fn library_name(name: &str) -> LibraryName {
-    LibraryName::parse(name).unwrap()
+fn builtin(module: &str, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
+    TemplateLibraryInput::Builtin {
+        module: self::module(module),
+        symbols,
+    }
 }
 
-fn libraries(
-    status: TemplateInventoryStatus,
-    builtins: Vec<TemplateLibraryInput>,
-    installed: Vec<TemplateLibraryInput>,
-    available: Vec<TemplateLibraryInput>,
-) -> TemplateLibraries {
-    let db = TestDatabase::new();
-    let inputs = builtins
-        .into_iter()
-        .chain(installed)
-        .chain(available)
-        .collect();
-    testing::template_libraries(&db, status, inputs)
-}
-
-fn empty_libraries(status: TemplateInventoryStatus) -> TemplateLibraries {
-    libraries(status, Vec::new(), Vec::new(), Vec::new())
-}
-
-fn builtin(module: PythonModuleName, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
-    TemplateLibraryInput::Builtin { module, symbols }
-}
-
-fn installed(
-    load_name: LibraryName,
-    module: PythonModuleName,
-    symbols: Vec<TemplateSymbol>,
-) -> TemplateLibraryInput {
+fn installed(load_name: &str, module: &str, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
     TemplateLibraryInput::Installed {
-        load_name,
-        module,
+        load_name: library_name(load_name),
+        module: self::module(module),
         symbols,
     }
 }
 
 fn available(
-    load_name: LibraryName,
-    app: PythonModuleName,
-    module: PythonModuleName,
+    load_name: &str,
+    app: &str,
+    module: &str,
     symbols: Vec<TemplateSymbol>,
 ) -> TemplateLibraryInput {
     TemplateLibraryInput::Available {
-        load_name,
-        app,
-        module,
+        load_name: library_name(load_name),
+        app: self::module(app),
+        module: self::module(module),
         symbols,
     }
 }
 
-#[test]
-fn unknown_tag_outcome_suppresses_incomplete_inventory() {
-    let libraries = empty_libraries(TemplateInventoryStatus::Incomplete);
+fn libraries(open: bool, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraries {
+    testing::template_libraries(&TestDatabase::new(), open, inputs)
+}
 
+fn backend(loadable: Vec<(&str, &str)>, builtins: Vec<&str>) -> TemplateBackendLibrariesInput {
+    TemplateBackendLibrariesInput {
+        loadable: loadable
+            .into_iter()
+            .map(|(name, module)| (library_name(name), self::module(module)))
+            .collect(),
+        builtins: builtins.into_iter().map(self::module).collect(),
+    }
+}
+
+fn configured_libraries(
+    open: bool,
+    inputs: Vec<TemplateLibraryInput>,
+    configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
+) -> TemplateLibraries {
+    let db = TestDatabase::new();
+    testing::template_libraries_with_configurations(
+        &db,
+        inputs,
+        configurations
+            .into_iter()
+            .map(|backends| TemplateLibraryConfigurationInput { backends })
+            .collect(),
+        open,
+    )
+}
+
+#[test]
+fn closed_and_open_misses_are_distinct() {
+    let name = library_name("missing");
     assert_eq!(
-        libraries.unknown_tag_outcome("missing"),
-        UnknownSymbolOutcome::Suppressed
+        libraries(false, Vec::new()).loadable_library(&name),
+        LoadableLibraryLookup::Absent
+    );
+    assert_eq!(
+        libraries(true, Vec::new()).loadable_library(&name),
+        LoadableLibraryLookup::Inconclusive(Vec::new())
     );
 }
 
 #[test]
-fn unknown_tag_outcome_reports_available_app_candidate() {
+fn configuration_lookup_distinguishes_unanimous_disagreement_and_open_remainder() {
+    let inputs = vec![
+        installed("shared", "project.alpha", Vec::new()),
+        installed("shared", "project.beta", Vec::new()),
+    ];
+    let unanimous = configured_libraries(
+        false,
+        inputs.clone(),
+        vec![vec![backend(vec![("shared", "project.alpha")], vec![])]],
+    );
+    assert!(matches!(
+        unanimous.loadable_library(&library_name("shared")),
+        LoadableLibraryLookup::Found(library) if library.module_name_str() == "project.alpha"
+    ));
+
+    let disagreement = configured_libraries(
+        false,
+        inputs.clone(),
+        vec![vec![
+            backend(vec![("shared", "project.alpha")], vec![]),
+            backend(vec![("shared", "project.beta")], vec![]),
+        ]],
+    );
+    assert!(matches!(
+        disagreement.loadable_library(&library_name("shared")),
+        LoadableLibraryLookup::Ambiguous(records) if records.len() == 2
+    ));
+
+    let present_absent = configured_libraries(
+        false,
+        inputs.clone(),
+        vec![vec![
+            backend(vec![("shared", "project.alpha")], vec![]),
+            backend(vec![], vec![]),
+        ]],
+    );
+    assert!(matches!(
+        present_absent.loadable_library(&library_name("shared")),
+        LoadableLibraryLookup::Ambiguous(records) if records.len() == 1
+    ));
+
+    let open = configured_libraries(
+        true,
+        inputs,
+        vec![vec![backend(vec![("shared", "project.alpha")], vec![])]],
+    );
+    assert!(matches!(
+        open.loadable_library(&library_name("shared")),
+        LoadableLibraryLookup::Inconclusive(records) if records.len() == 1
+    ));
+}
+
+#[test]
+fn installed_duplicate_load_name_uses_last_record() {
+    let libraries = libraries(
+        false,
+        vec![
+            installed("custom", "project.templatetags.original", Vec::new()),
+            installed("custom", "project.templatetags.replacement", Vec::new()),
+        ],
+    );
+    let LoadableLibraryLookup::Found(library) = libraries.loadable_library(&library_name("custom"))
+    else {
+        panic!("expected a definitive installed library");
+    };
+    assert_eq!(
+        library.module_name_str(),
+        "project.templatetags.replacement"
+    );
+}
+
+#[test]
+fn available_symbol_guidance_survives_open_remainder() {
     let app = module("available_app");
     let load_name = library_name("extra_tags");
     let libraries = libraries(
-        TemplateInventoryStatus::Complete,
-        Vec::new(),
-        Vec::new(),
+        true,
         vec![available(
-            load_name.clone(),
-            app.clone(),
-            module("available_app.templatetags.extra_tags"),
+            "extra_tags",
+            "available_app",
+            "available_app.templatetags.extra_tags",
             vec![symbol(TemplateSymbolKind::Tag, "extra", None)],
         )],
     );
-
     assert_eq!(
-        libraries.unknown_tag_outcome("extra"),
-        UnknownSymbolOutcome::Available { app, load_name }
+        libraries.template_symbol_lookup("extra", TemplateSymbolKind::Tag),
+        TemplateSymbolLookup::FoundInApp { app, load_name }
     );
 }
 
 #[test]
-fn unknown_tag_outcome_reports_truly_unknown() {
-    let libraries = empty_libraries(TemplateInventoryStatus::Complete);
-
-    assert_eq!(
-        libraries.unknown_tag_outcome("missing"),
-        UnknownSymbolOutcome::TrulyUnknown
-    );
-}
-
-#[test]
-fn unknown_filter_outcome_suppresses_incomplete_inventory() {
-    let libraries = empty_libraries(TemplateInventoryStatus::Incomplete);
-
-    assert_eq!(
-        libraries.unknown_filter_outcome("missing"),
-        UnknownSymbolOutcome::Suppressed
-    );
-}
-
-#[test]
-fn unknown_filter_outcome_reports_available_app_candidate() {
-    let app = module("available_app");
-    let load_name = library_name("extra_filters");
+fn available_library_guidance_is_sorted_and_deduplicated() {
     let libraries = libraries(
-        TemplateInventoryStatus::Complete,
-        Vec::new(),
-        Vec::new(),
-        vec![available(
-            load_name.clone(),
-            app.clone(),
-            module("available_app.templatetags.extra_filters"),
-            vec![symbol(TemplateSymbolKind::Filter, "extra", None)],
-        )],
-    );
-
-    assert_eq!(
-        libraries.unknown_filter_outcome("extra"),
-        UnknownSymbolOutcome::Available { app, load_name }
-    );
-}
-
-#[test]
-fn unknown_filter_outcome_reports_truly_unknown() {
-    let libraries = empty_libraries(TemplateInventoryStatus::Complete);
-
-    assert_eq!(
-        libraries.unknown_filter_outcome("missing"),
-        UnknownSymbolOutcome::TrulyUnknown
-    );
-}
-
-#[test]
-fn unknown_library_outcome_suppresses_incomplete_inventory() {
-    let libraries = empty_libraries(TemplateInventoryStatus::Incomplete);
-
-    assert_eq!(
-        libraries.unknown_library_outcome(&library_name("missing")),
-        UnknownLibraryOutcome::Suppressed
-    );
-}
-
-#[test]
-fn unknown_library_outcome_reports_available_app_candidates() {
-    let shared = library_name("shared");
-    let alpha = module("alpha");
-    let beta = module("beta");
-    let libraries = libraries(
-        TemplateInventoryStatus::Complete,
-        Vec::new(),
-        Vec::new(),
+        false,
         vec![
+            available("shared", "beta", "beta.templatetags.shared", Vec::new()),
             available(
-                shared.clone(),
-                beta.clone(),
-                module("beta.templatetags.shared"),
+                "shared",
+                "alpha",
+                "alpha.templatetags.shared_extra",
                 Vec::new(),
             ),
-            available(
-                shared.clone(),
-                alpha.clone(),
-                module("alpha.templatetags.shared_extra"),
-                Vec::new(),
-            ),
-            available(
-                shared.clone(),
-                alpha.clone(),
-                module("alpha.templatetags.shared"),
-                Vec::new(),
-            ),
+            available("shared", "alpha", "alpha.templatetags.shared", Vec::new()),
         ],
     );
-
     assert_eq!(
-        libraries.unknown_library_outcome(&shared),
-        UnknownLibraryOutcome::AvailableInApps {
-            primary_app: alpha.clone(),
-            apps: vec![alpha, beta],
+        libraries.missing_library_lookup(&library_name("shared")),
+        MissingLibraryLookup::FoundInApps {
+            primary_app: module("alpha"),
+            apps: vec![module("alpha"), module("beta")],
         }
     );
 }
 
 #[test]
-fn unknown_library_outcome_reports_truly_unknown() {
-    let libraries = empty_libraries(TemplateInventoryStatus::Complete);
-
-    assert_eq!(
-        libraries.unknown_library_outcome(&library_name("missing")),
-        UnknownLibraryOutcome::TrulyUnknown
-    );
-}
-
-#[test]
-fn installed_library_count_counts_builtins_and_installed() {
+fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
     let libraries = libraries(
-        TemplateInventoryStatus::Complete,
-        vec![
-            builtin(module("django.template.defaulttags"), Vec::new()),
-            builtin(module("project.builtins"), Vec::new()),
-        ],
-        vec![installed(
-            library_name("custom"),
-            module("project.templatetags.custom"),
-            Vec::new(),
-        )],
-        vec![available(
-            library_name("available"),
-            module("available_app"),
-            module("available_app.templatetags.available"),
-            Vec::new(),
-        )],
-    );
-
-    assert_eq!(libraries.installed_library_count(), 3);
-}
-
-#[test]
-fn installed_libraries_replace_duplicate_load_names() {
-    let load_name = library_name("custom");
-    let replacement_module = module("project.templatetags.replacement");
-    let libraries = libraries(
-        TemplateInventoryStatus::Complete,
-        Vec::new(),
-        vec![
-            installed(
-                load_name.clone(),
-                module("project.templatetags.original"),
-                vec![symbol(TemplateSymbolKind::Tag, "original", None)],
-            ),
-            installed(
-                load_name.clone(),
-                replacement_module.clone(),
-                vec![symbol(TemplateSymbolKind::Tag, "replacement", None)],
-            ),
-        ],
-        Vec::new(),
-    );
-
-    let library = libraries
-        .installed_library(&load_name)
-        .expect("replacement library should be installed");
-    assert_eq!(library.module_name(), &replacement_module);
-    assert_eq!(libraries.completion_library_names(), vec![load_name]);
-
-    let symbols: Vec<_> = libraries
-        .template_symbol_candidates(TemplateSymbolKind::Tag)
-        .into_iter()
-        .map(|candidate| candidate.symbol.name().to_string())
-        .collect();
-    assert_eq!(symbols, vec!["replacement"]);
-}
-
-#[test]
-fn available_libraries_dedup_by_app_and_module() {
-    let app = module("available_app");
-    let load_name = library_name("extra_tags");
-    let module_name = module("available_app.templatetags.extra_tags");
-    let libraries = libraries(
-        TemplateInventoryStatus::Complete,
-        Vec::new(),
-        Vec::new(),
-        vec![
-            available(
-                load_name.clone(),
-                app.clone(),
-                module_name.clone(),
-                vec![symbol(TemplateSymbolKind::Tag, "first", None)],
-            ),
-            available(
-                load_name.clone(),
-                app.clone(),
-                module_name,
-                vec![symbol(TemplateSymbolKind::Tag, "second", None)],
-            ),
-        ],
-    );
-
-    assert_eq!(
-        libraries.unknown_tag_outcome("first"),
-        UnknownSymbolOutcome::Available {
-            app: app.clone(),
-            load_name: load_name.clone(),
-        }
-    );
-    assert_eq!(
-        libraries.unknown_tag_outcome("second"),
-        UnknownSymbolOutcome::TrulyUnknown
-    );
-    assert_eq!(
-        libraries.unknown_library_outcome(&load_name),
-        UnknownLibraryOutcome::AvailableInApps {
-            primary_app: app.clone(),
-            apps: vec![app],
-        }
-    );
-}
-
-#[test]
-fn template_symbol_candidates_keep_last_builtin_symbol() {
-    let a_second = module("a_second");
-    let libraries = libraries(
-        TemplateInventoryStatus::Complete,
+        false,
         vec![
             builtin(
-                module("z_first"),
+                "z_first",
                 vec![symbol(
                     TemplateSymbolKind::Filter,
                     "duplicate",
@@ -343,90 +234,51 @@ fn template_symbol_candidates_keep_last_builtin_symbol() {
                 )],
             ),
             builtin(
-                a_second.clone(),
+                "a_second",
                 vec![symbol(
                     TemplateSymbolKind::Filter,
                     "duplicate",
                     Some("second"),
                 )],
             ),
+            installed(
+                "humanize",
+                "django.contrib.humanize.templatetags.humanize",
+                vec![symbol(TemplateSymbolKind::Filter, "intcomma", None)],
+            ),
         ],
-        Vec::new(),
-        Vec::new(),
     );
-
     let candidates = libraries.template_symbol_candidates(TemplateSymbolKind::Filter);
-
-    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates[0].symbol.name(), "duplicate");
     assert_eq!(candidates[0].symbol.doc.as_deref(), Some("second"));
     assert!(matches!(
-        &candidates[0].availability,
-        TemplateSymbolAvailability::Builtin { module } if module == &a_second
+        candidates[0].availability,
+        TemplateSymbolAvailability::Builtin { .. }
     ));
-}
-
-#[test]
-fn template_symbol_candidates_report_load_requirement() {
-    let load_name = library_name("humanize");
-    let libraries = libraries(
-        TemplateInventoryStatus::Complete,
-        Vec::new(),
-        vec![installed(
-            load_name.clone(),
-            module("django.contrib.humanize.templatetags.humanize"),
-            vec![symbol(TemplateSymbolKind::Filter, "intcomma", None)],
-        )],
-        Vec::new(),
-    );
-
-    let candidates = libraries.template_symbol_candidates(TemplateSymbolKind::Filter);
-
-    assert_eq!(candidates.len(), 1);
     assert!(matches!(
-        &candidates[0].availability,
-        TemplateSymbolAvailability::RequiresLoad { load_name: candidate_load_name }
-            if candidate_load_name == &load_name
+        &candidates[1].availability,
+        TemplateSymbolAvailability::RequiresLoad { load_name }
+            if load_name.as_str() == "humanize"
     ));
 }
 
 #[test]
-fn testing_inventory_files_belong_to_supplied_db() {
+fn resolved_libraries_retain_duplicate_builtins_in_order() {
     let db = TestDatabase::new();
     let libraries = testing::template_libraries(
         &db,
-        TemplateInventoryStatus::Complete,
-        vec![builtin(module("project.templatetags.custom"), Vec::new())],
-    );
-
-    let paths: Vec<_> = libraries
-        .active_libraries()
-        .map(|library| library.file().path(&db).to_string())
-        .collect();
-
-    assert_eq!(
-        paths,
-        vec!["/__djls_testing__/project/templatetags/custom.py"]
-    );
-}
-
-#[test]
-fn builtin_libraries_retain_duplicate_modules_in_order() {
-    let libraries = libraries(
-        TemplateInventoryStatus::Complete,
+        false,
         vec![
-            builtin(module("django.template.defaulttags"), Vec::new()),
-            builtin(module("project.builtins"), Vec::new()),
-            builtin(module("django.template.defaulttags"), Vec::new()),
+            builtin("django.template.defaulttags", Vec::new()),
+            builtin("project.builtins", Vec::new()),
+            builtin("django.template.defaulttags", Vec::new()),
         ],
-        Vec::new(),
-        Vec::new(),
     );
-
     let modules: Vec<_> = libraries
-        .active_libraries()
-        .map(|library| library.module_name().as_str().to_string())
+        .resolved_libraries()
+        .map(djls_project::TemplateLibrary::module_name_str)
         .collect();
-
     assert_eq!(
         modules,
         vec![
@@ -435,4 +287,11 @@ fn builtin_libraries_retain_duplicate_modules_in_order() {
             "django.template.defaulttags",
         ]
     );
+    assert!(libraries.resolved_libraries().all(|library| {
+        library
+            .file()
+            .path(&db)
+            .as_str()
+            .starts_with("/__djls_testing__/")
+    }));
 }

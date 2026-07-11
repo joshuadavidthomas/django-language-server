@@ -6,6 +6,7 @@
 //! 5. Rank candidates by relevance.
 //! 6. Convert candidates into an LSP completion response using client/session facts.
 
+use djls_project::LoadableLibraryLookup;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
@@ -582,12 +583,8 @@ fn available_symbols_for_completion(
     file: File,
     offset: Offset,
     context: &CompletionOffsetContext<'_>,
-    template_libraries: &TemplateLibraries,
+    _template_libraries: &TemplateLibraries,
 ) -> Option<AvailableSymbols> {
-    if !template_libraries.has_symbol_inventory() {
-        return None;
-    }
-
     match context {
         CompletionOffsetContext::Template(
             TemplateCompletionContext::TagName { .. } | TemplateCompletionContext::Filter { .. },
@@ -638,24 +635,22 @@ fn generate_tag_name_candidates(
         }
     }
 
-    if !template_libraries.has_symbol_inventory() {
+    if template_libraries
+        .template_symbol_candidates(TemplateSymbolKind::Tag)
+        .is_empty()
+    {
         for (name, spec) in tag_specs {
-            if !name.starts_with(prefix.text) {
-                continue;
+            if name.starts_with(prefix.text) {
+                candidates.push(CompletionCandidate::tag_name_from_spec(
+                    name,
+                    prefix,
+                    needs_leading_space,
+                    close,
+                    spec,
+                    supports_snippets,
+                ));
             }
-
-            candidates.push(CompletionCandidate::tag_name_from_spec(
-                name,
-                prefix,
-                needs_leading_space,
-                close,
-                spec,
-                supports_snippets,
-            ));
         }
-
-        candidates.sort_by(CompletionCandidate::cmp_rank);
-        candidates.dedup_by(|left, right| left.label == right.label);
         return candidates;
     }
 
@@ -801,12 +796,14 @@ fn generate_library_name_candidates(
             continue;
         }
 
-        let detail = template_libraries
-            .installed_library_module(&name)
-            .map_or_else(
-                || "Django template library".to_string(),
-                |module| format!("Django template library ({})", module.as_str()),
-            );
+        let detail = match template_libraries.loadable_library(&name) {
+            LoadableLibraryLookup::Found(library) => {
+                format!("Django template library ({})", library.module_name_str())
+            }
+            LoadableLibraryLookup::Ambiguous(_)
+            | LoadableLibraryLookup::Inconclusive(_)
+            | LoadableLibraryLookup::Absent => "Django template library".to_string(),
+        };
         candidates.push(CompletionCandidate::library_name(
             name.as_str(),
             prefix,
@@ -826,18 +823,19 @@ fn generate_load_symbol_candidates(
     needs_trailing_space: bool,
     template_libraries: &TemplateLibraries,
 ) -> Vec<CompletionCandidate> {
-    if !template_libraries.inventory_is_complete() {
-        return Vec::new();
-    }
-
-    let Some(library) = library.and_then(|name| template_libraries.installed_library_str(name))
-    else {
+    let Some(name) = library else {
         return Vec::new();
     };
+    let libraries = match template_libraries.loadable_library_str(name) {
+        LoadableLibraryLookup::Found(library) => vec![library],
+        LoadableLibraryLookup::Ambiguous(libraries)
+        | LoadableLibraryLookup::Inconclusive(libraries) => libraries,
+        LoadableLibraryLookup::Absent => Vec::new(),
+    };
 
-    library
-        .symbols()
-        .iter()
+    let mut candidates: Vec<_> = libraries
+        .into_iter()
+        .flat_map(djls_project::TemplateLibrary::symbols)
         .filter(|symbol| symbol.name().starts_with(prefix.text))
         .map(|symbol| {
             CompletionCandidate::load_symbol(
@@ -848,7 +846,10 @@ fn generate_load_symbol_candidates(
                 symbol.doc(),
             )
         })
-        .collect()
+        .collect();
+    candidates.sort_by(|left, right| left.label.cmp(&right.label));
+    candidates.dedup_by(|left, right| left.label == right.label);
+    candidates
 }
 
 fn generate_filter_candidates(
@@ -856,32 +857,28 @@ fn generate_filter_candidates(
     template_libraries: &TemplateLibraries,
     available_symbols: Option<&AvailableSymbols>,
 ) -> Vec<CompletionCandidate> {
-    if template_libraries.inventory_is_complete() {
-        let mut candidates = Vec::new();
+    let mut candidates = Vec::new();
 
-        for candidate in template_libraries.template_symbol_candidates(TemplateSymbolKind::Filter) {
-            let symbol = &candidate.symbol;
-            if available_symbols.is_some_and(|symbols| !symbols.contains_symbol(symbol)) {
-                continue;
-            }
-
-            let name = symbol.name();
-            if name.starts_with(prefix.text) {
-                candidates.push(CompletionCandidate::filter(
-                    name,
-                    prefix,
-                    &candidate.availability,
-                    symbol.doc(),
-                ));
-            }
+    for candidate in template_libraries.template_symbol_candidates(TemplateSymbolKind::Filter) {
+        let symbol = &candidate.symbol;
+        if available_symbols.is_some_and(|symbols| !symbols.contains_symbol(symbol)) {
+            continue;
         }
 
-        candidates.sort_by(|left, right| left.label.cmp(&right.label));
-        candidates.dedup_by(|left, right| left.label == right.label);
-        return candidates;
+        let name = symbol.name();
+        if name.starts_with(prefix.text) {
+            candidates.push(CompletionCandidate::filter(
+                name,
+                prefix,
+                &candidate.availability,
+                symbol.doc(),
+            ));
+        }
     }
 
-    Vec::new()
+    candidates.sort_by(|left, right| left.label.cmp(&right.label));
+    candidates.dedup_by(|left, right| left.label == right.label);
+    candidates
 }
 
 #[cfg(test)]

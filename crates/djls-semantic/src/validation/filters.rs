@@ -11,12 +11,7 @@ pub(crate) fn check_filter_arity_rule(
     db: &dyn Db,
     filter: &Filter,
     arity_specs: &FilterAritySpecs,
-    has_symbol_inventory: bool,
 ) {
-    if !has_symbol_inventory {
-        return;
-    }
-
     if let Some(arity) = arity_specs.get(&filter.name) {
         let has_arg = filter.arg.is_some();
 

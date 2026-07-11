@@ -1340,10 +1340,23 @@ def my_filter(value, arg):
         )
     }
 
+    fn known_library<'a>(
+        libraries: &'a djls_project::TemplateLibraries,
+        name: &str,
+    ) -> Option<&'a djls_project::TemplateLibrary> {
+        match libraries.loadable_library_str(name) {
+            djls_project::LoadableLibraryLookup::Found(library) => Some(library),
+            djls_project::LoadableLibraryLookup::Inconclusive(candidates)
+            | djls_project::LoadableLibraryLookup::Ambiguous(candidates) => {
+                candidates.into_iter().next()
+            }
+            djls_project::LoadableLibraryLookup::Absent => None,
+        }
+    }
+
     fn assert_custom_library_module(db: &DjangoDatabase, module_name: &str) {
         assert_eq!(
-            db.template_libraries()
-                .installed_library_str("custom")
+            known_library(db.template_libraries(), "custom")
                 .unwrap()
                 .module_name_str(),
             module_name
@@ -1466,7 +1479,8 @@ def my_filter(value, arg):
 
         assert!(
             db.template_libraries()
-                .installed_library_str("custom")
+                .loadable_library_str("custom")
+                .found()
                 .is_none()
         );
         let extra_file =
@@ -1542,7 +1556,8 @@ def my_filter(value, arg):
         apply_project_discovery(&mut db);
         assert!(
             db.template_libraries()
-                .installed_library_str("custom")
+                .loadable_library_str("custom")
+                .found()
                 .is_none()
         );
 
@@ -1682,9 +1697,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let libraries = db.template_libraries();
-        let custom = libraries
-            .installed_library_str("custom")
-            .expect("custom library should be derived");
+        let custom = known_library(libraries, "custom").expect("custom library should be derived");
         assert_eq!(custom.module_name_str(), "blog.templatetags.custom");
         assert!(
             custom
@@ -1740,7 +1753,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let libraries = db.template_libraries();
-        let custom = libraries.installed_library_str("custom").unwrap();
+        let custom = known_library(libraries, "custom").unwrap();
         assert!(
             custom
                 .symbols()
@@ -1758,7 +1771,7 @@ def my_filter(value, arg):
             .apply(&mut db);
 
         let libraries = db.template_libraries();
-        let custom = libraries.installed_library_str("custom").unwrap();
+        let custom = known_library(libraries, "custom").unwrap();
         assert!(
             custom
                 .symbols()

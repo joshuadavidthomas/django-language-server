@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use camino::Utf8Path;
 use djls_ide::completion;
-use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -14,17 +13,14 @@ use djls_testing::TestDatabase;
 use djls_testing::builtin_tag;
 use djls_testing::library_filter;
 use djls_testing::library_tag;
-use djls_testing::make_template_libraries_with_status;
+use djls_testing::make_template_libraries_with_open_remainder;
 use tower_lsp_server::ls_types;
 
 fn tag_libraries(db: &TestDatabase) -> TemplateLibraries {
-    tag_libraries_with_status(db, TemplateInventoryStatus::Complete)
+    tag_libraries_with_open_remainder(db, false)
 }
 
-fn tag_libraries_with_status(
-    db: &TestDatabase,
-    status: TemplateInventoryStatus,
-) -> TemplateLibraries {
+fn tag_libraries_with_open_remainder(db: &TestDatabase, open: bool) -> TemplateLibraries {
     let tags = vec![
         builtin_tag("if", "django.template.defaulttags"),
         library_tag("trans", "i18n", "django.templatetags.i18n"),
@@ -33,21 +29,14 @@ fn tag_libraries_with_status(
     let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
     let builtins = vec!["django.template.defaulttags".to_string()];
 
-    make_template_libraries_with_status(db, &tags, &[], &libraries, &builtins, status)
+    make_template_libraries_with_open_remainder(db, &tags, &[], &libraries, &builtins, open)
 }
 
 fn filter_libraries(db: &TestDatabase) -> TemplateLibraries {
     let filters = vec![library_filter("trans", "i18n", "django.templatetags.i18n")];
     let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
 
-    make_template_libraries_with_status(
-        db,
-        &[],
-        &filters,
-        &libraries,
-        &[],
-        TemplateInventoryStatus::Complete,
-    )
+    make_template_libraries_with_open_remainder(db, &[], &filters, &libraries, &[], false)
 }
 
 fn project_only_specs() -> TagSpecs {
@@ -143,11 +132,22 @@ fn tag_completions_respect_load_position() {
 fn partial_tag_completions_use_known_libraries_not_raw_specs() {
     let labels = completion_labels(
         "{% project§ %}",
-        |db| tag_libraries_with_status(db, TemplateInventoryStatus::Incomplete),
+        |db| tag_libraries_with_open_remainder(db, true),
         project_only_specs(),
     );
 
     assert!(labels.is_empty());
+}
+
+#[test]
+fn partial_selective_load_completion_retains_known_symbols() {
+    let labels = completion_labels(
+        "{% load tr§ from i18n %}",
+        |db| tag_libraries_with_open_remainder(db, true),
+        TagSpecs::default(),
+    );
+
+    assert_eq!(labels, vec!["trans"]);
 }
 
 #[test]
