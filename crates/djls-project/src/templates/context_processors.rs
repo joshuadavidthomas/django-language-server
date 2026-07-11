@@ -9,22 +9,41 @@ use crate::settings::TemplateContextProcessorPath;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
 use crate::settings::types::Originated;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ContextProcessorOmission {
     Settings,
     Backend,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TemplateContextProcessors {
-    processors: Vec<TemplateContextProcessor>,
-    omissions: Vec<ContextProcessorOmission>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TemplateContextProcessors(TemplateContextProcessorEvidence);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateContextProcessorEvidence {
+    Exhaustive(Vec<TemplateContextProcessor>),
+    WithOmissions {
+        processors: Vec<TemplateContextProcessor>,
+        omissions: Vec<ContextProcessorOmission>,
+    },
+}
+
+impl Default for TemplateContextProcessors {
+    fn default() -> Self {
+        Self(TemplateContextProcessorEvidence::WithOmissions {
+            processors: Vec::new(),
+            omissions: vec![ContextProcessorOmission::Settings],
+        })
+    }
 }
 
 impl TemplateContextProcessors {
     #[must_use]
     pub fn processors(&self) -> &[TemplateContextProcessor] {
-        &self.processors
+        match &self.0 {
+            TemplateContextProcessorEvidence::Exhaustive(processors)
+            | TemplateContextProcessorEvidence::WithOmissions { processors, .. } => processors,
+        }
     }
 }
 
@@ -97,8 +116,12 @@ pub fn template_context_processors(
         }
     }
 
-    TemplateContextProcessors {
-        processors,
-        omissions,
+    if omissions.is_empty() {
+        TemplateContextProcessors(TemplateContextProcessorEvidence::Exhaustive(processors))
+    } else {
+        TemplateContextProcessors(TemplateContextProcessorEvidence::WithOmissions {
+            processors,
+            omissions,
+        })
     }
 }
