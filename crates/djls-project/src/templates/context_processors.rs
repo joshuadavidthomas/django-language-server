@@ -17,10 +17,10 @@ enum ContextProcessorOmission {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateContextProcessors(TemplateContextProcessorEvidence);
+pub struct TemplateContextProcessors(TemplateContextProcessorDiscovery);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum TemplateContextProcessorEvidence {
+enum TemplateContextProcessorDiscovery {
     Exhaustive(Vec<TemplateContextProcessor>),
     WithOmissions {
         processors: Vec<TemplateContextProcessor>,
@@ -30,7 +30,7 @@ enum TemplateContextProcessorEvidence {
 
 impl Default for TemplateContextProcessors {
     fn default() -> Self {
-        Self(TemplateContextProcessorEvidence::WithOmissions {
+        Self(TemplateContextProcessorDiscovery::WithOmissions {
             processors: Vec::new(),
             omissions: vec![ContextProcessorOmission::Settings],
         })
@@ -41,8 +41,8 @@ impl TemplateContextProcessors {
     #[must_use]
     pub fn processors(&self) -> &[TemplateContextProcessor] {
         match &self.0 {
-            TemplateContextProcessorEvidence::Exhaustive(processors)
-            | TemplateContextProcessorEvidence::WithOmissions { processors, .. } => processors,
+            TemplateContextProcessorDiscovery::Exhaustive(processors)
+            | TemplateContextProcessorDiscovery::WithOmissions { processors, .. } => processors,
         }
     }
 }
@@ -117,9 +117,9 @@ pub fn template_context_processors(
     }
 
     if omissions.is_empty() {
-        TemplateContextProcessors(TemplateContextProcessorEvidence::Exhaustive(processors))
+        TemplateContextProcessors(TemplateContextProcessorDiscovery::Exhaustive(processors))
     } else {
-        TemplateContextProcessors(TemplateContextProcessorEvidence::WithOmissions {
+        TemplateContextProcessors(TemplateContextProcessorDiscovery::WithOmissions {
             processors,
             omissions,
         })
