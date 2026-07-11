@@ -489,8 +489,7 @@ pub fn completion(
     };
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
-    let available_symbols =
-        available_symbols_for_completion(db, file, offset, &context, template_libraries);
+    let available_symbols = available_symbols_for_completion(db, file, offset, &context);
 
     let mut candidates = match &context {
         CompletionOffsetContext::Template(TemplateCompletionContext::TagName {
@@ -583,7 +582,6 @@ fn available_symbols_for_completion(
     file: File,
     offset: Offset,
     context: &CompletionOffsetContext<'_>,
-    _template_libraries: &TemplateLibraries,
 ) -> Option<AvailableSymbols> {
     match context {
         CompletionOffsetContext::Template(
