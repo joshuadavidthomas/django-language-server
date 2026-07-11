@@ -5,7 +5,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
-use djls_project::TemplateLibraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
@@ -132,7 +131,6 @@ pub struct Db {
     fs: SourceMapFileSystem,
     files: SourceFiles,
     tag_specs: Arc<TagSpecs>,
-    template_libraries: Arc<TemplateLibraries>,
     filter_arity_specs: Arc<FilterAritySpecs>,
     storage: salsa::Storage<Self>,
 }
@@ -146,7 +144,6 @@ impl Db {
             },
             files: SourceFiles::default(),
             tag_specs: Arc::new(TagSpecs::default()),
-            template_libraries: Arc::new(TemplateLibraries::default()),
             filter_arity_specs: Arc::new(FilterAritySpecs::new()),
             storage: salsa::Storage::default(),
         }
@@ -155,12 +152,6 @@ impl Db {
     #[must_use]
     pub(crate) fn with_tag_specs(mut self, specs: TagSpecs) -> Self {
         self.tag_specs = Arc::new(specs);
-        self
-    }
-
-    #[must_use]
-    pub(crate) fn with_template_libraries(mut self, libs: TemplateLibraries) -> Self {
-        self.template_libraries = Arc::new(libs);
         self
     }
 
@@ -223,10 +214,6 @@ impl SemanticDb for Db {
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         djls_conf::DiagnosticsConfig::default()
-    }
-
-    fn template_libraries(&self) -> &TemplateLibraries {
-        &self.template_libraries
     }
 
     fn filter_arity_specs(&self) -> &FilterAritySpecs {

@@ -27,12 +27,14 @@ pub(crate) use crate::structure::builder::TemplateTreeBuilder;
 pub use crate::structure::folding::TemplateFold;
 pub use crate::structure::folding::TemplateFoldKind;
 pub use crate::structure::folding::build_template_folds;
-pub(crate) use crate::structure::grammar::compute_tag_index;
+pub(crate) use crate::structure::grammar::compute_preliminary_tag_index_for_file;
+pub(crate) use crate::structure::grammar::compute_tag_index_for_file;
+pub(crate) use crate::structure::grammar::compute_tag_index_for_file_in_scope;
 pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
 pub use crate::structure::outline::OutlineItem;
 pub use crate::structure::outline::OutlineKind;
-pub use crate::structure::outline::build_template_outline;
+pub use crate::structure::outline::build_template_outline_for_file;
 pub use crate::structure::tree::BlockRole;
 pub use crate::structure::tree::RegionId;
 pub(crate) use crate::structure::tree::Regions;
@@ -41,10 +43,39 @@ pub use crate::structure::tree::TemplateRegion;
 pub use crate::structure::tree::TemplateTree;
 
 #[salsa::tracked]
-pub fn build_template_tree<'db>(
+pub(crate) fn build_preliminary_template_tree_for_file<'db>(
     db: &'db dyn Db,
+    file: djls_source::File,
+    nodelist: djls_templates::NodeList<'db>,
+    scope_file: djls_source::File,
+) -> TemplateTree<'db> {
+    let builder = TemplateTreeBuilder::new(
+        db,
+        compute_preliminary_tag_index_for_file(db, file, scope_file),
+    );
+    builder.without_diagnostics().model(db, nodelist)
+}
+
+#[salsa::tracked]
+pub(crate) fn build_template_tree_for_file_in_scope<'db>(
+    db: &'db dyn Db,
+    file: djls_source::File,
+    nodelist: djls_templates::NodeList<'db>,
+    scope_file: djls_source::File,
+) -> TemplateTree<'db> {
+    let builder = TemplateTreeBuilder::new(
+        db,
+        compute_tag_index_for_file_in_scope(db, file, nodelist, scope_file),
+    );
+    builder.model(db, nodelist)
+}
+
+#[salsa::tracked]
+pub fn build_template_tree_for_file<'db>(
+    db: &'db dyn Db,
+    file: djls_source::File,
     nodelist: djls_templates::NodeList<'db>,
 ) -> TemplateTree<'db> {
-    let builder = TemplateTreeBuilder::new(db, compute_tag_index(db));
+    let builder = TemplateTreeBuilder::new(db, compute_tag_index_for_file(db, file, nodelist));
     builder.model(db, nodelist)
 }

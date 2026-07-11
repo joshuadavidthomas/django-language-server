@@ -1,6 +1,6 @@
+use djls_project::EnvironmentSymbolLookup;
 use djls_project::LibraryName;
 use djls_project::MissingLibraryLookup;
-use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolLookup;
 use djls_source::Span;
@@ -21,14 +21,21 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    template_libraries: &TemplateLibraries,
+    environment: djls_project::TemplateEnvironment<'_>,
+    unknown_load_can_supply_symbol: bool,
 ) {
     let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
 
     match symbols.check_tag(name) {
         SymbolAvailability::Available => {}
         SymbolAvailability::Unknown => {
-            match template_libraries.template_symbol_lookup(name, TemplateSymbolKind::Tag) {
+            match environment.symbol(db, name, TemplateSymbolKind::Tag) {
+                EnvironmentSymbolLookup::Builtin
+                | EnvironmentSymbolLookup::RequiresLoad(_)
+                | EnvironmentSymbolLookup::Inconclusive => return,
+                EnvironmentSymbolLookup::Absent => {}
+            }
+            match environment.available_app_symbol(db, name, TemplateSymbolKind::Tag) {
                 TemplateSymbolLookup::Inconclusive => {}
                 TemplateSymbolLookup::FoundInApp { app, load_name } => {
                     ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
@@ -48,6 +55,8 @@ pub(crate) fn check_tag_scoping_rule(
                 }
             }
         }
+        SymbolAvailability::Unloaded { .. } | SymbolAvailability::AmbiguousUnloaded { .. }
+            if unknown_load_can_supply_symbol => {}
         SymbolAvailability::Unloaded { library } => {
             ValidationErrorAccumulator(ValidationError::UnloadedTag {
                 tag: name.to_string(),
@@ -72,14 +81,19 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    template_libraries: &TemplateLibraries,
+    environment: djls_project::TemplateEnvironment<'_>,
+    unknown_load_can_supply_symbol: bool,
 ) {
     match symbols.check_filter(&filter.name) {
         SymbolAvailability::Available => {}
         SymbolAvailability::Unknown => {
-            match template_libraries
-                .template_symbol_lookup(&filter.name, TemplateSymbolKind::Filter)
-            {
+            match environment.symbol(db, &filter.name, TemplateSymbolKind::Filter) {
+                EnvironmentSymbolLookup::Builtin
+                | EnvironmentSymbolLookup::RequiresLoad(_)
+                | EnvironmentSymbolLookup::Inconclusive => return,
+                EnvironmentSymbolLookup::Absent => {}
+            }
+            match environment.available_app_symbol(db, &filter.name, TemplateSymbolKind::Filter) {
                 TemplateSymbolLookup::Inconclusive => {}
                 TemplateSymbolLookup::FoundInApp { app, load_name } => {
                     ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
@@ -99,6 +113,8 @@ pub(crate) fn check_filter_scoping_rule(
                 }
             }
         }
+        SymbolAvailability::Unloaded { .. } | SymbolAvailability::AmbiguousUnloaded { .. }
+            if unknown_load_can_supply_symbol => {}
         SymbolAvailability::Unloaded { library } => {
             ValidationErrorAccumulator(ValidationError::UnloadedFilter {
                 filter: filter.name.clone(),
@@ -123,7 +139,7 @@ pub(crate) fn check_load_libraries_rule(
     db: &dyn Db,
     name: &str,
     bits: &[TagBit],
-    template_libraries: &TemplateLibraries,
+    environment: djls_project::TemplateEnvironment<'_>,
 ) {
     let Some(kind) = crate::scoping::LoadKind::from_tag(name, bits) else {
         return;
@@ -135,7 +151,7 @@ pub(crate) fn check_load_libraries_rule(
             continue;
         };
 
-        match template_libraries.missing_library_lookup(&load_name) {
+        match environment.missing_library(db, &load_name) {
             MissingLibraryLookup::Inconclusive => {}
             MissingLibraryLookup::FoundInApps(apps) => {
                 let candidates = apps

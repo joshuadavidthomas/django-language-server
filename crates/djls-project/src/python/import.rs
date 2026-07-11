@@ -1,87 +1,15 @@
 use std::collections::BTreeMap;
 
 use djls_source::File;
-use djls_source::FileReadError;
 use djls_source::Span;
 use ruff_python_ast::Alias;
 use ruff_python_ast::Stmt;
 
 use crate::ast::AliasExt;
 use crate::ast::RangedExt;
-use crate::db::Db as ProjectDb;
-use crate::project::Project;
-use crate::python::PythonImportRequest;
-use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::python::PythonSource;
 use crate::python::RecoveredPythonModuleResult;
 use crate::python::recovered_python_module;
-
-pub(crate) enum ImportLoadResult {
-    Loaded(PythonSource),
-    Unresolved,
-    SkippedExternal,
-    ReadFailed { file: File, error: FileReadError },
-}
-
-pub(crate) trait PythonImportLoader {
-    fn load_star_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult;
-
-    fn load_named_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult;
-}
-
-pub(crate) struct ProjectImportLoader<'db> {
-    db: &'db dyn ProjectDb,
-    project: Project,
-}
-
-impl<'db> ProjectImportLoader<'db> {
-    pub(crate) const fn tracked(db: &'db dyn ProjectDb, project: Project) -> Self {
-        Self { db, project }
-    }
-
-    pub(crate) fn read_source(&self, file: File) -> Result<PythonSource, FileReadError> {
-        let source = file.try_source(self.db)?;
-        Ok(PythonSource::new(
-            file,
-            file.path(self.db).to_path_buf(),
-            source.as_str().to_string(),
-        ))
-    }
-
-    fn find_imported_module(&self, import: PythonImportRequest<'_>) -> Option<PythonModule> {
-        PythonModule::resolve_import(self.db, self.project, import).ok()?
-    }
-
-    fn load_module_source(&mut self, module: &PythonModule) -> ImportLoadResult {
-        let file = module.file();
-        self.read_source(file).map_or_else(
-            |error| ImportLoadResult::ReadFailed { file, error },
-            ImportLoadResult::Loaded,
-        )
-    }
-}
-
-impl PythonImportLoader for ProjectImportLoader<'_> {
-    fn load_star_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult {
-        let Some(module) = self.find_imported_module(import) else {
-            return ImportLoadResult::Unresolved;
-        };
-        self.load_module_source(&module)
-    }
-
-    fn load_named_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult {
-        let Some(module) = self.find_imported_module(import) else {
-            return ImportLoadResult::Unresolved;
-        };
-
-        if !module.search_path().is_first_party() {
-            return ImportLoadResult::SkippedExternal;
-        }
-
-        self.load_module_source(&module)
-    }
-}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ImportBindings {

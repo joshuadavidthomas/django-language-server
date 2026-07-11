@@ -137,7 +137,7 @@ salsa::Database
 
 Template parsing does not need its own database trait. `parse_template` depends directly on `SourceDb` because it only needs source text. Filesystem access also enters through `SourceDb`: Django Discovery walks source roots through the database filesystem, and `DjangoDatabase` observes LSP buffer state through the server's overlay filesystem adapter.
 
-`DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` can still implement the same traits with fixture-backed semantic data, but the trait hierarchy now makes Project Facts and source-file access explicit semantic dependencies.
+`DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` implement the same traits with fixture-backed source and project state. Project-backed tests install a `Project` and derive each template's effective environment from its discovered backend, Template Libraries, and builtins; Template Library inventory is not global database state.
 
 ### Salsa boundary rules
 
@@ -243,9 +243,9 @@ In general, we prefer snapshot tests over hand-written assertions. Nobody wants 
 
 ### Semantic Validation Tests
 
-Validation tests use test databases that implement only the Salsa traits they need. A `TestDatabase` carries an in-memory file system, tag specs, and Template Libraries — no Python, no Django, no disk I/O.
+Validation tests use test databases that implement only the Salsa traits they need. `TestDatabase` provides an in-memory filesystem and fallback semantic specs for source-only unit tests — no Python process, Django runtime, or disk I/O. Project-scoped tests use `ProjectFixture` to install settings and Python source into that filesystem. Normal discovery then derives backend membership, builtins, and available Template Libraries for each template origin; the database does not carry a global Template Library inventory.
 
-The typical pattern is: build a database with the specs you care about, parse a template, validate it, and check the accumulated errors:
+The typical source-only pattern is: build a database with the specs you care about, parse a template, validate it, and check the accumulated errors:
 
 ```rust
 #[test]
@@ -268,7 +268,7 @@ error[S114]: Not expecting 'and' in this position in if tag.
   = note: in tag: if
 ```
 
-**Architecture Invariant:** tests never require a Django installation or a Python interpreter. Test databases supply tag specs, Template Libraries, and filter arities directly. If a test needs Python knowledge, it builds it from JSON fixtures, not by running Django.
+**Architecture Invariant:** tests never require a Django installation or run a Python interpreter. Source-only tests may supply tag specs and filter arities directly. Project-scoped tests supply settings and Python modules through `ProjectFixture`, then exercise the same static Template Library and environment discovery used by production. JSON fixtures remain appropriate for isolated extraction projections.
 
 ### Corpus Tests
 

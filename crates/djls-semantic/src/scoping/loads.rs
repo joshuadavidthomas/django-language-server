@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use djls_project::LoadableLibraryLookup;
-use djls_project::TemplateLibraries;
 use djls_source::Span;
 use djls_templates::TagBit;
 
@@ -158,9 +157,16 @@ fn parse_load_bits(bits: &[TagBit]) -> Option<LoadKind> {
 pub(crate) struct LoadState<'a> {
     fully_loaded: HashSet<&'a str>,
     selective: HashMap<&'a str, HashSet<&'a str>>,
+    events: Vec<LoadEvent<'a>>,
 }
 
-impl LoadState<'_> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LoadEvent<'a> {
+    Full(&'a str),
+    Selective { library: &'a str, symbol: &'a str },
+}
+
+impl<'a> LoadState<'a> {
     #[must_use]
     pub(crate) fn is_symbol_available(&self, library: &str, symbol: &str) -> bool {
         self.fully_loaded.contains(library)
@@ -168,6 +174,21 @@ impl LoadState<'_> {
                 .selective
                 .get(library)
                 .is_some_and(|syms| syms.contains(symbol))
+    }
+
+    #[must_use]
+    pub(crate) fn libraries_loading_symbol(&self, symbol: &str) -> Vec<&'a str> {
+        self.events
+            .iter()
+            .filter_map(|event| match event {
+                LoadEvent::Full(library) => Some(*library),
+                LoadEvent::Selective {
+                    library,
+                    symbol: loaded,
+                } if *loaded == symbol => Some(*library),
+                LoadEvent::Selective { .. } => None,
+            })
+            .collect()
     }
 }
 
@@ -195,9 +216,10 @@ impl LoadedLibraries {
     #[must_use]
     pub(crate) fn has_unknown_load_that_can_shadow_symbol_before(
         &self,
+        db: &dyn crate::db::Db,
         position: u32,
         symbol: &str,
-        template_libraries: &TemplateLibraries,
+        environment: djls_project::TemplateEnvironment<'_>,
     ) -> bool {
         self.statements.iter().any(|stmt| {
             if stmt.span.end() > position {
@@ -207,13 +229,13 @@ impl LoadedLibraries {
             match &stmt.kind {
                 LoadKind::FullLoad { libraries } => libraries.iter().any(|library| {
                     matches!(
-                        template_libraries.loadable_library_str(library.as_str()),
+                        environment.loadable_library_str(db, library.as_str()),
                         LoadableLibraryLookup::Inconclusive(_)
                     )
                 }),
                 LoadKind::SelectiveImport { symbols, library } => {
                     matches!(
-                        template_libraries.loadable_library_str(library.as_str()),
+                        environment.loadable_library_str(db, library.as_str()),
                         LoadableLibraryLookup::Inconclusive(_)
                     ) && symbols.iter().any(|loaded| loaded.as_str() == symbol)
                 }
@@ -237,6 +259,7 @@ impl LoadedLibraries {
     pub(crate) fn available_at(&self, position: u32) -> LoadState<'_> {
         let mut fully_loaded = HashSet::default();
         let mut selective: HashMap<&str, HashSet<&str>> = HashMap::default();
+        let mut events = Vec::new();
 
         for stmt in &self.statements {
             if stmt.span.end() > position {
@@ -248,6 +271,7 @@ impl LoadedLibraries {
                     for lib in libraries {
                         fully_loaded.insert(lib.as_str());
                         selective.remove(lib.as_str());
+                        events.push(LoadEvent::Full(lib.as_str()));
                     }
                 }
                 LoadKind::SelectiveImport { symbols, library } => {
@@ -255,6 +279,10 @@ impl LoadedLibraries {
                         let entry = selective.entry(library.as_str()).or_default();
                         for sym in symbols {
                             entry.insert(sym.as_str());
+                            events.push(LoadEvent::Selective {
+                                library: library.as_str(),
+                                symbol: sym.as_str(),
+                            });
                         }
                     }
                 }
@@ -264,6 +292,7 @@ impl LoadedLibraries {
         LoadState {
             fully_loaded,
             selective,
+            events,
         }
     }
 }

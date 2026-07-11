@@ -1,74 +1,24 @@
-use std::collections::HashMap;
-
 use camino::Utf8Path;
 use djls_conf::DiagnosticSeverity;
 use djls_conf::DiagnosticsConfig;
 use djls_ide::code_actions;
 use djls_ide::collect_diagnostics;
-use djls_project::TemplateLibraries;
 use djls_source::LineCol;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
 use djls_source::Span;
 use djls_testing::TestDatabase;
-use djls_testing::builtin_tag;
-use djls_testing::library_filter;
-use djls_testing::library_tag;
-use djls_testing::make_template_libraries;
+use djls_testing::standard_validation_db;
 use tower_lsp_server::ls_types;
 
 const TEMPLATE_PATH: &str = "/test/project/templates/template.html";
-
-fn template_libraries(db: &TestDatabase) -> TemplateLibraries {
-    let tags = vec![
-        builtin_tag("block", "django.template.loader_tags"),
-        builtin_tag("endblock", "django.template.loader_tags"),
-        builtin_tag("extends", "django.template.loader_tags"),
-        builtin_tag("load", "django.template.defaulttags"),
-        library_tag("trans", "i18n", "django.templatetags.i18n"),
-        library_tag("shared", "beta", "project.templatetags.beta"),
-        library_tag("shared", "alpha", "project.templatetags.alpha"),
-    ];
-    let filters = vec![
-        library_filter("trans", "i18n", "django.templatetags.i18n"),
-        library_filter("shared_filter", "beta", "project.templatetags.beta"),
-        library_filter("shared_filter", "alpha", "project.templatetags.alpha"),
-    ];
-    let libraries = HashMap::from([
-        (
-            "alpha".to_string(),
-            "project.templatetags.alpha".to_string(),
-        ),
-        ("beta".to_string(), "project.templatetags.beta".to_string()),
-        ("i18n".to_string(), "django.templatetags.i18n".to_string()),
-        (
-            "static".to_string(),
-            "django.templatetags.static".to_string(),
-        ),
-    ]);
-
-    make_template_libraries(
-        db,
-        &tags,
-        &filters,
-        &libraries,
-        &[
-            "django.template.defaulttags".to_string(),
-            "django.template.loader_tags".to_string(),
-        ],
-    )
-}
 
 fn db_with_source(source: &str) -> TestDatabase {
     db_with_source_and_config(source, DiagnosticsConfig::default())
 }
 
 fn db_with_source_and_config(source: &str, diagnostics_config: DiagnosticsConfig) -> TestDatabase {
-    let db = TestDatabase::new();
-    let libraries = template_libraries(&db);
-    let db = db
-        .with_template_libraries(libraries)
-        .with_diagnostics_config(diagnostics_config);
+    let db = standard_validation_db().with_diagnostics_config(diagnostics_config);
     db.add_file(TEMPLATE_PATH, source);
     db
 }

@@ -39,7 +39,17 @@ fn project_with_templates(
     );
     let fixture = ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings_source);
+        .file("/test/project/testproject/settings.py", settings_source)
+        .file("/test/project/django/__init__.py", "")
+        .file("/test/project/django/template/__init__.py", "")
+        .file(
+            "/test/project/django/template/defaulttags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n",
+        )
+        .file(
+            "/test/project/django/template/loader_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n@register.tag\ndef include(parser, token): pass\n",
+        );
 
     templates
         .into_iter()
@@ -53,7 +63,7 @@ fn symbols_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Template
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(db, file).expect("should parse");
-    template_symbols(db, nodelist)
+    template_symbols(db, file, nodelist)
 }
 
 fn inheritance_summary(
@@ -100,6 +110,98 @@ fn extracts_partial_defs_from_partial_role_specs() {
             full_span: Span::saturating_from_bounds_usize(0, source.len()),
         }]
     );
+}
+
+#[test]
+fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
+    let mut specs = builtin_tag_specs();
+    specs.insert(
+        "overextends".to_string(),
+        TagSpec::new(
+            Cow::Borrowed("missing.templatetags.layout"),
+            None,
+            Cow::Borrowed(&[]),
+            false,
+        )
+        .with_role(TagRole::TemplateReference(
+            djls_semantic::TemplateReferenceKind::Extends,
+        )),
+    );
+    let mut db = TestDatabase::new().with_specs(specs);
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/test/project/templates/child.html",
+            "{% overextends 'base.html' %}",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .install(&mut db);
+    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+
+    assert_eq!(inheritance_summary(&db, project, child).1, ChainEnd::Root);
+}
+
+#[test]
+fn inheritance_is_inconclusive_when_effective_extends_definition_conflicts_by_backend() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='extends')\ndef alpha_extends(value):\n    return value\n",
+        )
+        .file(
+            "/test/project/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='extends')\ndef beta_extends():\n    return ''\n",
+        )
+        .file(
+            "/test/project/templates/child.html",
+            "{% load shared %}{% extends 'base.html' %}",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .build(&db);
+    db.set_project(project);
+    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+
+    let (ancestors, end) = inheritance_summary(&db, project, child);
+    assert!(ancestors.is_empty());
+    assert_eq!(end, ChainEnd::Root);
+}
+
+#[test]
+fn inheritance_keeps_child_backend_selection_when_resolving_parent() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file("/test/project/django/__init__.py", "")
+        .file("/test/project/django/template/__init__.py", "")
+        .file(
+            "/test/project/django/template/defaulttags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n",
+        )
+        .file(
+            "/test/project/django/template/loader_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n",
+        )
+        .file("/test/project/a/child.html", "{% extends 'base.html' %}")
+        .file("/test/project/a/base.html", "backend a")
+        .file("/test/project/b/base.html", "backend b")
+        .build(&db);
+    db.set_project(project);
+    let child = db.file(Utf8Path::new("/test/project/a/child.html"));
+
+    let (ancestors, end) = inheritance_summary(&db, project, child);
+
+    assert_eq!(ancestors, ["/test/project/a/base.html"]);
+    assert_eq!(end, ChainEnd::Root);
 }
 
 #[test]
@@ -186,6 +288,87 @@ fn self_extends_skips_visited_origin_and_uses_shadowed_template() {
 }
 
 #[test]
+fn originless_template_inheritance_resolves_absolute_extends_from_project_inventory() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/test/project/scratch.html",
+            "{% extends 'base.html' %}",
+        )
+        .file(
+            "/test/project/templates/base.html",
+            "{% block content %}Base{% endblock %}",
+        )
+        .install(&mut db);
+    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+
+    assert_eq!(
+        inheritance_summary(&db, project, file),
+        (
+            vec!["/test/project/templates/base.html".to_string()],
+            ChainEnd::Root,
+        )
+    );
+}
+
+#[test]
+fn originless_template_inheritance_preserves_project_resolution_alternatives() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file("/test/project/scratch.html", "{% extends 'base.html' %}")
+        .file("/test/project/a/base.html", "a")
+        .file("/test/project/b/base.html", "b")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+
+    assert_eq!(
+        inheritance_summary(&db, project, file),
+        (
+            Vec::new(),
+            ChainEnd::InconclusiveParent {
+                name: "base.html".to_string(),
+            },
+        )
+    );
+}
+
+#[test]
+fn originless_template_inheritance_leaves_relative_extends_unresolved() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/test/project/scratch.html",
+            "{% extends './base.html' %}",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+
+    assert_eq!(
+        inheritance_summary(&db, project, file),
+        (
+            Vec::new(),
+            ChainEnd::Unresolved {
+                name: "./base.html".to_string(),
+            },
+        )
+    );
+}
+
+#[test]
 fn template_inheritance_resolves_relative_sibling_extends() {
     let db = TestDatabase::new();
     let project = project_with_templates(
@@ -208,6 +391,30 @@ fn template_inheritance_resolves_relative_sibling_extends() {
 
     assert_eq!(ancestors, ["/test/project/templates/dir/parent.html"]);
     assert_eq!(end, ChainEnd::Root);
+}
+
+#[test]
+fn template_inheritance_joins_relative_targets_for_every_source_name() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias'], 'APP_DIRS': False}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/templates/alias/child.html",
+            "{% extends './parent.html' %}",
+        )
+        .file("/test/project/templates/alias/parent.html", "parent")
+        .install(&mut db);
+    let child = db.file(Utf8Path::new("/test/project/templates/alias/child.html"));
+
+    assert_eq!(
+        inheritance_summary(&db, project, child),
+        (
+            vec!["/test/project/templates/alias/parent.html".to_string()],
+            ChainEnd::Root,
+        )
+    );
 }
 
 #[test]
@@ -261,6 +468,63 @@ fn block_overrides_accepts_relative_winning_extends_target() {
 }
 
 #[test]
+fn reverse_inheritance_starts_from_secondary_names_and_dedupes_physical_sites() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias'], 'APP_DIRS': False}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/templates/alias/base.html",
+            "{% block content %}Base{% endblock %}",
+        )
+        .file(
+            "/test/project/templates/alias/child.html",
+            "{% extends './base.html' %}{% block content %}Child{% endblock %}",
+        )
+        .install(&mut db);
+    let base = db.file(Utf8Path::new("/test/project/templates/alias/base.html"));
+    let child = db.file(Utf8Path::new("/test/project/templates/alias/child.html"));
+
+    let overrides = block_overrides(&db, project, base, "content");
+
+    assert_eq!(overrides.len(), 1);
+    assert_eq!(overrides[0].file, child);
+}
+
+#[test]
+fn originless_inheritance_keeps_the_exact_resolved_origin_for_relative_parents() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias'], 'APP_DIRS': False}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/scratch.html",
+            "{% extends 'alias/dir/parent.html' %}",
+        )
+        .file(
+            "/test/project/templates/alias/dir/parent.html",
+            "{% extends './base.html' %}",
+        )
+        .file("/test/project/templates/alias/dir/base.html", "exact base")
+        .file("/test/project/templates/dir/base.html", "alias base")
+        .install(&mut db);
+    let scratch = db.file(Utf8Path::new("/test/project/scratch.html"));
+
+    assert_eq!(
+        inheritance_summary(&db, project, scratch),
+        (
+            vec![
+                "/test/project/templates/alias/dir/parent.html".to_string(),
+                "/test/project/templates/alias/dir/base.html".to_string(),
+            ],
+            ChainEnd::Root,
+        )
+    );
+}
+
+#[test]
 fn template_inheritance_follows_extends_role_not_builtin_name() {
     let mut specs = builtin_tag_specs();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
@@ -301,6 +565,84 @@ fn template_inheritance_follows_extends_role_not_builtin_name() {
     let builtin = inheritance_summary(&db, project, builtin_file);
 
     assert_eq!(custom, builtin);
+}
+
+#[test]
+fn scoped_parent_miss_is_unresolved_when_name_exists_only_in_another_backend() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file("/test/project/a/child.html", "{% extends 'other.html' %}")
+        .file("/test/project/b/other.html", "other backend")
+        .install(&mut db);
+    let child = db.file(Utf8Path::new("/test/project/a/child.html"));
+
+    assert_eq!(
+        inheritance_summary(&db, project, child),
+        (
+            Vec::new(),
+            ChainEnd::Unresolved {
+                name: "other.html".to_string(),
+            },
+        )
+    );
+}
+
+#[test]
+fn inherited_symbols_use_the_child_backend_scope() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared', '/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared', '/test/project/b'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['custom_tags']}},\n]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='block')\ndef custom_block(value): pass\n",
+        )
+        .file("/test/project/a/child.html", "{% extends 'base.html' %}")
+        .file(
+            "/test/project/shared/base.html",
+            "{% block content %}Base{% endblock %}",
+        )
+        .install(&mut db);
+    let child = db.file(Utf8Path::new("/test/project/a/child.html"));
+
+    let inherited = inherited_blocks(&db, project, child);
+    assert_eq!(inherited.len(), 1);
+    assert_eq!(inherited[0].0, "content");
+}
+
+#[test]
+fn reverse_inheritance_follows_the_exact_backend_origin() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/a/base.html",
+            "{% block content %}A{% endblock %}",
+        )
+        .file(
+            "/test/project/b/base.html",
+            "{% block content %}B{% endblock %}",
+        )
+        .file(
+            "/test/project/b/child.html",
+            "{% extends 'base.html' %}{% block content %}Child{% endblock %}",
+        )
+        .install(&mut db);
+    let a_base = db.file(Utf8Path::new("/test/project/a/base.html"));
+    let b_base = db.file(Utf8Path::new("/test/project/b/base.html"));
+    let child = db.file(Utf8Path::new("/test/project/b/child.html"));
+
+    assert!(block_overrides(&db, project, a_base, "content").is_empty());
+    assert_eq!(
+        block_overrides(&db, project, b_base, "content")[0].file,
+        child
+    );
 }
 
 #[test]

@@ -7,11 +7,13 @@
 //! 6. Convert candidates into an LSP completion response using client/session facts.
 
 use djls_project::LoadableLibraryLookup;
+use djls_project::TemplateEnvironment;
+#[cfg(test)]
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolAvailability;
+use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
-use djls_semantic::AvailableSymbols;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagRole;
 use djls_semantic::TagSpecs;
@@ -469,6 +471,9 @@ fn filter_completion_detail(availability: &TemplateSymbolAvailability) -> String
     }
 }
 
+// Completion dispatch intentionally keeps all context variants in one exhaustive match so adding
+// a parser context forces the IDE translation to handle it here.
+#[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn completion(
     db: &dyn djls_semantic::Db,
@@ -488,8 +493,18 @@ pub fn completion(
         return None;
     };
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
-    let template_libraries = db.template_libraries();
-    let available_symbols = available_symbols_for_completion(db, file, offset, &context);
+    let environment = djls_semantic::template_environment_for_file(db, file);
+    let parsed = djls_templates::parse_template(db, file);
+    let tag_specs = match parsed {
+        djls_templates::TemplateParseResult::Parsed(nodelist) => {
+            djls_semantic::tag_specs_at(db, file, nodelist, offset.get())
+        }
+        djls_templates::TemplateParseResult::NotTemplate
+        | djls_templates::TemplateParseResult::Unreadable(_) => {
+            djls_semantic::tag_specs_for_file(db, file)
+        }
+    };
+    let effective_symbols = effective_symbols_for_completion(db, file, offset, &context);
 
     let mut candidates = match &context {
         CompletionOffsetContext::Template(TemplateCompletionContext::TagName {
@@ -497,13 +512,16 @@ pub fn completion(
             needs_leading_space,
             close,
         }) => generate_tag_name_candidates(
-            prefix,
-            *needs_leading_space,
-            *close,
-            template_libraries,
-            db.tag_specs(),
-            available_symbols.as_ref(),
-            supports_snippets,
+            db,
+            environment,
+            TagNameCandidateInput {
+                prefix,
+                needs_leading_space: *needs_leading_space,
+                close: *close,
+                tag_specs,
+                effective_symbols: effective_symbols.as_deref(),
+                supports_snippets,
+            },
         ),
         CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
             tag,
@@ -516,7 +534,7 @@ pub fn completion(
             *position,
             prefix,
             *close,
-            db.tag_specs(),
+            tag_specs,
             supports_snippets,
         ),
         CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
@@ -529,6 +547,7 @@ pub fn completion(
             close,
         }) => generate_template_name_candidates(
             db,
+            Some(file),
             TemplateNameCandidateInput {
                 tag,
                 position: *position,
@@ -538,13 +557,13 @@ pub fn completion(
                 closed: *closed,
                 close: *close,
             },
-            db.tag_specs(),
+            tag_specs,
         ),
         CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
             prefix,
             suffix,
             close,
-        }) => generate_library_name_candidates(prefix, suffix, *close, template_libraries),
+        }) => generate_library_name_candidates(db, environment, prefix, suffix, *close),
         CompletionOffsetContext::Template(TemplateCompletionContext::LoadSymbol {
             prefix,
             suffix,
@@ -555,10 +574,11 @@ pub fn completion(
             suffix,
             *library,
             *needs_trailing_space,
-            template_libraries,
+            db,
+            environment,
         ),
         CompletionOffsetContext::Template(TemplateCompletionContext::Filter { prefix }) => {
-            generate_filter_candidates(prefix, template_libraries, available_symbols.as_ref())
+            generate_filter_candidates(db, environment, prefix, effective_symbols.as_deref())
         }
         CompletionOffsetContext::Template(TemplateCompletionContext::Text)
         | CompletionOffsetContext::None => Vec::new(),
@@ -577,22 +597,19 @@ pub fn completion(
     Some(ls_types::CompletionResponse::Array(items))
 }
 
-fn available_symbols_for_completion(
+fn effective_symbols_for_completion(
     db: &dyn djls_semantic::Db,
     file: File,
     offset: Offset,
     context: &CompletionOffsetContext<'_>,
-) -> Option<AvailableSymbols> {
-    match context {
-        CompletionOffsetContext::Template(
-            TemplateCompletionContext::TagName { .. } | TemplateCompletionContext::Filter { .. },
-        ) => match djls_templates::parse_template(db, file) {
-            djls_templates::TemplateParseResult::Parsed(nodelist) => Some(
-                djls_semantic::available_symbols_at(db, nodelist, offset.get()),
-            ),
-            djls_templates::TemplateParseResult::NotTemplate
-            | djls_templates::TemplateParseResult::Unreadable(_) => None,
-        },
+) -> Option<Vec<TemplateSymbolCandidate>> {
+    let kind = match context {
+        CompletionOffsetContext::Template(TemplateCompletionContext::TagName { .. }) => {
+            TemplateSymbolKind::Tag
+        }
+        CompletionOffsetContext::Template(TemplateCompletionContext::Filter { .. }) => {
+            TemplateSymbolKind::Filter
+        }
         CompletionOffsetContext::Template(
             TemplateCompletionContext::Text
             | TemplateCompletionContext::TagArgument { .. }
@@ -600,19 +617,45 @@ fn available_symbols_for_completion(
             | TemplateCompletionContext::LibraryName { .. }
             | TemplateCompletionContext::LoadSymbol { .. },
         )
-        | CompletionOffsetContext::None => None,
-    }
+        | CompletionOffsetContext::None => return None,
+    };
+    let djls_templates::TemplateParseResult::Parsed(nodelist) =
+        djls_templates::parse_template(db, file)
+    else {
+        return None;
+    };
+    Some(djls_semantic::effective_symbol_candidates_at(
+        db,
+        file,
+        nodelist,
+        offset.get(),
+        kind,
+    ))
+}
+
+#[derive(Clone, Copy)]
+struct TagNameCandidateInput<'a> {
+    prefix: &'a OffsetPrefix<'a>,
+    needs_leading_space: bool,
+    close: TagClose,
+    tag_specs: &'a TagSpecs,
+    effective_symbols: Option<&'a [TemplateSymbolCandidate]>,
+    supports_snippets: bool,
 }
 
 fn generate_tag_name_candidates(
-    prefix: &OffsetPrefix<'_>,
-    needs_leading_space: bool,
-    close: TagClose,
-    template_libraries: &TemplateLibraries,
-    tag_specs: &TagSpecs,
-    available_symbols: Option<&AvailableSymbols>,
-    supports_snippets: bool,
+    db: &dyn djls_semantic::Db,
+    environment: TemplateEnvironment<'_>,
+    input: TagNameCandidateInput<'_>,
 ) -> Vec<CompletionCandidate> {
+    let TagNameCandidateInput {
+        prefix,
+        needs_leading_space,
+        close,
+        tag_specs,
+        effective_symbols,
+        supports_snippets,
+    } = input;
     let mut candidates = Vec::new();
 
     if prefix.text.starts_with("end") {
@@ -633,10 +676,8 @@ fn generate_tag_name_candidates(
         }
     }
 
-    if template_libraries
-        .template_symbol_candidates(TemplateSymbolKind::Tag)
-        .is_empty()
-    {
+    let inventory_candidates = environment.symbol_candidates(db, TemplateSymbolKind::Tag);
+    if inventory_candidates.is_empty() {
         for (name, spec) in tag_specs {
             if name.starts_with(prefix.text) {
                 candidates.push(CompletionCandidate::tag_name_from_spec(
@@ -652,12 +693,9 @@ fn generate_tag_name_candidates(
         return candidates;
     }
 
-    for candidate in template_libraries.template_symbol_candidates(TemplateSymbolKind::Tag) {
+    let symbol_candidates = effective_symbols.unwrap_or(&inventory_candidates);
+    for candidate in symbol_candidates {
         let symbol = &candidate.symbol;
-        if available_symbols.is_some_and(|symbols| !symbols.contains_symbol(symbol)) {
-            continue;
-        }
-
         let name = symbol.name();
         if !name.starts_with(prefix.text) {
             continue;
@@ -750,6 +788,7 @@ struct TemplateNameCandidateInput<'context, 'source> {
 
 fn generate_template_name_candidates(
     db: &dyn djls_semantic::Db,
+    file: Option<File>,
     input: TemplateNameCandidateInput<'_, '_>,
     tag_specs: &TagSpecs,
 ) -> Vec<CompletionCandidate> {
@@ -764,8 +803,13 @@ fn generate_template_name_candidates(
         return Vec::new();
     };
 
-    template_resolution(db, project)
-        .template_names(db)
+    let resolution = template_resolution(db, project);
+    let names = match file {
+        Some(file) => resolution.template_names_for_backend_scope(db, file),
+        None => resolution.template_names(db).collect(),
+    };
+    names
+        .into_iter()
         .filter_map(|name| {
             let name = name.name(db);
             name.starts_with(input.prefix.text).then(|| {
@@ -783,18 +827,19 @@ fn generate_template_name_candidates(
 }
 
 fn generate_library_name_candidates(
+    db: &dyn djls_semantic::Db,
+    environment: TemplateEnvironment<'_>,
     prefix: &OffsetPrefix<'_>,
     suffix: &OffsetSuffix<'_>,
     close: TagClose,
-    template_libraries: &TemplateLibraries,
 ) -> Vec<CompletionCandidate> {
     let mut candidates = Vec::new();
-    for name in template_libraries.completion_library_names() {
+    for name in environment.completion_library_names(db) {
         if !name.as_str().starts_with(prefix.text) {
             continue;
         }
 
-        let detail = match template_libraries.loadable_library(&name) {
+        let detail = match environment.loadable_library(db, &name) {
             LoadableLibraryLookup::Found(library) => {
                 format!("Django template library ({})", library.module_name_str())
             }
@@ -819,21 +864,15 @@ fn generate_load_symbol_candidates(
     suffix: &OffsetSuffix<'_>,
     library: Option<&str>,
     needs_trailing_space: bool,
-    template_libraries: &TemplateLibraries,
+    db: &dyn djls_semantic::Db,
+    environment: TemplateEnvironment<'_>,
 ) -> Vec<CompletionCandidate> {
     let Some(name) = library else {
         return Vec::new();
     };
-    let libraries = match template_libraries.loadable_library_str(name) {
-        LoadableLibraryLookup::Found(library) => vec![library],
-        LoadableLibraryLookup::Ambiguous(libraries)
-        | LoadableLibraryLookup::Inconclusive(libraries) => libraries,
-        LoadableLibraryLookup::Absent => Vec::new(),
-    };
-
-    let mut candidates: Vec<_> = libraries
+    let mut candidates: Vec<_> = environment
+        .loadable_symbol_candidates(db, name)
         .into_iter()
-        .flat_map(djls_project::TemplateLibrary::symbols)
         .filter(|symbol| symbol.name().starts_with(prefix.text))
         .map(|symbol| {
             CompletionCandidate::load_symbol(
@@ -851,18 +890,17 @@ fn generate_load_symbol_candidates(
 }
 
 fn generate_filter_candidates(
+    db: &dyn djls_semantic::Db,
+    environment: TemplateEnvironment<'_>,
     prefix: &OffsetPrefix<'_>,
-    template_libraries: &TemplateLibraries,
-    available_symbols: Option<&AvailableSymbols>,
+    effective_symbols: Option<&[TemplateSymbolCandidate]>,
 ) -> Vec<CompletionCandidate> {
     let mut candidates = Vec::new();
+    let inventory_candidates = environment.symbol_candidates(db, TemplateSymbolKind::Filter);
+    let symbol_candidates = effective_symbols.unwrap_or(&inventory_candidates);
 
-    for candidate in template_libraries.template_symbol_candidates(TemplateSymbolKind::Filter) {
+    for candidate in symbol_candidates {
         let symbol = &candidate.symbol;
-        if available_symbols.is_some_and(|symbols| !symbols.contains_symbol(symbol)) {
-            continue;
-        }
-
         let name = symbol.name();
         if name.starts_with(prefix.text) {
             candidates.push(CompletionCandidate::filter(
@@ -1026,8 +1064,15 @@ mod tests {
             ("static", "django.templatetags.static"),
         ]);
         let suffix = suffix("", 2);
-        let candidates =
-            generate_library_name_candidates(&prefix("st"), &suffix, TagClose::None, &libraries);
+        let db = djls_testing::TestDatabase::new();
+        let environment = TemplateEnvironment::from_project_inventory(&libraries);
+        let candidates = generate_library_name_candidates(
+            &db,
+            environment,
+            &prefix("st"),
+            &suffix,
+            TagClose::None,
+        );
 
         assert_eq!(labels(&candidates), vec!["static"]);
         assert_eq!(candidates[0].kind, CompletionCandidateKind::LibraryName);
@@ -1047,13 +1092,16 @@ mod tests {
     fn library_name_candidate_replaces_source_suffix_without_consuming_full_close() {
         let libraries = template_libraries(&[("static", "django.templatetags.static")]);
         let suffix = suffix("i18n", 0);
+        let db = djls_testing::TestDatabase::new();
+        let environment = TemplateEnvironment::from_project_inventory(&libraries);
         let candidates = generate_library_name_candidates(
+            &db,
+            environment,
             &prefix(""),
             &suffix,
             TagClose::Full {
                 replacement_suffix_len: 3,
             },
-            &libraries,
         );
 
         assert_eq!(labels(&candidates), vec!["static"]);
@@ -1065,12 +1113,15 @@ mod tests {
     fn generates_load_symbol_candidates() {
         let libraries = tag_libraries();
         let suffix = suffix("", 5);
+        let db = djls_testing::TestDatabase::new();
+        let environment = TemplateEnvironment::from_project_inventory(&libraries);
         let candidates = generate_load_symbol_candidates(
             &prefix("trans"),
             &suffix,
             Some("i18n"),
             false,
-            &libraries,
+            &db,
+            environment,
         );
 
         assert_eq!(labels(&candidates), vec!["trans"]);
@@ -1083,8 +1134,16 @@ mod tests {
     fn load_symbol_candidate_adds_space_before_from_keyword() {
         let libraries = tag_libraries();
         let suffix = suffix("", 0);
-        let candidates =
-            generate_load_symbol_candidates(&prefix(""), &suffix, Some("i18n"), true, &libraries);
+        let db = djls_testing::TestDatabase::new();
+        let environment = TemplateEnvironment::from_project_inventory(&libraries);
+        let candidates = generate_load_symbol_candidates(
+            &prefix(""),
+            &suffix,
+            Some("i18n"),
+            true,
+            &db,
+            environment,
+        );
 
         assert!(
             candidates
@@ -1218,6 +1277,7 @@ mod tests {
         assert!(
             generate_template_name_candidates(
                 &db,
+                None,
                 TemplateNameCandidateInput {
                     tag: "cache",
                     position: 0,
@@ -1234,6 +1294,7 @@ mod tests {
         assert!(
             generate_template_name_candidates(
                 &db,
+                None,
                 TemplateNameCandidateInput {
                     tag: "extends",
                     position: 1,
@@ -1278,7 +1339,10 @@ mod tests {
 
     #[test]
     fn filter_candidates_include_detail_and_documentation() {
-        let candidates = generate_filter_candidates(&prefix("tr"), &filter_libraries(), None);
+        let db = djls_testing::TestDatabase::new();
+        let libraries = filter_libraries();
+        let environment = TemplateEnvironment::from_project_inventory(&libraries);
+        let candidates = generate_filter_candidates(&db, environment, &prefix("tr"), None);
 
         assert_eq!(labels(&candidates), vec!["trans"]);
         assert_eq!(candidates[0].detail.as_deref(), Some("{% load i18n %}"));
@@ -1301,14 +1365,21 @@ mod tests {
             ),
         );
 
+        let db = djls_testing::TestDatabase::new();
+        let environment =
+            TemplateEnvironment::from_project_inventory(TemplateLibraries::empty_ref());
+        let prefix = prefix("sta");
         let candidates = generate_tag_name_candidates(
-            &prefix("sta"),
-            false,
-            full_close(),
-            TemplateLibraries::empty_ref(),
-            &specs,
-            None,
-            false,
+            &db,
+            environment,
+            TagNameCandidateInput {
+                prefix: &prefix,
+                needs_leading_space: false,
+                close: full_close(),
+                tag_specs: &specs,
+                effective_symbols: None,
+                supports_snippets: false,
+            },
         );
 
         assert_eq!(labels(&candidates), vec!["static"]);

@@ -6,15 +6,11 @@ mod parse;
 mod path_eval;
 mod search_paths;
 mod semantic_model;
-mod source;
 
 pub(crate) use import::ImportBindings;
-pub(crate) use import::ImportLoadResult;
 pub(crate) use import::ImportPathResolutionError;
 #[cfg(test)]
 pub(crate) use import::ModuleKind;
-pub(crate) use import::ProjectImportLoader;
-pub(crate) use import::PythonImportLoader;
 #[cfg(test)]
 pub(crate) use import::extract_import_bindings_for_source;
 pub(crate) use import::import_bindings;
@@ -42,10 +38,28 @@ pub(crate) use path_eval::PythonPathBindings;
 pub(crate) use path_eval::evaluate_path;
 pub use search_paths::SearchPath;
 pub use search_paths::SearchPaths;
-pub(crate) use semantic_model::ParseStatus;
+pub(crate) use semantic_model::BranchConstraints;
+pub(crate) use semantic_model::PythonBindingAlternative;
+pub(crate) use semantic_model::PythonBoundValue;
 pub(crate) use semantic_model::PythonDict;
+pub(crate) use semantic_model::PythonDictItem;
+pub(crate) use semantic_model::PythonList;
+pub(crate) use semantic_model::PythonListItem;
+pub(crate) use semantic_model::PythonModuleValues;
+pub(crate) use semantic_model::PythonModuleValuesOutcome;
+pub(crate) use semantic_model::PythonMutation;
 pub(crate) use semantic_model::PythonMutationAccess;
-pub(crate) use semantic_model::PythonSemanticModel;
+pub(crate) use semantic_model::PythonUnknown;
+pub(crate) use semantic_model::PythonUnknownCause;
 pub(crate) use semantic_model::PythonValue;
 pub(crate) use semantic_model::PythonValueKind;
-pub(crate) use source::PythonSource;
+pub(crate) use semantic_model::python_module_dependencies;
+pub(crate) use semantic_model::python_module_values;
+
+pub(crate) fn testing_python_module_evaluation(
+    db: &dyn crate::Db,
+    project: crate::Project,
+    file: djls_source::File,
+) -> crate::testing::PythonModuleEvaluationView {
+    semantic_model::testing_python_module_evaluation(db, project, file)
+}

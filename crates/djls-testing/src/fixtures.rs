@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -40,7 +41,6 @@ use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::Severity;
 use djls_source::Span;
-use djls_templates::parse_template;
 
 use crate::Corpus;
 use crate::TestDatabase;
@@ -97,64 +97,6 @@ pub fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::
     })
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AvailableTemplateLibraryFixture {
-    load_name: String,
-    app: String,
-    module: String,
-}
-
-#[must_use]
-pub fn available_template_library(
-    load_name: &str,
-    app: &str,
-    module: &str,
-) -> AvailableTemplateLibraryFixture {
-    AvailableTemplateLibraryFixture {
-        load_name: load_name.to_string(),
-        app: app.to_string(),
-        module: module.to_string(),
-    }
-}
-
-#[must_use]
-pub fn available_library_tag(
-    name: &str,
-    load_name: &str,
-    app: &str,
-    module: &str,
-) -> serde_json::Value {
-    serde_json::json!({
-        "kind": "tag",
-        "name": name,
-        "library_kind": "available",
-        "load_name": load_name,
-        "app": app,
-        "library_module": module,
-        "module": module,
-        "doc": null,
-    })
-}
-
-#[must_use]
-pub fn available_library_filter(
-    name: &str,
-    load_name: &str,
-    app: &str,
-    module: &str,
-) -> serde_json::Value {
-    serde_json::json!({
-        "kind": "filter",
-        "name": name,
-        "library_kind": "available",
-        "load_name": load_name,
-        "app": app,
-        "library_module": module,
-        "module": module,
-        "doc": null,
-    })
-}
-
 #[derive(serde::Deserialize)]
 struct TemplateSymbolFixture {
     kind: TemplateSymbolKind,
@@ -172,7 +114,6 @@ struct TemplateSymbolFixture {
 enum TemplateSymbolLibraryFixture {
     Builtin,
     Installed { load_name: String },
-    Available { load_name: String, app: String },
 }
 
 /// Build Template Library facts from JSON fixture rows.
@@ -187,79 +128,8 @@ pub fn make_template_libraries(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    build_template_libraries(db, tags, filters, libraries, builtins, &[], false)
-}
-
-/// Build Template Library facts from JSON fixture rows with explicit open-remainder evidence.
-///
-/// # Panics
-///
-/// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_omissions(
-    db: &dyn ProjectDb,
-    tags: &[serde_json::Value],
-    filters: &[serde_json::Value],
-    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-    builtins: &[String],
-) -> TemplateLibraries {
-    build_template_libraries(db, tags, filters, libraries, builtins, &[], true)
-}
-
-/// Build Template Library facts from JSON fixture rows plus available libraries with explicit open-remainder evidence.
-///
-/// # Panics
-///
-/// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_available(
-    db: &dyn ProjectDb,
-    tags: &[serde_json::Value],
-    filters: &[serde_json::Value],
-    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-    builtins: &[String],
-    available_libraries: &[AvailableTemplateLibraryFixture],
-) -> TemplateLibraries {
-    build_template_libraries(
-        db,
-        tags,
-        filters,
-        libraries,
-        builtins,
-        available_libraries,
-        false,
-    )
-}
-
-pub fn make_template_libraries_with_available_and_omissions(
-    db: &dyn ProjectDb,
-    tags: &[serde_json::Value],
-    filters: &[serde_json::Value],
-    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-    builtins: &[String],
-    available_libraries: &[AvailableTemplateLibraryFixture],
-) -> TemplateLibraries {
-    build_template_libraries(
-        db,
-        tags,
-        filters,
-        libraries,
-        builtins,
-        available_libraries,
-        true,
-    )
-}
-
-fn build_template_libraries(
-    db: &dyn ProjectDb,
-    tags: &[serde_json::Value],
-    filters: &[serde_json::Value],
-    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-    builtins: &[String],
-    available_libraries: &[AvailableTemplateLibraryFixture],
-    open: bool,
-) -> TemplateLibraries {
     let mut builtin_symbols = builtin_symbol_buckets(builtins);
     let mut installed_symbols = installed_symbol_buckets(libraries);
-    let mut available_symbols = available_symbol_buckets(available_libraries);
 
     for fixture in tags
         .iter()
@@ -269,12 +139,7 @@ fn build_template_libraries(
         .collect::<Result<Vec<TemplateSymbolFixture>, _>>()
         .unwrap()
     {
-        add_fixture_symbol(
-            fixture,
-            &mut builtin_symbols,
-            &mut installed_symbols,
-            &mut available_symbols,
-        );
+        add_fixture_symbol(fixture, &mut builtin_symbols, &mut installed_symbols);
     }
 
     let mut library_inputs = Vec::new();
@@ -294,26 +159,11 @@ fn build_template_libraries(
                 },
             ),
     );
-    library_inputs.extend(available_symbols.into_iter().map(
-        |((load_name, app, module), symbols)| TemplateLibraryInput::Available {
-            load_name,
-            app,
-            module,
-            symbols,
-        },
-    ));
-
-    if open {
-        testing::template_libraries_with_omissions(db, library_inputs)
-    } else {
-        testing::template_libraries(db, library_inputs)
-    }
+    testing::template_libraries(db, library_inputs)
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;
 type InstalledLibrarySymbolBuckets = BTreeMap<LibraryName, (PythonModuleName, Vec<TemplateSymbol>)>;
-type AvailableSymbolBuckets =
-    BTreeMap<(LibraryName, PythonModuleName, PythonModuleName), Vec<TemplateSymbol>>;
 
 fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
     builtins
@@ -339,30 +189,10 @@ fn installed_symbol_buckets(
     buckets
 }
 
-fn available_symbol_buckets(
-    available_libraries: &[AvailableTemplateLibraryFixture],
-) -> AvailableSymbolBuckets {
-    let mut buckets = BTreeMap::new();
-    for library in available_libraries {
-        let Ok(load_name) = LibraryName::parse(&library.load_name) else {
-            continue;
-        };
-        let Ok(app) = PythonModuleName::parse(&library.app) else {
-            continue;
-        };
-        let Ok(module) = PythonModuleName::parse(&library.module) else {
-            continue;
-        };
-        buckets.entry((load_name, app, module)).or_default();
-    }
-    buckets
-}
-
 fn add_fixture_symbol(
     fixture: TemplateSymbolFixture,
     builtin_symbols: &mut BuiltinSymbolBuckets,
     installed_symbols: &mut InstalledLibrarySymbolBuckets,
-    available_symbols: &mut AvailableSymbolBuckets,
 ) {
     let TemplateSymbolFixture {
         kind,
@@ -390,9 +220,6 @@ fn add_fixture_symbol(
         }
         TemplateSymbolLibraryFixture::Installed { load_name } => {
             add_installed_symbol(installed_symbols, &load_name, &library_module, symbol);
-        }
-        TemplateSymbolLibraryFixture::Available { load_name, app } => {
-            add_available_symbol(available_symbols, &load_name, &app, &library_module, symbol);
         }
     }
 }
@@ -430,28 +257,6 @@ fn add_installed_symbol(
     if entry.0 == module {
         entry.1.push(symbol);
     }
-}
-
-fn add_available_symbol(
-    buckets: &mut AvailableSymbolBuckets,
-    load_name: &str,
-    app: &str,
-    module_name: &str,
-    symbol: TemplateSymbol,
-) {
-    let Ok(load_name) = LibraryName::parse(load_name) else {
-        return;
-    };
-    let Ok(app) = PythonModuleName::parse(app) else {
-        return;
-    };
-    let Ok(module) = PythonModuleName::parse(module_name) else {
-        return;
-    };
-    buckets
-        .entry((load_name, app, module))
-        .or_default()
-        .push(symbol);
 }
 
 pub struct ProjectFixture {
@@ -505,6 +310,12 @@ impl ProjectFixture {
     }
 
     #[must_use]
+    fn tag_specs(mut self, tag_specs: TagSpecDef) -> Self {
+        self.tag_specs = tag_specs;
+        self
+    }
+
+    #[must_use]
     pub fn interpreter(mut self, interpreter: Interpreter) -> Self {
         self.interpreter = interpreter;
         self
@@ -520,16 +331,6 @@ impl ProjectFixture {
     pub fn register_roots(mut self, register_roots: bool) -> Self {
         self.register_roots = register_roots;
         self
-    }
-
-    #[must_use]
-    pub fn template_file(
-        self,
-        _name: impl Into<String>,
-        path: impl Into<Utf8PathBuf>,
-        source: impl Into<String>,
-    ) -> Self {
-        self.file(path, source)
     }
 
     pub fn build(self, db: &TestDatabase) -> Project {
@@ -561,7 +362,35 @@ impl ProjectFixture {
         )
     }
 
-    pub fn install(self, db: &mut TestDatabase) -> Project {
+    pub fn install(mut self, db: &mut TestDatabase) -> Project {
+        // Template-analysis fixtures model an installed Django package so project-scoped builtin
+        // meaning is definite rather than supplied by a global fallback. Project-discovery-only
+        // fixtures intentionally retain full control over their discovered file inventory.
+        let has_templates = self
+            .files
+            .iter()
+            .any(|(path, _)| path.extension() == Some("html"));
+        let builtin_files = has_templates.then(|| {
+            let django = self.root.join("django");
+            let template = django.join("template");
+            [
+            (django.join("__init__.py"), ""),
+            (template.join("__init__.py"), ""),
+            (
+                template.join("defaulttags.py"),
+                "from django import template\nregister = template.Library()\n@register.tag\ndef autoescape(parser, token): pass\n@register.tag\ndef comment(parser, token): pass\n@register.tag\ndef csrf_token(parser, token): pass\n@register.tag\ndef cycle(parser, token): pass\n@register.tag\ndef debug(parser, token): pass\n@register.tag\ndef filter(parser, token): pass\n@register.tag\ndef firstof(parser, token): pass\n@register.tag(name='for')\ndef for_tag(parser, token): pass\n@register.tag(name='if')\ndef if_tag(parser, token): pass\n@register.tag\ndef ifchanged(parser, token): pass\n@register.tag\ndef load(parser, token): pass\n@register.tag\ndef lorem(parser, token): pass\n@register.tag\ndef now(parser, token): pass\n@register.tag\ndef regroup(parser, token): pass\n@register.tag\ndef spaceless(parser, token): pass\n@register.tag\ndef templatetag(parser, token): pass\n@register.tag\ndef url(parser, token): pass\n@register.tag\ndef verbatim(parser, token): pass\n@register.tag\ndef widthratio(parser, token): pass\n@register.tag(name='with')\ndef with_tag(parser, token): pass\n",
+            ),
+            (
+                template.join("loader_tags.py"),
+                "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n@register.tag\ndef include(parser, token): pass\n",
+            ),
+            ]
+        });
+        for (path, source) in builtin_files.into_iter().flatten() {
+            if !self.files.iter().any(|(candidate, _)| candidate == &path) {
+                self.files.push((path, source.to_string()));
+            }
+        }
         let project = self.build(db);
         db.set_project(project);
         project
@@ -581,12 +410,9 @@ pub fn collect_errors_with_revision(
     db.add_file(path, source);
     let file = db.create_file_with_revision(Utf8Path::new(path), revision);
 
-    let nodelist =
-        parse_template(db, file).expect("validation fixture should be a readable template");
+    djls_semantic::validate_template_file(db, file);
 
-    djls_semantic::validate_nodelist(db, nodelist);
-
-    djls_semantic::validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
+    djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
         .into_iter()
         .map(|acc| acc.0.clone())
         .collect()
@@ -612,12 +438,9 @@ pub fn collect_argument_validation_errors_with_revision(
     db.add_file(path, source);
     let file = db.create_file_with_revision(Utf8Path::new(path), revision);
 
-    let nodelist =
-        parse_template(db, file).expect("validation fixture should be a readable template");
+    djls_semantic::validate_template_file(db, file);
 
-    djls_semantic::validate_nodelist(db, nodelist);
-
-    djls_semantic::validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
+    djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
         .into_iter()
         .map(|acc| acc.0.clone())
         .filter(is_argument_validation_error)
@@ -657,7 +480,7 @@ pub fn build_specs_from_extraction(
     corpus: &Corpus,
     entry_dir: &Utf8Path,
 ) -> (TagSpecs, FilterAritySpecs) {
-    let mut specs = TagSpecs::default();
+    let mut specs = builtin_tag_specs();
     let mut arities = FilterAritySpecs::new();
     extract_and_merge(corpus, entry_dir, &mut specs, &mut arities);
     (specs, arities)
@@ -665,7 +488,7 @@ pub fn build_specs_from_extraction(
 
 #[must_use]
 pub fn build_entry_specs(corpus: &Corpus, entry_dir: &Utf8Path) -> (TagSpecs, FilterAritySpecs) {
-    let mut specs = TagSpecs::default();
+    let mut specs = builtin_tag_specs();
     let mut arities = FilterAritySpecs::new();
 
     if !Corpus::is_django_entry(entry_dir)
@@ -725,13 +548,10 @@ pub fn snapshot_validate_files<'a>(
 
     let file = db.create_file_with_revision(Utf8Path::new(primary_path), 0);
 
-    let nodelist =
-        parse_template(&db, file).expect("validation fixture should be a readable template");
-
-    djls_semantic::validate_nodelist(&db, nodelist);
+    djls_semantic::validate_template_file(&db, file);
 
     let mut errors: Vec<ValidationError> =
-        djls_semantic::validate_nodelist::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+        djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, file)
             .into_iter()
             .map(|acc| acc.0.clone())
             .collect();
@@ -748,11 +568,133 @@ pub fn snapshot_validate_files<'a>(
 /// here when a scenario needs them.
 #[must_use]
 pub fn standard_validation_db() -> TestDatabase {
-    let db = TestDatabase::new()
-        .with_specs(standard_tag_specs())
+    validation_db(false)
+}
+
+#[must_use]
+pub fn partial_validation_db() -> TestDatabase {
+    validation_db(true)
+}
+
+#[allow(clippy::too_many_lines)]
+fn validation_db(partial: bool) -> TestDatabase {
+    let specs = standard_tag_specs();
+    let configured_tags = specs
+        .keys()
+        .map(|name| serde_json::json!({"name": name, "type": "standalone"}))
+        .collect::<Vec<_>>();
+    let configured_fallback = serde_json::from_value(serde_json::json!({
+        "libraries": [{"module": "djls.testing.fallback", "tags": configured_tags}]
+    }))
+    .expect("validation fallback tag specs should deserialize");
+    let mut db = TestDatabase::new()
+        .with_specs(specs)
         .with_arity_specs(standard_filter_arities());
-    let template_libraries = standard_template_libraries(&db);
-    db.with_template_libraries(template_libraries)
+    let open_key = if partial {
+        ", UNKNOWN: 'maybe'"
+    } else {
+        Default::default()
+    };
+    let settings = format!(
+        "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/'], 'APP_DIRS': False, 'OPTIONS': {{'builtins': ['example.templatetags.custom'], 'libraries': {{'alpha': 'example.alpha.templatetags.alpha', 'beta': 'example.beta.templatetags.beta', 'cache': 'django.templatetags.cache', 'humanize': 'django.contrib.humanize.templatetags.humanize', 'i18n': 'django.templatetags.i18n', 'l10n': 'django.templatetags.l10n', 'static': 'django.templatetags.static', 'tz': 'django.templatetags.tz'}}}}{open_key}}}]\n"
+    );
+    let register = "from django import template\nregister = template.Library()\n";
+    let tags = |names: &[&str]| {
+        let mut source = register.to_string();
+        for (index, name) in names.iter().enumerate() {
+            writeln!(
+                source,
+                "@register.tag(name='{name}')\ndef tag_{index}(parser, token): pass"
+            )
+            .unwrap();
+        }
+        source
+    };
+    let filters = |names: &[&str]| {
+        let mut source = register.to_string();
+        for name in names {
+            writeln!(
+                source,
+                "@register.filter\ndef {name}(value, arg=None): pass"
+            )
+            .unwrap();
+        }
+        source
+    };
+
+    ProjectFixture::new("/")
+        .django_settings_module("project.settings")
+        .tag_specs(configured_fallback)
+        .file("/project/settings.py", settings)
+        .file("/project/__init__.py", "")
+        .file("/django/__init__.py", "")
+        .file("/django/template/__init__.py", "")
+        .file("/django/templatetags/__init__.py", "")
+        .file("/django/contrib/__init__.py", "")
+        .file("/django/contrib/humanize/__init__.py", "")
+        .file("/django/contrib/humanize/templatetags/__init__.py", "")
+        .file("/example/__init__.py", "")
+        .file("/example/templatetags/__init__.py", "")
+        .file("/example/alpha/__init__.py", "")
+        .file("/example/alpha/templatetags/__init__.py", "")
+        .file("/example/beta/__init__.py", "")
+        .file("/example/beta/templatetags/__init__.py", "")
+        .file(
+            "/django/template/defaulttags.py",
+            tags(&[
+                "autoescape", "comment", "csrf_token", "cycle", "debug", "filter",
+                "firstof", "for", "if", "ifchanged", "load", "lorem", "now", "regroup",
+                "spaceless", "templatetag", "url", "verbatim", "widthratio", "with",
+            ]),
+        )
+        .file(
+            "/django/template/defaultfilters.py",
+            format!(
+                "{register}@register.filter\ndef title(value): pass\n@register.filter\ndef lower(value): pass\n@register.filter\ndef length(value): pass\n@register.filter\ndef default(value, arg): pass\n@register.filter\ndef truncatewords(value, arg): pass\n@register.filter\ndef date(value, arg=None): pass\n@register.filter\ndef upper(value): pass\n"
+            ),
+        )
+        .file(
+            "/django/template/loader_tags.py",
+            tags(&["block", "extends", "include"]),
+        )
+        .file(
+            "/example/templatetags/custom.py",
+            format!("{register}@register.simple_tag\ndef one_arg_tag(value): pass\n"),
+        )
+        .file(
+            "/example/alpha/templatetags/alpha.py",
+            format!(
+                "{}{}",
+                tags(&["ambiguous_tag", "shared"]),
+                filters(&["ambiguous_filter", "shared_filter"])
+            ),
+        )
+        .file(
+            "/example/beta/templatetags/beta.py",
+            format!(
+                "{}{}",
+                tags(&["ambiguous_tag", "shared"]),
+                filters(&["ambiguous_filter", "shared_filter"])
+            ),
+        )
+        .file("/django/templatetags/cache.py", tags(&["cache"]))
+        .file(
+            "/django/templatetags/i18n.py",
+            format!(
+                "{}{}",
+                tags(&["blocktrans", "blocktranslate", "trans", "translate"]),
+                filters(&["trans"])
+            ),
+        )
+        .file("/django/templatetags/l10n.py", tags(&["localize"]))
+        .file("/django/templatetags/static.py", tags(&["static"]))
+        .file("/django/templatetags/tz.py", tags(&["localtime", "timezone"]))
+        .file(
+            "/django/contrib/humanize/templatetags/humanize.py",
+            filters(&["intcomma"]),
+        )
+        .install(&mut db);
+    db
 }
 
 fn standard_tag_specs() -> TagSpecs {
@@ -947,95 +889,6 @@ fn choice_message(
     }
 }
 
-fn standard_template_libraries(db: &dyn ProjectDb) -> TemplateLibraries {
-    let tags = vec![
-        builtin_tag("autoescape", default_builtins_module()),
-        builtin_tag("block", default_loader_tags_module()),
-        builtin_tag("comment", default_builtins_module()),
-        builtin_tag("csrf_token", default_builtins_module()),
-        builtin_tag("cycle", default_builtins_module()),
-        builtin_tag("debug", default_builtins_module()),
-        builtin_tag("extends", default_loader_tags_module()),
-        builtin_tag("filter", default_builtins_module()),
-        builtin_tag("firstof", default_builtins_module()),
-        builtin_tag("for", default_builtins_module()),
-        builtin_tag("if", default_builtins_module()),
-        builtin_tag("ifchanged", default_builtins_module()),
-        builtin_tag("include", default_loader_tags_module()),
-        builtin_tag("load", default_builtins_module()),
-        builtin_tag("lorem", default_builtins_module()),
-        builtin_tag("now", default_builtins_module()),
-        builtin_tag("one_arg_tag", "example.templatetags.custom"),
-        builtin_tag("regroup", default_builtins_module()),
-        builtin_tag("spaceless", default_builtins_module()),
-        builtin_tag("templatetag", default_builtins_module()),
-        builtin_tag("url", default_builtins_module()),
-        builtin_tag("verbatim", default_builtins_module()),
-        builtin_tag("widthratio", default_builtins_module()),
-        builtin_tag("with", default_builtins_module()),
-        library_tag("ambiguous_tag", "alpha", "example.alpha.templatetags.alpha"),
-        library_tag("ambiguous_tag", "beta", "example.beta.templatetags.beta"),
-        library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
-        library_tag("blocktranslate", "i18n", "django.templatetags.i18n"),
-        library_tag("cache", "cache", "django.templatetags.cache"),
-        library_tag("localize", "l10n", "django.templatetags.l10n"),
-        library_tag("localtime", "tz", "django.templatetags.tz"),
-        library_tag("static", "static", "django.templatetags.static"),
-        library_tag("timezone", "tz", "django.templatetags.tz"),
-        library_tag("trans", "i18n", "django.templatetags.i18n"),
-        library_tag("translate", "i18n", "django.templatetags.i18n"),
-    ];
-    let filters = vec![
-        builtin_filter("title", default_filters_module()),
-        builtin_filter("lower", default_filters_module()),
-        builtin_filter("length", default_filters_module()),
-        builtin_filter("default", default_filters_module()),
-        builtin_filter("truncatewords", default_filters_module()),
-        builtin_filter("date", default_filters_module()),
-        builtin_filter("upper", default_filters_module()),
-        library_filter(
-            "intcomma",
-            "humanize",
-            "django.contrib.humanize.templatetags.humanize",
-        ),
-        library_filter(
-            "ambiguous_filter",
-            "alpha",
-            "example.alpha.templatetags.alpha",
-        ),
-        library_filter("ambiguous_filter", "beta", "example.beta.templatetags.beta"),
-    ];
-    let mut libraries = HashMap::new();
-    libraries.insert("cache".to_string(), "django.templatetags.cache".to_string());
-    libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
-    libraries.insert("l10n".to_string(), "django.templatetags.l10n".to_string());
-    libraries.insert("tz".to_string(), "django.templatetags.tz".to_string());
-    libraries.insert(
-        "humanize".to_string(),
-        "django.contrib.humanize.templatetags.humanize".to_string(),
-    );
-    libraries.insert(
-        "static".to_string(),
-        "django.templatetags.static".to_string(),
-    );
-    libraries.insert(
-        "alpha".to_string(),
-        "example.alpha.templatetags.alpha".to_string(),
-    );
-    libraries.insert(
-        "beta".to_string(),
-        "example.beta.templatetags.beta".to_string(),
-    );
-    let builtins = vec![
-        default_builtins_module().to_string(),
-        default_filters_module().to_string(),
-        default_loader_tags_module().to_string(),
-        "example.templatetags.custom".to_string(),
-    ];
-
-    make_template_libraries(db, &tags, &filters, &libraries, &builtins)
-}
-
 fn standard_filter_arities() -> FilterAritySpecs {
     let mut specs = FilterAritySpecs::new();
     specs.insert(
@@ -1083,16 +936,8 @@ fn standard_filter_arities() -> FilterAritySpecs {
     specs
 }
 
-fn default_builtins_module() -> &'static str {
-    "django.template.defaulttags"
-}
-
 fn default_filters_module() -> &'static str {
     "django.template.defaultfilters"
-}
-
-fn default_loader_tags_module() -> &'static str {
-    "django.template.loader_tags"
 }
 
 pub fn render_validate_snapshot(

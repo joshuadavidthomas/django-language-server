@@ -4,10 +4,142 @@ use rustc_hash::FxHashMap;
 use crate::db::Db;
 use crate::tags::TagSpecs;
 
-/// Compute the tag grammar index from tag specifications.
 #[salsa::tracked(returns(ref))]
-pub fn compute_tag_index(db: &dyn Db) -> TagIndex {
-    TagIndex::from_tag_specs(db.tag_specs())
+pub(crate) fn compute_preliminary_tag_index_for_file(
+    db: &dyn Db,
+    file: djls_source::File,
+    scope_file: djls_source::File,
+) -> ScopedTagIndex {
+    let empty = crate::scoping::LoadedLibraries::default();
+    let specs = match db.project() {
+        Some(project) => crate::tags::effective_tag_specs_for_load_state_in_project_scope(
+            db,
+            project,
+            scope_file,
+            &empty.available_at(0),
+        ),
+        None => crate::tags::effective_tag_specs_for_load_state(db, file, &empty.available_at(0)),
+    };
+    ScopedTagIndex::single(TagIndex::from_tag_specs(&specs))
+}
+
+#[salsa::tracked(returns(ref))]
+pub(crate) fn compute_tag_index_for_file_in_scope(
+    db: &dyn Db,
+    file: djls_source::File,
+    nodelist: djls_templates::NodeList<'_>,
+    scope_file: djls_source::File,
+) -> ScopedTagIndex {
+    let loaded =
+        crate::scoping::compute_loaded_libraries_for_file_in_scope(db, file, nodelist, scope_file);
+    scoped_tag_index_for_known_loads(db, file, scope_file, loaded)
+}
+
+pub(crate) fn scoped_tag_index_for_known_loads(
+    db: &dyn Db,
+    file: djls_source::File,
+    scope_file: djls_source::File,
+    loaded: &crate::scoping::LoadedLibraries,
+) -> ScopedTagIndex {
+    let Some(project) = db.project() else {
+        return scoped_tag_index_for_loads(db, file, loaded);
+    };
+    let initial = TagIndex::from_tag_specs(
+        &crate::tags::effective_tag_specs_for_load_state_in_project_scope(
+            db,
+            project,
+            scope_file,
+            &crate::scoping::LoadedLibraries::default().available_at(0),
+        ),
+    );
+    let boundaries = loaded
+        .statements()
+        .iter()
+        .map(|statement| {
+            let position = statement.span().end();
+            (
+                position,
+                TagIndex::from_tag_specs(
+                    &crate::tags::effective_tag_specs_for_load_state_in_project_scope(
+                        db,
+                        project,
+                        scope_file,
+                        &loaded.available_at(position),
+                    ),
+                ),
+            )
+        })
+        .collect();
+    ScopedTagIndex {
+        initial,
+        boundaries,
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub(crate) fn compute_tag_index_for_file(
+    db: &dyn Db,
+    file: djls_source::File,
+    nodelist: djls_templates::NodeList<'_>,
+) -> ScopedTagIndex {
+    scoped_tag_index_for_loads(
+        db,
+        file,
+        crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist),
+    )
+}
+
+fn scoped_tag_index_for_loads(
+    db: &dyn Db,
+    file: djls_source::File,
+    loaded: &crate::scoping::LoadedLibraries,
+) -> ScopedTagIndex {
+    let initial = TagIndex::from_tag_specs(crate::tags::tag_specs_for_file(db, file));
+    let boundaries = loaded
+        .statements()
+        .iter()
+        .map(|statement| {
+            let position = statement.span().end();
+            (
+                position,
+                TagIndex::from_tag_specs(&crate::tags::effective_tag_specs_for_load_state(
+                    db,
+                    file,
+                    &loaded.available_at(position),
+                )),
+            )
+        })
+        .collect();
+    ScopedTagIndex {
+        initial,
+        boundaries,
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ScopedTagIndex {
+    initial: TagIndex,
+    boundaries: Vec<(u32, TagIndex)>,
+}
+
+impl ScopedTagIndex {
+    fn single(index: TagIndex) -> Self {
+        Self {
+            initial: index,
+            boundaries: Vec::new(),
+        }
+    }
+
+    pub(crate) fn at(&self, position: u32) -> &TagIndex {
+        let index = self
+            .boundaries
+            .partition_point(|(boundary, _)| *boundary <= position);
+        if index == 0 {
+            &self.initial
+        } else {
+            &self.boundaries[index - 1].1
+        }
+    }
 }
 
 /// Index for tag grammar lookups.
@@ -43,12 +175,12 @@ impl TagIndex {
         }
     }
 
-    pub fn closer_openers(&self, closer_name: &str) -> Option<&[String]> {
-        self.closers.get(closer_name).map(Vec::as_slice)
-    }
-
-    pub(crate) fn intermediate_openers(&self, intermediate_name: &str) -> Option<&[String]> {
-        self.intermediates.get(intermediate_name).map(Vec::as_slice)
+    pub(crate) fn intermediate_names(&self, opener_name: &str) -> Vec<String> {
+        self.intermediates
+            .iter()
+            .filter(|(_, openers)| openers.iter().any(|opener| opener == opener_name))
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     pub(crate) fn is_end_required(&self, opener_name: &str) -> bool {

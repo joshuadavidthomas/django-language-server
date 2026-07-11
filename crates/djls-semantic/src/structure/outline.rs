@@ -8,10 +8,7 @@ use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
-use crate::structure::TemplateTree;
 use crate::tags::TagRole;
-use crate::tags::TagSpec;
-use crate::tags::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutlineItem {
@@ -56,11 +53,36 @@ impl From<TagRole> for OutlineKind {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> Vec<OutlineItem> {
-    let regions = tree.regions(db);
-    let root = tree.root(db);
+pub fn build_template_outline_for_file(
+    db: &dyn Db,
+    file: djls_source::File,
+    nodelist: djls_templates::NodeList<'_>,
+) -> Vec<OutlineItem> {
+    let tree = crate::structure::build_template_tree_for_file(db, file, nodelist);
+    let roles = OutlineTagRoles {
+        db,
+        file,
+        loaded: crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist),
+    };
+    outline_items_for_region(tree.regions(db), &roles, tree.root(db))
+}
 
-    outline_items_for_region(regions, db.tag_specs(), root)
+struct OutlineTagRoles<'a> {
+    db: &'a dyn Db,
+    file: djls_source::File,
+    loaded: &'a crate::scoping::LoadedLibraries,
+}
+
+impl OutlineTagRoles<'_> {
+    fn role(&self, tag: &str, position: u32) -> Option<TagRole> {
+        crate::tags::effective_tag_spec(
+            self.db,
+            self.file,
+            tag,
+            &self.loaded.available_at(position),
+        )
+        .and_then(|spec| spec.role())
+    }
 }
 
 fn outline_items_for_tag(
@@ -156,20 +178,20 @@ fn outline_items_for_tag(
 
 fn outline_items_for_region(
     regions: &Regions,
-    tag_specs: &TagSpecs,
+    roles: &OutlineTagRoles<'_>,
     region: RegionId,
 ) -> Vec<OutlineItem> {
     regions
         .get(region)
         .nodes()
         .iter()
-        .flat_map(|node| outline_items_for_node(regions, tag_specs, node))
+        .flat_map(|node| outline_items_for_node(regions, roles, node))
         .collect()
 }
 
 fn outline_items_for_node(
     regions: &Regions,
-    tag_specs: &TagSpecs,
+    roles: &OutlineTagRoles<'_>,
     node: &TemplateNode,
 ) -> Vec<OutlineItem> {
     match node {
@@ -181,9 +203,8 @@ fn outline_items_for_node(
             role: BlockRole::Opener,
             ..
         } => {
-            let role = tag_specs
-                .get(tag)
-                .and_then(TagSpec::role)
+            let role = roles
+                .role(tag, name_span.start())
                 .unwrap_or(TagRole::ControlTag);
             let children = regions
                 .get(*body)
@@ -196,9 +217,9 @@ fn outline_items_for_node(
                         role: BlockRole::Segment,
                         ..
                     } if segment_tag == tag => {
-                        outline_items_for_region(regions, tag_specs, *segment_body)
+                        outline_items_for_region(regions, roles, *segment_body)
                     }
-                    _ => outline_items_for_node(regions, tag_specs, node),
+                    _ => outline_items_for_node(regions, roles, node),
                 })
                 .collect();
 
@@ -220,7 +241,7 @@ fn outline_items_for_node(
             role: BlockRole::Segment,
             ..
         } => {
-            let children = outline_items_for_region(regions, tag_specs, *body);
+            let children = outline_items_for_region(regions, roles, *body);
             outline_items_for_tag(
                 TagRole::ControlTag,
                 tag,
@@ -236,9 +257,8 @@ fn outline_items_for_node(
             bits,
             full_span,
             ..
-        } => tag_specs
-            .get(tag)
-            .and_then(TagSpec::role)
+        } => roles
+            .role(tag, name_span.start())
             .map_or_else(Vec::new, |role| {
                 outline_items_for_tag(role, tag, *name_span, bits, *full_span, Vec::new())
             }),

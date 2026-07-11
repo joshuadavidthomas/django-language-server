@@ -1,7 +1,9 @@
 use djls_conf::DiagnosticsConfig;
 use djls_project::Db as ProjectDb;
 use djls_project::ModelGraph;
-use djls_project::TemplateLibraries;
+use djls_project::TemplateEnvironment;
+use djls_project::template_environment;
+use djls_source::File;
 
 use crate::errors::ValidationError;
 use crate::filters::FilterAritySpecs;
@@ -15,12 +17,6 @@ pub trait Db: ProjectDb {
     /// Get the diagnostics configuration.
     fn diagnostics_config(&self) -> DiagnosticsConfig;
 
-    /// Get template libraries for the current project.
-    ///
-    /// This includes installed libraries and symbols from project introspection
-    /// when available.
-    fn template_libraries(&self) -> &TemplateLibraries;
-
     /// Get the filter arity specifications for filter argument validation.
     ///
     /// Built from extraction results. Returns empty specs when no extraction
@@ -33,6 +29,13 @@ pub trait Db: ProjectDb {
     /// packages (site-packages). Returns an empty graph when no project is
     /// configured.
     fn model_graph(&self) -> &ModelGraph;
+}
+
+pub fn template_environment_for_file(db: &dyn Db, file: File) -> TemplateEnvironment<'_> {
+    db.project().map_or_else(
+        || TemplateEnvironment::from_project_inventory(djls_project::TemplateLibraries::empty_ref()),
+        |project| template_environment(db, project, file),
+    )
 }
 
 #[salsa::accumulator]

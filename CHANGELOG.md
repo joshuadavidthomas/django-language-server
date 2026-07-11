@@ -38,6 +38,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Changed Django settings analysis to preserve exact alternative configurations and known field values through unrelated dynamic expressions, while template semantics and IDE features now honor each file's feasible backend, loaded libraries, and source-position-specific definitions.
 - Changed template-library completion and installed-app guidance to retain known results through unrelated discovery problems, while unknown-library and unknown-symbol diagnostics now require an exhaustive miss.
 - Changed template navigation to avoid reporting templates as missing when configuration or filesystem search is incomplete, while retaining known possible destinations.
 - Changed unreadable files to be skipped instead of analyzed as empty source.

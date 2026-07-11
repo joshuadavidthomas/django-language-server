@@ -5,7 +5,6 @@ use camino::Utf8Path;
 use djls_project::Db as ProjectDb;
 use djls_project::ModelGraph;
 use djls_project::Project;
-use djls_project::TemplateLibraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
@@ -55,7 +54,6 @@ pub struct TestDatabase {
     files: SourceFiles,
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
-    template_libraries: TemplateLibraries,
     diagnostics_config: djls_conf::DiagnosticsConfig,
     project: Option<Project>,
     storage: salsa::Storage<Self>,
@@ -93,7 +91,6 @@ impl TestDatabase {
             files: SourceFiles::default(),
             tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
-            template_libraries: TemplateLibraries::default(),
             diagnostics_config: djls_conf::DiagnosticsConfig::default(),
             project: None,
             storage,
@@ -109,12 +106,6 @@ impl TestDatabase {
     #[must_use]
     pub fn with_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
         self.filter_arity_specs = specs;
-        self
-    }
-
-    #[must_use]
-    pub fn with_template_libraries(mut self, template_libraries: TemplateLibraries) -> Self {
-        self.template_libraries = template_libraries;
         self
     }
 
@@ -266,10 +257,6 @@ impl SemanticDb for TestDatabase {
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         self.diagnostics_config.clone()
-    }
-
-    fn template_libraries(&self) -> &TemplateLibraries {
-        &self.template_libraries
     }
 
     fn filter_arity_specs(&self) -> &FilterAritySpecs {

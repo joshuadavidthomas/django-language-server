@@ -1,10 +1,11 @@
 use djls_project::FindTemplateResult;
+use djls_project::InconclusiveTemplateSearch;
 use djls_project::LibraryName;
 use djls_project::Project;
+use djls_project::ScopedTemplateReferenceResolution;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
 use djls_project::TemplateResolution;
-use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
 use djls_source::Span;
@@ -16,10 +17,7 @@ use rustc_hash::FxHashMap;
 use crate::db::Db as SemanticDb;
 use crate::scoping::LoadKind;
 use crate::structure::active_template_tags;
-use crate::structure::build_template_tree;
 use crate::tags::TagRole;
-use crate::tags::TagSpecs;
-use crate::tags::compute_tag_specs;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
 pub enum TemplateReferenceKind {
@@ -52,24 +50,21 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
     let resolution = template_resolution(db, project);
 
     for source in resolution.origins(db) {
-        let source_name = source.template_name(db).name(db);
         for reference in template_references_in_file(db, project, source.file(db)).as_slice(db) {
-            let raw_target_template_name = reference.target_template_name;
-            let raw_target = raw_target_template_name.name(db);
-            let Some(resolved_target) =
-                resolve_relative_name(Some(source_name), raw_target, reference.kind.allow_self())
-            else {
+            let Some(scoped) = resolution.resolve_reference_from_origin(
+                db,
+                source,
+                reference.target_template_name,
+                &[],
+                reference.kind.allow_self(),
+            ) else {
                 continue;
             };
-            let target_template_name = match resolved_target {
-                std::borrow::Cow::Borrowed(_) => raw_target_template_name,
-                std::borrow::Cow::Owned(name) => TemplateName::new(db, name),
-            };
-            match resolution.resolve(db, target_template_name) {
+            match scoped.result {
                 FindTemplateResult::Found(_) => {}
-                // Possible origins surviving an incomplete search are still real reference
+                // Possible origins surviving an incomplete scoped search are still real reference
                 // targets worth indexing; an inconclusive miss with no candidates indexes
-                // nothing rather than guessing.
+                // nothing rather than guessing across backends.
                 FindTemplateResult::Inconclusive(search) if !search.possible_origins.is_empty() => {
                 }
                 FindTemplateResult::DoesNotExist(_) | FindTemplateResult::Inconclusive(_) => {
@@ -80,13 +75,13 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
             let reference = TemplateReference::new(
                 db,
                 source,
-                target_template_name,
+                scoped.target_name,
                 reference.kind,
                 reference.span,
             );
 
             by_template_name
-                .entry(target_template_name)
+                .entry(scoped.target_name)
                 .or_insert_with(Vec::new)
                 .push(reference);
         }
@@ -161,29 +156,91 @@ impl TemplateReferenceKind {
     }
 }
 
-/// Resolve a single template reference written in `file`, anchored at the file's
-/// primary template name (the template name Django binds the file to, first in
-/// discovery order), honoring the reference kind's self-reference rule.
-///
-/// This anchor differs from `template_references` aggregation above, which
-/// normalizes per source origin name; a file shadowed under multiple names
-/// resolves per name there.
-pub fn resolve_reference_name<'db>(
+/// Per-origin normalization and backend-scoped resolution of one raw file reference.
+pub fn resolve_reference_origins<'db>(
     db: &'db dyn SemanticDb,
     resolution: TemplateResolution<'db>,
     file: File,
     raw_name: TemplateName<'db>,
     kind: TemplateReferenceKind,
-) -> Option<TemplateName<'db>> {
-    let raw_name_text = raw_name.name(db);
-    let current_template_name = resolution
-        .primary_template_name(db, file)
-        .map(|name| name.name(db).as_str());
+) -> Vec<ScopedTemplateReferenceResolution<'db>> {
+    resolution
+        .template_names_for_file(db, file)
+        .iter()
+        .flat_map(|name| resolution.origins_for_name(db, *name))
+        .filter(|origin| origin.file(db) == file)
+        .filter_map(|origin| {
+            resolution.resolve_reference_from_origin(db, *origin, raw_name, &[], kind.allow_self())
+        })
+        .collect()
+}
 
-    match resolve_relative_name(current_template_name, raw_name_text, kind.allow_self())? {
-        std::borrow::Cow::Borrowed(_) => Some(raw_name),
-        std::borrow::Cow::Owned(name) => Some(TemplateName::new(db, name)),
+/// Joined resolution for an IDE operation on a physical file.
+///
+/// Relative references are normalized independently for every source origin. A definitive target
+/// is returned only when all origin/backend-scoped outcomes select the same physical file.
+pub fn resolve_reference_for_file<'db>(
+    db: &'db dyn SemanticDb,
+    resolution: TemplateResolution<'db>,
+    file: File,
+    raw_name: TemplateName<'db>,
+    kind: TemplateReferenceKind,
+) -> Option<FindTemplateResult<'db>> {
+    let outcomes = resolve_reference_origins(db, resolution, file, raw_name, kind);
+    let Some(first) = outcomes.first() else {
+        // Files outside the template inventory have no origin from which to derive a backend
+        // scope or normalize a relative name. Absolute names can still use the project-wide
+        // resolution, which keeps feasible settings alternatives separate when selecting a
+        // winner; relative names deliberately remain unresolved.
+        djls_project::resolve_relative_name(None, raw_name.name(db), kind.allow_self())?;
+        return Some(resolution.resolve(db, raw_name));
+    };
+    let found_file = match first.result {
+        FindTemplateResult::Found(origin) => Some(origin.file(db)),
+        FindTemplateResult::DoesNotExist(_) | FindTemplateResult::Inconclusive(_) => None,
+    };
+    if let Some(file) = found_file
+        && outcomes.iter().all(
+            |outcome| matches!(outcome.result, FindTemplateResult::Found(origin) if origin.file(db) == file),
+        )
+    {
+        let FindTemplateResult::Found(origin) = first.result else {
+            unreachable!("the joined reference outcome was checked as found")
+        };
+        return Some(FindTemplateResult::Found(origin));
     }
+
+    if outcomes
+        .iter()
+        .all(|outcome| matches!(outcome.result, FindTemplateResult::DoesNotExist(_)))
+    {
+        return Some(first.result.clone());
+    }
+
+    let mut possible_origins = Vec::new();
+    for outcome in &outcomes {
+        match &outcome.result {
+            FindTemplateResult::Found(origin) => {
+                if !possible_origins.iter().any(|possible| possible == origin) {
+                    possible_origins.push(*origin);
+                }
+            }
+            FindTemplateResult::Inconclusive(search) => {
+                for origin in &search.possible_origins {
+                    if !possible_origins.iter().any(|possible| possible == origin) {
+                        possible_origins.push(*origin);
+                    }
+                }
+            }
+            FindTemplateResult::DoesNotExist(_) => {}
+        }
+    }
+    Some(FindTemplateResult::Inconclusive(
+        InconclusiveTemplateSearch {
+            name: first.target_name,
+            possible_origins,
+        },
+    ))
 }
 
 impl TemplateLibraryReferenceInFile {
@@ -204,16 +261,23 @@ pub fn template_references_in_file(
     project: Project,
     file: File,
 ) -> TemplateReferencesInFile<'_> {
-    let tag_specs = compute_tag_specs(db, project);
     let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateReferencesInFile::new(db, Vec::new());
     };
-    let tree = build_template_tree(db, nodelist);
+    let tree = crate::structure::build_template_tree_for_file(db, file, nodelist);
+    let loaded = crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist);
 
     let references = active_template_tags(tree.regions(db), tree.root(db))
         .into_iter()
         .filter_map(|tag| {
-            let reference = LiteralTemplateReference::from_tag(tag_specs, tag.tag, tag.bits)?;
+            let spec = crate::tags::effective_tag_spec_in_project(
+                db,
+                project,
+                file,
+                tag.tag,
+                &loaded.available_at(tag.span.start()),
+            )?;
+            let reference = LiteralTemplateReference::from_spec(&spec, tag.bits)?;
             Some(TemplateReferenceInFile {
                 target_template_name: TemplateName::new(db, reference.template_name.to_string()),
                 kind: reference.kind,
@@ -233,10 +297,21 @@ pub fn template_library_references_in_file(
     let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateLibraryReferencesInFile::new(db, Vec::new());
     };
-    let tree = build_template_tree(db, nodelist);
+    let tree = crate::structure::build_template_tree_for_file(db, file, nodelist);
+    let loaded = crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist);
 
     let references = active_template_tags(tree.regions(db), tree.root(db))
         .into_iter()
+        .filter(|tag| {
+            crate::tags::effective_tag_spec(
+                db,
+                file,
+                tag.tag,
+                &loaded.available_at(tag.span.start()),
+            )
+            .and_then(|spec| spec.role())
+                == Some(TagRole::TemplateLibraryLoader)
+        })
         .flat_map(|tag| literal_load_references_from_tag(tag.tag, tag.bits))
         .collect();
 
@@ -279,12 +354,16 @@ pub struct TemplateReference<'db> {
 }
 
 impl<'db> TemplateReference<'db> {
-    fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
+    pub fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
         self.source_origin(db)
     }
 
     pub fn source_file(self, db: &'db dyn SemanticDb) -> File {
         self.source(db).file(db)
+    }
+
+    pub fn target_template_name(self, db: &'db dyn SemanticDb) -> TemplateName<'db> {
+        self.target_name(db)
     }
 
     pub fn kind(self, db: &dyn SemanticDb) -> TemplateReferenceKind {
@@ -305,13 +384,7 @@ pub(crate) struct LiteralTemplateReference<'bits> {
 }
 
 impl<'bits> LiteralTemplateReference<'bits> {
-    #[must_use]
-    pub(crate) fn from_tag(
-        tag_specs: &TagSpecs,
-        tag_name: &str,
-        bits: &'bits [TagBit],
-    ) -> Option<Self> {
-        let spec = tag_specs.get(tag_name)?;
+    pub(crate) fn from_spec(spec: &crate::tags::TagSpec, bits: &'bits [TagBit]) -> Option<Self> {
         let Some(TagRole::TemplateReference(kind)) = spec.role() else {
             return None;
         };

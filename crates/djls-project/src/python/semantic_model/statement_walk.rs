@@ -1,3 +1,4 @@
+use djls_source::Span;
 use ruff_python_ast as ast;
 
 use super::control_flow::BranchPath;
@@ -6,6 +7,7 @@ use super::control_flow::Truthiness;
 use super::control_flow::if_branches;
 use super::control_flow::is_irrefutable_match_case;
 use super::control_flow::try_paths;
+use crate::ast::RangedExt;
 
 pub(super) trait StatementInterpreter {
     type State: Clone;
@@ -24,10 +26,24 @@ pub(super) trait StatementInterpreter {
     fn bind_type_alias(&mut self, state: &mut Self::State, alias: &ast::StmtTypeAlias);
     fn bind_pattern_names(&mut self, state: &mut Self::State, pattern: &ast::Pattern);
     fn evaluate_test(&self, state: &Self::State, expr: &ast::Expr) -> Truthiness;
-    fn degrade_loop_bodies(&mut self, state: Self::State, bodies: &[&[ast::Stmt]]) -> Self::State;
-    fn join_ambiguous_paths(&mut self, state: Self::State, paths: &[BranchPath<'_>])
-    -> Self::State;
-    fn join_match_cases(&mut self, state: Self::State, cases: &[ast::MatchCase]) -> Self::State;
+    fn degrade_loop_bodies(
+        &mut self,
+        state: Self::State,
+        bodies: &[&[ast::Stmt]],
+        control_span: Span,
+    ) -> Self::State;
+    fn join_ambiguous_paths(
+        &mut self,
+        state: Self::State,
+        paths: &[BranchPath<'_>],
+        control_span: Span,
+    ) -> Self::State;
+    fn join_match_cases(
+        &mut self,
+        state: Self::State,
+        cases: &[ast::MatchCase],
+        control_span: Span,
+    ) -> Self::State;
 }
 
 pub(super) fn walk_body<S>(semantics: &mut S, mut state: S::State, body: &[ast::Stmt]) -> S::State
@@ -54,14 +70,20 @@ where
         ast::Stmt::If(stmt_if) => return walk_if(semantics, state, stmt_if),
         ast::Stmt::For(stmt_for) => {
             semantics.bind_for_target(&mut state, &stmt_for.target);
-            return semantics.degrade_loop_bodies(state, &[&stmt_for.body, &stmt_for.orelse]);
+            return semantics.degrade_loop_bodies(
+                state,
+                &[&stmt_for.body, &stmt_for.orelse],
+                stmt_for.span(),
+            );
         }
         ast::Stmt::While(stmt_while) => {
             return match semantics.evaluate_test(&state, &stmt_while.test) {
                 Truthiness::AlwaysFalse => walk_body(semantics, state, &stmt_while.orelse),
-                Truthiness::AlwaysTrue | Truthiness::Ambiguous => {
-                    semantics.degrade_loop_bodies(state, &[&stmt_while.body, &stmt_while.orelse])
-                }
+                Truthiness::AlwaysTrue | Truthiness::Ambiguous => semantics.degrade_loop_bodies(
+                    state,
+                    &[&stmt_while.body, &stmt_while.orelse],
+                    stmt_while.span(),
+                ),
             };
         }
         ast::Stmt::With(stmt_with) => {
@@ -111,7 +133,7 @@ where
         IfBranches::Ambiguous(arms) => {
             let paths: Vec<BranchPath<'_>> =
                 arms.iter().map(|arm| BranchPath::Single(arm)).collect();
-            semantics.join_ambiguous_paths(state, &paths)
+            semantics.join_ambiguous_paths(state, &paths, stmt_if.span())
         }
     }
 }
@@ -126,7 +148,7 @@ where
         return walk_body(semantics, state, &stmt_try.finalbody);
     }
 
-    let state = semantics.join_ambiguous_paths(state, &try_paths(stmt_try));
+    let state = semantics.join_ambiguous_paths(state, &try_paths(stmt_try), stmt_try.span());
     walk_body(semantics, state, &stmt_try.finalbody)
 }
 
@@ -143,5 +165,5 @@ where
         return walk_body(semantics, state, &stmt_match.cases[0].body);
     }
 
-    semantics.join_match_cases(state, &stmt_match.cases)
+    semantics.join_match_cases(state, &stmt_match.cases, stmt_match.span())
 }

@@ -1,235 +1,669 @@
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::fmt::Write;
 
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::FilterArity;
-use djls_project::SymbolKey;
-use djls_project::TemplateLibraries;
-use djls_project::template_libraries;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::FilterAritySpecs;
 use djls_semantic::ValidationError;
+use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::compute_tag_specs;
+use djls_semantic::validate_template_file;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
-use djls_testing::available_library_filter;
-use djls_testing::available_library_tag;
-use djls_testing::available_template_library;
-use djls_testing::builtin_filter;
-use djls_testing::builtin_tag;
 use djls_testing::collect_errors;
-use djls_testing::library_tag;
-use djls_testing::make_template_libraries_with_available;
-use djls_testing::make_template_libraries_with_available_and_omissions;
-use djls_testing::make_template_libraries_with_omissions;
-
-fn default_builtins_module() -> &'static str {
-    "django.template.defaulttags"
-}
-
-fn default_filters_module() -> &'static str {
-    "django.template.defaultfilters"
-}
-
-fn standard_inventory(db: &TestDatabase) -> TemplateLibraries {
-    standard_inventory_with_available(db, &[], &[], &[], false)
-}
-
-fn standard_inventory_with_available(
-    db: &TestDatabase,
-    available_libraries: &[djls_testing::AvailableTemplateLibraryFixture],
-    available_tags: &[serde_json::Value],
-    available_filters: &[serde_json::Value],
-    open: bool,
-) -> TemplateLibraries {
-    let mut tags = vec![
-        builtin_tag("if", default_builtins_module()),
-        builtin_tag("for", default_builtins_module()),
-        builtin_tag("block", default_builtins_module()),
-        builtin_tag("verbatim", default_builtins_module()),
-        builtin_tag("comment", default_builtins_module()),
-        builtin_tag("load", default_builtins_module()),
-        builtin_tag("csrf_token", default_builtins_module()),
-        builtin_tag("with", default_builtins_module()),
-        library_tag("trans", "i18n", "django.templatetags.i18n"),
-    ];
-    tags.extend_from_slice(available_tags);
-
-    let mut filters = vec![
-        builtin_filter("title", default_filters_module()),
-        builtin_filter("lower", default_filters_module()),
-        builtin_filter("default", default_filters_module()),
-        builtin_filter("truncatewords", default_filters_module()),
-        builtin_filter("date", default_filters_module()),
-    ];
-    filters.extend_from_slice(available_filters);
-
-    let mut libraries = HashMap::new();
-    libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
-    let builtins = vec![
-        default_builtins_module().to_string(),
-        default_filters_module().to_string(),
-    ];
-    if open {
-        make_template_libraries_with_available_and_omissions(
-            db,
-            &tags,
-            &filters,
-            &libraries,
-            &builtins,
-            available_libraries,
-        )
-    } else {
-        make_template_libraries_with_available(
-            db,
-            &tags,
-            &filters,
-            &libraries,
-            &builtins,
-            available_libraries,
-        )
-    }
-}
-
-fn standard_arities() -> FilterAritySpecs {
-    let mut specs = FilterAritySpecs::new();
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "title"),
-        FilterArity {
-            expects_arg: false,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "lower"),
-        FilterArity {
-            expects_arg: false,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "default"),
-        FilterArity {
-            expects_arg: true,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "truncatewords"),
-        FilterArity {
-            expects_arg: true,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "date"),
-        FilterArity {
-            expects_arg: true,
-            arg_optional: true,
-        },
-    );
-    specs
-}
+use djls_testing::partial_validation_db;
+use djls_testing::standard_validation_db;
 
 fn standard_db() -> TestDatabase {
-    let db = TestDatabase::new().with_arity_specs(standard_arities());
-    let libraries = standard_inventory(&db);
-    db.with_template_libraries(libraries)
+    standard_validation_db()
 }
 
 fn partial_db() -> TestDatabase {
-    let db = TestDatabase::new().with_arity_specs(standard_arities());
-    let libraries = standard_inventory_with_available(&db, &[], &[], &[], true);
-    db.with_template_libraries(libraries)
+    partial_validation_db()
 }
 
 fn partial_ambiguous_db() -> TestDatabase {
-    let tags = vec![
-        builtin_tag("load", default_builtins_module()),
-        library_tag("shared", "alpha", "project.alpha_tags"),
-        library_tag("shared", "beta", "project.beta_tags"),
-    ];
-    let filters = Vec::new();
-    let libraries = HashMap::from([
-        ("alpha".to_string(), "project.alpha_tags".to_string()),
-        ("beta".to_string(), "project.beta_tags".to_string()),
-    ]);
-    let builtins = vec![default_builtins_module().to_string()];
-    let db = TestDatabase::new();
-    let libraries =
-        make_template_libraries_with_omissions(&db, &tags, &filters, &libraries, &builtins);
-    db.with_template_libraries(libraries)
-}
-
-fn db_with_inventory(
-    build_inventory: impl FnOnce(&TestDatabase) -> TemplateLibraries,
-) -> TestDatabase {
-    let db = TestDatabase::new().with_arity_specs(standard_arities());
-    let template_libraries = build_inventory(&db);
-    db.with_template_libraries(template_libraries)
-}
-
-fn standard_db_with_available(
-    available_libraries: &[djls_testing::AvailableTemplateLibraryFixture],
-    available_tags: &[serde_json::Value],
-    available_filters: &[serde_json::Value],
-) -> TestDatabase {
-    db_with_inventory(|db| {
-        standard_inventory_with_available(
-            db,
-            available_libraries,
-            available_tags,
-            available_filters,
-            false,
-        )
-    })
-}
-
-fn partial_db_with_available(
-    available_libraries: &[djls_testing::AvailableTemplateLibraryFixture],
-    available_tags: &[serde_json::Value],
-    available_filters: &[serde_json::Value],
-) -> TestDatabase {
-    db_with_inventory(|db| {
-        standard_inventory_with_available(
-            db,
-            available_libraries,
-            available_tags,
-            available_filters,
-            true,
-        )
-    })
-}
-
-fn crispy_available_libraries() -> Vec<djls_testing::AvailableTemplateLibraryFixture> {
-    vec![available_template_library(
-        "crispy",
-        "crispy",
-        "crispy.templatetags.crispy",
-    )]
-}
-
-fn crispy_available_tags() -> Vec<serde_json::Value> {
-    vec![available_library_tag(
-        "crispy_tag",
-        "crispy",
-        "crispy",
-        "crispy.templatetags.crispy",
-    )]
-}
-
-fn crispy_available_filters() -> Vec<serde_json::Value> {
-    vec![available_library_filter(
-        "crispy_filter",
-        "crispy",
-        "crispy",
-        "crispy.templatetags.crispy",
-    )]
+    let db = partial_db();
+    db.add_file(
+        "/example/alpha/templatetags/alpha.py",
+        "from django import template\nregister = template.Library()\n@register.tag(name='shared')\ndef shared_tag(parser, token): pass\n@register.filter(name='shared')\ndef shared_filter(value): pass\n",
+    );
+    db.add_file(
+        "/example/beta/templatetags/beta.py",
+        "from django import template\nregister = template.Library()\n@register.tag(name='shared')\ndef shared_tag(parser, token): pass\n@register.filter(name='shared')\ndef shared_filter(value): pass\n",
+    );
+    db
 }
 
 fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
     collect_errors(db, "test.html", source)
+}
+
+fn collect_file_errors(db: &TestDatabase, path: &str) -> Vec<ValidationError> {
+    let file = db.file(Utf8Path::new(path));
+    validate_template_file(db, file);
+    validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
+        .into_iter()
+        .map(|error| error.0.clone())
+        .collect()
+}
+
+#[test]
+fn open_backend_after_concrete_membership_keeps_validation_inconclusive() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}},\n    UNKNOWN,\n]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha(value):\n    pass\n",
+        )
+        .file(
+            "/proj/shared/page.html",
+            "{% load shared %}{% shared_tag %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/shared/page.html");
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::ExtractedRuleViolation { .. })),
+        "an additional open backend must prevent a backend-local rule from becoming definite: {errors:?}"
+    );
+}
+
+#[test]
+fn wholly_unknown_templates_branch_keeps_file_validation_inconclusive() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = UNKNOWN\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef shared_tag(value):\n    pass\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load shared %}{% shared_tag %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::ExtractedRuleViolation { .. })),
+        "the wholly unknown settings branch must preserve spec uncertainty: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_configured_alias_keys_suppress_installed_app_guidance() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file("/proj/crispy/__init__.py", "")
+        .file("/proj/crispy/templatetags/__init__.py", "")
+        .file(
+            "/proj/crispy/templatetags/shared.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag():\n    pass\n@register.filter\ndef crispy_filter(value):\n    return value\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% crispy_tag %}{{ value|crispy_filter }}{% load shared %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::TagNotInInstalledApps { .. }
+                | ValidationError::FilterNotInInstalledApps { .. }
+                | ValidationError::LibraryNotInInstalledApps { .. }
+        )),
+        "dynamic alias keys must suppress definitive installed-app guidance: {errors:?}"
+    );
+}
+
+#[test]
+fn dynamic_installed_apps_suppress_guidance_without_template_backends() {
+    for templates in ["TEMPLATES = []\n", ""] {
+        let mut db = TestDatabase::new();
+        let settings = format!("INSTALLED_APPS = [UNKNOWN]\n{templates}");
+        ProjectFixture::new("/proj")
+            .django_settings_module("myproject.settings")
+            .file("/proj/myproject/settings.py", settings)
+            .file("/proj/crispy/__init__.py", "")
+            .file("/proj/crispy/templatetags/__init__.py", "")
+            .file(
+                "/proj/crispy/templatetags/crispy.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag(): pass\n@register.filter\ndef crispy_filter(value): return value\n",
+            )
+            .file(
+                "/proj/page.html",
+                "{% crispy_tag %}{{ value|crispy_filter }}{% load crispy %}",
+            )
+            .install(&mut db);
+
+        let errors = collect_file_errors(&db, "/proj/page.html");
+        assert!(
+            !errors.iter().any(|error| matches!(
+                error,
+                ValidationError::TagNotInInstalledApps { .. }
+                    | ValidationError::FilterNotInInstalledApps { .. }
+                    | ValidationError::LibraryNotInInstalledApps { .. }
+            )),
+            "dynamic apps with {templates:?} must suppress definitive guidance: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn partial_django_backend_keeps_configured_library_validation_inconclusive() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}, unknown_key: 'maybe'}]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef configured(value):\n    pass\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load custom %}{% configured %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::ExtractedRuleViolation { .. })),
+        "an overriding backend-key issue must keep configured rules inconclusive: {errors:?}"
+    );
+}
+
+#[test]
+fn validation_uses_only_the_library_environment_of_the_resolving_backend() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/a'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/b'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}},\n]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef alpha():\n    pass\n",
+        )
+        .file(
+            "/proj/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef beta():\n    pass\n",
+        )
+        .file("/proj/a/alpha.html", "{% load shared %}{% alpha %}{% beta %}")
+        .file("/proj/b/beta.html", "{% load shared %}{% alpha %}{% beta %}")
+        .install(&mut db);
+
+    let alpha_errors = collect_file_errors(&db, "/proj/a/alpha.html");
+    let beta_errors = collect_file_errors(&db, "/proj/b/beta.html");
+
+    assert!(!alpha_errors.iter().any(|error| matches!(
+        error,
+        ValidationError::UnknownTag { tag, .. }
+            | ValidationError::UnloadedTag { tag, .. } if tag == "alpha"
+    )));
+    assert!(!beta_errors.iter().any(|error| matches!(
+        error,
+        ValidationError::UnknownTag { tag, .. }
+            | ValidationError::UnloadedTag { tag, .. } if tag == "beta"
+    )));
+}
+
+#[test]
+fn conflicting_backend_specs_do_not_produce_argument_arity_or_structure_diagnostics() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha(value):\n    pass\n@register.filter(name='shared_filter')\ndef alpha_filter(value, arg):\n    return value\n@register.tag(name='panel')\ndef alpha_panel(parser, token):\n    body = parser.parse(('endalpha',))\n    return Node(body)\n",
+        )
+        .file(
+            "/proj/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef beta():\n    pass\n@register.filter(name='shared_filter')\ndef beta_filter(value):\n    return value\n@register.tag(name='panel')\ndef beta_panel(parser, token):\n    body = parser.parse(('endbeta',))\n    return Node(body)\n",
+        )
+        .file(
+            "/proj/shared/page.html",
+            "{% load shared %}{% shared_tag %}{{ value|shared_filter }}{% panel %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/shared/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { .. }
+                | ValidationError::FilterMissingArgument { .. }
+                | ValidationError::FilterUnexpectedArgument { .. }
+        )),
+        "conflicting signatures must remain inconclusive: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(
+            |error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "panel")
+        ),
+        "conflicting block shapes must remain inconclusive: {errors:?}"
+    );
+}
+
+#[test]
+fn unloaded_custom_collision_does_not_override_builtin_if_grammar() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'collisions': 'collision_tags'}}}]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/collision_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag(name='if')\ndef custom_if(parser, token):\n    body = parser.parse(('endcustom',))\n    return Node(body)\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% if condition %}yes{% endif %}",
+        )
+        .file("/proj/templates/unclosed.html", "{% if condition %}")
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownTag { tag, .. }
+                | ValidationError::UnloadedTag { tag, .. }
+                | ValidationError::UnclosedTag { tag, .. }
+                | ValidationError::OrphanedTag { tag, .. } if tag == "if" || tag == "endif"
+        )),
+        "an unloaded collision must not replace builtin if structure: {errors:?}"
+    );
+
+    let unclosed_errors = collect_file_errors(&db, "/proj/templates/unclosed.html");
+    assert!(
+        unclosed_errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "if")),
+        "the fixture must expose the builtin if block specification: {unclosed_errors:?}"
+    );
+}
+
+#[test]
+fn project_fixture_registers_builtin_for_structure() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/proj/templates/valid.html",
+            "{% for item in items %}{{ item }}{% empty %}empty{% endfor %}",
+        )
+        .file("/proj/templates/unclosed.html", "{% for item in items %}")
+        .install(&mut db);
+
+    let valid_errors = collect_file_errors(&db, "/proj/templates/valid.html");
+    assert!(
+        !valid_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownTag { tag, .. }
+                | ValidationError::UnloadedTag { tag, .. }
+                | ValidationError::UnclosedTag { tag, .. }
+                | ValidationError::OrphanedTag { tag, .. }
+                if tag == "for" || tag == "empty" || tag == "endfor"
+        )),
+        "the fixture must recognize the complete builtin for structure: {valid_errors:?}"
+    );
+
+    let unclosed_errors = collect_file_errors(&db, "/proj/templates/unclosed.html");
+    assert!(
+        unclosed_errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "for")),
+        "the fixture must expose the builtin for block specification: {unclosed_errors:?}"
+    );
+}
+
+#[test]
+fn loaded_library_contract_wins_over_conflicting_unloaded_library() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha(value):\n    pass\n",
+        )
+        .file(
+            "/proj/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef beta():\n    pass\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load alpha %}{% shared_tag %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::ExtractedRuleViolation { .. })),
+        "the exact loaded alpha contract must remain authoritative over unloaded beta: {errors:?}"
+    );
+}
+
+#[test]
+fn shadowed_template_file_keeps_its_origin_backend_environment() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/first'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/second'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}},\n]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef alpha():\n    pass\n",
+        )
+        .file(
+            "/proj/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef beta():\n    pass\n",
+        )
+        .file("/proj/first/page.html", "{% load shared %}{% alpha %}")
+        .file("/proj/second/page.html", "{% load shared %}{% beta %}")
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/second/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownTag { tag, .. }
+                | ValidationError::UnloadedTag { tag, .. } if tag == "beta"
+        )),
+        "a shadowed origin should retain its own backend membership: {errors:?}"
+    );
+}
+
+#[test]
+fn later_load_does_not_change_an_open_block_contract() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/proj/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='if')\ndef custom_if(value):\n    pass\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% if value %}{% load custom %}{% endif %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownTag { tag, .. }
+                | ValidationError::UnloadedTag { tag, .. }
+                if tag == "if" || tag == "endif"
+        )),
+        "the fixture must recognize the builtin if definition: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnclosedTag { .. }
+                | ValidationError::OrphanedClosingTag { .. }
+                | ValidationError::UnbalancedStructure { .. }
+        )),
+        "the opener's captured closer contract must survive later shadowing: {errors:?}"
+    );
+}
+
+#[test]
+fn load_discovery_rebuilds_structure_until_later_load_is_visible() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['opaque_tags'], 'libraries': {'first': 'first_tags', 'second': 'second_tags'}}}]\n",
+        )
+        .file(
+            "/proj/opaque_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag(name='shadow')\ndef shadow(parser, token):\n    parser.skip_past('endshadow')\n    return Node()\n",
+        )
+        .file(
+            "/proj/first_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='shadow')\ndef shadow(): pass\n",
+        )
+        .file(
+            "/proj/second_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef revealed(): pass\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load first %}{% shadow %}{% load second %}{% endshadow %}{% revealed %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnloadedTag { tag, .. }
+                | ValidationError::UnknownTag { tag, .. }
+                if tag == "revealed"
+        )),
+        "the load revealed after rebuilding structure must activate its library: {errors:?}"
+    );
+}
+
+#[test]
+fn load_discovery_converges_through_more_than_eight_grammar_changes() {
+    const REVEAL_COUNT: usize = 10;
+    const {
+        assert!(REVEAL_COUNT > 8);
+    }
+
+    let mut settings_libraries = String::new();
+    let mut opaque_tags =
+        "from django import template\nregister = template.Library()\n".to_string();
+    let mut template = "{% load chain_0 %}".to_string();
+    let mut fixture = ProjectFixture::new("/proj").django_settings_module("myproject.settings");
+
+    for index in 0..REVEAL_COUNT {
+        if index > 0 {
+            settings_libraries.push_str(", ");
+        }
+        write!(settings_libraries, "'chain_{index}': 'chain_{index}_tags'").unwrap();
+        write!(
+            opaque_tags,
+            "@register.tag(name='gate_{index}')\ndef gate_{index}(parser, token):\n    parser.skip_past('endgate_{index}')\n    return Node()\n"
+        )
+        .unwrap();
+        write!(
+            template,
+            "{{% gate_{index} %}}{{% load chain_{} %}}{{% endgate_{index} %}}",
+            index + 1
+        )
+        .unwrap();
+        fixture = fixture.file(
+            format!("/proj/chain_{index}_tags.py"),
+            format!(
+                "from django import template\nregister = template.Library()\n@register.simple_tag(name='gate_{index}')\ndef gate_{index}(): pass\n"
+            ),
+        );
+    }
+
+    write!(
+        settings_libraries,
+        ", 'chain_{REVEAL_COUNT}': 'chain_{REVEAL_COUNT}_tags'"
+    )
+    .unwrap();
+    template.push_str("{% revealed %}");
+    fixture = fixture
+        .file(
+            "/proj/myproject/settings.py",
+            format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {{'builtins': ['opaque_tags'], 'libraries': {{{settings_libraries}}}}}}}]\n"
+            ),
+        )
+        .file("/proj/opaque_tags.py", opaque_tags)
+        .file(
+            format!("/proj/chain_{REVEAL_COUNT}_tags.py"),
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef revealed(): pass\n",
+        )
+        .file("/proj/templates/page.html", template);
+    let mut db = TestDatabase::new();
+    fixture.install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnloadedTag { tag, .. }
+                | ValidationError::UnknownTag { tag, .. }
+                if tag == "revealed"
+        )),
+        "the final load revealed through the grammar chain must activate its symbol: {errors:?}"
+    );
+}
+
+#[test]
+fn custom_tag_named_if_does_not_run_builtin_if_expression_validation() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/proj/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='if')\ndef custom_if(*args):\n    pass\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load custom %}{% if and value %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::ExpressionSyntaxError { .. })),
+        "validation behavior must follow the effective role, not the source spelling: {errors:?}"
+    );
+}
+
+#[test]
+fn validation_is_inconclusive_when_feasible_backends_disagree() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef alpha():\n    pass\n",
+        )
+        .file(
+            "/proj/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef beta():\n    pass\n",
+        )
+        .file("/proj/shared/page.html", "{% load shared %}{% alpha %}{% beta %}")
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/shared/page.html");
+    assert!(!errors.iter().any(|error| matches!(
+        error,
+        ValidationError::UnknownLibrary { .. }
+            | ValidationError::UnknownTag { .. }
+            | ValidationError::UnloadedTag { .. }
+            | ValidationError::AmbiguousUnloadedTag { .. }
+    )));
+}
+
+fn alias_shadowing_db(settings: &str, source: &str) -> TestDatabase {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/alias_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/proj/available/__init__.py", "")
+        .file("/proj/available/templatetags/__init__.py", "")
+        .file(
+            "/proj/available/templatetags/shared.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef candidate_tag():\n    pass\n@register.filter\ndef candidate_filter(value):\n    return value\n",
+        )
+        .file("/proj/shared/page.html", source)
+        .install(&mut db);
+    db
+}
+
+#[test]
+fn authoritative_aliases_on_all_feasible_backends_suppress_available_app_guidance() {
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]\n";
+    let db = alias_shadowing_db(settings, "{% candidate_tag %}{{ value|candidate_filter }}");
+    let errors = collect_file_errors(&db, "/proj/shared/page.html");
+
+    assert!(!errors.iter().any(|error| matches!(
+        error,
+        ValidationError::TagNotInInstalledApps { tag, .. } if tag == "candidate_tag"
+    )));
+    assert!(!errors.iter().any(|error| matches!(
+        error,
+        ValidationError::FilterNotInInstalledApps { filter, .. } if filter == "candidate_filter"
+    )));
+}
+
+#[test]
+fn mixed_authoritative_alias_shadowing_makes_available_app_guidance_inconclusive() {
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False}]\n";
+    let db = alias_shadowing_db(settings, "{% candidate_tag %}{{ value|candidate_filter }}");
+    let errors = collect_file_errors(&db, "/proj/shared/page.html");
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::TagNotInInstalledApps { tag, .. }
+                | ValidationError::UnknownTag { tag, .. } if tag == "candidate_tag"
+        )),
+        "mixed tag shadowing should remain inconclusive: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::FilterNotInInstalledApps { filter, .. }
+                | ValidationError::UnknownFilter { filter, .. } if filter == "candidate_filter"
+        )),
+        "mixed filter shadowing should remain inconclusive: {errors:?}"
+    );
 }
 
 fn extracted_block_db(source: &str) -> TestDatabase {
@@ -239,14 +673,22 @@ fn extracted_block_db(source: &str) -> TestDatabase {
         .file("/proj/blog/__init__.py", "")
         .file("/proj/blog/templatetags/__init__.py", "")
         .file("/proj/blog/templatetags/ambiguous.py", source)
+        .file("/proj/django/__init__.py", "")
+        .file("/proj/django/template/__init__.py", "")
+        .file(
+            "/proj/django/template/defaulttags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n",
+        )
+        .file(
+            "/proj/django/template/loader_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n@register.tag\ndef include(parser, token): pass\n",
+        )
         .file(
             "/proj/myproject/settings.py",
-            "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+            "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
         )
         .install(&mut db);
 
-    let libraries = template_libraries(&db, project).clone();
-    db = db.with_template_libraries(libraries);
     let specs = compute_tag_specs(&db, project).clone();
     db.with_specs(specs)
 }
@@ -345,32 +787,28 @@ fn partial_knowledge_suppresses_unknown_tag() {
 }
 
 #[test]
-fn partial_knowledge_keeps_unloaded_tag() {
-    let db = partial_db();
-    let errors = collect_all_errors(&db, "{% trans \"hello\" %}\n");
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::UnloadedTag { tag, library, .. }
-                if tag == "trans" && library == "i18n"
-        )),
-        "known unloaded tags should still be reported under partial knowledge: {errors:?}"
-    );
-}
-
-#[test]
-fn partial_knowledge_keeps_ambiguous_unloaded_tag() {
+fn unknown_loaded_library_suppresses_unloaded_tag_and_filter_diagnostics() {
     let db = partial_ambiguous_db();
-    let errors = collect_all_errors(&db, "{% shared %}\n");
+    let errors = collect_all_errors(
+        &db,
+        "{% load unknown_library %}\n{% shared %}\n{{ value|shared }}\n",
+    );
 
     assert!(
-        errors.iter().any(|error| matches!(
+        !errors.iter().any(|error| matches!(
             error,
-            ValidationError::AmbiguousUnloadedTag { tag, libraries, .. }
-                if tag == "shared" && libraries == &vec!["alpha".to_string(), "beta".to_string()]
+            ValidationError::UnloadedTag { tag, .. }
+                | ValidationError::AmbiguousUnloadedTag { tag, .. } if tag == "shared"
         )),
-        "known ambiguous unloaded tags should still be reported under partial knowledge: {errors:?}"
+        "an unknown full load may provide the known tag: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnloadedFilter { filter, .. }
+                | ValidationError::AmbiguousUnloadedFilter { filter, .. } if filter == "shared"
+        )),
+        "an unknown full load may provide the known filter: {errors:?}"
     );
 }
 
@@ -401,20 +839,6 @@ fn partial_knowledge_suppresses_unknown_filter() {
 }
 
 #[test]
-fn partial_knowledge_keeps_known_filter_arity() {
-    let db = partial_db();
-    let errors = collect_all_errors(&db, "{{ value|truncatewords }}\n");
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords"
-        )),
-        "known filter arity diagnostics should still be reported under partial knowledge: {errors:?}"
-    );
-}
-
-#[test]
 fn partial_knowledge_suppresses_filter_arity_after_unknown_load() {
     let db = partial_db();
     let errors = collect_all_errors(
@@ -428,50 +852,6 @@ fn partial_knowledge_suppresses_filter_arity_after_unknown_load() {
             ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords"
         )),
         "unknown loaded libraries may shadow known filters under partial knowledge: {errors:?}"
-    );
-}
-
-#[test]
-fn partial_knowledge_keeps_filter_arity_after_unrelated_unknown_selective_load() {
-    let db = partial_db();
-    let errors = collect_all_errors(
-        &db,
-        "{% load other_filter from project_filters %}\n{{ value|truncatewords }}\n",
-    );
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords"
-        )),
-        "unknown selective loads should only shadow named filters: {errors:?}"
-    );
-}
-
-#[test]
-fn unknown_load_name_with_available_candidate_reports_not_in_installed_apps() {
-    let db = standard_db_with_available(
-        &crispy_available_libraries(),
-        &crispy_available_tags(),
-        &crispy_available_filters(),
-    );
-    let errors = collect_all_errors(&db, "{% load crispy %}\n");
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::LibraryNotInInstalledApps { name, app, candidates, .. }
-                if name == "crispy"
-                    && app == "crispy"
-                    && candidates == &vec!["crispy".to_string()]
-        )),
-        "available library should produce S121: {errors:?}"
-    );
-    assert!(
-        !errors
-            .iter()
-            .any(|error| matches!(error, ValidationError::UnknownLibrary { name, .. } if name == "crispy")),
-        "S121 should replace S120 when available evidence exists: {errors:?}"
     );
 }
 
@@ -490,31 +870,6 @@ fn unknown_load_name_without_available_candidate_stays_unknown_library() {
 }
 
 #[test]
-fn unknown_tag_with_available_candidate_reports_not_in_installed_apps() {
-    let db = standard_db_with_available(
-        &crispy_available_libraries(),
-        &crispy_available_tags(),
-        &crispy_available_filters(),
-    );
-    let errors = collect_all_errors(&db, "{% crispy_tag %}\n");
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::TagNotInInstalledApps { tag, app, load_name, .. }
-                if tag == "crispy_tag" && app == "crispy" && load_name == "crispy"
-        )),
-        "available tag should produce S118 naming app and load name: {errors:?}"
-    );
-    assert!(
-        !errors.iter().any(
-            |error| matches!(error, ValidationError::UnknownTag { tag, .. } if tag == "crispy_tag")
-        ),
-        "S118 should replace S108 when available evidence exists: {errors:?}"
-    );
-}
-
-#[test]
 fn unknown_tag_without_available_candidate_stays_unknown_tag() {
     let db = standard_db();
     let errors = collect_all_errors(&db, "{% definitely_unknown %}\n");
@@ -525,102 +880,6 @@ fn unknown_tag_without_available_candidate_stays_unknown_tag() {
             ValidationError::UnknownTag { tag, .. } if tag == "definitely_unknown"
         )),
         "unknown tag should keep S108: {errors:?}"
-    );
-}
-
-#[test]
-fn unknown_filter_with_available_candidate_reports_not_in_installed_apps() {
-    let db = standard_db_with_available(
-        &crispy_available_libraries(),
-        &crispy_available_tags(),
-        &crispy_available_filters(),
-    );
-    let errors = collect_all_errors(&db, "{{ value|crispy_filter }}\n");
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::FilterNotInInstalledApps { filter, app, load_name, .. }
-                if filter == "crispy_filter" && app == "crispy" && load_name == "crispy"
-        )),
-        "available filter should produce S119: {errors:?}"
-    );
-}
-
-#[test]
-fn active_unloaded_tag_wins_over_available_candidate() {
-    let db = standard_db_with_available(
-        &[available_template_library(
-            "other_tags",
-            "otherapp",
-            "otherapp.templatetags.other_tags",
-        )],
-        &[available_library_tag(
-            "trans",
-            "other_tags",
-            "otherapp",
-            "otherapp.templatetags.other_tags",
-        )],
-        &[],
-    );
-    let errors = collect_all_errors(&db, "{% trans \"hello\" %}\n");
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::UnloadedTag { tag, library, .. }
-                if tag == "trans" && library == "i18n"
-        )),
-        "active unloaded library should win: {errors:?}"
-    );
-    assert!(
-        !errors
-            .iter()
-            .any(|error| matches!(error, ValidationError::TagNotInInstalledApps { tag, .. } if tag == "trans")),
-        "available candidates must not override active unloaded symbols: {errors:?}"
-    );
-}
-
-#[test]
-fn partial_knowledge_retains_available_app_guidance() {
-    let db = partial_db_with_available(
-        &crispy_available_libraries(),
-        &crispy_available_tags(),
-        &crispy_available_filters(),
-    );
-    let errors = collect_all_errors(&db, "{% load crispy %}\n");
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::LibraryNotInInstalledApps { name, app, .. }
-                if name == "crispy" && app == "crispy"
-        )),
-        "known available-app guidance should survive unrelated uncertainty: {errors:?}"
-    );
-}
-
-#[test]
-fn available_library_candidates_are_sorted_for_deterministic_s121() {
-    let db = standard_db_with_available(
-        &[
-            available_template_library("shared", "beta", "beta.templatetags.shared"),
-            available_template_library("shared", "alpha", "alpha.templatetags.shared"),
-        ],
-        &[],
-        &[],
-    );
-    let errors = collect_all_errors(&db, "{% load shared %}\n");
-
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            ValidationError::LibraryNotInInstalledApps { name, app, candidates, .. }
-                if name == "shared"
-                    && app == "alpha"
-                    && candidates == &vec!["alpha".to_string(), "beta".to_string()]
-        )),
-        "S121 should use the first sorted candidate and include all apps: {errors:?}"
     );
 }
 
@@ -767,6 +1026,23 @@ fn comment_block_also_opaque() {
     assert!(
         validation_errors.is_empty(),
         "No errors expected inside comment block, got: {validation_errors:?}"
+    );
+}
+
+#[test]
+fn load_inside_block_affects_later_occurrences() {
+    let db = standard_db();
+    let errors = collect_all_errors(
+        &db,
+        "{% if value %}{% load i18n %}{% trans 'hello' %}{% endif %}",
+    );
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnloadedTag { tag, .. } if tag == "trans"
+        )),
+        "an active nested load should affect later occurrences: {errors:?}"
     );
 }
 

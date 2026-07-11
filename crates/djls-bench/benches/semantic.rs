@@ -26,7 +26,7 @@ fn template_tree_cold(bencher: Bencher) {
         for file in &files {
             let nodelist = djls_templates::parse_template(&db, *file)
                 .expect("benchmark template should parse");
-            let tree = djls_semantic::build_template_tree(&db, nodelist);
+            let tree = djls_semantic::build_template_tree_for_file(&db, *file, nodelist);
             total_regions += tree.regions(&db).iter().count();
         }
         divan::black_box(total_regions);
@@ -41,9 +41,7 @@ fn validate_cold(bencher: Bencher) {
 
         let mut validated = 0;
         for file in &files {
-            let nodelist = djls_templates::parse_template(&db, *file)
-                .expect("benchmark template should parse");
-            djls_semantic::validate_nodelist(&db, nodelist);
+            djls_semantic::validate_template_file(&db, *file);
             validated += 1;
         }
         divan::black_box(validated);
@@ -67,9 +65,7 @@ fn validate_incremental(bencher: Bencher) {
         .map(|fixture| {
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
-            let nodelist =
-                djls_templates::parse_template(&db, file).expect("benchmark template should parse");
-            djls_semantic::validate_nodelist(&db, nodelist);
+            djls_semantic::validate_template_file(&db, file);
 
             let original = fixture.source.clone();
             let modified = {
@@ -100,9 +96,7 @@ fn validate_incremental(bencher: Bencher) {
 
                 db.set_file_contents(template.file, contents);
 
-                let nodelist = djls_templates::parse_template(&db, template.file)
-                    .expect("benchmark template should parse");
-                djls_semantic::validate_nodelist(&db, nodelist);
+                djls_semantic::validate_template_file(&db, template.file);
                 validated += 1;
             }
         }
@@ -120,7 +114,7 @@ fn opaque_regions_cold(bencher: Bencher) {
         for file in &files {
             let nodelist = djls_templates::parse_template(&db, *file)
                 .expect("benchmark template should parse");
-            let regions = djls_semantic::compute_opaque_regions(&db, nodelist);
+            let regions = djls_semantic::compute_opaque_regions(&db, *file, nodelist);
             opaque_files += usize::from(!regions.is_empty());
         }
         divan::black_box(opaque_files);

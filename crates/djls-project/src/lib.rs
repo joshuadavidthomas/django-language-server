@@ -1,5 +1,3 @@
-use serde::Serialize;
-
 mod ast;
 mod db;
 mod discovery;
@@ -45,6 +43,8 @@ pub use templates::AvailableAppCandidates;
 pub use templates::BlockSpec;
 pub use templates::BlockSpecs;
 pub use templates::ChoiceAt;
+pub use templates::EffectiveDefinitionLibrary;
+pub use templates::EnvironmentSymbolLookup;
 pub use templates::ExtractedDiagnosticConstraint;
 pub use templates::ExtractedDiagnosticMessage;
 pub use templates::ExtractedMessageArg;
@@ -60,6 +60,7 @@ pub use templates::LibraryName;
 pub use templates::LoadableLibraryLookup;
 pub use templates::MissingLibraryLookup;
 pub use templates::RequiredKeyword;
+pub use templates::ScopedTemplateReferenceResolution;
 pub use templates::SplitPosition;
 pub use templates::SymbolDefinition;
 pub use templates::SymbolKey;
@@ -67,10 +68,12 @@ pub use templates::TagArgument;
 pub use templates::TagArgumentKind;
 pub use templates::TagRule;
 pub use templates::TagRuleMap;
+pub use templates::TemplateBackendScope;
 pub use templates::TemplateContextProcessor;
 pub use templates::TemplateContextProcessors;
 pub use templates::TemplateDirectories;
 pub use templates::TemplateDoesNotExist;
+pub use templates::TemplateEnvironment;
 pub use templates::TemplateLibraries;
 pub use templates::TemplateLibrary;
 pub use templates::TemplateName;
@@ -88,15 +91,9 @@ pub use templates::extract_tag_rules;
 pub use templates::resolve_relative_name;
 pub use templates::template_context_processors;
 pub use templates::template_directories;
+pub use templates::template_environment;
 pub use templates::template_libraries;
 pub use templates::template_resolution;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum ExtractionStatus {
-    Complete,
-    Partial,
-}
 
 // Test and benchmark support only; not part of the stable Project Facts façade.
 #[doc(hidden)]
@@ -112,6 +109,170 @@ pub mod testing {
     pub use crate::models::resolve_model_graph_from_modules;
     pub use crate::python::PythonSyntaxError;
     pub use crate::python::PythonSyntaxErrorClass;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PythonModuleEvaluationView {
+        pub(crate) bindings: Vec<PythonBindingView>,
+        pub namespace_unknowns: Vec<PythonUnknownView>,
+        pub(crate) syntax_errors: Vec<PythonSyntaxError>,
+        pub mutations: Vec<PythonMutationView>,
+        pub(crate) read_error: Option<PythonFileReadErrorView>,
+        pub dependency_files: Vec<File>,
+        pub imports: Vec<PythonImportOutcomeView>,
+    }
+
+    impl PythonModuleEvaluationView {
+        #[must_use]
+        pub fn binding(&self, name: &str) -> Option<&PythonBindingView> {
+            self.bindings.iter().find(|binding| binding.name == name)
+        }
+
+        #[must_use]
+        pub fn namespace_open(&self) -> bool {
+            !self.namespace_unknowns.is_empty()
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PythonBindingView {
+        pub(crate) name: String,
+        pub alternatives: Vec<PythonBindingAlternativeView>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PythonBindingAlternativeView {
+        Bound(PythonBoundValueView),
+        Unbound,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PythonBoundValueView {
+        pub value: PythonValueView,
+        pub binding_origins: Vec<djls_source::Origin>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PythonValueView {
+        pub kind: PythonValueKindView,
+        pub origins: Vec<djls_source::Origin>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PythonValueKindView {
+        Str(String),
+        Bool(bool),
+        Path(Utf8PathBuf),
+        List(Vec<PythonListItemView>),
+        Dict(Vec<PythonDictItemView>),
+        Unknown(PythonUnknownView),
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PythonListItemView {
+        Value(PythonValueView),
+        UnknownElement(PythonUnknownView),
+        UnknownUnpack(PythonUnknownView),
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PythonDictItemView {
+        Entry {
+            key: PythonValueView,
+            value: PythonValueView,
+        },
+        UnknownUnpack(PythonUnknownView),
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PythonUnknownView {
+        pub cause: PythonUnknownCauseView,
+        pub origin: Option<djls_source::Origin>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PythonUnknownCauseView {
+        UnsupportedExpression,
+        UnsupportedMutation,
+        InvalidImport(PythonImportErrorView),
+        ImportNotFound(super::PythonModuleName),
+        SkippedExternal(super::PythonModuleName),
+        Unreadable(PythonFileReadErrorView),
+        SyntaxErrors(Vec<PythonSyntaxError>),
+        Cycle,
+        AlternativeLimitExceeded,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PythonFileReadErrorView {
+        pub path: Utf8PathBuf,
+        pub kind: std::io::ErrorKind,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PythonImportErrorView {
+        InvalidModuleName(super::InvalidModuleName),
+        EmptyAbsoluteImport,
+        EmptyRelativeImport,
+        ImporterOutsideSearchPaths(String),
+        ImporterIsNotPythonSource(String),
+        TooManyDots,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PythonImportOutcomeView {
+        Resolved {
+            origin: djls_source::Origin,
+            file: File,
+        },
+        InvalidImport {
+            origin: djls_source::Origin,
+            reason: PythonImportErrorView,
+        },
+        NotFound {
+            origin: djls_source::Origin,
+            module: super::PythonModuleName,
+        },
+        SkippedExternal {
+            origin: djls_source::Origin,
+            module: super::PythonModuleName,
+        },
+        Unreadable {
+            origin: djls_source::Origin,
+            file: File,
+            error: PythonFileReadErrorView,
+        },
+        SyntaxErrors {
+            origin: djls_source::Origin,
+            file: File,
+            errors: Vec<PythonSyntaxError>,
+        },
+        Cycle {
+            origin: djls_source::Origin,
+            file: File,
+        },
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PythonMutationView {
+        pub root: String,
+        pub access: Vec<PythonMutationAccessView>,
+        pub method: String,
+        pub origin: djls_source::Origin,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PythonMutationAccessView {
+        Index(usize),
+        Key(String),
+    }
+
+    pub fn python_module_evaluation(
+        db: &dyn super::Db,
+        project: super::Project,
+        file: File,
+    ) -> PythonModuleEvaluationView {
+        crate::python::testing_python_module_evaluation(db, project, file)
+    }
 
     pub fn python_syntax_errors(
         db: &dyn djls_source::Db,

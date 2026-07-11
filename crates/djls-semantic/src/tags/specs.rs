@@ -370,6 +370,11 @@ impl TagSpec {
     }
 
     #[must_use]
+    pub(crate) fn module(&self) -> &str {
+        self.module.as_ref()
+    }
+
+    #[must_use]
     pub fn role(&self) -> Option<TagRole> {
         self.role
     }

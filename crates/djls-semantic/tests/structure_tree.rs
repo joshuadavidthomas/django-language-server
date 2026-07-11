@@ -11,7 +11,7 @@ use djls_semantic::TemplateRegion;
 use djls_semantic::TemplateTree;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::build_template_tree;
+use djls_semantic::build_template_tree_for_file;
 use djls_semantic::builtin_tag_specs;
 use djls_source::Span;
 use djls_templates::Node;
@@ -276,7 +276,7 @@ fn test_template_tree_building() {
     let nodelist = parse_template(&db, file).expect("should parse");
 
     insta::assert_yaml_snapshot!("nodelist", nodelist_view(nodelist.nodelist(&db)));
-    let template_tree = build_template_tree(&db, nodelist);
+    let template_tree = build_template_tree_for_file(&db, file, nodelist);
     insta::assert_yaml_snapshot!(
         "template_tree",
         TemplateTreeSnapshot::from_tree(template_tree, &db)
@@ -287,7 +287,7 @@ fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> TemplateTree<'db
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(db, file).expect("should parse");
-    build_template_tree(db, nodelist)
+    build_template_tree_for_file(db, file, nodelist)
 }
 
 fn root_region<'db>(
@@ -388,8 +388,10 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    );
 
     let validation_errors = errors.iter().map(|error| &error.0).collect::<Vec<_>>();
     assert!(
@@ -447,11 +449,13 @@ fn opaque_closer_name_can_also_be_structured_opener() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-        .iter()
-        .map(|error| &error.0)
-        .collect::<Vec<_>>();
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -467,12 +471,15 @@ fn opaque_closer_name_can_also_be_structured_opener() {
     db.add_file("outside.html", outside_source);
     let outside_file = db.file(Utf8Path::new("outside.html"));
     let outside_nodelist = parse_template(&db, outside_file).expect("should parse");
-    let outside_tree = build_template_tree(&db, outside_nodelist);
-    let outside_errors =
-        build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, outside_nodelist)
-            .iter()
-            .map(|error| &error.0)
-            .collect::<Vec<_>>();
+    let outside_tree = build_template_tree_for_file(&db, outside_file, outside_nodelist);
+    let outside_errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db,
+        outside_file,
+        outside_nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         outside_errors.is_empty(),
@@ -504,11 +511,13 @@ fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-        .iter()
-        .map(|error| &error.0)
-        .collect::<Vec<_>>();
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         errors
@@ -532,11 +541,13 @@ fn known_opener_and_closer_inside_opaque_block_have_no_structure() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-        .iter()
-        .map(|error| &error.0)
-        .collect::<Vec<_>>();
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -560,11 +571,13 @@ fn outer_closer_inside_opaque_block_has_no_structure() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-        .iter()
-        .map(|error| &error.0)
-        .collect::<Vec<_>>();
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -706,8 +719,10 @@ fn malformed_recovery_is_best_effort() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    );
 
     assert!(
         root_region(tree, &db)
@@ -759,7 +774,9 @@ fn test_endblock_name_mismatch() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    );
     assert_eq!(errors.len(), 1);
     let opener_start = source
         .find("{% block content %}")

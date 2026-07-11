@@ -1,8 +1,5 @@
 use ruff_python_ast as ast;
 
-use super::mutations::PythonMutationAccess;
-use super::values::PythonValue;
-use super::values::PythonValueKind;
 use crate::ast::ExprExt;
 
 pub(super) struct MutationTarget<'a> {
@@ -17,45 +14,12 @@ impl<'a> MutationTarget<'a> {
         access.reverse();
         Some(Self { root, access })
     }
-
-    pub(super) fn resolve_mut<'b>(
-        &self,
-        value: &'b mut PythonValue,
-    ) -> Option<&'b mut PythonValue> {
-        let mut current = value;
-        for access in &self.access {
-            match access {
-                MutationAccess::Index(index) => {
-                    let PythonValueKind::List(values) = &mut current.kind else {
-                        return None;
-                    };
-                    current = values.get_mut(*index)?;
-                }
-                MutationAccess::Key(key) => {
-                    let PythonValueKind::Dict(dict) = &mut current.kind else {
-                        return None;
-                    };
-                    current = dict.get_string_key_mut(key)?;
-                }
-            }
-        }
-        Some(current)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum MutationAccess {
     Index(usize),
     Key(String),
-}
-
-impl MutationAccess {
-    pub(super) fn to_public(&self) -> PythonMutationAccess {
-        match self {
-            Self::Index(index) => PythonMutationAccess::Index(*index),
-            Self::Key(key) => PythonMutationAccess::Key(key.clone()),
-        }
-    }
 }
 
 fn collect_mutation_target<'a>(

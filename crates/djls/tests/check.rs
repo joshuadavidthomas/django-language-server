@@ -240,7 +240,13 @@ fn check_without_paths_falls_back_when_roots_may_be_omitted() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(
         String::from_utf8_lossy(&output.stdout).contains("broken.html"),
         "{}",

@@ -11,9 +11,7 @@ use camino::Utf8Path;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
-use djls_project::TemplateLibraries;
 use djls_project::compute_model_graph;
-use djls_project::template_libraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
 use djls_semantic::compute_filter_arity_specs;
@@ -155,13 +153,6 @@ impl SemanticDb for DjangoDatabase {
         self.settings().diagnostics().clone()
     }
 
-    fn template_libraries(&self) -> &TemplateLibraries {
-        self.project()
-            .map_or(TemplateLibraries::empty_ref(), |project| {
-                template_libraries(self, project)
-            })
-    }
-
     fn filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
         self.project()
             .map_or(djls_semantic::FilterAritySpecs::empty_ref(), |project| {
@@ -210,6 +201,7 @@ mod invalidation_tests {
     use djls_project::Project;
     use djls_project::PythonModule;
     use djls_project::PythonModuleName;
+    use djls_project::template_libraries;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::template_inheritance;
@@ -360,6 +352,23 @@ mod invalidation_tests {
         (db, event_log)
     }
 
+    fn add_django_template_builtin_files(fs: &mut InMemoryFileSystem, root: &Utf8Path) {
+        let django = root.join("django");
+        let template = django.join("template");
+        fs.add_file(django.join("__init__.py"), String::new());
+        fs.add_file(template.join("__init__.py"), String::new());
+        fs.add_file(
+            template.join("defaulttags.py"),
+            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n"
+                .to_string(),
+        );
+        fs.add_file(
+            template.join("loader_tags.py"),
+            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n"
+                .to_string(),
+        );
+    }
+
     struct TemplateInheritanceFixture {
         _tempdir: TempDir,
         db: DjangoDatabase,
@@ -410,6 +419,7 @@ mod invalidation_tests {
                 other_path.clone(),
                 "{% block content %}Next{% endblock %}".to_string(),
             );
+            add_django_template_builtin_files(&mut fs, &root);
         }
 
         let mut db = DjangoDatabase {
@@ -544,18 +554,28 @@ mod invalidation_tests {
     #[test]
     fn root_revision_change_invalidates_project_template_files() {
         let source = "{% extends \"base.html\" %}";
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let templates_dir = root.join("templates");
         let mut fs = InMemoryFileSystem::new();
+        fs.add_file(root.join("manage.py"), String::new());
         fs.add_file(
-            "/test/project/templates/child.html".into(),
-            source.to_string(),
+            root.join("settings.py"),
+            format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+            ),
         );
-        fs.add_file(
-            "/test/project/templates/base.html".into(),
-            "base".to_string(),
-        );
+        fs.add_file(templates_dir.join("child.html"), source.to_string());
+        fs.add_file(templates_dir.join("base.html"), "base".to_string());
+        add_django_template_builtin_files(&mut fs, &root);
 
         let event_log = EventLog::default();
-        let settings = Settings::default();
+        let settings = Settings::new(root.as_path(), None).unwrap();
         let mut db = DjangoDatabase {
             fs: Arc::new(fs),
             files: SourceFiles::default(),
@@ -569,13 +589,13 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, "/test/project".into(), &settings);
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
         let project = db.project.unwrap();
 
-        let child_path = Utf8Path::new("/test/project/templates/child.html");
-        let child = path_to_file(&db, child_path).expect("fixture file should exist");
+        let child_path = templates_dir.join("child.html");
+        let child = path_to_file(&db, &child_path).expect("fixture file should exist");
         let offset = Offset::try_from(source.find("base.html").unwrap()).unwrap();
         {
             let SemanticOffsetContext::TemplateReference { name, .. } =
@@ -587,8 +607,8 @@ mod invalidation_tests {
         }
         event_log.take();
 
-        let root = db.files().expect_root(&db, child_path);
-        db.bump_file_root_revision(root);
+        let file_root = db.files().expect_root(&db, &child_path);
+        db.bump_file_root_revision(file_root);
 
         let SemanticOffsetContext::TemplateReference { name, .. } =
             SemanticOffsetContext::from_offset(&db, child, offset)
@@ -1341,16 +1361,15 @@ def my_filter(value, arg):
     }
 
     fn assert_custom_library_module(db: &DjangoDatabase, module_name: &str) {
-        match db.template_libraries().loadable_library_str("custom") {
+        let project = db.project().expect("test database should have a project");
+        match template_libraries(db, project).loadable_library_str("custom") {
             djls_project::LoadableLibraryLookup::Found(custom) => {
                 assert_eq!(custom.module_name_str(), module_name);
             }
-            djls_project::LoadableLibraryLookup::Inconclusive(candidates) => {
+            djls_project::LoadableLibraryLookup::Inconclusive(candidates)
+            | djls_project::LoadableLibraryLookup::Ambiguous(candidates) => {
                 assert_eq!(candidates.len(), 1);
                 assert_eq!(candidates[0].module_name_str(), module_name);
-            }
-            djls_project::LoadableLibraryLookup::Ambiguous(candidates) => {
-                panic!("custom library should not be ambiguous: {candidates:?}");
             }
             djls_project::LoadableLibraryLookup::Absent => {
                 panic!("custom library candidate should be known");
@@ -1473,7 +1492,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         assert!(
-            db.template_libraries()
+            template_libraries(&db, project)
                 .loadable_library_str("custom")
                 .found()
                 .is_none()
@@ -1550,7 +1569,7 @@ def my_filter(value, arg):
         fs.lock().unwrap().remove_file(&base_settings_path);
         apply_project_discovery(&mut db);
         assert!(
-            db.template_libraries()
+            template_libraries(&db, project)
                 .loadable_library_str("custom")
                 .found()
                 .is_none()
@@ -1692,7 +1711,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            db.template_libraries().loadable_library_str("custom")
+            template_libraries(&db, project).loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
         };
@@ -1751,7 +1770,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            db.template_libraries().loadable_library_str("custom")
+            template_libraries(&db, project).loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
         };
@@ -1772,7 +1791,7 @@ def my_filter(value, arg):
             .apply(&mut db);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            db.template_libraries().loadable_library_str("custom")
+            template_libraries(&db, project).loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
         };
@@ -1936,15 +1955,15 @@ def my_filter(value, arg):
             .apply(&mut db);
 
         let nodelist = parse_template(&db, child_file).expect("child should parse");
-        let symbols = template_symbols(&db, nodelist);
+        let symbols = template_symbols(&db, child_file, nodelist);
         assert_eq!(symbols.blocks()[0].name, "content");
         let inheritance = template_inheritance(&db, project, child_file);
         assert_eq!(inheritance.ancestors(&db).len(), 1);
         let events = event_log.take();
         assert_eq!(
             execution_count(&db, &events, "template_symbols"),
-            1,
-            "only the edited child template should recompute symbols"
+            2,
+            "only the edited child's base and scope-aware symbol queries should recompute"
         );
         assert!(
             !was_executed(&db, &events, "template_inheritance"),

@@ -18,7 +18,13 @@ use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
+use crate::settings::types::InstalledAppEvidence;
+use crate::settings::types::PartialTemplateBackend;
+use crate::settings::types::SettingCase;
 use crate::settings::types::TemplateBackend;
+use crate::settings::types::TemplateListEvidence;
+use crate::settings::types::WithOrigin;
+use crate::settings::types::template_backend_evidence_slots;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",
@@ -127,8 +133,18 @@ fn merge_symbols(symbols: Vec<TemplateSymbol>) -> Vec<TemplateSymbol> {
             .iter_mut()
             .find(|symbol| symbol.kind == new_symbol.kind && symbol.name == new_symbol.name)
         {
-            if existing.doc.is_none() {
-                existing.doc = new_symbol.doc;
+            let existing_doc = existing
+                .doc
+                .as_deref()
+                .filter(|doc| !doc.trim().is_empty())
+                .map(str::trim);
+            let new_doc = new_symbol
+                .doc
+                .as_deref()
+                .filter(|doc| !doc.trim().is_empty())
+                .map(str::trim);
+            if new_doc > existing_doc {
+                existing.doc.clone_from(&new_symbol.doc);
             }
 
             if new_symbol.definition.rank() > existing.definition.rank() {
@@ -186,6 +202,26 @@ pub enum TemplateSymbolLookup {
     Inconclusive,
 }
 
+/// Consumer-shaped certainty for a tag or filter in the selected template environment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EnvironmentSymbolLookup {
+    Builtin,
+    RequiresLoad(Vec<LibraryName>),
+    Inconclusive,
+    Absent,
+}
+
+/// The library supplying a symbol in one feasible template backend.
+///
+/// `Known(None)` is significant: absence in one backend disagrees with a definition in another.
+/// `Unknown` is reserved for uncertainty correlated with this symbol's builtin chain or one of
+/// the load names actually in scope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EffectiveDefinitionLibrary<'a> {
+    Known(Option<&'a TemplateLibrary>),
+    Unknown,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AvailableAppCandidates(Vec<PythonModuleName>);
 
@@ -225,7 +261,6 @@ enum TemplateLibraryIssue {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TemplateConfigurationOmission {
     Settings,
-    Backend,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -248,6 +283,14 @@ impl TemplateLibraryConfigurations {
         matches!(self, Self::WithOmissions { .. })
     }
 
+    fn has_unknown_loadables(&self) -> bool {
+        self.known().iter().flatten().any(|backend| {
+            backend.loadables_state.is_open()
+                || backend.apps_state.is_open()
+                || backend.discovery_state.is_open()
+        })
+    }
+
     fn replace_known(&mut self, known: Vec<Vec<TemplateBackendLibraries>>) {
         match self {
             Self::Exhaustive(_) => *self = Self::Exhaustive(known),
@@ -256,33 +299,59 @@ impl TemplateLibraryConfigurations {
             } => *existing = known,
         }
     }
-
-    fn omit(&mut self, omission: TemplateConfigurationOmission) {
-        match self {
-            Self::Exhaustive(known) => {
-                *self = Self::WithOmissions {
-                    known: std::mem::take(known),
-                    omissions: vec![omission],
-                };
-            }
-            Self::WithOmissions { omissions, .. } if !omissions.contains(&omission) => {
-                omissions.push(omission);
-            }
-            Self::WithOmissions { .. } => {}
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TemplateLibraryReference {
     Resolved(usize),
-    Unresolved,
+    Unresolved { known_candidate: Option<usize> },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum KnowledgeState {
+    #[default]
+    Complete,
+    Open,
+}
+
+impl KnowledgeState {
+    const fn is_open(self) -> bool {
+        matches!(self, Self::Open)
+    }
+}
+
+impl From<bool> for KnowledgeState {
+    fn from(open: bool) -> Self {
+        if open { Self::Open } else { Self::Complete }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct TemplateBackendLibraries {
     loadable_by_name: BTreeMap<LibraryName, TemplateLibraryReference>,
     builtin_indices: Vec<usize>,
+    /// An unenumerable backend list element. Its position matters for correlation and ordering.
+    backend_state: KnowledgeState,
+    /// Uncertainty is owned by the backend field that produced it. This keeps an unrelated
+    /// backend or sibling field from weakening an otherwise exact lookup after file narrowing.
+    loadables_state: KnowledgeState,
+    builtins_state: KnowledgeState,
+    apps_state: KnowledgeState,
+    discovery_state: KnowledgeState,
+    app_names_after_remainder: BTreeSet<LibraryName>,
+    authoritative_names: BTreeSet<LibraryName>,
+}
+
+impl TemplateBackendLibraries {
+    fn load_name_is_open(&self, name: &LibraryName) -> bool {
+        if self.authoritative_names.contains(name) {
+            return false;
+        }
+
+        self.loadables_state.is_open()
+            || ((self.apps_state.is_open() || self.discovery_state.is_open())
+                && !self.app_names_after_remainder.contains(name))
+    }
 }
 
 type TestingBackendConfiguration = (Vec<(LibraryName, PythonModuleName)>, Vec<PythonModuleName>);
@@ -293,6 +362,9 @@ pub struct TemplateLibraries {
     libraries: Vec<TemplateLibrary>,
     installed_by_name: BTreeMap<LibraryName, usize>,
     configurations: TemplateLibraryConfigurations,
+    /// Installed-app and app-library discovery uncertainty belongs to a settings configuration,
+    /// even when that configuration contains no template backends.
+    configuration_guidance_states: Vec<KnowledgeState>,
     available_by_name: BTreeMap<LibraryName, Vec<usize>>,
     issues: Vec<TemplateLibraryIssue>,
 }
@@ -306,6 +378,7 @@ impl Default for TemplateLibraries {
                 known: Vec::new(),
                 omissions: vec![TemplateConfigurationOmission::Settings],
             },
+            configuration_guidance_states: Vec::new(),
             available_by_name: BTreeMap::new(),
             issues: Vec::new(),
         }
@@ -313,6 +386,53 @@ impl Default for TemplateLibraries {
 }
 
 impl TemplateLibraries {
+    pub(crate) fn for_backend_selections(
+        &self,
+        selections: &[crate::templates::resolution::BackendSelection],
+    ) -> Self {
+        let mut selected_guidance_states = Vec::new();
+        let selected = selections
+            .iter()
+            .filter_map(|selection| match *selection {
+                crate::templates::resolution::BackendSelection::Known {
+                    configuration,
+                    backend,
+                } => self
+                    .configurations
+                    .known()
+                    .get(configuration)
+                    .and_then(|configuration| configuration.get(backend))
+                    .cloned()
+                    .map(|backend| {
+                        selected_guidance_states.push(
+                            self.configuration_guidance_states
+                                .get(configuration)
+                                .copied()
+                                .unwrap_or_default(),
+                        );
+                        vec![backend]
+                    }),
+                crate::templates::resolution::BackendSelection::Unknown { configuration } => {
+                    self.configurations.known().get(configuration).map(|_| {
+                        selected_guidance_states.push(KnowledgeState::Open);
+                        vec![TemplateBackendLibraries {
+                            backend_state: KnowledgeState::Open,
+                            loadables_state: KnowledgeState::Open,
+                            builtins_state: KnowledgeState::Open,
+                            apps_state: KnowledgeState::Open,
+                            discovery_state: KnowledgeState::Open,
+                            ..TemplateBackendLibraries::default()
+                        }]
+                    })
+                }
+            })
+            .collect();
+        let mut libraries = self.clone();
+        libraries.configurations.replace_known(selected);
+        libraries.configuration_guidance_states = selected_guidance_states;
+        libraries
+    }
+
     #[must_use]
     pub fn empty_ref() -> &'static Self {
         static EMPTY: std::sync::LazyLock<TemplateLibraries> =
@@ -347,6 +467,10 @@ impl TemplateLibraries {
         let mut inventory = Self {
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
+            configuration_guidance_states: vec![
+                KnowledgeState::Complete;
+                configurations.known().len()
+            ],
             configurations,
             available_by_name: BTreeMap::new(),
             issues: Vec::new(),
@@ -364,7 +488,7 @@ impl TemplateLibraries {
         &mut self,
         configurations: Vec<Vec<TestingBackendConfiguration>>,
     ) {
-        let known = configurations
+        let known: Vec<_> = configurations
             .into_iter()
             .map(|backends| {
                 backends
@@ -407,10 +531,14 @@ impl TemplateLibraries {
                                     }, |(index, _library)| index)
                             })
                             .collect(),
+                        app_names_after_remainder: BTreeSet::new(),
+                        authoritative_names: BTreeSet::new(),
+                        ..TemplateBackendLibraries::default()
                     })
                     .collect()
             })
             .collect();
+        self.configuration_guidance_states = vec![KnowledgeState::Complete; known.len()];
         self.configurations.replace_known(known);
     }
 
@@ -429,8 +557,12 @@ impl TemplateLibraries {
                     matches!(&library.kind, TemplateLibraryKind::Builtin).then_some(index)
                 })
                 .collect(),
+            app_names_after_remainder: BTreeSet::new(),
+            authoritative_names: BTreeSet::new(),
+            ..TemplateBackendLibraries::default()
         };
         self.configurations.replace_known(vec![vec![backend]]);
+        self.configuration_guidance_states = vec![KnowledgeState::Complete];
     }
 
     #[must_use]
@@ -497,6 +629,42 @@ impl TemplateLibraries {
     }
 
     #[must_use]
+    pub(crate) fn candidate_symbol_names(&self, kind: TemplateSymbolKind) -> BTreeSet<String> {
+        self.template_symbol_candidates(kind)
+            .into_iter()
+            .map(|candidate| candidate.symbol.name().to_string())
+            .collect()
+    }
+
+    pub(crate) fn definite_template_symbol_candidates(
+        &self,
+        kind: TemplateSymbolKind,
+    ) -> Vec<TemplateSymbolCandidate> {
+        self.template_symbol_candidates(kind)
+            .into_iter()
+            .filter(|candidate| {
+                match self.environment_symbol_lookup(candidate.symbol.name(), kind) {
+                    EnvironmentSymbolLookup::Builtin => matches!(
+                        candidate.availability,
+                        TemplateSymbolAvailability::Builtin { .. }
+                    ),
+                    EnvironmentSymbolLookup::RequiresLoad(ref names) => {
+                        match &candidate.availability {
+                            TemplateSymbolAvailability::RequiresLoad { load_name } => {
+                                names.contains(load_name)
+                            }
+                            TemplateSymbolAvailability::Builtin { .. } => false,
+                        }
+                    }
+                    EnvironmentSymbolLookup::Inconclusive | EnvironmentSymbolLookup::Absent => {
+                        false
+                    }
+                }
+            })
+            .collect()
+    }
+
+    #[must_use]
     pub fn loadable_library(&self, name: &LibraryName) -> LoadableLibraryLookup<'_> {
         let mut outcomes = Vec::new();
         let mut indexes = Vec::new();
@@ -505,6 +673,15 @@ impl TemplateLibraries {
             let mut configuration_matches = Vec::new();
             let mut absent = configuration.is_empty();
             for backend in configuration {
+                if backend.load_name_is_open(name) {
+                    // Openness belongs to each backend alternative. A concrete candidate from an
+                    // earlier or later backend remains useful evidence, but cannot make this
+                    // alternative exact.
+                    unresolved = true;
+                }
+                if backend.backend_state.is_open() && !backend.loadable_by_name.contains_key(name) {
+                    continue;
+                }
                 match backend.loadable_by_name.get(name).copied() {
                     Some(TemplateLibraryReference::Resolved(index))
                         if !configuration_matches.contains(&index) =>
@@ -515,7 +692,17 @@ impl TemplateLibraries {
                         }
                     }
                     Some(TemplateLibraryReference::Resolved(_)) => {}
-                    Some(TemplateLibraryReference::Unresolved) => unresolved = true,
+                    Some(TemplateLibraryReference::Unresolved { known_candidate }) => {
+                        unresolved = true;
+                        if let Some(index) = known_candidate {
+                            if !configuration_matches.contains(&index) {
+                                configuration_matches.push(index);
+                            }
+                            if !indexes.contains(&index) {
+                                indexes.push(index);
+                            }
+                        }
+                    }
                     None => absent = true,
                 }
             }
@@ -568,6 +755,111 @@ impl TemplateLibraries {
         }
     }
 
+    /// Join symbol presence across feasible backends without collapsing library ambiguity.
+    /// Presence is definite only when every alternative contains the symbol; open or differing
+    /// alternatives remain inconclusive, and exhaustive absence is absent.
+    #[must_use]
+    pub fn environment_symbol_lookup(
+        &self,
+        name: &str,
+        kind: TemplateSymbolKind,
+    ) -> EnvironmentSymbolLookup {
+        let mut builtin_present = false;
+        let mut builtin_absent = self.configurations.known().iter().any(Vec::is_empty);
+        let omitted_configurations = self.configurations.has_omissions();
+        let mut inconclusive = false;
+
+        for backend in self.configurations.known().iter().flatten() {
+            if backend.builtins_state.is_open() {
+                inconclusive = true;
+            }
+            let present = backend.builtin_indices.iter().any(|index| {
+                self.libraries.get(*index).is_some_and(|library| {
+                    library
+                        .symbols()
+                        .iter()
+                        .any(|symbol| symbol.kind == kind && symbol.name.as_str() == name)
+                })
+            });
+            builtin_present |= present;
+            builtin_absent |= !present;
+        }
+        if builtin_present && !builtin_absent && !inconclusive {
+            return EnvironmentSymbolLookup::Builtin;
+        }
+        if builtin_present {
+            inconclusive = true;
+        }
+
+        let mut required = Vec::new();
+        for load_name in self.completion_library_names() {
+            let mut present = false;
+            let mut absent = self.configurations.known().iter().any(Vec::is_empty);
+            let mut open = false;
+            for backend in self.configurations.known().iter().flatten() {
+                open |= backend.load_name_is_open(&load_name);
+                match backend.loadable_by_name.get(&load_name) {
+                    Some(TemplateLibraryReference::Resolved(index)) => {
+                        let has_symbol = self.libraries.get(*index).is_some_and(|library| {
+                            library
+                                .symbols()
+                                .iter()
+                                .any(|symbol| symbol.kind == kind && symbol.name.as_str() == name)
+                        });
+                        present |= has_symbol;
+                        absent |= !has_symbol;
+                    }
+                    Some(TemplateLibraryReference::Unresolved { .. }) => open = true,
+                    None => absent = true,
+                }
+            }
+            if present && !absent && !open {
+                required.push(load_name);
+            } else if present || open {
+                inconclusive = true;
+            }
+        }
+
+        if inconclusive {
+            EnvironmentSymbolLookup::Inconclusive
+        } else if !required.is_empty() {
+            // Retain known-positive installed symbols even when settings extraction omitted other
+            // configurations. Omission uncertainty governs absence, not established presence.
+            EnvironmentSymbolLookup::RequiresLoad(required)
+        } else if omitted_configurations {
+            EnvironmentSymbolLookup::Inconclusive
+        } else {
+            EnvironmentSymbolLookup::Absent
+        }
+    }
+
+    #[must_use]
+    pub fn definite_symbol_candidates(
+        &self,
+        kind: TemplateSymbolKind,
+    ) -> Vec<(String, EnvironmentSymbolLookup)> {
+        let mut names = self
+            .resolved_libraries()
+            .flat_map(TemplateLibrary::symbols)
+            .filter(|symbol| symbol.kind == kind)
+            .map(|symbol| symbol.name.clone())
+            .collect::<BTreeSet<_>>();
+        // Available-app symbols are not part of the active environment.
+        names.retain(|name| {
+            !matches!(
+                self.environment_symbol_lookup(name.as_str(), kind),
+                EnvironmentSymbolLookup::Absent | EnvironmentSymbolLookup::Inconclusive
+            )
+        });
+        names
+            .into_iter()
+            .map(|name| {
+                let lookup = self.environment_symbol_lookup(name.as_str(), kind);
+                (name.as_str().to_string(), lookup)
+            })
+            .collect()
+    }
+
     #[must_use]
     pub fn template_symbol_lookup(
         &self,
@@ -575,15 +867,61 @@ impl TemplateLibraries {
         kind: TemplateSymbolKind,
     ) -> TemplateSymbolLookup {
         let candidates = self.available_symbol_candidates(name, kind);
-        if let Some(candidate) = candidates.first()
-            && let (Some(app), Some(load_name)) = (candidate.available_app(), candidate.load_name())
-        {
-            return TemplateSymbolLookup::FoundInApp {
-                app: app.clone(),
-                load_name: load_name.clone(),
+        let has_candidates = !candidates.is_empty();
+        let mut has_uncertain_candidate = false;
+        for candidate in candidates {
+            let (Some(app), Some(load_name)) = (candidate.available_app(), candidate.load_name())
+            else {
+                continue;
             };
+            let mut shadowed = false;
+            let mut unshadowed = false;
+            let mut open = self
+                .configuration_guidance_states
+                .iter()
+                .any(|state| state.is_open());
+            for backend in self.configurations.known().iter().flatten() {
+                if backend.authoritative_names.contains(load_name) {
+                    // A later exact alias is authoritative even when an earlier dynamic key left
+                    // the rest of the configured library mapping open.
+                    shadowed = true;
+                } else if backend.load_name_is_open(load_name) {
+                    open = true;
+                } else {
+                    unshadowed = true;
+                }
+            }
+            // A configuration with no backends has no configured alias capable of shadowing the
+            // candidate. Installed-app/discovery openness is retained separately above.
+            if !shadowed && !unshadowed && !open {
+                unshadowed = true;
+            }
+            if open || (shadowed && unshadowed) {
+                has_uncertain_candidate = true;
+                continue;
+            }
+            if unshadowed {
+                return TemplateSymbolLookup::FoundInApp {
+                    app: app.clone(),
+                    load_name: load_name.clone(),
+                };
+            }
+            debug_assert!(shadowed, "a candidate has a shadowing outcome");
         }
-        if self.configurations.has_omissions() || !self.issues.is_empty() {
+        if has_uncertain_candidate {
+            return TemplateSymbolLookup::Inconclusive;
+        }
+        if has_candidates {
+            return TemplateSymbolLookup::Absent;
+        }
+        if self.configurations.has_omissions()
+            || self.configurations.has_unknown_loadables()
+            || self
+                .configuration_guidance_states
+                .iter()
+                .any(|state| state.is_open())
+            || !self.issues.is_empty()
+        {
             TemplateSymbolLookup::Inconclusive
         } else {
             TemplateSymbolLookup::Absent
@@ -605,6 +943,16 @@ impl TemplateLibraries {
         }
         let candidates = self.available_library_candidates(name);
         if !candidates.is_empty() {
+            if self
+                .configuration_guidance_states
+                .iter()
+                .any(|state| state.is_open())
+                || self.configurations.known().iter().flatten().any(|backend| {
+                    !backend.authoritative_names.contains(name) && backend.load_name_is_open(name)
+                })
+            {
+                return MissingLibraryLookup::Inconclusive;
+            }
             let mut apps: Vec<_> = candidates
                 .iter()
                 .filter_map(|candidate| candidate.available_app().cloned())
@@ -615,6 +963,11 @@ impl TemplateLibraries {
             }
         }
         if self.configurations.has_omissions()
+            || self.configurations.has_unknown_loadables()
+            || self
+                .configuration_guidance_states
+                .iter()
+                .any(|state| state.is_open())
             || self.issues.iter().any(|issue| match issue {
                 TemplateLibraryIssue::Discovery => true,
                 TemplateLibraryIssue::NamedSource(source_name) => source_name == name,
@@ -636,7 +989,9 @@ impl TemplateLibraries {
                     .values()
                     .filter_map(|reference| match reference {
                         TemplateLibraryReference::Resolved(index) => Some(*index),
-                        TemplateLibraryReference::Unresolved => None,
+                        TemplateLibraryReference::Unresolved { known_candidate } => {
+                            *known_candidate
+                        }
                     })
                     .chain(backend.builtin_indices.iter().copied())
                 {
@@ -651,18 +1006,85 @@ impl TemplateLibraries {
             .filter_map(|index| self.libraries.get(index))
     }
 
-    pub fn definitely_loaded_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
-        let known_configurations = self.configurations.known();
-        let closed_single_backend = !self.configurations.has_omissions()
-            && known_configurations.len() == 1
-            && known_configurations[0].len() == 1;
-        self.resolved_libraries()
-            .filter(move |_| closed_single_backend)
+    pub(crate) fn effective_definition_libraries(
+        &self,
+        symbol_name: &str,
+        kind: TemplateSymbolKind,
+        loaded_names: &[&str],
+    ) -> Vec<EffectiveDefinitionLibrary<'_>> {
+        let has_symbol = |library: &TemplateLibrary| {
+            library
+                .symbols()
+                .iter()
+                .any(|symbol| symbol.kind == kind && symbol.name.as_str() == symbol_name)
+        };
+        let mut alternatives = Vec::new();
+
+        for configuration in self.configurations.known() {
+            if configuration.is_empty() {
+                alternatives.push(EffectiveDefinitionLibrary::Known(None));
+                continue;
+            }
+            for backend in configuration {
+                if backend.backend_state.is_open() {
+                    alternatives.push(EffectiveDefinitionLibrary::Unknown);
+                    continue;
+                }
+
+                // Django installs builtins in order; later libraries replace earlier definitions.
+                let mut effective = backend
+                    .builtin_indices
+                    .iter()
+                    .filter_map(|index| self.libraries.get(*index))
+                    .rfind(|library| has_symbol(library));
+                let mut unknown = backend.builtins_state.is_open();
+
+                // Each load updates the parser's symbol table at that point. Only uncertainty for the
+                // concrete load name can shadow the effective definition; unrelated open inventory
+                // does not participate.
+                for loaded_name in loaded_names {
+                    let Ok(load_name) = LibraryName::parse(loaded_name) else {
+                        continue;
+                    };
+                    match backend.loadable_by_name.get(&load_name) {
+                        Some(TemplateLibraryReference::Resolved(index)) => {
+                            if let Some(library) = self.libraries.get(*index)
+                                && has_symbol(library)
+                            {
+                                effective = Some(library);
+                                unknown = false;
+                            }
+                        }
+                        Some(TemplateLibraryReference::Unresolved { .. }) => unknown = true,
+                        None => {
+                            if backend.load_name_is_open(&load_name) {
+                                unknown = true;
+                            }
+                        }
+                    }
+                }
+
+                alternatives.push(if unknown {
+                    EffectiveDefinitionLibrary::Unknown
+                } else {
+                    EffectiveDefinitionLibrary::Known(effective)
+                });
+            }
+        }
+
+        if alternatives.is_empty() || self.configurations.has_omissions() {
+            alternatives.push(EffectiveDefinitionLibrary::Unknown);
+        }
+        alternatives
     }
 
     fn has_unresolved_reference(&self, name: &LibraryName) -> bool {
         self.configurations.known().iter().flatten().any(|backend| {
-            backend.loadable_by_name.get(name) == Some(&TemplateLibraryReference::Unresolved)
+            backend.load_name_is_open(name)
+                || matches!(
+                    backend.loadable_by_name.get(name),
+                    Some(TemplateLibraryReference::Unresolved { .. })
+                )
         })
     }
 
@@ -712,6 +1134,25 @@ impl TemplateLibraries {
     }
 
     fn insert_library(&mut self, library: TemplateLibrary) -> usize {
+        if let Some(index) = self
+            .libraries
+            .iter()
+            .position(|existing| existing == &library)
+        {
+            match &library.kind {
+                TemplateLibraryKind::Builtin => {}
+                TemplateLibraryKind::Installed { load_name } => {
+                    self.installed_by_name.insert(load_name.clone(), index);
+                }
+                TemplateLibraryKind::Available { load_name, .. } => {
+                    let indexes = self.available_by_name.entry(load_name.clone()).or_default();
+                    if !indexes.contains(&index) {
+                        indexes.push(index);
+                    }
+                }
+            }
+            return index;
+        }
         match &library.kind {
             TemplateLibraryKind::Builtin => {
                 let index = self.libraries.len();
@@ -831,6 +1272,9 @@ impl TemplateLibraries {
     }
 }
 
+// Keep the correlated settings/app/backend orchestration together: splitting it would require
+// exposing its partially built library inventory and weaken locality of the ordering semantics.
+#[allow(clippy::too_many_lines)]
 #[salsa::tracked(returns(ref))]
 pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibraries {
     project.touch_search_path_roots(db);
@@ -840,64 +1284,169 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     }
 
     let settings = django_settings(db, project);
-    let open =
-        !settings.installed_apps.is_fully_extracted() || !settings.templates.is_fully_extracted();
-    let mut libraries = if open {
-        TemplateLibraries::from_libraries_with_omissions(Vec::new())
-    } else {
-        TemplateLibraries::from_libraries(Vec::new())
-    };
+    let mut libraries = TemplateLibraries::from_libraries(Vec::new());
     let mut installed_template_library_modules = BTreeSet::new();
 
     let django_module = PythonModuleName::parse("django").expect("django is a valid module name");
     let (discovered, issues) = templatetag_package_libraries(db, project, &django_module);
     libraries.issues.extend(issues);
+    let mut common_libraries = BTreeMap::new();
     insert_installed_libraries(
         &mut libraries,
         &mut installed_template_library_modules,
+        &mut common_libraries,
         discovered,
     );
 
-    for installed_app in &settings.installed_apps.values {
-        let Some(package_module) = installed_app_package_module(db, project, installed_app) else {
-            libraries.issues.push(TemplateLibraryIssue::Discovery);
-            continue;
+    let mut app_configurations = Vec::new();
+    for case in settings.installed_apps.iter() {
+        let mut app_libraries = common_libraries.clone();
+        let mut app_remainder = false;
+        let mut discovery_remainder = false;
+        let mut app_names_after_remainder = BTreeSet::new();
+        let mut unresolved_app_names = BTreeMap::new();
+        let evidence: Vec<_> = match case {
+            SettingCase::Known(value) => value
+                .apps
+                .iter()
+                .map(|app| InstalledAppEvidence::Known(app.clone()))
+                .collect(),
+            SettingCase::Dynamic(value) => value.apps.evidence.clone(),
+            SettingCase::Malformed(value) => value.apps.evidence.clone(),
+            SettingCase::Unset => Vec::new(),
         };
-        let (discovered, issues) = templatetag_package_libraries(db, project, &package_module);
-        libraries.issues.extend(issues);
-        insert_installed_libraries(
-            &mut libraries,
-            &mut installed_template_library_modules,
-            discovered,
-        );
-    }
-
-    let app_libraries = libraries.installed_by_name.clone();
-    let mut backend_configurations = Vec::new();
-    for backend in settings
-        .templates
-        .backends
-        .iter()
-        .filter(|backend| backend.is_django_templates_backend())
-    {
-        backend_configurations.push(insert_backend_libraries(
-            db,
-            project,
-            backend,
-            &app_libraries,
-            &mut libraries,
+        for evidence in evidence {
+            let InstalledAppEvidence::Known(installed_app) = evidence else {
+                app_remainder = true;
+                app_names_after_remainder.clear();
+                continue;
+            };
+            let Some(package_module) =
+                installed_app_package_module(db, project, &installed_app.value)
+            else {
+                discovery_remainder = true;
+                app_names_after_remainder.clear();
+                continue;
+            };
+            let (discovered, issues) = templatetag_package_libraries(db, project, &package_module);
+            let discovered_names = discovered
+                .iter()
+                .map(|(load_name, _, _)| load_name)
+                .collect::<BTreeSet<_>>();
+            for load_name in &discovered_names {
+                unresolved_app_names.remove(*load_name);
+            }
+            for issue in &issues {
+                if let TemplateLibraryIssue::NamedSource(load_name) = issue
+                    && !discovered_names.contains(load_name)
+                {
+                    unresolved_app_names
+                        .insert(load_name.clone(), app_libraries.get(load_name).copied());
+                }
+            }
+            let discovery_failed = issues
+                .iter()
+                .any(|issue| matches!(issue, TemplateLibraryIssue::Discovery));
+            if discovery_failed {
+                discovery_remainder = true;
+                app_names_after_remainder.clear();
+            } else if app_remainder || discovery_remainder {
+                app_names_after_remainder
+                    .extend(discovered.iter().map(|(name, _, _)| name.clone()));
+            }
+            libraries.issues.extend(
+                issues
+                    .into_iter()
+                    .filter(|issue| !matches!(issue, TemplateLibraryIssue::Discovery)),
+            );
+            insert_installed_libraries(
+                &mut libraries,
+                &mut installed_template_library_modules,
+                &mut app_libraries,
+                discovered,
+            );
+        }
+        app_configurations.push((
+            app_libraries,
+            app_remainder,
+            discovery_remainder,
+            app_names_after_remainder,
+            unresolved_app_names,
         ));
     }
 
-    if backend_configurations.is_empty() {
-        backend_configurations.push(TemplateBackendLibraries {
-            loadable_by_name: resolved_library_references(&app_libraries),
-            builtin_indices: Vec::new(),
-        });
+    let mut configurations = Vec::new();
+    let mut configuration_guidance_states = Vec::new();
+    for configuration in settings.feasible_configurations() {
+        let app_index = settings
+            .installed_apps
+            .iter()
+            .position(|case| std::ptr::eq(case, configuration.installed_apps))
+            .expect("a feasible configuration references an installed-apps case");
+        let (
+            app_libraries,
+            app_remainder,
+            discovery_remainder,
+            app_names_after_remainder,
+            unresolved_app_names,
+        ) = &app_configurations[app_index];
+        let mut backend_configuration = Vec::new();
+        match configuration.templates {
+            SettingCase::Known(value) => {
+                for backend in &value.backends {
+                    if backend.is_django_templates_backend() {
+                        backend_configuration.push(insert_backend_libraries(
+                            db,
+                            project,
+                            backend,
+                            app_libraries,
+                            &mut libraries,
+                        ));
+                    } else {
+                        backend_configuration.push(TemplateBackendLibraries::default());
+                    }
+                }
+            }
+            SettingCase::Dynamic(value) => insert_partial_backend_evidence(
+                db,
+                project,
+                &value.templates.evidence,
+                app_libraries,
+                &mut libraries,
+                &mut backend_configuration,
+            ),
+            SettingCase::Malformed(value) => insert_partial_backend_evidence(
+                db,
+                project,
+                &value.templates.evidence,
+                app_libraries,
+                &mut libraries,
+                &mut backend_configuration,
+            ),
+            SettingCase::Unset => {}
+        }
+        for backend in &mut backend_configuration {
+            for (load_name, known_candidate) in unresolved_app_names {
+                if !backend.authoritative_names.contains(load_name) {
+                    backend.loadable_by_name.insert(
+                        load_name.clone(),
+                        TemplateLibraryReference::Unresolved {
+                            known_candidate: *known_candidate,
+                        },
+                    );
+                }
+            }
+            backend.apps_state = (*app_remainder).into();
+            backend.discovery_state = (*discovery_remainder).into();
+            backend
+                .app_names_after_remainder
+                .clone_from(app_names_after_remainder);
+        }
+        configurations.push(backend_configuration);
+        configuration_guidance_states.push((*app_remainder || *discovery_remainder).into());
     }
-    libraries
-        .configurations
-        .replace_known(vec![backend_configurations]);
+    libraries.configurations.replace_known(configurations);
+    libraries.configuration_guidance_states = configuration_guidance_states;
     libraries.insert_available_candidates(db, project, &installed_template_library_modules);
     libraries
 }
@@ -918,29 +1467,104 @@ fn insert_backend_libraries(
     app_libraries: &BTreeMap<LibraryName, usize>,
     libraries: &mut TemplateLibraries,
 ) -> TemplateBackendLibraries {
-    if !backend.is_fully_extracted() {
-        libraries
-            .configurations
-            .omit(TemplateConfigurationOmission::Backend);
-    }
+    insert_backend_library_values(
+        db,
+        project,
+        &backend.libraries,
+        &backend.builtins,
+        app_libraries,
+        libraries,
+    )
+}
 
+fn insert_partial_backend_evidence(
+    db: &dyn ProjectDb,
+    project: Project,
+    evidence: &[TemplateListEvidence],
+    app_libraries: &BTreeMap<LibraryName, usize>,
+    libraries: &mut TemplateLibraries,
+    configurations: &mut Vec<TemplateBackendLibraries>,
+) {
+    for (_backend_index, evidence) in template_backend_evidence_slots(evidence) {
+        let backend_libraries = match evidence {
+            TemplateListEvidence::Backend(backend)
+                if backend.backend.known.as_ref().is_some_and(|name| {
+                    name.value == "django.template.backends.django.DjangoTemplates"
+                }) =>
+            {
+                insert_partial_backend_libraries(db, project, backend, app_libraries, libraries)
+            }
+            TemplateListEvidence::Backend(backend)
+                if backend.backend.known.is_some() && backend.backend.issues.is_empty() =>
+            {
+                TemplateBackendLibraries::default()
+            }
+            TemplateListEvidence::Backend(_) | TemplateListEvidence::Issue(_) => {
+                TemplateBackendLibraries {
+                    backend_state: KnowledgeState::Open,
+                    loadables_state: KnowledgeState::Open,
+                    builtins_state: KnowledgeState::Open,
+                    ..TemplateBackendLibraries::default()
+                }
+            }
+        };
+        configurations.push(backend_libraries);
+    }
+}
+
+fn insert_partial_backend_libraries(
+    db: &dyn ProjectDb,
+    project: Project,
+    backend: &PartialTemplateBackend,
+    app_libraries: &BTreeMap<LibraryName, usize>,
+    libraries: &mut TemplateLibraries,
+) -> TemplateBackendLibraries {
+    let mut result = insert_backend_library_values(
+        db,
+        project,
+        &backend.libraries.known,
+        &backend.builtins.known,
+        app_libraries,
+        libraries,
+    );
+    result.backend_state = (!backend.backend.issues.is_empty()).into();
+    result.loadables_state =
+        (!backend.options.issues.is_empty() || !backend.libraries.issues.is_empty()).into();
+    result.builtins_state =
+        (!backend.options.issues.is_empty() || !backend.builtins.issues.is_empty()).into();
+    result
+}
+
+fn insert_backend_library_values(
+    db: &dyn ProjectDb,
+    project: Project,
+    configured_libraries: &[(String, WithOrigin<PythonModuleName>)],
+    configured_builtins: &[WithOrigin<PythonModuleName>],
+    app_libraries: &BTreeMap<LibraryName, usize>,
+    libraries: &mut TemplateLibraries,
+) -> TemplateBackendLibraries {
     let mut result = TemplateBackendLibraries {
         loadable_by_name: resolved_library_references(app_libraries),
         builtin_indices: Vec::new(),
+        app_names_after_remainder: BTreeSet::new(),
+        authoritative_names: BTreeSet::new(),
+        ..TemplateBackendLibraries::default()
     };
-    for (load_name, module_name) in &backend.libraries {
+    for (load_name, module_name) in configured_libraries {
         let Ok(load_name) = LibraryName::parse(load_name) else {
-            libraries
-                .configurations
-                .omit(TemplateConfigurationOmission::Backend);
+            result.loadables_state = KnowledgeState::Open;
             continue;
         };
+        result.authoritative_names.insert(load_name.clone());
         let Some((module, symbols, source)) =
-            library_from_module_name(db, project, module_name.clone())
+            library_from_module_name(db, project, module_name.value.clone())
         else {
-            result
-                .loadable_by_name
-                .insert(load_name, TemplateLibraryReference::Unresolved);
+            result.loadable_by_name.insert(
+                load_name,
+                TemplateLibraryReference::Unresolved {
+                    known_candidate: None,
+                },
+            );
             continue;
         };
         if source == TemplateLibrarySource::Recovered {
@@ -961,7 +1585,7 @@ fn insert_backend_libraries(
     let builtins = DEFAULT_TEMPLATE_BUILTINS
         .iter()
         .map(|name| PythonModuleName::parse(name).expect("default builtin is a valid module name"))
-        .chain(backend.builtins.iter().cloned());
+        .chain(configured_builtins.iter().map(|name| name.value.clone()));
     for module_name in builtins {
         match library_from_module_name(db, project, module_name) {
             Some((module, symbols, source)) => {
@@ -981,11 +1605,17 @@ fn insert_backend_libraries(
 fn insert_installed_libraries(
     libraries: &mut TemplateLibraries,
     installed_modules: &mut BTreeSet<PythonModuleName>,
+    configuration: &mut BTreeMap<LibraryName, usize>,
     discovered: Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>,
 ) {
     for (load_name, module, symbols) in discovered {
         installed_modules.insert(module.name().clone());
-        libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
+        let index = libraries.insert_library(TemplateLibrary::installed(
+            load_name.clone(),
+            module,
+            symbols,
+        ));
+        configuration.insert(load_name, index);
     }
 }
 

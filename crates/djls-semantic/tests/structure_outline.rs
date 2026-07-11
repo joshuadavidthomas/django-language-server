@@ -7,11 +7,11 @@ use djls_semantic::OutlineKind;
 use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
-use djls_semantic::build_template_outline;
-use djls_semantic::build_template_tree;
+use djls_semantic::build_template_outline_for_file;
 use djls_semantic::builtin_tag_specs;
 use djls_source::Span;
 use djls_templates::parse_template;
+use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
 
@@ -19,8 +19,7 @@ fn outline_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Vec<Outl
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(db, file).expect("should parse");
-    let tree = build_template_tree(db, nodelist);
-    build_template_outline(db, tree)
+    build_template_outline_for_file(db, file, nodelist)
 }
 
 fn labels(items: &[OutlineItem]) -> Vec<&str> {
@@ -66,6 +65,35 @@ fn header_tags_produce_outline_items() {
             "partials/nav.html".len()
         )
     );
+}
+
+#[test]
+fn outline_roles_follow_load_position() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/test/project/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='include')\ndef custom_include(value):\n    pass\n",
+        )
+        .file(
+            "/test/project/templates/page.html",
+            "{% include 'before.html' %}{% load custom %}{% include 'after.html' %}",
+        )
+        .install(&mut db);
+    db.set_project(project);
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+
+    let outline = build_template_outline_for_file(&db, file, nodelist);
+
+    assert_eq!(labels(outline), vec!["before.html", "custom"]);
+    assert_eq!(outline[0].kind, OutlineKind::TemplateReference);
+    assert_eq!(outline[1].kind, OutlineKind::TemplateLibrary);
 }
 
 #[test]

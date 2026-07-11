@@ -22,7 +22,11 @@ pub(crate) fn settings_module_file(db: &dyn ProjectDb, project: Project) -> Opti
 #[salsa::tracked(returns(ref))]
 pub(crate) fn django_settings(db: &dyn ProjectDb, project: Project) -> DjangoSettings {
     let Some(file) = settings_module_file(db, project) else {
-        return DjangoSettings::default();
+        return if project.django_settings_module(db).is_some() {
+            DjangoSettings::unreadable()
+        } else {
+            DjangoSettings::default()
+        };
     };
 
     sources::django_settings_from_file(db, project, file)

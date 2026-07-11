@@ -1,17 +1,22 @@
+use djls_project::EffectiveDefinitionLibrary;
+use djls_project::EnvironmentSymbolLookup;
 use djls_project::LibraryName;
 use djls_project::LoadableLibraryLookup;
 use djls_project::MissingLibraryLookup;
 use djls_project::PythonModuleName;
 use djls_project::SymbolDefinition;
+use djls_project::TemplateEnvironment;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolLookup;
 use djls_project::TemplateSymbolName;
+use djls_project::template_libraries;
 use djls_project::testing;
 use djls_project::testing::TemplateBackendLibrariesInput;
 use djls_project::testing::TemplateLibraryInput;
+use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
 fn module(name: &str) -> PythonModuleName {
@@ -156,6 +161,162 @@ fn configuration_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
         open.loadable_library(&library_name("shared")),
         LoadableLibraryLookup::Inconclusive(records) if records.len() == 1
     ));
+}
+
+#[test]
+fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
+    let inputs = vec![
+        installed(
+            "shared",
+            "project.alpha",
+            vec![
+                symbol(TemplateSymbolKind::Tag, "all_tag", None),
+                symbol(TemplateSymbolKind::Tag, "one_tag", None),
+                symbol(TemplateSymbolKind::Filter, "all_filter", None),
+                symbol(TemplateSymbolKind::Filter, "one_filter", None),
+            ],
+        ),
+        installed(
+            "shared",
+            "project.beta",
+            vec![
+                symbol(TemplateSymbolKind::Tag, "all_tag", None),
+                symbol(TemplateSymbolKind::Filter, "all_filter", None),
+            ],
+        ),
+    ];
+    let libraries = configured_libraries(
+        false,
+        inputs,
+        vec![vec![
+            backend(vec![("shared", "project.alpha")], vec![]),
+            backend(vec![("shared", "project.beta")], vec![]),
+        ]],
+    );
+
+    assert_eq!(
+        libraries.environment_symbol_lookup("all_tag", TemplateSymbolKind::Tag),
+        EnvironmentSymbolLookup::RequiresLoad(vec![library_name("shared")])
+    );
+    assert_eq!(
+        libraries.environment_symbol_lookup("one_tag", TemplateSymbolKind::Tag),
+        EnvironmentSymbolLookup::Inconclusive
+    );
+    assert_eq!(
+        libraries.environment_symbol_lookup("all_filter", TemplateSymbolKind::Filter),
+        EnvironmentSymbolLookup::RequiresLoad(vec![library_name("shared")])
+    );
+    assert_eq!(
+        libraries.environment_symbol_lookup("one_filter", TemplateSymbolKind::Filter),
+        EnvironmentSymbolLookup::Inconclusive
+    );
+}
+
+#[test]
+fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
+    let db = TestDatabase::new();
+    let inventory = configured_libraries(
+        false,
+        vec![
+            builtin(
+                "django.template.defaulttags",
+                vec![symbol(TemplateSymbolKind::Tag, "if", None)],
+            ),
+            installed(
+                "alpha",
+                "project.alpha",
+                vec![symbol(TemplateSymbolKind::Tag, "if", None)],
+            ),
+            installed(
+                "beta",
+                "project.beta",
+                vec![symbol(TemplateSymbolKind::Tag, "if", None)],
+            ),
+        ],
+        vec![vec![
+            backend(
+                vec![("alpha", "project.alpha"), ("beta", "project.beta")],
+                vec!["django.template.defaulttags"],
+            ),
+            backend(
+                vec![("alpha", "project.alpha"), ("beta", "project.beta")],
+                vec![],
+            ),
+        ]],
+    );
+    let environment = TemplateEnvironment::from_project_inventory(&inventory);
+
+    let unloaded =
+        environment.effective_definition_libraries(&db, "if", TemplateSymbolKind::Tag, &[]);
+    assert!(matches!(unloaded.as_slice(), [
+        EffectiveDefinitionLibrary::Known(Some(library)),
+        EffectiveDefinitionLibrary::Known(None),
+    ] if library.module_name_str() == "django.template.defaulttags"));
+
+    let loaded =
+        environment.effective_definition_libraries(&db, "if", TemplateSymbolKind::Tag, &["alpha"]);
+    assert!(loaded.iter().all(|alternative| matches!(
+        alternative,
+        EffectiveDefinitionLibrary::Known(Some(library))
+            if library.module_name_str() == "project.alpha"
+    )));
+}
+
+#[test]
+fn exact_alias_after_unknown_key_is_definitive_while_other_names_stay_open() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {unknown_name: 'unknown.tags', 'shared': 'project_tags'}}}]\n",
+        )
+        .file(
+            "/project/project_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef certain(): pass\n",
+        )
+        .build(&db);
+
+    let libraries = template_libraries(&db, project);
+    assert!(matches!(
+        libraries.loadable_library_str("shared"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "project_tags"
+    ));
+    assert_eq!(
+        libraries.loadable_library_str("other"),
+        LoadableLibraryLookup::Inconclusive(Vec::new())
+    );
+}
+
+#[test]
+fn definite_load_restores_certainty_after_uncertain_builtins() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'certain': 'project_tags'}, 'builtins': [*UNKNOWN]}}]\n",
+        )
+        .file(
+            "/project/project_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef restored(): pass\n",
+        )
+        .build(&db);
+    let inventory = template_libraries(&db, project);
+    let environment = TemplateEnvironment::from_project_inventory(inventory);
+
+    let definitions = environment.effective_definition_libraries(
+        &db,
+        "restored",
+        TemplateSymbolKind::Tag,
+        &["certain"],
+    );
+    assert!(definitions.iter().all(|definition| matches!(
+        definition,
+        EffectiveDefinitionLibrary::Known(Some(library))
+            if library.module_name_str() == "project_tags"
+    )));
 }
 
 #[test]

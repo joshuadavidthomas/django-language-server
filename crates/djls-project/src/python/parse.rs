@@ -70,15 +70,9 @@ struct PythonParseOutput {
     syntax_errors: Vec<PythonSyntaxError>,
 }
 
-pub(super) enum ExactPythonSource {
-    Ready(ModModule),
-    OrdinarySyntaxErrors,
-}
-
 /// Convert Ruff's recovered parser output into project-owned syntax evidence.
 ///
-/// Keeping this pure lets tracked parsing and the legacy settings graph share
-/// exactly the same recovery and error-normalization policy.
+/// Keeping this pure gives tracked parsing one error-normalization policy.
 fn parse_python_source(source: &str) -> PythonParseOutput {
     let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
     let mut syntax_errors =
@@ -102,15 +96,6 @@ fn parse_python_source(source: &str) -> PythonParseOutput {
     PythonParseOutput {
         module: parsed.into_syntax(),
         syntax_errors,
-    }
-}
-
-pub(super) fn parse_exact_python_source(source: &str) -> ExactPythonSource {
-    let parsed = parse_python_source(source);
-    if has_ordinary_syntax_errors(&parsed.syntax_errors) {
-        ExactPythonSource::OrdinarySyntaxErrors
-    } else {
-        ExactPythonSource::Ready(parsed.module)
     }
 }
 

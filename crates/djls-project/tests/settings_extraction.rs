@@ -1,1973 +1,2665 @@
+use std::fmt::Write as _;
+use std::io;
+use std::sync::Arc;
+
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::TagSpecDef;
 use djls_project::Interpreter;
 use djls_project::Project;
 use djls_project::SearchPaths;
+use djls_project::testing::PythonBindingAlternativeView;
+use djls_project::testing::PythonBoundValueView;
+use djls_project::testing::PythonImportErrorView;
+use djls_project::testing::PythonImportOutcomeView;
+use djls_project::testing::PythonListItemView;
+use djls_project::testing::PythonSyntaxErrorClass;
+use djls_project::testing::PythonUnknownCauseView;
+use djls_project::testing::PythonValueKindView;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::django_settings;
-use djls_source::Db as _;
+use djls_project::testing::python_module_evaluation;
+use djls_project::testing::settings_module_file;
+use djls_source::ChangeEvent;
+use djls_source::FileSystem;
+use djls_source::InMemoryFileSystem;
+use djls_source::RootWalk;
+use djls_source::SourceChanges;
+use djls_source::Span;
+use djls_source::WalkOptions;
+use djls_source::path_to_file;
+use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
-use serde::Deserialize;
+use serde_json::Value;
+use serde_json::json;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum ExtractionStatus {
-    Complete,
-    Partial,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum ParseStatus {
-    Parsed,
-    Unparseable,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum EvaluatedPath {
-    Resolved(Utf8PathBuf),
-    Unknown,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-struct Originated<T> {
-    value: T,
-}
-
-impl<T> Originated<T> {
-    fn value(&self) -> &T {
-        &self.value
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct SettingValues<T> {
-    values: Vec<T>,
-    extraction: ExtractionStatus,
-}
-
-#[derive(Debug, Deserialize)]
-struct TemplateBackend {
-    backend: Option<String>,
-    dirs: Vec<EvaluatedPath>,
-    libraries: Vec<(String, String)>,
-    context_processors: Vec<Originated<String>>,
-    extraction: ExtractionStatus,
-}
-
-impl TemplateBackend {
-    fn is_fully_extracted(&self) -> bool {
-        self.extraction == ExtractionStatus::Complete
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct TemplateSettings {
-    backends: Vec<TemplateBackend>,
-    extraction: ExtractionStatus,
-}
-
-#[derive(Debug, Deserialize)]
-struct StaticFilesSettings {
-    static_url: SettingValues<Originated<String>>,
-    static_root: SettingValues<Originated<EvaluatedPath>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ExtractedSettings {
-    parse_status: ParseStatus,
-    installed_apps: SettingValues<String>,
-    templates: TemplateSettings,
-    staticfiles: StaticFilesSettings,
-}
-
-fn extract_project(
-    source: &str,
-    modules: &[(&str, &str)],
-) -> (TestDatabase, Project, ExtractedSettings) {
+fn extract_project(source: &str, modules: &[(&str, &str)]) -> (TestDatabase, Project, Value) {
     let mut fixture = ProjectFixture::new("/project/settings")
         .django_settings_module("config.settings")
         .file("/project/settings/config/__init__.py", "")
         .file("/project/settings/config/settings.py", source);
     for (module, source) in modules {
-        let path = format!("/project/settings/{}.py", module.replace('.', "/"));
-        fixture = fixture.file(path, *source);
+        fixture = fixture.file(
+            format!("/project/settings/{}.py", module.replace('.', "/")),
+            *source,
+        );
     }
-
     let mut db = TestDatabase::new();
     let project = fixture.install(&mut db);
-    let settings = serde_json::from_value(
-        serde_json::to_value(django_settings(&db, project)).expect("settings should serialize"),
-    )
-    .expect("settings should deserialize into the test projection");
+    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
     (db, project, settings)
 }
 
-fn extract(source: &str) -> ExtractedSettings {
+fn extract(source: &str) -> Value {
     extract_project(source, &[]).2
 }
 
-fn extract_with_modules(source: &str, modules: &[(&str, &str)]) -> ExtractedSettings {
-    extract_project(source, modules).2
+fn cases<'a>(settings: &'a Value, pointer: &str) -> &'a [Value] {
+    settings.pointer(pointer).unwrap().as_array().unwrap()
+}
+
+fn binding_unknown_origin(source: &str, name: &str) -> djls_source::Origin {
+    let (db, project, _) = extract_project(source, &[]);
+    let file = settings_module_file(&db, project).unwrap();
+    let evaluation = python_module_evaluation(&db, project, file);
+    let binding = evaluation.binding(name).unwrap();
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("expected one bound alternative for {name}");
+    };
+    let PythonValueKindView::Unknown(unknown) = &bound.value.kind else {
+        panic!("expected unknown value for {name}");
+    };
+    assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedMutation);
+    unknown.origin.unwrap()
+}
+
+fn python_project(db: &dyn djls_project::Db) -> Project {
+    python_project_with_paths(db, &[])
+}
+
+fn python_project_with_paths(db: &dyn djls_project::Db, pythonpath: &[Utf8PathBuf]) -> Project {
+    let root = Utf8Path::new("/project");
+    let interpreter = Interpreter::Auto;
+    let search_paths =
+        SearchPaths::from_project_settings(db.file_system(), root, &interpreter, pythonpath);
+    search_paths.register_roots(db);
+    Project::new(
+        db,
+        root.to_path_buf(),
+        search_paths,
+        interpreter,
+        None,
+        Vec::new(),
+        Vec::new(),
+        TagSpecDef::default(),
+    )
+}
+
+fn expected_span(source: &str, needle: &str) -> Span {
+    let start = source
+        .find(needle)
+        .unwrap_or_else(|| panic!("expected source to contain {needle:?}"));
+    Span::saturating_from_parts_usize(start, needle.len())
+}
+
+struct ReadFailingFileSystem {
+    inner: InMemoryFileSystem,
+    unreadable: Utf8PathBuf,
+}
+
+impl FileSystem for ReadFailingFileSystem {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        if path == self.unreadable {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "test file is unreadable",
+            ));
+        }
+        self.inner.read_to_string(path)
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        self.inner.exists(path)
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        self.inner.is_dir(path)
+    }
+
+    fn case_sensitivity(&self) -> djls_source::CaseSensitivity {
+        self.inner.case_sensitivity()
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        self.inner.path_exists_case_sensitive(path, prefix)
+    }
+
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        self.inner.walk_root(root, options)
+    }
+}
+
+fn is_alternative_limit_unknown(alternative: &PythonBindingAlternativeView) -> bool {
+    matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if unknown.cause == PythonUnknownCauseView::AlternativeLimitExceeded
+    )
+}
+
+fn branch_alternatives(count: usize) -> String {
+    let mut source = String::new();
+    for index in 0..count {
+        if index == 0 {
+            source.push_str("if condition_0:\n");
+        } else {
+            source.push_str(format!("elif condition_{index}:\n").as_str());
+        }
+        source.push_str(format!("    VALUE = '{index:02}'\n").as_str());
+    }
+    source
 }
 
 #[test]
-fn baseline_literal_installed_apps_and_templates() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-INSTALLED_APPS = [
-    "django.contrib.admin",
-    "blog.apps.BlogConfig",
-]
-TEMPLATES = [
-    {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates", "/shared/templates"],
-        "APP_DIRS": True,
-        "OPTIONS": {
-            "libraries": {"custom": "blog.templatetags.custom"},
-            "builtins": ["django.templatetags.static"],
-        },
-    },
-]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn split_settings_non_star_import_resolves_imported_setting() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings.local")
-        .file("/proj/myproject/__init__.py", "")
-        .file("/proj/myproject/settings/__init__.py", "")
-        .file(
-            "/proj/myproject/settings/base.py",
-            r#"
-INSTALLED_APPS = ["django.contrib.admin", "blog"]
-"#,
-        )
-        .file(
-            "/proj/myproject/settings/local.py",
-            r#"
-from .base import INSTALLED_APPS
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": ["templates"], "APP_DIRS": True}]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn split_settings_aliased_non_star_import_feeds_installed_apps() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings.local")
-        .file("/proj/myproject/__init__.py", "")
-        .file("/proj/myproject/settings/__init__.py", "")
-        .file(
-            "/proj/myproject/settings/base.py",
-            r#"
-INSTALLED_APPS = ["django.contrib.auth"]
-"#,
-        )
-        .file(
-            "/proj/myproject/settings/local.py",
-            r#"
-from .base import INSTALLED_APPS as BASE_APPS
-INSTALLED_APPS = BASE_APPS + ["blog"]
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn split_settings_non_star_import_chain_resolves_imported_setting() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings.local")
-        .file("/proj/myproject/__init__.py", "")
-        .file("/proj/myproject/settings/__init__.py", "")
-        .file(
-            "/proj/myproject/settings/common.py",
-            r#"
-COMMON_APPS = ["django.contrib.auth"]
-"#,
-        )
-        .file(
-            "/proj/myproject/settings/base.py",
-            r#"
-from .common import COMMON_APPS
-INSTALLED_APPS = COMMON_APPS + ["blog"]
-"#,
-        )
-        .file(
-            "/proj/myproject/settings/local.py",
-            r#"
-from .base import INSTALLED_APPS
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn split_settings_cyclic_non_star_import_does_not_hang() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings.local")
-        .file("/proj/myproject/__init__.py", "")
-        .file("/proj/myproject/settings/__init__.py", "")
-        .file(
-            "/proj/myproject/settings/base.py",
-            r#"
-from .local import INSTALLED_APPS as LOCAL_APPS
-INSTALLED_APPS = ["django.contrib.auth"]
-"#,
-        )
-        .file(
-            "/proj/myproject/settings/local.py",
-            r#"
-from .base import INSTALLED_APPS
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn non_star_import_from_extra_search_path_is_not_followed() {
-    let mut db = TestDatabase::new();
+fn python_module_evaluation_follows_recursive_imports() {
+    let db = TestDatabase::new();
+    db.add_file("/project/base.py", "VALUE = 'from base'\n");
     db.add_file(
-        "/vendor/vendor_settings.py",
-        r#"
-INSTALLED_APPS = ["vendor"]
-"#,
+        "/project/settings.py",
+        "from base import VALUE\nCOPY = VALUE\n",
     );
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/proj"),
-        &Interpreter::Auto,
-        &[Utf8PathBuf::from("/vendor")],
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let value = evaluation.binding("VALUE").expect("VALUE should be bound");
+    let copy = evaluation.binding("COPY").expect("COPY should be bound");
+    assert_eq!(value.alternatives.len(), 1);
+    assert_eq!(copy.alternatives.len(), 1);
+    assert_eq!(evaluation.dependency_files.len(), 2);
+    assert!(evaluation
+        .imports
+        .iter()
+        .any(|outcome| matches!(outcome, PythonImportOutcomeView::Resolved { file, .. } if *file == db.file(Utf8Path::new("/project/base.py")))));
+}
+
+#[test]
+fn python_binding_alternative_limit_has_exact_boundary_and_unknown_remainder() {
+    let evaluate = |count| {
+        let db = TestDatabase::new();
+        db.add_file("/project/settings.py", branch_alternatives(count).as_str());
+        let project = python_project(&db);
+        let settings = db.file(Utf8Path::new("/project/settings.py"));
+        python_module_evaluation(&db, project, settings)
+    };
+
+    let at_limit = evaluate(63);
+    let at_limit = at_limit.binding("VALUE").expect("VALUE should be bound");
+    assert_eq!(at_limit.alternatives.len(), 64);
+    assert!(
+        at_limit
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound)
     );
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .search_paths(search_paths)
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from vendor_settings import INSTALLED_APPS
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
-"#,
-        )
-        .install(&mut db);
+    assert!(
+        !at_limit
+            .alternatives
+            .iter()
+            .any(is_alternative_limit_unknown)
+    );
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    let overflowed = evaluate(64);
+    let overflowed = overflowed.binding("VALUE").expect("VALUE should be bound");
+    assert_eq!(overflowed.alternatives.len(), 65);
+    assert!(
+        overflowed
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound)
+    );
+    assert!(
+        overflowed
+            .alternatives
+            .iter()
+            .any(is_alternative_limit_unknown)
+    );
 }
 
 #[test]
-fn split_settings_star_import_resolves_base_settings() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings.local")
-        .file("/proj/myproject/__init__.py", "")
-        .file("/proj/myproject/settings/__init__.py", "")
-        .file(
-            "/proj/myproject/settings/base.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-INSTALLED_APPS = ["django.contrib.auth"]
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [BASE_DIR / "templates"], "APP_DIRS": True}]
-"#,
-        )
-        .file(
-            "/proj/myproject/settings/local.py",
-            r#"
-from .base import *
-INSTALLED_APPS += ["blog"]
-TEMPLATES[0]["DIRS"].append(BASE_DIR / "local_templates")
-"#,
-        )
-        .install(&mut db);
+fn python_evaluator_produces_unbound_for_a_path_without_assignment() {
+    let db = TestDatabase::new();
+    let source = "if condition:\n    VALUE = 'set'\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("VALUE should be tracked");
+
+    assert_eq!(binding.alternatives.len(), 2);
+    assert!(
+        binding
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound)
+    );
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Str(value),
+                origins,
+            },
+            binding_origins,
+        }) if value == "set"
+            && origins.as_slice() == [djls_source::Origin::new(settings, expected_span(source, "'set'"))]
+            && binding_origins.as_slice() == [djls_source::Origin::new(settings, expected_span(source, "'set'"))]
+    )));
 }
 
 #[test]
-fn composed_app_lists_via_literal_aliases_extract() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-DJANGO_APPS = ["django.contrib.admin"]
-LOCAL_APPS = ["myapp"]
-INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
-"#,
-        )
-        .install(&mut db);
+fn python_binding_normalizes_nested_unknowns_and_merges_their_evidence() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "if condition:\n    VALUE = [dynamic()]\nelse:\n    VALUE = [other_dynamic()]\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let binding = evaluation.binding("VALUE").expect("VALUE should be bound");
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("nested unknowns should normalize into one bound alternative");
+    };
+    let PythonValueKindView::List(items) = &bound.value.kind else {
+        panic!("VALUE should remain a list");
+    };
+    let [PythonListItemView::UnknownElement(unknown)] = items.as_slice() else {
+        panic!("the list should contain one typed unknown element");
+    };
+    assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression);
+    assert_eq!(
+        unknown
+            .origin
+            .expect("unknown should retain an origin")
+            .span
+            .start(),
+        27
+    );
+    assert_eq!(
+        bound
+            .value
+            .origins
+            .iter()
+            .map(|origin| origin.span.start())
+            .collect::<Vec<_>>(),
+        [26, 56],
+    );
 }
 
 #[test]
-fn duplicate_template_dirs_keys_use_last_value() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-INSTALLED_APPS = ["blog"]
-TEMPLATES = [
-    {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["first"],
-        "DIRS": ["second"],
-        "APP_DIRS": True,
-    },
-]
-"#,
-        )
-        .install(&mut db);
+fn python_module_evaluation_records_only_path_feasible_imports() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "if False:\n    from unreachable import VALUE\nif condition:\n    from feasible import VALUE\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    let evaluation = python_module_evaluation(&db, project, settings);
+    assert_eq!(evaluation.imports.len(), 1);
+    assert!(matches!(
+        &evaluation.imports[0],
+        PythonImportOutcomeView::NotFound { module, .. } if module.as_str() == "feasible"
+    ));
 }
 
 #[test]
-fn template_backend_spread_keeps_prior_keys_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-INSTALLED_APPS = ["blog"]
-extra = {}
-TEMPLATES = [
-    {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["templates"],
-        **extra,
-        "APP_DIRS": True,
-    },
-]
-"#,
-        )
-        .install(&mut db);
+fn python_module_evaluation_keeps_typed_import_and_namespace_outcomes() {
+    let db = TestDatabase::new();
+    let source = "from missing_named import VALUE\nfrom missing_star import *\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    let not_found = evaluation
+        .imports
+        .iter()
+        .map(|outcome| match outcome {
+            PythonImportOutcomeView::NotFound { origin, module } => {
+                (origin.file, origin.span, module.as_str())
+            }
+            _ => panic!("expected only typed not-found outcomes"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        not_found,
+        [
+            (
+                settings,
+                expected_span(source, "from missing_named import VALUE"),
+                "missing_named"
+            ),
+            (
+                settings,
+                expected_span(source, "from missing_star import *"),
+                "missing_star"
+            ),
+        ]
+    );
+    let value = evaluation.binding("VALUE").expect("VALUE should be bound");
+    assert!(value.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing_named")
+    )));
+    assert!(evaluation.namespace_open());
+    assert!(matches!(
+        evaluation.namespace_unknowns.as_slice(),
+        [unknown] if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing_star")
+    ));
 }
 
 #[test]
-fn unsupported_template_dirs_insert_mutation_degrades_templates() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-INSTALLED_APPS = ["blog"]
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": ["base"], "APP_DIRS": True}]
-TEMPLATES[0]["DIRS"].insert(0, "first")
-"#,
-        )
-        .install(&mut db);
+fn named_import_of_absent_open_name_preserves_unset_and_typed_dynamic_outcomes() {
+    let source = "from plugin import INSTALLED_APPS\n";
+    let (db, project, settings) = extract_project(
+        source,
+        &[("plugin", "if ENABLED:\n    from missing import *\n")],
+    );
+    let settings_file = settings_module_file(&db, project).unwrap();
+    let evaluation = python_module_evaluation(&db, project, settings_file);
+    let binding = evaluation
+        .binding("INSTALLED_APPS")
+        .expect("the named import should retain absence and namespace uncertainty");
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    assert!(
+        binding
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound)
+    );
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            binding_origins,
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing")
+            && unknown.origin == Some(djls_source::Origin::new(
+                settings_file,
+                expected_span(source, "INSTALLED_APPS"),
+            ))
+            && binding_origins.as_slice() == [djls_source::Origin::new(
+                settings_file,
+                expected_span(source, "INSTALLED_APPS"),
+            )]
+    )));
+
+    let cases = cases(&settings, "/installed_apps/cases");
+    assert_eq!(cases.len(), 2, "{settings:#}");
+    assert!(cases.iter().any(|case| case == "unset"));
+    assert!(cases.iter().any(|case| case.get("dynamic").is_some()));
 }
 
 #[test]
-fn unsupported_plain_call_touching_known_settings_degrades_them() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-INSTALLED_APPS = ["a"]
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates"}]
-configure(INSTALLED_APPS, TEMPLATES)
-"#,
-        )
-        .install(&mut db);
+fn named_import_of_conditional_binding_preserves_known_unset_and_dynamic_outcomes() {
+    let settings = extract_project(
+        "from plugin import INSTALLED_APPS\n",
+        &[(
+            "plugin",
+            "if ENABLED:\n    INSTALLED_APPS = ['imported']\n    from missing import *\n",
+        )],
+    )
+    .2;
+    let cases = cases(&settings, "/installed_apps/cases");
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    assert_eq!(cases.len(), 3, "{settings:#}");
+    assert!(cases.iter().any(|case| case == "unset"));
+    assert!(cases.iter().any(|case| case.get("dynamic").is_some()));
+    assert!(cases.iter().any(|case| {
+        case.pointer("/known/apps/0/value") == Some(&serde_json::json!("imported"))
+    }));
 }
 
 #[test]
-fn unsupported_attribute_call_touching_both_known_settings_degrades_both() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-INSTALLED_APPS = ["a"]
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates"}]
-helpers.configure(INSTALLED_APPS, TEMPLATES)
-"#,
-        )
-        .install(&mut db);
+fn star_import_translates_every_typed_namespace_cause_to_the_import_site() {
+    let source = "VALUE = 'local'\nfrom plugin import *\n";
+    let (db, project, _) = extract_project(
+        source,
+        &[(
+            "plugin",
+            "if ENABLED:\n    from missing import *\nelse:\n    from ...invalid import *\n",
+        )],
+    );
+    let settings_file = settings_module_file(&db, project).unwrap();
+    let evaluation = python_module_evaluation(&db, project, settings_file);
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("VALUE should remain bound");
+    let unknowns = binding
+        .alternatives
+        .iter()
+        .filter_map(|alternative| match alternative {
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value:
+                    djls_project::testing::PythonValueView {
+                        kind: PythonValueKindView::Unknown(unknown),
+                        ..
+                    },
+                ..
+            }) => Some(unknown),
+            PythonBindingAlternativeView::Bound(_) | PythonBindingAlternativeView::Unbound => None,
+        })
+        .collect::<Vec<_>>();
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    assert_eq!(unknowns.len(), 2, "{evaluation:#?}");
+    assert!(unknowns.iter().any(|unknown| matches!(
+        &unknown.cause,
+        PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing"
+    )));
+    assert!(unknowns.iter().any(|unknown| {
+        unknown.cause == PythonUnknownCauseView::InvalidImport(PythonImportErrorView::TooManyDots)
+    }));
+    assert!(unknowns.iter().all(|unknown| {
+        unknown.origin
+            == Some(djls_source::Origin::new(
+                settings_file,
+                expected_span(source, "from plugin import *"),
+            ))
+    }));
 }
 
 #[test]
-fn ambiguous_branch_alias_extracts_partial_installed_apps() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-if FLAG:
-    APPS = ["a"]
-else:
-    APPS = ["b"]
-INSTALLED_APPS = APPS
-TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True}]
-"#,
-        )
-        .install(&mut db);
+fn python_module_evaluation_keeps_failed_star_import_from_loop_body() {
+    let db = TestDatabase::new();
+    let source = "for item in ITEMS:\n    from missing_star import *\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
 
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::NotFound { origin, module }]
+            if origin.file == settings
+                && origin.span == expected_span(source, "from missing_star import *")
+                && module.as_str() == "missing_star"
+    ));
+    assert!(matches!(
+        evaluation.namespace_unknowns.as_slice(),
+        [unknown]
+            if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing_star")
+                && unknown.origin == Some(djls_source::Origin::new(
+                    settings,
+                    expected_span(source, "from missing_star import *"),
+                ))
+    ));
 }
 
 #[test]
-fn template_context_processors_literal_entries_extract() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-TEMPLATES = [
-    {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
-        "APP_DIRS": True,
-        "OPTIONS": {
-            "context_processors": [
-                "django.template.context_processors.debug",
-                "django.template.context_processors.request",
-                "django.contrib.auth.context_processors.auth",
-                "django.contrib.messages.context_processors.messages",
-            ],
+fn python_module_evaluation_reports_invalid_import_with_typed_cause() {
+    let db = TestDatabase::new();
+    let source = "from ...missing import VALUE\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::InvalidImport { origin, reason }]
+            if origin.file == settings
+                && origin.span == expected_span(source, source.trim_end())
+                && *reason == PythonImportErrorView::TooManyDots
+    ));
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("failed named import should bind unknown");
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if unknown.cause == PythonUnknownCauseView::InvalidImport(PythonImportErrorView::TooManyDots)
+            && unknown.origin.expect("unknown should retain import origin").file == settings
+    ));
+}
+
+#[test]
+fn python_module_evaluation_reports_skipped_external_import() {
+    let db = TestDatabase::new();
+    db.add_file("/vendor/site-packages/external.py", "VALUE = 'external'\n");
+    let source = "from external import VALUE\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/vendor/site-packages")]);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::SkippedExternal { origin, module }]
+            if origin.file == settings && module.as_str() == "external"
+    ));
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("skipped import should bind unknown");
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module) if module.as_str() == "external")
+    ));
+}
+
+#[test]
+fn python_module_evaluation_reports_unreadable_import() {
+    let mut inner = InMemoryFileSystem::new();
+    inner.add_file(
+        "/project/unreadable.py".into(),
+        "VALUE = 'hidden'\n".to_string(),
+    );
+    let source = "from unreadable import VALUE\n";
+    inner.add_file("/project/settings.py".into(), source.to_string());
+    let fs = ReadFailingFileSystem {
+        inner,
+        unreadable: "/project/unreadable.py".into(),
+    };
+    let db = OsTestDatabase::with_file_system(Arc::new(fs));
+    let project = python_project(&db);
+    let unreadable = path_to_file(&db, Utf8Path::new("/project/unreadable.py"))
+        .expect("unreadable fixture should still be discoverable");
+    let settings = path_to_file(&db, Utf8Path::new("/project/settings.py"))
+        .expect("settings fixture should exist");
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let [
+        PythonImportOutcomeView::Unreadable {
+            origin,
+            file,
+            error,
         },
-    },
-]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    ] = evaluation.imports.as_slice()
+    else {
+        panic!("expected one typed unreadable import outcome");
+    };
+    assert_eq!(origin.file, settings);
+    assert_eq!(*file, unreadable);
+    assert_eq!(error.path, Utf8Path::new("/project/unreadable.py"));
+    assert_eq!(error.kind, io::ErrorKind::PermissionDenied);
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("unreadable import should bind unknown");
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if matches!(&unknown.cause, PythonUnknownCauseView::Unreadable(error)
+            if error.path == Utf8Path::new("/project/unreadable.py")
+                && error.kind == io::ErrorKind::PermissionDenied)
+    ));
 }
 
 #[test]
-fn template_context_processors_mixed_invalid_entries_extract_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-UNKNOWN_PROCESSOR = "project.context_processors.dynamic"
-TEMPLATES = [
-    {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
-        "APP_DIRS": True,
-        "OPTIONS": {
-            "context_processors": [
-                "project.context_processors.site",
-                42,
-                UNKNOWN_PROCESSOR,
-                "bad-module.processor",
-                "project.context_processors.request",
-            ],
+fn python_module_evaluation_reports_import_syntax_errors() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/broken.py",
+        "if FLAG:\n    VALUE = 'known'\n    broken(\n",
+    );
+    let broken = db.file(Utf8Path::new("/project/broken.py"));
+    let source = "from broken import VALUE\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let [
+        PythonImportOutcomeView::SyntaxErrors {
+            origin,
+            file,
+            errors,
         },
-    },
-]
-"#,
+    ] = evaluation.imports.as_slice()
+    else {
+        panic!("syntax failure should have a typed import outcome");
+    };
+    assert_eq!(origin.file, settings);
+    assert_eq!(*file, broken);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
+    );
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("syntax failure should bind unknown");
+    assert!(binding.alternatives.iter().any(|alternative| {
+        matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: djls_project::testing::PythonValueView {
+                    kind: PythonValueKindView::Unknown(unknown),
+                    ..
+                },
+                ..
+            }) if matches!(&unknown.cause, PythonUnknownCauseView::SyntaxErrors(binding_errors)
+                if binding_errors == errors)
         )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+    }));
 }
 
 #[test]
-fn template_context_processors_non_list_extracts_partial_backend() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-TEMPLATES = [
+fn python_module_evaluation_records_mutation_origins_on_values_and_effects() {
+    let db = TestDatabase::new();
+    let source = "VALUES = []\nVALUES.append('added')\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let [mutation] = evaluation.mutations.as_slice() else {
+        panic!("append should record one mutation");
+    };
+    assert_eq!(mutation.root, "VALUES");
+    assert_eq!(mutation.method, "append");
+    assert!(mutation.access.is_empty());
+    assert_eq!(
+        mutation.origin.span,
+        expected_span(source, "VALUES.append('added')")
+    );
+    let binding = evaluation
+        .binding("VALUES")
+        .expect("VALUES should be bound");
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("VALUES should have one bound alternative");
+    };
+    assert!(
+        bound
+            .value
+            .origins
+            .iter()
+            .any(|origin| origin.span == mutation.origin.span)
+    );
+}
+
+#[test]
+fn python_module_evaluation_keeps_mutation_from_loop_body() {
+    let db = TestDatabase::new();
+    let source = "VALUES = []\nfor item in ITEMS:\n    VALUES.append(item)\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let [mutation] = evaluation.mutations.as_slice() else {
+        panic!("the loop body mutation should be retained");
+    };
+    assert_eq!(mutation.root, "VALUES");
+    assert_eq!(mutation.method, "append");
+    assert!(mutation.access.is_empty());
+    assert_eq!(
+        mutation.origin,
+        djls_source::Origin::new(settings, expected_span(source, "VALUES.append(item)")),
+    );
+}
+
+fn cycle_products(
+    query_a_first: bool,
+) -> (
+    djls_project::testing::PythonModuleEvaluationView,
+    djls_project::testing::PythonModuleEvaluationView,
+) {
+    let db = TestDatabase::new();
+    db.add_file("/project/a.py", "from b import B\nA = B\nAFTER_A = 'a'\n");
+    db.add_file("/project/b.py", "from a import A\nB = A\nAFTER_B = 'b'\n");
+    let project = python_project(&db);
+    let a = db.file(Utf8Path::new("/project/a.py"));
+    let b = db.file(Utf8Path::new("/project/b.py"));
+
+    if query_a_first {
+        let _ = python_module_evaluation(&db, project, a);
+    } else {
+        let _ = python_module_evaluation(&db, project, b);
+    }
+    (
+        python_module_evaluation(&db, project, a),
+        python_module_evaluation(&db, project, b),
+    )
+}
+
+#[test]
+fn python_module_cycle_products_are_entry_order_independent() {
+    let a_first = cycle_products(true);
+    let b_first = cycle_products(false);
+
+    assert_eq!(a_first, b_first);
+    for evaluation in [&a_first.0, &a_first.1] {
+        assert_eq!(
+            evaluation
+                .imports
+                .iter()
+                .filter(|outcome| matches!(outcome, PythonImportOutcomeView::Cycle { .. }))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn python_module_cycle_widens_cyclic_values_but_keeps_post_cycle_assignments() {
+    let (a, b) = cycle_products(true);
+
+    for (evaluation, cycle_name, stable_name, stable_value) in
+        [(&a, "A", "AFTER_A", "a"), (&b, "B", "AFTER_B", "b")]
     {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
-        "APP_DIRS": True,
-        "OPTIONS": {"context_processors": "project.context_processors.site"},
-    },
-]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
+        let cycle = evaluation
+            .binding(cycle_name)
+            .expect("cyclic value should be represented");
+        assert!(matches!(
+            cycle.alternatives.as_slice(),
+            [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: djls_project::testing::PythonValueView {
+                    kind: PythonValueKindView::Unknown(unknown),
+                    ..
+                },
+                ..
+            })] if unknown.cause == PythonUnknownCauseView::Cycle
+        ));
+        let stable = evaluation
+            .binding(stable_name)
+            .expect("post-cycle assignment should be retained");
+        assert!(matches!(
+            stable.alternatives.as_slice(),
+            [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: djls_project::testing::PythonValueView {
+                    kind: PythonValueKindView::Str(value),
+                    ..
+                },
+                ..
+            })] if value == stable_value
+        ));
+    }
 }
 
 #[test]
-fn explicit_template_backends_from_different_alternatives_remain_distinct() {
+fn external_star_import_of_settled_cycle_attributes_dynamic_namespace_to_each_import_edge() {
+    let source = "from a import *\nfrom b import *\n";
+    let (db, project, settings) = extract_project(
+        source,
+        &[("a", "from b import *\n"), ("b", "from a import *\n")],
+    );
+    let settings_file = settings_module_file(&db, project).unwrap();
+    let evaluation = python_module_evaluation(&db, project, settings_file);
+    let expected_origins = ["from a import *", "from b import *"]
+        .map(|statement| djls_source::Origin::new(settings_file, expected_span(source, statement)));
+    assert_eq!(evaluation.namespace_unknowns.len(), 2, "{evaluation:#?}");
+    assert!(
+        evaluation
+            .namespace_unknowns
+            .iter()
+            .all(|unknown| unknown.cause == PythonUnknownCauseView::Cycle)
+    );
+    assert_eq!(
+        evaluation
+            .namespace_unknowns
+            .iter()
+            .map(|unknown| unknown
+                .origin
+                .expect("cycle remainder should have an edge origin"))
+            .collect::<Vec<_>>(),
+        expected_origins
+    );
+
+    let dynamic_namespace_issues = cases(&settings, "/installed_apps/cases")
+        .iter()
+        .find_map(|case| case.get("dynamic"))
+        .expect("the open namespace should produce a dynamic settings case")["apps"]["evidence"]
+        .as_array()
+        .unwrap();
+    assert_eq!(dynamic_namespace_issues.len(), 2);
+    for (evidence, expected_origin) in dynamic_namespace_issues.iter().zip(expected_origins) {
+        assert_eq!(evidence["issue"]["kind"], "dynamic_namespace");
+        assert_eq!(
+            evidence["issue"]["spans"][0],
+            serde_json::to_value(expected_origin.span).unwrap()
+        );
+    }
+}
+
+#[test]
+fn external_star_import_of_settled_cycle_rebases_setting_issue_to_import_edge() {
+    let source = "from a import *\n";
+    let (db, project, settings) = extract_project(
+        source,
+        &[
+            ("a", "from b import INSTALLED_APPS\n"),
+            ("b", "from a import INSTALLED_APPS\n"),
+        ],
+    );
+    let settings_file = settings_module_file(&db, project).unwrap();
+    let import_origin =
+        djls_source::Origin::new(settings_file, expected_span(source, "from a import *"));
+    let evaluation = python_module_evaluation(&db, project, settings_file);
+    let binding = evaluation
+        .binding("INSTALLED_APPS")
+        .expect("the star import should copy the cyclic setting binding");
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                origins,
+            },
+            binding_origins,
+        })] if unknown.cause == PythonUnknownCauseView::Cycle
+            && unknown.origin == Some(import_origin)
+            && origins.as_slice() == [import_origin]
+            && binding_origins.as_slice() == [import_origin]
+    ));
+
+    let evidence = cases(&settings, "/installed_apps/cases")[0]["dynamic"]["apps"]["evidence"]
+        .as_array()
+        .expect("the cycle should produce dynamic setting evidence");
+    assert_eq!(evidence.len(), 1, "{settings:#}");
+    assert_eq!(evidence[0]["issue"]["kind"], "dynamic_expression");
+    assert_eq!(
+        evidence[0]["issue"]["spans"],
+        serde_json::to_value([import_origin.span]).unwrap()
+    );
+}
+
+fn external_star_cycle_product(
+    query_a_first: bool,
+) -> (
+    djls_project::testing::PythonModuleEvaluationView,
+    djls_source::File,
+) {
+    let db = TestDatabase::new();
+    db.add_file("/project/a.py", "from b import *\n");
+    db.add_file("/project/b.py", "from a import *\n");
+    db.add_file("/project/external.py", "from a import *\n");
+    let project = python_project(&db);
+    let a = db.file(Utf8Path::new("/project/a.py"));
+    let b = db.file(Utf8Path::new("/project/b.py"));
+    let external = db.file(Utf8Path::new("/project/external.py"));
+
+    if query_a_first {
+        let _ = python_module_evaluation(&db, project, a);
+    } else {
+        let _ = python_module_evaluation(&db, project, b);
+    }
+    (python_module_evaluation(&db, project, external), external)
+}
+
+#[test]
+fn external_star_import_of_cycle_is_entry_order_independent() {
+    let (a_first, a_external) = external_star_cycle_product(true);
+    let (b_first, b_external) = external_star_cycle_product(false);
+
+    assert_eq!(a_first, b_first);
+    for (evaluation, external) in [(&a_first, a_external), (&b_first, b_external)] {
+        assert!(matches!(
+            evaluation.namespace_unknowns.as_slice(),
+            [unknown]
+                if unknown.cause == PythonUnknownCauseView::Cycle
+                    && unknown.origin == Some(djls_source::Origin::new(
+                        external,
+                        expected_span("from a import *\n", "from a import *"),
+                    ))
+        ));
+    }
+}
+
+#[test]
+fn python_module_cycle_preserves_stable_side_dependencies() {
+    let db = TestDatabase::new();
+    db.add_file("/project/side.py", "SIDE = 'stable'\n");
+    db.add_file(
+        "/project/a.py",
+        "from side import SIDE\nfrom b import B\nA = B\n",
+    );
+    db.add_file("/project/b.py", "from a import A\nB = A\n");
+    let project = python_project(&db);
+    let a = db.file(Utf8Path::new("/project/a.py"));
+    let side = db.file(Utf8Path::new("/project/side.py"));
+    let evaluation = python_module_evaluation(&db, project, a);
+
+    assert!(evaluation.dependency_files.contains(&side));
+    assert!(evaluation.imports.iter().any(
+        |outcome| matches!(outcome, PythonImportOutcomeView::Resolved { file, .. } if *file == side)
+    ));
+}
+
+#[test]
+fn python_module_cycle_unions_all_feasible_mutations_independent_of_entry_order() {
+    fn products(
+        query_a_first: bool,
+    ) -> (
+        djls_project::testing::PythonModuleEvaluationView,
+        djls_project::testing::PythonModuleEvaluationView,
+    ) {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/project/a.py",
+            "from b import *\nVALUES_A = []\nVALUES_A.append('a')\n",
+        );
+        db.add_file(
+            "/project/b.py",
+            "from a import *\nVALUES_B = []\nVALUES_B.append('b')\n",
+        );
+        let project = python_project(&db);
+        let a = db.file(Utf8Path::new("/project/a.py"));
+        let b = db.file(Utf8Path::new("/project/b.py"));
+        if query_a_first {
+            let _ = python_module_evaluation(&db, project, a);
+        } else {
+            let _ = python_module_evaluation(&db, project, b);
+        }
+        (
+            python_module_evaluation(&db, project, a),
+            python_module_evaluation(&db, project, b),
+        )
+    }
+
+    let a_first = products(true);
+    let b_first = products(false);
+    assert_eq!(a_first, b_first);
+    for evaluation in [&a_first.0, &a_first.1] {
+        assert!(
+            evaluation
+                .mutations
+                .iter()
+                .any(|mutation| mutation.root == "VALUES_A")
+        );
+        assert!(
+            evaluation
+                .mutations
+                .iter()
+                .any(|mutation| mutation.root == "VALUES_B")
+        );
+    }
+}
+
+#[test]
+fn python_module_cycle_side_dependency_change_invalidates_the_product() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/side.py", "SIDE = 'before'\n");
+    db.add_file(
+        "/project/a.py",
+        "from side import SIDE\nfrom b import B\nA = B\n",
+    );
+    db.add_file("/project/b.py", "from a import A\nB = A\n");
+    let project = python_project(&db);
+    let a = db.file(Utf8Path::new("/project/a.py"));
+
+    let before = python_module_evaluation(&db, project, a);
+    assert!(matches!(
+        before.binding("SIDE").unwrap().alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Str(value),
+                ..
+            },
+            ..
+        })] if value == "before"
+    ));
+
+    db.add_file("/project/side.py", "SIDE = 'after'\n");
+    SourceChanges::new([ChangeEvent::ContentChanged("/project/side.py".into())]).apply(&mut db);
+
+    let after = python_module_evaluation(&db, project, a);
+    assert!(matches!(
+        after.binding("SIDE").unwrap().alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Str(value),
+                ..
+            },
+            ..
+        })] if value == "after"
+    ));
+}
+
+#[test]
+fn python_module_long_cycle_stays_within_the_internal_iteration_guard() {
+    const MEMBERS: usize = 20;
+
+    let db = TestDatabase::new();
+    for index in 0..MEMBERS {
+        let next = (index + 1) % MEMBERS;
+        db.add_file(
+            format!("/project/member_{index}.py").as_str(),
+            format!("from member_{next} import VALUE_{next}\nVALUE_{index} = '{index}'\n").as_str(),
+        );
+    }
+    let project = python_project(&db);
+    let root = db.file(Utf8Path::new("/project/member_0.py"));
+    let evaluation = python_module_evaluation(&db, project, root);
+
+    let value = evaluation
+        .binding("VALUE_0")
+        .expect("root assignment should be retained");
+    assert!(matches!(
+        value.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Str(value),
+                ..
+            },
+            ..
+        })] if value == "0"
+    ));
+    assert_eq!(
+        evaluation
+            .imports
+            .iter()
+            .filter(|outcome| matches!(outcome, PythonImportOutcomeView::Cycle { .. }))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn multiline_setting_syntax_errors_are_structurally_associated() {
+    for (source, pointer) in [
+        (
+            "INSTALLED_APPS = [\n    'blog',\n    @\n]\n",
+            "/installed_apps/cases",
+        ),
+        (
+            "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates'},\n    @\n]\n",
+            "/templates/cases",
+        ),
+    ] {
+        let settings = extract(source);
+        assert!(
+            cases(&settings, pointer)
+                .iter()
+                .any(|case| case.get("dynamic").is_some()),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn syntax_errors_in_enclosing_control_flow_widen_touched_settings() {
+    for source in [
+        "if FLAG:\n    INSTALLED_APPS = ['blog']\n    broken(\n",
+        "try:\n    INSTALLED_APPS = ['blog']\n    broken(\nexcept Exception:\n    pass\n",
+        "for item in ITEMS:\n    INSTALLED_APPS = ['blog']\n    broken(\n",
+        "match VALUE:\n    case _:\n        INSTALLED_APPS = ['blog']\n        broken(\n",
+    ] {
+        let settings = extract(source);
+        assert!(
+            cases(&settings, "/installed_apps/cases")
+                .iter()
+                .any(|case| case.get("dynamic").is_some()),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn later_unconditional_exact_assignment_dominates_local_syntax_impact() {
+    let settings =
+        extract("INSTALLED_APPS = [\n    'stale',\n    @\n]\nINSTALLED_APPS = ['local']\n");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0]["known"]["apps"][0]["value"], "local");
+}
+
+#[test]
+fn only_later_binding_targets_can_dominate_local_syntax_impact() {
+    for later in [
+        "INSTALLED_APPS[0] = 'replacement'",
+        "INSTALLED_APPS.value = ['replacement']",
+    ] {
+        let source = format!("INSTALLED_APPS = [\n    'stale',\n    @\n]\n{later}\n");
+        let settings = extract(&source);
+        let setting_cases = cases(&settings, "/installed_apps/cases");
+
+        assert!(
+            setting_cases
+                .iter()
+                .any(|case| case.to_string().contains("syntax_error")),
+            "{later}: {settings:#}"
+        );
+    }
+
     let settings = extract(
-        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]",
+        "INSTALLED_APPS = [\n    'stale',\n    @\n]\n(INSTALLED_APPS, OTHER) = (['clean'], None)\n",
     );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert_eq!(settings.templates.backends.len(), 2);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from("/a"))]
-    );
-    assert_eq!(
-        settings.templates.backends[1].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from("/b"))]
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+    assert_eq!(setting_cases.len(), 1, "{settings:#}");
+    assert!(
+        setting_cases
+            .iter()
+            .all(|case| !case.to_string().contains("syntax_error")),
+        "{settings:#}"
     );
 }
 
 #[test]
-fn explicit_template_backends_within_one_value_remain_distinct() {
+fn later_assignments_reading_the_impacted_name_do_not_dominate_syntax_impact() {
+    for later in [
+        "INSTALLED_APPS = INSTALLED_APPS",
+        "INSTALLED_APPS += ['later']",
+        "INSTALLED_APPS = INSTALLED_APPS + ['later']",
+    ] {
+        let source = format!("INSTALLED_APPS = [\n    'stale',\n    @\n]\n{later}\n");
+        let settings = extract(&source);
+        let setting_cases = cases(&settings, "/installed_apps/cases");
+
+        assert!(
+            setting_cases
+                .iter()
+                .any(|case| case.to_string().contains("syntax_error")),
+            "{later}: {settings:#}"
+        );
+    }
+}
+
+#[test]
+fn syntax_impact_taint_propagates_through_multi_hop_aliases() {
+    for aliases in [
+        "FIRST = INSTALLED_APPS\nSECOND = FIRST\nINSTALLED_APPS = SECOND",
+        "if True:\n    FIRST = INSTALLED_APPS\nSECOND = FIRST\nINSTALLED_APPS = SECOND",
+    ] {
+        let source = format!("INSTALLED_APPS = [\n    'stale',\n    @\n]\n{aliases}\n");
+        let settings = extract(&source);
+        let setting_cases = cases(&settings, "/installed_apps/cases");
+
+        assert!(
+            setting_cases
+                .iter()
+                .any(|case| case.to_string().contains("syntax_error")),
+            "{aliases}: {settings:#}"
+        );
+    }
+}
+
+#[test]
+fn syntax_impact_taint_propagates_through_comprehensions_and_formatted_strings() {
+    for expression in [
+        "[item for item in INSTALLED_APPS]",
+        "[item for item in ITEMS if INSTALLED_APPS]",
+        "{item for item in INSTALLED_APPS}",
+        "{key: value for key, value in INSTALLED_APPS}",
+        "list(item for item in INSTALLED_APPS)",
+        "[f'{INSTALLED_APPS}']",
+        "[f'{VALUE:{INSTALLED_APPS}}']",
+        "(lambda value=INSTALLED_APPS: value)()",
+    ] {
+        let source =
+            format!("INSTALLED_APPS = [\n    'stale',\n    @\n]\nINSTALLED_APPS = {expression}\n");
+        let settings = extract(&source);
+        let setting_cases = cases(&settings, "/installed_apps/cases");
+
+        assert!(
+            setting_cases
+                .iter()
+                .any(|case| case.to_string().contains("syntax_error")),
+            "{expression}: {settings:#}"
+        );
+    }
+}
+
+#[test]
+fn independent_write_clears_alias_taint_before_setting_assignment() {
+    let settings = extract(
+        "INSTALLED_APPS = [\n    'stale',\n    @\n]\nCOPY = INSTALLED_APPS\nCOPY = ['clean']\nINSTALLED_APPS = COPY\n",
+    );
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(setting_cases.len(), 1, "{settings:#}");
+    assert_eq!(setting_cases[0]["known"]["apps"][0]["value"], "clean");
+}
+
+#[test]
+fn later_conditional_assignment_does_not_dominate_local_syntax_impact() {
+    let settings = extract(
+        "INSTALLED_APPS = [\n    'stale',\n    @\n]\nif FLAG:\n    INSTALLED_APPS = ['conditional']\n",
+    );
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert!(cases.iter().any(|case| case.get("known").is_some()));
+    assert!(
+        cases
+            .iter()
+            .any(|case| case.to_string().contains("syntax_error"))
+    );
+}
+
+#[test]
+fn later_exact_assignment_dominates_namespace_wide_syntax_impact() {
+    let settings = extract_project(
+        "if FLAG:\n    from clean import *\n    broken(]\nINSTALLED_APPS = ['local']\n",
+        &[("clean", "")],
+    )
+    .2;
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert_eq!(cases[0]["known"]["apps"][0]["value"], "local");
+}
+
+#[test]
+fn assignment_reading_a_name_does_not_dominate_namespace_wide_syntax_impact() {
+    let settings = extract_project(
+        "BASE_APPS = ['base']\nif FLAG:\n    from clean import *\n    broken(]\nINSTALLED_APPS = BASE_APPS\n",
+        &[("clean", "")],
+    )
+    .2;
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+
+    assert!(
+        setting_cases
+            .iter()
+            .any(|case| case.to_string().contains("syntax_error")),
+        "{settings:#}"
+    );
+}
+
+#[test]
+fn namespace_wide_syntax_taint_propagates_through_multi_hop_aliases() {
+    let settings = extract_project(
+        "BASE_APPS = ['base']\nif FLAG:\n    from clean import *\n    broken(]\nFIRST = BASE_APPS\nSECOND = FIRST\nINSTALLED_APPS = SECOND\n",
+        &[("clean", "")],
+    )
+    .2;
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+
+    assert!(
+        setting_cases
+            .iter()
+            .any(|case| case.to_string().contains("syntax_error")),
+        "{settings:#}"
+    );
+}
+
+#[test]
+fn named_and_aliased_imports_dominate_namespace_wide_syntax_impact() {
+    for import in [
+        "from apps import INSTALLED_APPS",
+        "from apps import APPS as INSTALLED_APPS",
+    ] {
+        let source = format!("if FLAG:\n    from clean import *\n    broken(]\n{import}\n");
+        let settings = extract_project(
+            &source,
+            &[
+                ("clean", ""),
+                ("apps", "INSTALLED_APPS = APPS = ['imported']\n"),
+            ],
+        )
+        .2;
+        let setting_cases = cases(&settings, "/installed_apps/cases");
+
+        assert_eq!(setting_cases.len(), 1, "{import}");
+        assert_eq!(
+            setting_cases[0]["known"]["apps"][0]["value"], "imported",
+            "{import}"
+        );
+    }
+}
+
+#[test]
+fn only_deterministic_if_assignments_dominate_namespace_wide_syntax_impact() {
+    for (condition, expected) in [("True", true), ("False", false), ("FLAG", false)] {
+        let source = format!(
+            "if FLAG:\n    from clean import *\n    broken(]\nif {condition}:\n    INSTALLED_APPS = ['selected']\nelse:\n    INSTALLED_APPS = ['fallback']\n"
+        );
+        let settings = extract_project(&source, &[("clean", "")]).2;
+        let setting_cases = cases(&settings, "/installed_apps/cases");
+
+        if condition == "FLAG" {
+            assert!(
+                setting_cases
+                    .iter()
+                    .any(|case| case.to_string().contains("syntax_error")),
+                "{condition}"
+            );
+        } else {
+            assert_eq!(setting_cases.len(), 1, "{condition}");
+            let value = if expected { "selected" } else { "fallback" };
+            assert_eq!(setting_cases[0]["known"]["apps"][0]["value"], value);
+        }
+    }
+
+    let settings = extract_project(
+        "if FLAG:\n    from clean import *\n    broken(]\nSELECT = True\nif not SELECT:\n    INSTALLED_APPS = ['wrong']\nelse:\n    INSTALLED_APPS = ['selected']\n",
+        &[("clean", "")],
+    )
+    .2;
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+    assert_eq!(setting_cases.len(), 1);
+    assert_eq!(setting_cases[0]["known"]["apps"][0]["value"], "selected");
+}
+
+#[test]
+fn unrelated_later_syntax_error_preserves_all_exact_settings() {
+    let settings = extract(
+        "INSTALLED_APPS = ['blog']\nTEMPLATES = []\nSTATIC_URL = '/static/'\nSTATIC_ROOT = '/static-root'\nSTATICFILES_DIRS = ['/assets']\ndef broken(\n",
+    );
+
+    for pointer in [
+        "/installed_apps/cases",
+        "/templates/cases",
+        "/staticfiles/static_url/cases",
+        "/staticfiles/static_root/cases",
+        "/staticfiles/staticfiles_dirs/cases",
+    ] {
+        let setting_cases = cases(&settings, pointer);
+        assert_eq!(setting_cases.len(), 1, "{pointer}");
+        assert!(setting_cases[0].get("known").is_some(), "{pointer}");
+    }
+}
+
+#[test]
+fn explicit_empty_and_unset_are_distinct() {
+    let unset = extract("");
+    let empty = extract("INSTALLED_APPS = []");
+
+    assert_eq!(cases(&unset, "/installed_apps/cases"), [json!("unset")]);
+    assert_eq!(
+        cases(&empty, "/installed_apps/cases")[0]["known"]["apps"],
+        json!([])
+    );
+}
+
+#[test]
+fn installed_apps_preserve_exact_branch_alternatives() {
+    let settings =
+        extract("if FLAG:\n    INSTALLED_APPS = ['a']\nelse:\n    INSTALLED_APPS = ['b']");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 2);
+    assert_eq!(cases[0]["known"]["apps"][0]["value"], "a");
+    assert_eq!(cases[1]["known"]["apps"][0]["value"], "b");
+}
+
+#[test]
+fn installed_apps_dynamic_member_retains_ordered_known_fragment() {
+    let settings = extract("INSTALLED_APPS = ['a', env('APP'), 'b']");
+    let dynamic = &cases(&settings, "/installed_apps/cases")[0]["dynamic"];
+
+    let evidence = &dynamic["apps"]["evidence"];
+    assert_eq!(evidence[0]["known"]["value"], "a");
+    assert_eq!(evidence[1]["issue"]["kind"], "unknown_element");
+    assert_eq!(evidence[2]["known"]["value"], "b");
+}
+
+#[test]
+fn installed_apps_exact_list_mutations_preserve_known_order() {
+    let settings = extract(
+        "INSTALLED_APPS = ['middle']\nINSTALLED_APPS.append('last')\nINSTALLED_APPS.extend(['later', 'removed'])\nINSTALLED_APPS.insert(100, 'bounded-last')\nINSTALLED_APPS.insert(-100, 'first')\nINSTALLED_APPS.remove('removed')",
+    );
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|app| app["value"].as_str().unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(apps, ["first", "middle", "last", "later", "bounded-last"]);
+}
+
+#[test]
+fn ambiguous_installed_apps_insert_and_remove_are_dynamic() {
+    for list in ["[UNKNOWN, 'known']", "[*UNKNOWN, 'known']"] {
+        for mutation in [
+            "INSTALLED_APPS.insert(1, 'inserted')",
+            "INSTALLED_APPS.remove('known')",
+        ] {
+            let source = format!("INSTALLED_APPS = {list}\n{mutation}");
+            let cases = cases(&extract(&source), "/installed_apps/cases").to_vec();
+
+            assert_eq!(cases.len(), 1, "{source}");
+            assert!(cases[0].get("dynamic").is_some(), "{source}");
+            assert!(!cases[0].to_string().contains("known"), "{source}");
+        }
+    }
+}
+
+#[test]
+fn try_match_and_loop_preserve_settings_alternatives() {
+    let try_settings = extract(
+        "try:\n    INSTALLED_APPS = ['try']\nexcept Exception:\n    INSTALLED_APPS = ['except']",
+    );
+    let try_apps = cases(&try_settings, "/installed_apps/cases")
+        .iter()
+        .map(|case| case["known"]["apps"][0]["value"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(try_apps, ["except", "try"].into_iter().collect());
+
+    let match_settings = extract(
+        "match VALUE:\n    case 1:\n        INSTALLED_APPS = ['one']\n    case _:\n        INSTALLED_APPS = ['other']",
+    );
+    let match_apps = cases(&match_settings, "/installed_apps/cases")
+        .iter()
+        .map(|case| case["known"]["apps"][0]["value"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(match_apps, ["one", "other"].into_iter().collect());
+
+    let loop_settings =
+        extract("INSTALLED_APPS = ['before']\nfor app in APPS:\n    INSTALLED_APPS = [app]");
+    let loop_cases = cases(&loop_settings, "/installed_apps/cases");
+    assert!(loop_cases.iter().any(|case| case.get("known").is_some()));
+    assert!(loop_cases.iter().any(|case| case.get("dynamic").is_some()));
+}
+
+#[test]
+fn wrong_installed_apps_shape_is_malformed() {
+    let settings = extract("INSTALLED_APPS = 'not-a-list'");
+    assert!(
+        cases(&settings, "/installed_apps/cases")[0]
+            .get("malformed")
+            .is_some()
+    );
+}
+
+#[test]
+fn templates_keep_simultaneous_backends_correlated() {
     let settings = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]",
     );
+    let known = &cases(&settings, "/templates/cases")[0]["known"];
 
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
-    assert_eq!(settings.templates.backends.len(), 2);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from("/a"))]
-    );
-    assert_eq!(
-        settings.templates.backends[1].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from("/b"))]
-    );
+    assert_eq!(known["backends"].as_array().unwrap().len(), 2);
+    assert_eq!(known["backends"][0]["dirs"][0]["value"]["resolved"], "/a");
+    assert_eq!(known["backends"][1]["dirs"][0]["value"]["resolved"], "/b");
 }
 
 #[test]
-fn template_context_processors_identical_branches_preserve_origins_and_partial_status() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-if FLAG:
-    TEMPLATES = [
-        {
-            "BACKEND": "django.template.backends.django.DjangoTemplates",
-            "DIRS": [],
-            "APP_DIRS": True,
-            "OPTIONS": {"context_processors": ["project.context_processors.site"]},
-        },
-    ]
-else:
-    TEMPLATES = [
-        {
-            "BACKEND": "django.template.backends.django.DjangoTemplates",
-            "DIRS": [],
-            "APP_DIRS": True,
-            "OPTIONS": {"context_processors": ["project.context_processors.site"]},
-        },
-    ]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn static_url_literal_extracts_originated_candidate() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-STATIC_URL = "/static/"
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn static_url_conditional_override_keeps_all_candidates_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-STATIC_URL = "/static/"
-if USE_CDN:
-    STATIC_URL = "https://cdn.example.com/static/"
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn static_url_identical_conditional_assignments_preserve_origins_and_partial_status() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-if USE_CDN:
-    STATIC_URL = "/static/"
-else:
-    STATIC_URL = "/static/"
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn static_url_unknown_expression_extracts_partial_without_candidate() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-BASE_URL = "/assets/"
-STATIC_URL = BASE_URL + "static/"
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn static_root_resolved_path_extracts_originated_candidate() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-STATIC_ROOT = BASE_DIR / "staticfiles"
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn static_root_unknown_path_extracts_unknown_candidate_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-STATIC_ROOT = STATIC_BASE / "staticfiles"
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn static_root_conditional_assignment_keeps_all_candidates_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-STATIC_ROOT = BASE_DIR / "staticfiles"
-if USE_TMP:
-    STATIC_ROOT = BASE_DIR / "tmp-staticfiles"
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn staticfiles_dirs_list_resolved_paths_extract() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-STATICFILES_DIRS = [BASE_DIR / "assets", "/shared/static"]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn staticfiles_dirs_tuple_resolved_paths_extract() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-STATICFILES_DIRS = (BASE_DIR / "assets", "/shared/static")
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn staticfiles_dirs_unknown_element_extracts_unknown_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r"
-STATICFILES_DIRS = [STATIC_ASSETS]
-",
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn staticfiles_dirs_mixed_known_unknown_elements_extract_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-STATICFILES_DIRS = [BASE_DIR / "assets", STATIC_ASSETS, "/shared/static"]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn staticfiles_dirs_conditional_assignment_keeps_all_candidates_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-STATICFILES_DIRS = [BASE_DIR / "assets"]
-if USE_VENDOR:
-    STATICFILES_DIRS = [BASE_DIR / "vendor-assets"]
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn static_url_star_import_conditional_reassignment_keeps_base_candidate_partial() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings.local")
-        .file("/proj/myproject/__init__.py", "")
-        .file("/proj/myproject/settings/__init__.py", "")
-        .file(
-            "/proj/myproject/settings/base.py",
-            r#"
-STATIC_URL = "/static/"
-"#,
-        )
-        .file(
-            "/proj/myproject/settings/local.py",
-            r#"
-from .base import *
-if USE_CDN:
-    STATIC_URL = "https://cdn.example.com/static/"
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn staticfiles_dirs_append_mutation_degrades_setting() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/__init__.py", "")
-        .file(
-            "/proj/myproject/settings.py",
-            r#"
-from pathlib import Path
-BASE_DIR = Path(__file__).resolve().parent.parent
-STATICFILES_DIRS = [BASE_DIR / "assets"]
-STATICFILES_DIRS.append(BASE_DIR / "more-assets")
-"#,
-        )
-        .install(&mut db);
-
-    insta::assert_yaml_snapshot!(django_settings(&db, project));
-}
-
-#[test]
-fn unreachable_import_is_not_a_semantic_dependency() {
-    let (db, project, settings) = extract_project(
-        "if False:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
-        &[("base", "INSTALLED_APPS = [")],
-    );
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [Utf8PathBuf::from("/project/settings/config/settings.py")]
-    );
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn unreachable_elif_import_is_not_a_semantic_dependency() {
-    let (db, project, settings) = extract_project(
-        "if FLAG:\n    INSTALLED_APPS = ['local']\nelif False:\n    from base import INSTALLED_APPS",
-        &[("base", "INSTALLED_APPS = [")],
-    );
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [Utf8PathBuf::from("/project/settings/config/settings.py")]
-    );
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn ambiguous_branch_import_effects_are_semantic_dependencies() {
-    let (db, project, settings) = extract_project(
-        "if FLAG:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
-        &[("base", "INSTALLED_APPS = [")],
-    );
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/project/settings/base.py"),
-            Utf8PathBuf::from("/project/settings/config/settings.py"),
-        ]
-    );
-    assert_eq!(settings.parse_status, ParseStatus::Unparseable);
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn loop_import_effects_are_dependencies_without_accepting_values() {
-    let (db, project, settings) = extract_project(
-        "for app in []:\n    from base import INSTALLED_APPS",
-        &[("base", "INSTALLED_APPS = [")],
-    );
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/project/settings/base.py"),
-            Utf8PathBuf::from("/project/settings/config/settings.py"),
-        ]
-    );
-    assert_eq!(settings.parse_status, ParseStatus::Unparseable);
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert!(settings.installed_apps.values.is_empty());
-}
-
-#[test]
-fn loop_star_import_degrades_existing_bindings_without_accepting_values() {
-    let (db, project, settings) = extract_project(
-        "INSTALLED_APPS = ['local']\nfor app in PLUGINS:\n    from base import *",
-        &[("base", "INSTALLED_APPS = ['base']")],
-    );
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/project/settings/base.py"),
-            Utf8PathBuf::from("/project/settings/config/settings.py"),
-        ]
-    );
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn loop_nested_unreachable_star_import_does_not_degrade_bindings() {
-    let (db, project, settings) = extract_project(
-        "INSTALLED_APPS = ['local']\nfor app in PLUGINS:\n    if False:\n        from base import *",
-        &[("base", "INSTALLED_APPS = [")],
-    );
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [Utf8PathBuf::from("/project/settings/config/settings.py")]
-    );
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn while_false_body_import_is_not_a_semantic_dependency() {
-    let (db, project, settings) = extract_project(
-        "while False:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
-        &[("base", "INSTALLED_APPS = [")],
-    );
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [Utf8PathBuf::from("/project/settings/config/settings.py")]
-    );
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn literal_tuple_assignment_is_full() {
-    let settings = extract("INSTALLED_APPS = ('django.contrib.auth', 'app')");
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(
-        settings.installed_apps.values,
-        ["django.contrib.auth", "app"]
-    );
-}
-
-#[test]
-fn annotated_assignment_is_full() {
-    let settings = extract("INSTALLED_APPS: list[str] = ['app']");
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["app"]);
-}
-
-#[test]
-fn plus_equals_extends_existing_values() {
-    assert_eq!(
-        extract("INSTALLED_APPS = ['base']\nINSTALLED_APPS += ['extra']")
-            .installed_apps
-            .values,
-        ["base", "extra"]
-    );
-}
-
-#[test]
-fn plus_chain_combines_literal_lists() {
-    assert_eq!(
-        extract("INSTALLED_APPS = ['a'] + ['b'] + ('c',)")
-            .installed_apps
-            .values,
-        ["a", "b", "c"]
-    );
-}
-
-#[test]
-fn plus_chain_splices_known_name() {
-    assert_eq!(
-        extract("INSTALLED_APPS = ['a']\nINSTALLED_APPS = INSTALLED_APPS + ['b']")
-            .installed_apps
-            .values,
-        ["a", "b"]
-    );
-}
-
-#[test]
-fn mutation_methods_update_values() {
-    assert_eq!(
-        extract(
-            "INSTALLED_APPS = ['a', 'c']\n\
-             INSTALLED_APPS.append('d')\n\
-             INSTALLED_APPS.extend(['e'])\n\
-             INSTALLED_APPS.insert(1, 'b')\n\
-             INSTALLED_APPS.remove('c')",
-        )
-        .installed_apps
-        .values,
-        ["a", "b", "d", "e"]
-    );
-}
-
-#[test]
-fn reassignment_replaces_prior_values() {
-    assert_eq!(
-        extract(
-            "INSTALLED_APPS = ['old']\nINSTALLED_APPS.append('ignored')\nINSTALLED_APPS = ['new']"
-        )
-        .installed_apps
-        .values,
-        ["new"]
-    );
-}
-
-#[test]
-fn unsupported_branch_mutation_remains_partial_when_other_branch_assigns() {
+fn templates_keep_mutually_exclusive_configurations_separate() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': []}}]\n\
-         if FLAG:\n\
-             TEMPLATES[0]['OPTIONS']['context_processors'].append('django.template.context_processors.request')\n\
-         else:\n\
-             TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': []}}]",
+        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]",
     );
+    let cases = cases(&settings, "/templates/cases");
 
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert!(settings.templates.backends.is_empty());
+    assert_eq!(cases.len(), 2);
+    let roots: std::collections::BTreeSet<_> = cases
+        .iter()
+        .map(|case| {
+            case["known"]["backends"][0]["dirs"][0]["value"]["resolved"]
+                .as_str()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(roots, ["/a", "/b"].into_iter().collect());
 }
 
 #[test]
-fn unsupported_branch_mutation_is_order_independent() {
+fn template_field_uncertainty_does_not_erase_siblings() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': []}}]\n\
-         if FLAG:\n\
-             TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': []}}]\n\
-         else:\n\
-             TEMPLATES[0]['OPTIONS']['context_processors'].append('django.template.context_processors.request')",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'OPTIONS': {'libraries': {'good': 'app.templatetags.good'}, 'context_processors': [unknown]}}]",
     );
+    let backend =
+        &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]["backend"];
 
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert!(settings.templates.backends.is_empty());
-}
-
-#[test]
-fn non_literal_element_is_partial_and_skipped() {
-    let settings = extract("INSTALLED_APPS = ['a', env('EXTRA'), 'b']");
     assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
+        backend["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        "/templates"
     );
-    assert_eq!(settings.installed_apps.values, ["a", "b"]);
-}
-
-#[test]
-fn unsupported_assignment_is_unsupported() {
-    let settings = extract("INSTALLED_APPS = get_apps()");
+    assert_eq!(backend["libraries"]["known"][0][0], "good");
+    assert_eq!(backend["dirs"]["evidence"].as_array().unwrap().len(), 1);
+    assert!(
+        backend["libraries"]["issues"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
+        backend["context_processors"]["issues"][0]["kind"],
+        "unknown_element"
     );
-    assert!(settings.installed_apps.values.is_empty());
 }
 
 #[test]
-fn decidable_if_true_picks_body() {
+fn missing_template_backend_is_malformed() {
+    let settings = extract("TEMPLATES = [{'DIRS': ['/templates']}]");
+    assert!(
+        cases(&settings, "/templates/cases")[0]
+            .get("malformed")
+            .is_some()
+    );
+}
+
+#[test]
+fn explicit_app_dirs_retains_origins_and_absence_stays_distinct() {
+    let complete = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'APP_DIRS': True}]",
+    );
+    let app_dirs = &cases(&complete, "/templates/cases")[0]["known"]["backends"][0]["app_dirs"];
+    assert_eq!(app_dirs["value"], true);
+    assert_eq!(app_dirs["spans"].as_array().unwrap().len(), 1);
+
+    let absent =
+        extract("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates'}]");
+    assert!(cases(&absent, "/templates/cases")[0]["known"]["backends"][0]["app_dirs"].is_null());
+
+    let partial = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN], 'APP_DIRS': False}]",
+    );
+    let app_dirs = &cases(&partial, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]["backend"]
+        ["app_dirs"]["known"];
+    assert_eq!(app_dirs["value"], false);
+    assert_eq!(app_dirs["spans"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn exact_wrong_template_member_shapes_are_malformed() {
+    for member in [
+        "'BACKEND': False",
+        "'DIRS': 'templates'",
+        "'APP_DIRS': 'yes'",
+        "'OPTIONS': []",
+        "'OPTIONS': {'libraries': []}",
+        "'OPTIONS': {'builtins': 'module'}",
+        "'OPTIONS': {'context_processors': 'processor'}",
+    ] {
+        let source = format!(
+            "TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', {member}}}]"
+        );
+        let settings = extract(&source);
+        assert!(
+            cases(&settings, "/templates/cases")[0]
+                .get("malformed")
+                .is_some(),
+            "expected malformed for {member}"
+        );
+    }
+}
+
+#[test]
+fn dynamic_template_members_are_not_malformed() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN]}]",
+    );
+    let case = &cases(&settings, "/templates/cases")[0];
+    assert!(case.get("dynamic").is_some());
+    assert!(case.get("malformed").is_none());
+}
+
+#[test]
+fn dynamic_and_malformed_templates_preserve_backend_order_and_complete_siblings() {
+    let dynamic = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN]}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]",
+    );
+    let evidence = cases(&dynamic, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
+        .as_array()
+        .unwrap();
+    let backends = evidence
+        .iter()
+        .map(|evidence| &evidence["backend"])
+        .collect::<Vec<_>>();
+    assert_eq!(backends.len(), 3);
     assert_eq!(
-        extract("if True:\n    INSTALLED_APPS = ['body']\nelse:\n    INSTALLED_APPS = ['else']")
-            .installed_apps
-            .values,
-        ["body"]
+        backends[0]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        "/first"
     );
-}
-
-#[test]
-fn decidable_if_false_picks_else() {
     assert_eq!(
-        extract("if False:\n    INSTALLED_APPS = ['body']\nelse:\n    INSTALLED_APPS = ['else']")
-            .installed_apps
-            .values,
-        ["else"]
+        backends[2]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        "/third"
     );
-}
 
-#[test]
-fn bool_name_condition_is_decidable() {
+    let malformed = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'DIRS': ['/broken']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]",
+    );
+    let evidence = cases(&malformed, "/templates/cases")[0]["malformed"]["templates"]["evidence"]
+        .as_array()
+        .unwrap();
+    let backends = evidence
+        .iter()
+        .map(|evidence| &evidence["backend"])
+        .collect::<Vec<_>>();
+    assert_eq!(backends.len(), 3);
     assert_eq!(
-        extract("DEBUG = True\nif DEBUG:\n    INSTALLED_APPS = ['debug']\nelse:\n    INSTALLED_APPS = ['prod']")
-            .installed_apps
-            .values,
-        ["debug"]
+        backends[0]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        "/first"
+    );
+    assert_eq!(
+        backends[2]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        "/third"
     );
 }
 
 #[test]
-fn later_assignment_replaces_unsupported_touch_uncertainty() {
+fn template_library_aliases_use_last_exact_value() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'same': 'first.tags', 'same': 'last.tags'}}}]",
+    );
+    let libraries = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0]["libraries"];
+    assert_eq!(libraries.as_array().unwrap().len(), 1);
+    assert_eq!(libraries[0][0], "same");
+    assert_eq!(libraries[0][1]["value"], "last.tags");
+}
+
+#[test]
+fn overwritten_invalid_library_value_contributes_no_issue() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'same': False, 'same': 'last.tags'}}}]",
+    );
+    let backend = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0];
+
+    assert_eq!(backend["libraries"].as_array().unwrap().len(), 1);
+    assert_eq!(backend["libraries"][0][1]["value"], "last.tags");
+}
+
+#[test]
+fn duplicate_mapping_keys_use_last_exact_value() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': unknown, 'DIRS': ['/last']}]",
+    );
+    let backend = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0];
+    assert_eq!(backend["dirs"][0]["value"]["resolved"], "/last");
+}
+
+#[test]
+fn equivalent_template_cases_merge_all_value_origins() {
+    let settings = extract(
+        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates']}]",
+    );
+    let cases = cases(&settings, "/templates/cases");
+
+    assert_eq!(cases.len(), 1);
+    assert_eq!(
+        cases[0]["known"]["backends"][0]["backend"]["spans"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        cases[0]["known"]["backends"][0]["dirs"][0]["spans"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn scalar_alternatives_preserve_equal_value_origins() {
     let settings =
-        extract("INSTALLED_APPS = ['old']\nconfigure(INSTALLED_APPS)\nINSTALLED_APPS = ['new']");
+        extract("if FLAG:\n    STATIC_URL = '/static/'\nelse:\n    STATIC_URL = '/static/'");
+    let cases = cases(&settings, "/staticfiles/static_url/cases");
 
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["new"]);
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0]["known"]["value"], "/static/");
+    assert_eq!(cases[0]["known"]["spans"].as_array().unwrap().len(), 2);
 }
 
 #[test]
-fn later_assignment_replaces_unresolved_star_import_uncertainty() {
-    let settings = extract("from missing import *\nINSTALLED_APPS = ['local']");
+fn equal_malformed_scalar_alternatives_merge_all_issue_origins() {
+    let settings = extract("if FLAG:\n    STATIC_URL = False\nelse:\n    STATIC_URL = False");
+    let cases = cases(&settings, "/staticfiles/static_url/cases");
 
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0]["malformed"]["issues"][0]["kind"], "invalid_shape");
     assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
+        cases[0]["malformed"]["issues"][0]["spans"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
     );
-    assert_eq!(settings.installed_apps.values, ["local"]);
 }
 
 #[test]
-fn addition_from_partial_local_binding_stays_partial() {
-    let settings = extract("if FLAG:\n    LOCAL_APPS = ['a']\nINSTALLED_APPS = LOCAL_APPS + ['b']");
-
+fn static_root_resolves_relative_to_imported_origin_file() {
+    let settings = extract_project(
+        "from one.base import STATIC_ROOT",
+        &[("one.base", "STATIC_ROOT = 'static'")],
+    )
+    .2;
     assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
+        cases(&settings, "/staticfiles/static_root/cases")[0]["known"]["value"]["resolved"],
+        "/project/settings/one/static"
     );
-    assert_eq!(settings.installed_apps.values, ["a", "b"]);
 }
 
 #[test]
-fn ambiguous_condition_walks_all_arms_and_marks_partial() {
+fn equal_static_roots_from_modules_in_same_directory_merge_origins() {
+    let settings = extract_project(
+        "if FLAG:\n    from shared.one import STATIC_ROOT\nelse:\n    from shared.two import STATIC_ROOT",
+        &[
+            ("shared.one", "STATIC_ROOT = 'static'"),
+            ("shared.two", "STATIC_ROOT = 'static'"),
+        ],
+    )
+    .2;
+    let cases = cases(&settings, "/staticfiles/static_root/cases");
+
+    assert_eq!(cases.len(), 1);
+    assert_eq!(
+        cases[0]["known"]["value"]["resolved"],
+        "/project/settings/shared/static"
+    );
+    assert_eq!(cases[0]["known"]["spans"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn path_collections_keep_known_paths_and_uncertainty_in_source_order() {
     let settings = extract(
-        "INSTALLED_APPS = ['base']\nif os.environ.get('X'):\n    INSTALLED_APPS.append('debug')\nelse:\n    INSTALLED_APPS.append('prod')",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first', *UNKNOWN, '/later']}]\nSTATICFILES_DIRS = ['/a', UNKNOWN, '/b']",
     );
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["base", "debug", "prod"]);
+    let template_evidence = &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
+        [0]["backend"]["dirs"]["evidence"];
+    assert_eq!(template_evidence[0]["known"]["value"]["resolved"], "/first");
+    assert_eq!(template_evidence[1]["issue"]["kind"], "unknown_unpack");
+    assert_eq!(template_evidence[2]["known"]["value"]["resolved"], "/later");
+
+    let static_evidence =
+        &cases(&settings, "/staticfiles/staticfiles_dirs/cases")[0]["dynamic"]["paths"]["evidence"];
+    assert_eq!(static_evidence[0]["known"]["value"]["resolved"], "/a");
+    assert_eq!(static_evidence[1]["issue"]["kind"], "unknown_element");
+    assert_eq!(static_evidence[2]["known"]["value"]["resolved"], "/b");
 }
 
 #[test]
-fn same_value_in_ambiguous_branches_is_partial() {
+fn exact_path_lists_preserve_duplicate_entries() {
     let settings = extract(
-        "if FLAG:\n    INSTALLED_APPS = ['django.contrib.admin']\nelse:\n    INSTALLED_APPS = ['django.contrib.admin']",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/same', '/same']} ]\nSTATICFILES_DIRS = ['/same', '/same']",
     );
 
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["django.contrib.admin"]);
+    let template_dirs = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0]["dirs"];
+    assert_eq!(template_dirs.as_array().unwrap().len(), 2);
+    assert_eq!(template_dirs[0]["value"]["resolved"], "/same");
+    assert_eq!(template_dirs[1]["value"]["resolved"], "/same");
+
+    let static_dirs = &cases(&settings, "/staticfiles/staticfiles_dirs/cases")[0]["known"]["dirs"];
+    assert_eq!(static_dirs.as_array().unwrap().len(), 2);
 }
 
 #[test]
-fn same_relative_path_string_from_different_files_stays_partial() {
-    let settings = extract_with_modules(
+fn uncertain_star_import_preserves_known_setting_alternatives() {
+    let settings = extract(
+        "if FLAG:\n    INSTALLED_APPS = ['first']\nelse:\n    INSTALLED_APPS = ['second']\nfrom missing import *",
+    );
+    let cases = cases(&settings, "/installed_apps/cases");
+    let known = cases
+        .iter()
+        .filter_map(|case| case.get("known"))
+        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(known, ["first", "second"].into_iter().collect());
+    assert!(cases.iter().any(|case| case.get("dynamic").is_some()));
+}
+
+#[test]
+fn conditional_uncertain_star_import_preserves_known_setting_alternatives() {
+    let settings = extract(
+        "if FLAG:\n    INSTALLED_APPS = ['first']\nelse:\n    INSTALLED_APPS = ['second']\nif PLUGINS:\n    from missing import *",
+    );
+    let cases = cases(&settings, "/installed_apps/cases");
+    let known = cases
+        .iter()
+        .filter_map(|case| case.get("known"))
+        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(known, ["first", "second"].into_iter().collect());
+    assert!(cases.iter().any(|case| case.get("dynamic").is_some()));
+}
+
+#[test]
+fn exact_assignment_after_uncertain_star_import_restores_certainty() {
+    let settings =
+        extract("INSTALLED_APPS = ['stale']\nfrom missing import *\nINSTALLED_APPS = ['local']");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0]["known"]["apps"][0]["value"], "local");
+}
+
+#[test]
+fn later_exact_assignment_replaces_dynamic_case() {
+    let settings = extract("STATIC_URL = dynamic()\nSTATIC_URL = '/static/'");
+    let cases = cases(&settings, "/staticfiles/static_url/cases");
+    assert_eq!(cases.len(), 1);
+    assert!(cases[0].get("known").is_some());
+}
+
+#[test]
+fn straight_line_unsupported_mutations_discard_stale_settings() {
+    for (source, pointer, issue_pointer) in [
+        (
+            "STATIC_URL = '/stale/'\nSTATIC_URL.clear()",
+            "/staticfiles/static_url/cases",
+            "/dynamic/issues/0",
+        ),
+        (
+            "STATIC_ROOT = '/stale'\nSTATIC_ROOT.clear()",
+            "/staticfiles/static_root/cases",
+            "/dynamic/issues/0",
+        ),
+        (
+            "INSTALLED_APPS = ['stale']\nINSTALLED_APPS.clear()",
+            "/installed_apps/cases",
+            "/dynamic/apps/evidence/0/issue",
+        ),
+        (
+            "STATICFILES_DIRS = ['/stale']\nSTATICFILES_DIRS.clear()",
+            "/staticfiles/staticfiles_dirs/cases",
+            "/dynamic/paths/evidence/0/issue",
+        ),
+    ] {
+        let settings = extract(source);
+        let cases = cases(&settings, pointer);
+
+        assert_eq!(cases.len(), 1, "{source}");
+        assert!(cases[0].get("known").is_none(), "{source}");
+        assert_eq!(
+            cases[0].pointer(issue_pointer).unwrap()["kind"],
+            "unsupported_mutation",
+            "{source}"
+        );
+        assert!(!cases[0].to_string().contains("stale"), "{source}");
+
+        let origin = binding_unknown_origin(
+            source,
+            source.lines().next().unwrap().split_once(' ').unwrap().0,
+        );
+        assert_eq!(
+            &source[origin.span.start_usize()..origin.span.end_usize()],
+            source.lines().nth(1).unwrap(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn branch_local_unsupported_mutation_preserves_unaffected_known_alternative() {
+    let settings = extract("INSTALLED_APPS = ['kept']\nif FLAG:\n    INSTALLED_APPS.clear()");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 2);
+    assert!(cases.iter().any(|case| {
+        case["known"]["apps"][0]["value"]
+            .as_str()
+            .is_some_and(|app| app == "kept")
+    }));
+    assert!(cases.iter().any(|case| {
+        case["dynamic"]["apps"]["evidence"][0]["issue"]["kind"]
+            .as_str()
+            .is_some_and(|kind| kind == "unsupported_mutation")
+    }));
+}
+
+#[test]
+fn unsupported_staticfiles_dirs_list_mutations_discard_all_path_evidence() {
+    for mutation in [
+        "STATICFILES_DIRS += ['/invented']",
+        "STATICFILES_DIRS.append('/invented')",
+        "STATICFILES_DIRS.extend(['/invented'])",
+    ] {
+        let source = format!("STATICFILES_DIRS = ['/known']\n{mutation}");
+        let cases = cases(&extract(&source), "/staticfiles/staticfiles_dirs/cases").to_vec();
+
+        assert_eq!(cases.len(), 1, "{mutation}");
+        assert!(cases[0].get("known").is_none(), "{mutation}");
+        let evidence = cases[0]["dynamic"]["paths"]["evidence"].as_array().unwrap();
+        assert_eq!(evidence.len(), 1, "{mutation}");
+        assert_eq!(
+            evidence[0]["issue"]["kind"], "unsupported_mutation",
+            "{mutation}"
+        );
+        assert!(!cases[0].to_string().contains("/known"), "{mutation}");
+        assert!(!cases[0].to_string().contains("/invented"), "{mutation}");
+    }
+}
+
+#[test]
+fn installed_apps_augmented_assignment_remains_exact() {
+    let settings = extract("INSTALLED_APPS = ['first']\nINSTALLED_APPS += ['second']");
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|app| app["value"].as_str().unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(apps, ["first", "second"]);
+}
+
+#[test]
+fn exact_assignment_after_unsupported_mutation_restores_known_setting() {
+    for mutation in [
+        "STATICFILES_DIRS += ['/discarded']",
+        "STATICFILES_DIRS.append('/discarded')",
+        "STATICFILES_DIRS.extend(['/discarded'])",
+    ] {
+        let source =
+            format!("STATICFILES_DIRS = ['/stale']\n{mutation}\nSTATICFILES_DIRS = ['/restored']");
+        let cases = cases(&extract(&source), "/staticfiles/staticfiles_dirs/cases").to_vec();
+
+        assert_eq!(cases.len(), 1, "{mutation}");
+        assert_eq!(
+            cases[0]["known"]["dirs"][0]["value"]["resolved"], "/restored",
+            "{mutation}"
+        );
+        assert!(cases[0].get("dynamic").is_none(), "{mutation}");
+    }
+}
+
+#[test]
+fn nested_template_dirs_append_and_extend_are_supported() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'].append('/b')\nTEMPLATES[0]['DIRS'].extend(['/c', '/d'])",
+    );
+    let dirs = cases(&settings, "/templates/cases")[0]["known"]["backends"][0]["dirs"]
+        .as_array()
+        .unwrap();
+
+    assert_eq!(dirs.len(), 4);
+    assert_eq!(dirs[1]["value"]["resolved"], "/b");
+    assert_eq!(dirs[2]["value"]["resolved"], "/c");
+    assert_eq!(dirs[3]["value"]["resolved"], "/d");
+}
+
+#[test]
+fn nested_template_dirs_augmented_assignment_is_supported() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'] += ['/b']",
+    );
+    let cases = cases(&settings, "/templates/cases");
+
+    assert_eq!(cases.len(), 1);
+    assert_eq!(
+        cases[0]["known"]["backends"][0]["dirs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        cases[0]["known"]["backends"][0]["dirs"][1]["value"]["resolved"],
+        "/b"
+    );
+}
+
+#[test]
+fn relative_paths_from_distinct_import_origins_remain_alternatives() {
+    let settings = extract_project(
         "if FLAG:\n    from one.base import STATIC_ROOT\nelse:\n    from two.base import STATIC_ROOT",
         &[
             ("one.base", "STATIC_ROOT = 'static'"),
             ("two.base", "STATIC_ROOT = 'static'"),
         ],
-    );
+    )
+    .2;
+    let roots = cases(&settings, "/staticfiles/static_root/cases")
+        .iter()
+        .map(|case| case["known"]["value"]["resolved"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
 
     assert_eq!(
-        settings.staticfiles.static_root.extraction,
-        ExtractionStatus::Partial
-    );
-    let values: Vec<_> = settings
-        .staticfiles
-        .static_root
-        .values
-        .iter()
-        .map(Originated::value)
-        .cloned()
-        .collect();
-    assert_eq!(
-        values,
+        roots,
         [
-            EvaluatedPath::Resolved(Utf8PathBuf::from("/project/settings/one/static")),
-            EvaluatedPath::Resolved(Utf8PathBuf::from("/project/settings/two/static")),
+            "/project/settings/one/static",
+            "/project/settings/two/static",
+        ]
+        .into_iter()
+        .collect()
+    );
+}
+
+#[test]
+fn differing_branch_scalars_distribute_through_settings_collections() {
+    let settings = extract_project(
+        "if FLAG:\n    from one.values import ROOT, BASE_APPS\nelse:\n    from two.values import ROOT, BASE_APPS\nINSTALLED_APPS = BASE_APPS + ['local']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]}]\nSTATICFILES_DIRS = [ROOT]",
+        &[
+            ("one.values", "ROOT = '/one'\nBASE_APPS = ['one']"),
+            ("two.values", "ROOT = '/two'\nBASE_APPS = ['two']"),
+        ],
+    )
+    .2;
+
+    let apps = cases(&settings, "/installed_apps/cases")
+        .iter()
+        .map(|case| {
+            case["known"]["apps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|app| app["value"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        apps,
+        [vec!["one", "local"], vec!["two", "local"]]
+            .into_iter()
+            .collect()
+    );
+
+    for pointer in ["/templates/cases", "/staticfiles/staticfiles_dirs/cases"] {
+        let paths = cases(&settings, pointer)
+            .iter()
+            .map(|case| {
+                let dirs = if pointer == "/templates/cases" {
+                    &case["known"]["backends"][0]["dirs"]
+                } else {
+                    &case["known"]["dirs"]
+                };
+                dirs[0]["value"]["resolved"].as_str().unwrap()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(paths, ["/one", "/two"].into_iter().collect());
+    }
+}
+
+#[test]
+fn independent_differing_scalars_form_exact_collection_cross_products() {
+    let settings = extract_project(
+        "if FIRST_FLAG:\n    from one.values import FIRST\nelse:\n    from two.values import FIRST\nif SECOND_FLAG:\n    from one.values import SECOND\nelse:\n    from two.values import SECOND\nSTATICFILES_DIRS = [FIRST, SECOND]",
+        &[
+            ("one.values", "FIRST = '/one-first'\nSECOND = '/one-second'"),
+            ("two.values", "FIRST = '/two-first'\nSECOND = '/two-second'"),
+        ],
+    )
+    .2;
+    let paths = cases(&settings, "/staticfiles/staticfiles_dirs/cases")
+        .iter()
+        .map(|case| {
+            case["known"]["dirs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(paths.len(), 4);
+    assert!(paths.contains(&vec!["/one-first", "/two-second"]));
+    assert!(paths.contains(&vec!["/two-first", "/one-second"]));
+}
+
+#[test]
+fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
+    let settings = extract_project(
+        "if FIRST_FLAG:\n    from one.values import FIRST\nelse:\n    from two.values import FIRST\nif SECOND_FLAG:\n    from one.values import SECOND\nelse:\n    from two.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]\nSTATICFILES_DIRS = [FIRST, SECOND]",
+        &[
+            ("one.values", "FIRST = 'first'\nSECOND = 'second'"),
+            ("two.values", "FIRST = 'first'\nSECOND = 'second'"),
+        ],
+    )
+    .2;
+
+    let template_dirs = cases(&settings, "/templates/cases")
+        .iter()
+        .map(|case| {
+            case["known"]["backends"][0]["dirs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let static_dirs = cases(&settings, "/staticfiles/staticfiles_dirs/cases")
+        .iter()
+        .map(|case| {
+            case["known"]["dirs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected = [
+        vec![
+            "/project/settings/one/first",
+            "/project/settings/one/second",
+        ],
+        vec![
+            "/project/settings/one/first",
+            "/project/settings/two/second",
+        ],
+        vec![
+            "/project/settings/two/first",
+            "/project/settings/one/second",
+        ],
+        vec![
+            "/project/settings/two/first",
+            "/project/settings/two/second",
+        ],
+    ]
+    .into_iter()
+    .collect();
+
+    assert_eq!(template_dirs, expected);
+    assert_eq!(static_dirs, expected);
+    assert_eq!(cases(&settings, "/templates/cases").len(), 4);
+    assert_eq!(
+        cases(&settings, "/staticfiles/staticfiles_dirs/cases").len(),
+        4
+    );
+}
+
+#[test]
+fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
+    let repeated = std::iter::repeat_n("SHARED", 7)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source = format!(
+        "if FLAG:\n    from one.values import SHARED\nelse:\n    from two.values import SHARED\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{repeated}]}}]\nSTATICFILES_DIRS = [{repeated}]"
+    );
+    let settings = extract_project(
+        &source,
+        &[
+            ("one.values", "SHARED = 'shared'"),
+            ("two.values", "SHARED = 'shared'"),
+        ],
+    )
+    .2;
+
+    for pointer in ["/templates/cases", "/staticfiles/staticfiles_dirs/cases"] {
+        let cases = cases(&settings, pointer);
+        assert_eq!(cases.len(), 2);
+        assert!(cases.iter().all(|case| case.get("known").is_some()));
+        let roots = cases
+            .iter()
+            .map(|case| {
+                let paths = if pointer == "/templates/cases" {
+                    case["known"]["backends"][0]["dirs"].as_array().unwrap()
+                } else {
+                    case["known"]["dirs"].as_array().unwrap()
+                };
+                assert_eq!(paths.len(), 7);
+                let root = paths[0]["value"]["resolved"].as_str().unwrap();
+                assert!(
+                    paths
+                        .iter()
+                        .all(|path| path["value"]["resolved"].as_str() == Some(root))
+                );
+                root
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            roots,
+            [
+                "/project/settings/one/shared",
+                "/project/settings/two/shared",
+            ]
+            .into_iter()
+            .collect()
+        );
+    }
+}
+
+#[test]
+fn path_list_caps_the_union_of_list_variants_at_64_plus_one_remainder() {
+    let evaluate = |count: usize| {
+        let mut source = String::new();
+        let mut modules = Vec::new();
+        for index in 0..count {
+            if index == 0 {
+                source.push_str("if FLAG_0:\n");
+            } else if index + 1 == count {
+                source.push_str("else:\n");
+            } else {
+                source.push_str(format!("elif FLAG_{index}:\n").as_str());
+            }
+            source.push_str(
+                format!("    from variant_{index:02} import STATICFILES_DIRS\n").as_str(),
+            );
+            modules.push((
+                format!("variant_{index:02}"),
+                "STATICFILES_DIRS = ['shared']",
+            ));
+        }
+        let module_refs = modules
+            .iter()
+            .map(|(name, body)| (name.as_str(), *body))
+            .collect::<Vec<_>>();
+        extract_project(&source, &module_refs).2
+    };
+
+    let at_limit = evaluate(64);
+    let at_limit = cases(&at_limit, "/staticfiles/staticfiles_dirs/cases");
+    assert_eq!(at_limit.len(), 64);
+    assert!(at_limit.iter().all(|case| case.get("known").is_some()));
+
+    let overflowed = evaluate(65);
+    let overflowed = cases(&overflowed, "/staticfiles/staticfiles_dirs/cases");
+    assert_eq!(overflowed.len(), 65);
+    assert!(
+        overflowed[..64]
+            .iter()
+            .all(|case| case.get("known").is_some())
+    );
+    let remainder = &overflowed[64]["dynamic"]["paths"]["evidence"];
+    assert_eq!(remainder.as_array().unwrap().len(), 1);
+    assert_eq!(remainder[0]["issue"]["kind"], "dynamic_expression");
+    assert_eq!(remainder[0]["issue"]["spans"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn capped_dynamic_remainder_merges_later_syntax_evidence() {
+    let mut source = String::from("if BROKEN:\n    STATICFILES_DIRS = ['stale']\n    broken(]\n");
+    let mut modules = Vec::new();
+    for index in 0..65 {
+        if index == 0 {
+            source.push_str("if FLAG_0:\n");
+        } else if index == 64 {
+            source.push_str("else:\n");
+        } else {
+            source.push_str(format!("elif FLAG_{index}:\n").as_str());
+        }
+        source.push_str(format!("    from variant_{index:02} import STATICFILES_DIRS\n").as_str());
+        modules.push((
+            format!("variant_{index:02}"),
+            format!("STATICFILES_DIRS = ['/path-{index:02}']"),
+        ));
+    }
+    let module_refs = modules
+        .iter()
+        .map(|(name, body)| (name.as_str(), body.as_str()))
+        .collect::<Vec<_>>();
+
+    let settings = extract_project(&source, &module_refs).2;
+    let setting_cases = cases(&settings, "/staticfiles/staticfiles_dirs/cases");
+    assert_eq!(setting_cases.len(), 65, "{settings:#}");
+    let evidence = setting_cases
+        .iter()
+        .find_map(|case| case.get("dynamic"))
+        .expect("overflow should retain a dynamic remainder")["paths"]["evidence"]
+        .as_array()
+        .unwrap();
+    let issues = evidence
+        .iter()
+        .map(|evidence| &evidence["issue"])
+        .collect::<Vec<_>>();
+
+    assert_eq!(issues.len(), 2, "{settings:#}");
+    assert!(issues.iter().any(|issue| {
+        issue["kind"] == "dynamic_expression"
+            && issue["spans"]
+                .as_array()
+                .is_some_and(|spans| spans.len() == 1)
+    }));
+    assert!(
+        issues.iter().any(|issue| {
+            issue["kind"] == "syntax_error"
+                && issue["spans"]
+                    .as_array()
+                    .is_some_and(|spans| !spans.is_empty())
+        }),
+        "{issues:#?}"
+    );
+}
+
+#[test]
+fn two_backends_sharing_a_branch_path_keep_only_feasible_configurations() {
+    let settings = extract_project(
+        "if FLAG:\n    from one.values import ROOT\nelse:\n    from two.values import ROOT\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]},\n]",
+        &[
+            ("one.values", "ROOT = 'templates'"),
+            ("two.values", "ROOT = 'templates'"),
+        ],
+    )
+    .2;
+
+    let configurations = cases(&settings, "/templates/cases");
+    assert_eq!(configurations.len(), 2, "{settings:#}");
+    let roots = configurations
+        .iter()
+        .map(|case| {
+            let backends = case["known"]["backends"].as_array().unwrap();
+            let first = backends[0]["dirs"][0]["value"]["resolved"]
+                .as_str()
+                .unwrap();
+            let second = backends[1]["dirs"][0]["value"]["resolved"]
+                .as_str()
+                .unwrap();
+            assert_eq!(first, second, "both backends must select the same branch");
+            first
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        roots,
+        [
+            "/project/settings/one/templates",
+            "/project/settings/two/templates",
+        ]
+        .into_iter()
+        .collect()
+    );
+}
+
+#[test]
+fn template_backend_products_have_a_global_deterministic_64_plus_one_cap() {
+    let evaluate = |second_backend_width: usize| {
+        let width = 3 + second_backend_width;
+        let names = (0..width)
+            .map(|index| format!("SHARED_{index}"))
+            .collect::<Vec<_>>();
+        let mut branches = String::new();
+        for (index, name) in names.iter().enumerate() {
+            write!(
+                branches,
+                "if FLAG_{index}:\n    from one.values import {name}\nelse:\n    from two.values import {name}\n"
+            )
+            .unwrap();
+        }
+        let first = names[..3].join(", ");
+        let second = names[3..].join(", ");
+        let source = format!(
+            "{branches}TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{first}]}}, {{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{second}]}}]"
+        );
+        let mut module = String::new();
+        for name in &names {
+            writeln!(module, "{name} = 'shared'").unwrap();
+        }
+        extract_project(
+            &source,
+            &[
+                ("one.values", module.as_str()),
+                ("two.values", module.as_str()),
+            ],
+        )
+        .2
+    };
+
+    let at_limit = evaluate(3);
+    let at_limit_cases = cases(&at_limit, "/templates/cases");
+    assert_eq!(at_limit_cases.len(), 64);
+    assert!(at_limit_cases.iter().all(|case| {
+        case["known"]["backends"]
+            .as_array()
+            .is_some_and(|backends| backends.len() == 2)
+    }));
+
+    let overflowed = evaluate(4);
+    assert_eq!(
+        overflowed,
+        evaluate(4),
+        "expansion order must be deterministic"
+    );
+    let overflowed = cases(&overflowed, "/templates/cases");
+    assert_eq!(overflowed.len(), 65);
+    assert!(overflowed[..64].iter().all(|case| {
+        case["known"]["backends"]
+            .as_array()
+            .is_some_and(|backends| backends.len() == 2)
+    }));
+    let remainder = &overflowed[64]["dynamic"]["templates"]["evidence"];
+    assert_eq!(remainder.as_array().unwrap().len(), 1);
+    assert_eq!(remainder[0]["issue"]["kind"], "dynamic_expression");
+    assert_eq!(remainder[0]["issue"]["spans"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn equal_relative_path_lists_from_distinct_modules_remain_correlated_alternatives() {
+    let settings = extract_project(
+        "if FLAG:\n    from one.base import TEMPLATES, STATICFILES_DIRS\nelse:\n    from two.base import TEMPLATES, STATICFILES_DIRS",
+        &[
+            (
+                "one.base",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second']}]\nSTATICFILES_DIRS = ['first', 'second']",
+            ),
+            (
+                "two.base",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second']}]\nSTATICFILES_DIRS = ['first', 'second']",
+            ),
+        ],
+    )
+    .2;
+
+    let template_dirs = cases(&settings, "/templates/cases")
+        .iter()
+        .map(|case| {
+            case["known"]["backends"][0]["dirs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        template_dirs,
+        [
+            vec![
+                "/project/settings/one/first",
+                "/project/settings/one/second",
+            ],
+            vec![
+                "/project/settings/two/first",
+                "/project/settings/two/second",
+            ],
+        ]
+    );
+
+    let static_dirs = cases(&settings, "/staticfiles/staticfiles_dirs/cases")
+        .iter()
+        .map(|case| {
+            case["known"]["dirs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(static_dirs, template_dirs);
+}
+
+#[test]
+fn equal_mixed_origin_path_lists_retain_each_original_configuration() {
+    let settings = extract_project(
+        "if FLAG:\n    from one.base import TEMPLATES, STATICFILES_DIRS\nelse:\n    from two.base import TEMPLATES, STATICFILES_DIRS",
+        &[
+            ("one.values", "FIRST = 'first'\nSECOND = 'second'"),
+            ("two.values", "FIRST = 'first'\nSECOND = 'second'"),
+            (
+                "one.base",
+                "from one.values import FIRST\nfrom two.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]\nSTATICFILES_DIRS = [FIRST, SECOND]",
+            ),
+            (
+                "two.base",
+                "from two.values import FIRST\nfrom one.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]\nSTATICFILES_DIRS = [FIRST, SECOND]",
+            ),
+        ],
+    )
+    .2;
+
+    let expected = [
+        vec![
+            "/project/settings/one/first",
+            "/project/settings/two/second",
+        ],
+        vec![
+            "/project/settings/two/first",
+            "/project/settings/one/second",
+        ],
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeSet<_>>();
+    let template_dirs = cases(&settings, "/templates/cases")
+        .iter()
+        .map(|case| {
+            case["known"]["backends"][0]["dirs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let static_dirs = cases(&settings, "/staticfiles/staticfiles_dirs/cases")
+        .iter()
+        .map(|case| {
+            case["known"]["dirs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(template_dirs, expected);
+    assert_eq!(static_dirs, expected);
+}
+
+#[test]
+fn all_setting_families_distinguish_known_unset_dynamic_and_malformed() {
+    let known = extract(
+        "INSTALLED_APPS = []\nTEMPLATES = []\nSTATIC_URL = ''\nSTATIC_ROOT = ''\nSTATICFILES_DIRS = []",
+    );
+    let unset = extract("");
+    let dynamic = extract(
+        "INSTALLED_APPS = unknown\nTEMPLATES = unknown\nSTATIC_URL = unknown\nSTATIC_ROOT = unknown\nSTATICFILES_DIRS = unknown",
+    );
+    let malformed = extract(
+        "INSTALLED_APPS = False\nTEMPLATES = False\nSTATIC_URL = False\nSTATIC_ROOT = False\nSTATICFILES_DIRS = False",
+    );
+    for pointer in [
+        "/installed_apps/cases",
+        "/templates/cases",
+        "/staticfiles/static_url/cases",
+        "/staticfiles/static_root/cases",
+        "/staticfiles/staticfiles_dirs/cases",
+    ] {
+        assert!(
+            cases(&known, pointer)[0].get("known").is_some(),
+            "{pointer}"
+        );
+        assert_eq!(cases(&unset, pointer), [json!("unset")], "{pointer}");
+        assert!(
+            cases(&dynamic, pointer)[0].get("dynamic").is_some(),
+            "{pointer}"
+        );
+        assert!(
+            cases(&malformed, pointer)[0].get("malformed").is_some(),
+            "{pointer}"
+        );
+    }
+}
+
+#[test]
+fn unknown_backend_key_weakens_prior_claim_and_later_exact_key_is_authoritative() {
+    let weakened =
+        extract("TEMPLATES = [{'BACKEND': 'before.backend', unknown_key: 'maybe.backend'}]");
+    let backend =
+        &cases(&weakened, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]["backend"];
+    assert_eq!(backend["backend"]["known"]["value"], "before.backend");
+    assert_eq!(
+        backend["backend"]["issues"][0]["kind"],
+        "dynamic_expression"
+    );
+
+    let restored = extract(
+        "TEMPLATES = [{'BACKEND': 'before.backend', unknown_key: 'maybe.backend', 'BACKEND': 'after.backend'}]",
+    );
+    let backend =
+        &cases(&restored, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]["backend"];
+    assert_eq!(backend["backend"]["known"]["value"], "after.backend");
+    assert!(backend["backend"]["issues"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn unknown_library_key_weakens_prior_alias_and_later_exact_key_is_authoritative() {
+    let weakened = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'alias': 'before.tags', unknown_key: 'maybe.tags'}}}]",
+    );
+    let libraries = &cases(&weakened, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]
+        ["backend"]["libraries"];
+    assert!(libraries["known"].as_array().unwrap().is_empty());
+    assert_eq!(libraries["issues"][0]["kind"], "dynamic_expression");
+
+    let restored = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'alias': 'before.tags', unknown_key: 'maybe.tags', 'alias': 'after.tags'}}}]",
+    );
+    let libraries = &cases(&restored, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]
+        ["backend"]["libraries"];
+    assert_eq!(libraries["known"].as_array().unwrap().len(), 1);
+    assert_eq!(libraries["known"][0][0], "alias");
+    assert_eq!(libraries["known"][0][1]["value"], "after.tags");
+    assert_eq!(libraries["issues"][0]["kind"], "dynamic_expression");
+}
+
+#[test]
+fn unknown_library_unpack_removes_prior_authority_but_later_entry_wins() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'before': 'before.tags', **unknown, 'after': 'after.tags'}}}]",
+    );
+    let libraries = &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]
+        ["backend"]["libraries"];
+
+    assert_eq!(libraries["known"].as_array().unwrap().len(), 1);
+    assert_eq!(libraries["known"][0][0], "after");
+    assert_eq!(libraries["issues"][0]["kind"], "unknown_unpack");
+}
+
+#[test]
+fn imports_feed_values_and_semantic_dependencies() {
+    let (db, project, settings) = extract_project(
+        "from base import INSTALLED_APPS",
+        &[("base", "INSTALLED_APPS = ['base']")],
+    );
+    assert_eq!(
+        cases(&settings, "/installed_apps/cases")[0]["known"]["apps"][0]["value"],
+        "base"
+    );
+    assert_eq!(
+        compute_project_facts(&db, project).file_paths(),
+        [
+            Utf8PathBuf::from("/project/settings/base.py"),
+            Utf8PathBuf::from("/project/settings/config/settings.py"),
         ]
     );
 }
 
 #[test]
-fn for_loop_degrades_touched_settings_without_loop_candidates() {
-    let settings =
-        extract("INSTALLED_APPS = ['base']\nfor app in EXTRA_APPS:\n    INSTALLED_APPS = ['loop']");
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["base"]);
-}
-
-#[test]
-fn for_loop_degrades_local_list_alias_without_dropping_prior_candidates() {
-    let settings = extract(
-        "LOCAL_APPS = ['base']\nfor app in EXTRA_APPS:\n    LOCAL_APPS = ['loop']\nINSTALLED_APPS = LOCAL_APPS",
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["base"]);
-}
-
-#[test]
-fn while_loop_degrades_touched_settings_without_loop_candidates() {
-    let settings = extract("while enabled():\n    STATIC_URL = '/loop-static/'");
-
-    assert_eq!(
-        settings.staticfiles.static_url.extraction,
-        ExtractionStatus::Partial
-    );
-    assert!(settings.staticfiles.static_url.values.is_empty());
-}
-
-#[test]
-fn try_except_joins_alternative_setting_assignments() {
-    let settings = extract(
-        "try:\n    INSTALLED_APPS = ['try']\nexcept ImportError:\n    INSTALLED_APPS = ['except']",
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["try", "except"]);
-}
-
-#[test]
-fn try_except_handler_retains_successful_try_prefix_writes() {
-    let settings = extract(
-        "try:\n    INSTALLED_APPS = ['base']\n    risky()\nexcept Exception:\n    INSTALLED_APPS += ['fallback']",
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["base", "fallback"]);
-}
-
-#[test]
-fn try_except_no_exception_path_runs_else() {
-    let settings = extract(
-        "try:\n    INSTALLED_APPS = ['try']\nexcept Exception:\n    INSTALLED_APPS = ['except']\nelse:\n    INSTALLED_APPS += ['else']",
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["try", "else", "except"]);
-}
-
-#[test]
-fn try_except_all_paths_run_finally() {
-    let settings = extract(
-        "try:\n    INSTALLED_APPS = ['try']\nexcept Exception:\n    INSTALLED_APPS = ['except']\nfinally:\n    INSTALLED_APPS = ['finally']",
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["finally"]);
-}
-
-#[test]
-fn try_except_preserves_pre_try_candidates_when_exception_may_happen_before_write() {
-    let settings = extract(
-        "INSTALLED_APPS = ['base']\ntry:\n    risky()\n    INSTALLED_APPS = ['try']\nexcept Exception:\n    pass",
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["try", "base"]);
-}
-
-#[test]
-fn match_joins_case_assignments() {
-    let settings = extract(
-        "match ENV:\n    case 'prod':\n        INSTALLED_APPS = ['prod']\n    case _:\n        INSTALLED_APPS = ['dev']",
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["prod", "dev"]);
-}
-
-#[test]
-fn match_or_pattern_with_wildcard_is_exhaustive() {
-    let settings = extract("match ENV:\n    case 'prod' | _:\n        INSTALLED_APPS = ['app']");
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["app"]);
-}
-
-#[test]
-fn match_capture_pattern_is_irrefutable() {
-    let settings = extract("match ENV:\n    case captured:\n        INSTALLED_APPS = ['app']");
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["app"]);
-}
-
-#[test]
-fn match_as_capture_pattern_is_irrefutable() {
-    let settings = extract("match ENV:\n    case _ as captured:\n        INSTALLED_APPS = ['app']");
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["app"]);
-}
-
-#[test]
-fn match_capture_pattern_shadows_existing_local_binding() {
-    let settings = extract(
-        "from pathlib import Path\nBASE_DIR = Path(__file__).resolve().parent.parent\nmatch ENV:\n    case BASE_DIR:\n        TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates']}]",
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Unknown]
-    );
-}
-
-#[test]
-fn duplicate_context_processor_keys_use_last_value() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': ['project.context_processors.first'], 'context_processors': ['project.context_processors.second']}}]",
-    );
-
-    let processors = &settings.templates.backends[0].context_processors;
-    assert_eq!(processors.len(), 1);
-    assert_eq!(
-        processors[0].value().as_str(),
-        "project.context_processors.second"
-    );
-}
-
-#[test]
-fn invalid_overwritten_context_processor_value_does_not_mark_partial() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': [unknown], 'context_processors': ['project.context_processors.second']}}]",
-    );
-
-    let backend = &settings.templates.backends[0];
-    assert!(backend.is_fully_extracted());
-    assert_eq!(
-        backend.context_processors[0].value().as_str(),
-        "project.context_processors.second"
-    );
-}
-
-#[test]
-fn duplicate_template_library_aliases_use_last_value() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'custom': 'project.templatetags.first', 'custom': 'project.templatetags.second'}}}]",
-    );
-
-    let libraries = &settings.templates.backends[0].libraries;
-    assert_eq!(libraries.len(), 1);
-    assert_eq!(libraries[0].0, "custom");
-    assert_eq!(libraries[0].1.as_str(), "project.templatetags.second");
-}
-
-#[test]
-fn invalid_overwritten_template_library_value_does_not_mark_partial() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'custom': unknown, 'custom': 'project.templatetags.second'}}}]",
-    );
-
-    let backend = &settings.templates.backends[0];
-    assert!(backend.is_fully_extracted());
-    assert_eq!(backend.libraries[0].0, "custom");
-    assert_eq!(
-        backend.libraries[0].1.as_str(),
-        "project.templatetags.second"
-    );
-}
-
-#[test]
-fn invalid_overwritten_template_backend_value_does_not_mark_partial() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': unknown, 'DIRS': ['templates']}]",
-    );
-
-    let backend = &settings.templates.backends[0];
-    assert!(backend.is_fully_extracted());
-    assert_eq!(
-        backend.dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/settings/config/templates"
-        ))]
-    );
-}
-
-#[test]
-fn template_backend_spread_keeps_prior_known_facts_partial() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates'], **extra}]",
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/settings/config/templates"
-        ))]
-    );
-}
-
-#[test]
-fn template_options_spread_keeps_prior_known_facts_partial() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': ['project.context_processors.first'], **extra}}]",
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    let processors = &settings.templates.backends[0].context_processors;
-    assert_eq!(processors.len(), 1);
-    assert_eq!(
-        processors[0].value().as_str(),
-        "project.context_processors.first"
-    );
-}
-
-#[test]
-fn template_library_spread_keeps_prior_known_aliases_partial() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'custom': 'project.templatetags.first', **extra}}}]",
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    let libraries = &settings.templates.backends[0].libraries;
-    assert_eq!(libraries.len(), 1);
-    assert_eq!(libraries[0].0, "custom");
-    assert_eq!(libraries[0].1.as_str(), "project.templatetags.first");
-}
-
-#[test]
-fn unsupported_dict_expression_touching_known_setting_degrades_it() {
-    let settings = extract("INSTALLED_APPS = ['base']\nconfigure({'apps': INSTALLED_APPS})");
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert!(settings.installed_apps.values.is_empty());
-}
-
-#[test]
-fn star_import_without_setting_does_not_overwrite_existing_fact() {
-    let settings = extract_with_modules(
-        "INSTALLED_APPS = ['local']\nfrom paths import *",
-        &[("paths", "BASE_DIR = Path(__file__).resolve().parent")],
-    );
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn star_imported_bool_overwrites_stale_local_path_binding() {
-    let settings = extract_with_modules(
-        "from pathlib import Path\n\
-         BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         from flags import *\n\
-         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates']}]",
-        &[("flags", "BASE_DIR = False")],
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Unknown]
-    );
-}
-
-#[test]
-fn star_imported_path_overwrites_stale_local_bool_binding() {
-    let settings = extract_with_modules(
-        "BASE_DIR = False\n\
-         from paths import *\n\
-         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates']}]",
-        &[("paths", "BASE_DIR = Path(__file__).resolve().parent.parent")],
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/templates"
-        ))]
-    );
-}
-
-#[test]
-fn cyclic_star_import_does_not_recurse_forever() {
-    let settings = extract_with_modules(
-        "from cycle import *",
-        &[("cycle", "from cycle import *\nINSTALLED_APPS = ['local']")],
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn unresolvable_star_import_is_partial() {
-    let settings = extract("from missing import *");
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-}
-
-#[test]
-fn aliased_non_star_imported_installed_apps_can_feed_assignment() {
-    let settings = extract_with_modules(
-        "from base import INSTALLED_APPS as IA\nINSTALLED_APPS = IA + ['local']",
-        &[("base", "INSTALLED_APPS = ['base']")],
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["base", "local"]);
-}
-
-#[test]
-fn refused_non_star_import_falls_back_to_definition_write() {
-    let mut db = TestDatabase::new();
-    db.add_file("/vendor/base.py", "INSTALLED_APPS = ['base']");
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project/settings"),
-        &Interpreter::Auto,
-        &[Utf8PathBuf::from("/vendor")],
-    );
-    let project = ProjectFixture::new("/project/settings")
-        .django_settings_module("config.settings")
-        .search_paths(search_paths)
-        .file("/project/settings/config/__init__.py", "")
-        .file(
-            "/project/settings/config/settings.py",
-            "from base import INSTALLED_APPS",
-        )
-        .install(&mut db);
-    let settings: ExtractedSettings = serde_json::from_value(
-        serde_json::to_value(django_settings(&db, project)).expect("settings should serialize"),
-    )
-    .expect("settings should deserialize into the test projection");
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert!(settings.installed_apps.values.is_empty());
-}
-
-#[test]
-fn imported_parse_error_marks_settings_unparseable() {
-    let settings = extract_with_modules(
-        "from base import INSTALLED_APPS",
+fn unreachable_import_is_not_a_dependency() {
+    let (db, project, settings) = extract_project(
+        "if False:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
         &[("base", "INSTALLED_APPS = [")],
     );
-
-    assert_eq!(settings.parse_status, ParseStatus::Unparseable);
     assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-}
-
-#[test]
-fn pathlib_named_import_does_not_affect_extraction_when_unresolved() {
-    let settings = extract(
-        "from pathlib import Path\n\
-         BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates']}]",
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/settings/templates"
-        ))]
-    );
-}
-
-#[test]
-fn template_dirs_string_list_resolves_relative_paths() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates']}]",
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/settings/config/templates"
-        ))]
-    );
-}
-
-#[test]
-fn bare_template_dirs_string_is_partial() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': 'templates'}]",
-    );
-
-    let backend = &settings.templates.backends[0];
-    assert_eq!(backend.extraction, ExtractionStatus::Partial);
-    assert!(backend.dirs.is_empty());
-}
-
-#[test]
-fn aliased_non_star_imported_path_can_feed_template_dirs() {
-    let settings = extract_with_modules(
-        "from base import BASE_DIR as BD\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BD / 'templates']}]",
-        &[("base", "BASE_DIR = Path(__file__).resolve().parent.parent")],
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Complete);
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/templates"
-        ))]
-    );
-}
-
-#[test]
-fn non_star_import_chain_reuses_extracted_imported_bindings() {
-    let settings = extract_with_modules(
-        "from base import INSTALLED_APPS",
-        &[
-            ("common", "COMMON_APPS = ['common']"),
-            (
-                "base",
-                "from common import COMMON_APPS\nINSTALLED_APPS = COMMON_APPS + ['base']",
-            ),
-        ],
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["common", "base"]);
-}
-
-#[test]
-fn cyclic_non_star_import_does_not_recurse_forever() {
-    let settings = extract_with_modules(
-        "from cycle import INSTALLED_APPS",
-        &[(
-            "cycle",
-            "from cycle import INSTALLED_APPS\nINSTALLED_APPS = ['local']",
-        )],
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["local"]);
-}
-
-#[test]
-fn tuple_literal_local_can_feed_installed_apps() {
-    let settings = extract("LOCAL_APPS = ('a', 'b')\nINSTALLED_APPS = LOCAL_APPS");
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["a", "b"]);
-}
-
-#[test]
-fn local_list_unknown_write_invalidates_stale_values() {
-    let settings =
-        extract("LOCAL_APPS = ['stale']\nLOCAL_APPS = get_apps()\nINSTALLED_APPS = LOCAL_APPS");
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert!(settings.installed_apps.values.is_empty());
-}
-
-#[test]
-fn templates_dirs_append_mutates_existing_backend() {
-    let settings = extract(
-        "from pathlib import Path\n\
-         BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': []}]\n\
-         TEMPLATES[0]['DIRS'].append(BASE_DIR / 'templates')",
+        cases(&settings, "/installed_apps/cases")[0]["known"]["apps"][0]["value"],
+        "local"
     );
     assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/settings/templates"
-        ))]
+        compute_project_facts(&db, project).file_paths(),
+        [Utf8PathBuf::from("/project/settings/config/settings.py")]
     );
-}
-
-#[test]
-fn templates_dirs_plus_equals_extends_existing_backend() {
-    let settings = extract(
-        "from pathlib import Path\n\
-         BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': []}]\n\
-         TEMPLATES[0]['DIRS'] += [BASE_DIR / 'templates']",
-    );
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/settings/templates"
-        ))]
-    );
-}
-
-#[test]
-fn missing_backend_is_partial() {
-    let settings = extract("TEMPLATES = [{'DIRS': []}]");
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert_eq!(settings.templates.backends[0].backend, None);
-    assert_eq!(
-        settings.templates.backends[0].extraction,
-        ExtractionStatus::Partial
-    );
-}
-
-#[test]
-fn non_literal_backend_is_partial() {
-    let settings = extract("TEMPLATES = [{'BACKEND': backend_name}]");
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert_eq!(settings.templates.backends[0].backend, None);
-    assert_eq!(
-        settings.templates.backends[0].extraction,
-        ExtractionStatus::Partial
-    );
-}
-
-#[test]
-fn template_backend_spread_then_reset_keeps_later_key_fact() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['a'], **extra, 'DIRS': ['b']}]",
-    );
-
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert_eq!(settings.templates.backends[0].dirs.len(), 1);
-    assert_eq!(
-        settings.templates.backends[0].dirs[0],
-        EvaluatedPath::Resolved(Utf8PathBuf::from("/project/settings/config/b"))
-    );
-}
-
-#[test]
-fn os_path_join_resolves_relative_to_base_dir() {
-    let settings = extract(
-        "from pathlib import Path\n\
-         import os\n\
-         BASE_DIR = Path(__file__).resolve().parent.parent\n\
-         TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [os.path.join(BASE_DIR, 'templates')]}]",
-    );
-    assert_eq!(
-        settings.templates.backends[0].dirs,
-        [EvaluatedPath::Resolved(Utf8PathBuf::from(
-            "/project/settings/templates"
-        ))]
-    );
-}
-
-#[test]
-fn unknown_path_call_becomes_unknown_path_value() {
-    let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [dynamic_path()]}]",
-    );
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
-    assert!(matches!(
-        settings.templates.backends[0].dirs[0],
-        EvaluatedPath::Unknown
-    ));
-}
-
-#[test]
-fn ambiguous_assignment_preserves_pre_branch_possibility() {
-    let settings = extract("INSTALLED_APPS = ['base']\nif FLAG:\n    INSTALLED_APPS = ['debug']");
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["debug", "base"]);
-}
-
-#[test]
-fn ambiguous_branch_local_alias_preserves_possible_values() {
-    let settings = extract(
-        "if FLAG:\n    LOCAL_APPS = ['a']\nelse:\n    LOCAL_APPS = ['b']\nINSTALLED_APPS = LOCAL_APPS",
-    );
-
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.installed_apps.values, ["a", "b"]);
-}
-
-#[test]
-fn unsupported_assignment_then_valid_assignment_is_full() {
-    let settings = extract("INSTALLED_APPS = get_apps()\nINSTALLED_APPS = ['blog']");
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Complete
-    );
-    assert_eq!(settings.installed_apps.values, ["blog"]);
-}
-
-#[test]
-fn unsupported_assignment_followed_by_soft_demotion_stays_unsupported() {
-    let settings = extract("INSTALLED_APPS = get_apps()\nfrom missing import *");
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert!(settings.installed_apps.values.is_empty());
-}
-
-#[test]
-fn syntax_error_without_prior_settings_returns_partial_settings() {
-    let settings = extract("INSTALLED_APPS = [");
-    assert_eq!(
-        settings.installed_apps.extraction,
-        ExtractionStatus::Partial
-    );
-    assert_eq!(settings.templates.extraction, ExtractionStatus::Partial);
 }

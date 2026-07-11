@@ -1,18 +1,9 @@
-use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use djls_project::Db as ProjectDb;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
-use djls_project::LibraryName;
 use djls_project::PythonModuleName;
-use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
-use djls_project::TemplateSymbol;
-use djls_project::TemplateSymbolKind;
-use djls_project::TemplateSymbolName;
-use djls_project::testing;
-use djls_project::testing::TemplateLibraryInput;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_testing::extract_bundle;
@@ -22,104 +13,9 @@ use crate::Db;
 const DEFAULTTAGS: &str = "django.template.defaulttags";
 const DEFAULTFILTERS: &str = "django.template.defaultfilters";
 const I18N: &str = "django.templatetags.i18n";
-const STATIC: &str = "django.templatetags.static";
-
-struct BenchSymbol {
-    load_name: Option<&'static str>,
-    module: &'static str,
-    symbol: TemplateSymbol,
-}
-
-fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &str) -> TemplateSymbol {
-    TemplateSymbol {
-        kind,
-        name: TemplateSymbolName::parse(name).unwrap(),
-        definition: PythonModuleName::parse(module)
-            .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module),
-        doc: None,
-    }
-}
-
-fn builtin_tag(name: &str, module: &'static str) -> BenchSymbol {
-    BenchSymbol {
-        load_name: None,
-        module,
-        symbol: template_symbol(TemplateSymbolKind::Tag, name, module),
-    }
-}
-
-fn library_tag(name: &str, load_name: &'static str, module: &'static str) -> BenchSymbol {
-    BenchSymbol {
-        load_name: Some(load_name),
-        module,
-        symbol: template_symbol(TemplateSymbolKind::Tag, name, module),
-    }
-}
-
-fn builtin_filter(name: &str, module: &'static str) -> BenchSymbol {
-    BenchSymbol {
-        load_name: None,
-        module,
-        symbol: template_symbol(TemplateSymbolKind::Filter, name, module),
-    }
-}
-
 struct RealisticSpecs {
     tag_specs: TagSpecs,
-    template_library_inputs: Vec<TemplateLibraryInput>,
     filter_arity_specs: FilterAritySpecs,
-}
-
-fn build_template_symbols() -> Vec<BenchSymbol> {
-    vec![
-        builtin_tag("if", DEFAULTTAGS),
-        builtin_tag("for", DEFAULTTAGS),
-        builtin_tag("block", DEFAULTTAGS),
-        builtin_tag("extends", DEFAULTTAGS),
-        builtin_tag("include", DEFAULTTAGS),
-        builtin_tag("with", DEFAULTTAGS),
-        builtin_tag("load", DEFAULTTAGS),
-        builtin_tag("url", DEFAULTTAGS),
-        builtin_tag("csrf_token", DEFAULTTAGS),
-        builtin_tag("comment", DEFAULTTAGS),
-        builtin_tag("verbatim", DEFAULTTAGS),
-        builtin_tag("autoescape", DEFAULTTAGS),
-        builtin_tag("spaceless", DEFAULTTAGS),
-        builtin_tag("widthratio", DEFAULTTAGS),
-        builtin_tag("cycle", DEFAULTTAGS),
-        builtin_tag("firstof", DEFAULTTAGS),
-        builtin_tag("now", DEFAULTTAGS),
-        builtin_tag("regroup", DEFAULTTAGS),
-        builtin_tag("ifchanged", DEFAULTTAGS),
-        builtin_tag("filter", DEFAULTTAGS),
-        builtin_filter("title", DEFAULTFILTERS),
-        builtin_filter("lower", DEFAULTFILTERS),
-        builtin_filter("upper", DEFAULTFILTERS),
-        builtin_filter("default", DEFAULTFILTERS),
-        builtin_filter("date", DEFAULTFILTERS),
-        builtin_filter("truncatewords", DEFAULTFILTERS),
-        builtin_filter("floatformat", DEFAULTFILTERS),
-        builtin_filter("length", DEFAULTFILTERS),
-        builtin_filter("join", DEFAULTFILTERS),
-        builtin_filter("safe", DEFAULTFILTERS),
-        builtin_filter("escape", DEFAULTFILTERS),
-        builtin_filter("urlencode", DEFAULTFILTERS),
-        builtin_filter("slugify", DEFAULTFILTERS),
-        builtin_filter("linebreaks", DEFAULTFILTERS),
-        builtin_filter("striptags", DEFAULTFILTERS),
-        builtin_filter("capfirst", DEFAULTFILTERS),
-        builtin_filter("center", DEFAULTFILTERS),
-        builtin_filter("cut", DEFAULTFILTERS),
-        builtin_filter("dictsort", DEFAULTFILTERS),
-        builtin_filter("yesno", DEFAULTFILTERS),
-        builtin_filter("pluralize", DEFAULTFILTERS),
-        library_tag("translate", "i18n", I18N),
-        library_tag("trans", "i18n", I18N),
-        library_tag("blocktranslate", "i18n", I18N),
-        library_tag("blocktrans", "i18n", I18N),
-        library_tag("get_current_language", "i18n", I18N),
-        library_tag("static", "static", STATIC),
-    ]
 }
 
 fn build_filter_arities(
@@ -159,65 +55,7 @@ fn build_filter_arities(
     specs
 }
 
-fn build_template_library_inputs(symbols: Vec<BenchSymbol>) -> Vec<TemplateLibraryInput> {
-    let mut builtins = BTreeMap::new();
-    for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
-        builtins.insert(PythonModuleName::parse(module_name).unwrap(), Vec::new());
-    }
-
-    let mut installed = BTreeMap::new();
-    for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
-        installed.insert(
-            LibraryName::parse(load_name).unwrap(),
-            (PythonModuleName::parse(module_name).unwrap(), Vec::new()),
-        );
-    }
-
-    for bench_symbol in symbols {
-        let module = PythonModuleName::parse(bench_symbol.module).unwrap();
-        match bench_symbol.load_name {
-            None => {
-                if let Some(symbols) = builtins.get_mut(&module) {
-                    symbols.push(bench_symbol.symbol);
-                }
-            }
-            Some(load_name) => {
-                let load_name = LibraryName::parse(load_name).unwrap();
-                if let Some((installed_module, symbols)) = installed.get_mut(&load_name)
-                    && installed_module == &module
-                {
-                    symbols.push(bench_symbol.symbol);
-                }
-            }
-        }
-    }
-
-    let mut inputs = Vec::new();
-    inputs.extend(
-        builtins
-            .into_iter()
-            .map(|(module, symbols)| TemplateLibraryInput::Builtin { module, symbols }),
-    );
-    inputs.extend(installed.into_iter().map(|(load_name, (module, symbols))| {
-        TemplateLibraryInput::Installed {
-            load_name,
-            module,
-            symbols,
-        }
-    }));
-    inputs
-}
-
-fn build_template_libraries(
-    db: &dyn ProjectDb,
-    inputs: &[TemplateLibraryInput],
-) -> djls_project::TemplateLibraries {
-    testing::template_libraries(db, inputs.to_vec())
-}
-
 fn build_realistic_specs() -> RealisticSpecs {
-    let template_library_inputs = build_template_library_inputs(build_template_symbols());
-
     let mut tag_specs = TagSpecs::default();
 
     let fixture_root = crate::fixtures::crate_root().join("fixtures/python");
@@ -257,7 +95,6 @@ fn build_realistic_specs() -> RealisticSpecs {
 
     RealisticSpecs {
         tag_specs,
-        template_library_inputs,
         filter_arity_specs,
     }
 }
@@ -281,9 +118,7 @@ pub fn structure_db() -> Db {
 pub fn realistic_db() -> Db {
     let specs = realistic_specs();
 
-    let db = Db::new()
+    Db::new()
         .with_tag_specs(specs.tag_specs.clone())
-        .with_filter_arity_specs(specs.filter_arity_specs.clone());
-    let template_libraries = build_template_libraries(&db, &specs.template_library_inputs);
-    db.with_template_libraries(template_libraries)
+        .with_filter_arity_specs(specs.filter_arity_specs.clone())
 }

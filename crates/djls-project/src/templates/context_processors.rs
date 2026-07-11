@@ -8,48 +8,74 @@ use crate::python::resolve_prefix;
 use crate::settings::TemplateContextProcessorPath;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
-use crate::settings::types::Originated;
+use crate::settings::types::PartialTemplateBackend;
+use crate::settings::types::SettingCase;
+use crate::settings::types::TemplateListEvidence;
+use crate::settings::types::WithOrigin;
+use crate::settings::types::template_backend_evidence_slots;
 
+/// Context-processor evidence for one backend slot in a feasible settings configuration.
+///
+/// This remains private extraction evidence. Consumers only enumerate processors known to belong
+/// to Django backends through [`TemplateContextProcessors::processors`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum ContextProcessorOmission {
-    Settings,
-    Backend,
+enum TemplateContextProcessorSlot {
+    NotDjango,
+    Known(Vec<TemplateContextProcessor>),
+    Unknown {
+        definite: Vec<TemplateContextProcessor>,
+        possible: Vec<TemplateContextProcessor>,
+    },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateContextProcessors(TemplateContextProcessorDiscovery);
+impl TemplateContextProcessorSlot {
+    fn definite_processors(&self) -> &[TemplateContextProcessor] {
+        match self {
+            Self::Known(processors)
+            | Self::Unknown {
+                definite: processors,
+                ..
+            } => processors,
+            Self::NotDjango => &[],
+        }
+    }
+}
 
+/// Backend alternatives belonging to one feasible value of `TEMPLATES`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct TemplateContextProcessorConfiguration(Vec<TemplateContextProcessorSlot>);
+
+/// Known context processors discovered across feasible settings alternatives.
+///
+/// Configuration, backend-slot, and omission evidence is intentionally private. The public
+/// contract remains positive enumeration only.
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum TemplateContextProcessorDiscovery {
-    Exhaustive(Vec<TemplateContextProcessor>),
-    WithOmissions {
-        processors: Vec<TemplateContextProcessor>,
-        omissions: Vec<ContextProcessorOmission>,
-    },
+pub struct TemplateContextProcessors {
+    processors: Vec<TemplateContextProcessor>,
+    configurations: Vec<TemplateContextProcessorConfiguration>,
+    unknown_configurations: bool,
 }
 
 impl Default for TemplateContextProcessors {
     fn default() -> Self {
-        Self(TemplateContextProcessorDiscovery::WithOmissions {
+        Self {
             processors: Vec::new(),
-            omissions: vec![ContextProcessorOmission::Settings],
-        })
+            configurations: Vec::new(),
+            unknown_configurations: true,
+        }
     }
 }
 
 impl TemplateContextProcessors {
     #[must_use]
     pub fn processors(&self) -> &[TemplateContextProcessor] {
-        match &self.0 {
-            TemplateContextProcessorDiscovery::Exhaustive(processors)
-            | TemplateContextProcessorDiscovery::WithOmissions { processors, .. } => processors,
-        }
+        &self.processors
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateContextProcessor {
-    path: Originated<TemplateContextProcessorPath>,
+    path: WithOrigin<TemplateContextProcessorPath>,
     module: Option<PythonModule>,
     unresolved_tail: Vec<String>,
 }
@@ -89,39 +115,137 @@ pub fn template_context_processors(
     }
 
     let settings = django_settings(db, project);
-    let mut omissions = if settings.templates.is_fully_extracted() {
-        Vec::new()
-    } else {
-        vec![ContextProcessorOmission::Settings]
-    };
-    let mut processors = Vec::new();
+    let mut configurations = Vec::new();
+    let mut unknown_configurations = false;
 
-    for backend in settings
-        .templates
-        .backends
-        .iter()
-        .filter(|backend| backend.is_django_templates_backend())
-    {
-        if !backend.is_fully_extracted() {
-            omissions.push(ContextProcessorOmission::Backend);
+    for case in settings.templates.iter() {
+        match case {
+            SettingCase::Known(value) => {
+                configurations.push(TemplateContextProcessorConfiguration(
+                    value
+                        .backends
+                        .iter()
+                        .map(|backend| {
+                            if backend.is_django_templates_backend() {
+                                TemplateContextProcessorSlot::Known(resolve_processors(
+                                    db,
+                                    project,
+                                    &backend.context_processors,
+                                ))
+                            } else {
+                                TemplateContextProcessorSlot::NotDjango
+                            }
+                        })
+                        .collect(),
+                ));
+            }
+            SettingCase::Dynamic(value) => {
+                configurations.push(partial_configuration(
+                    db,
+                    project,
+                    &value.templates.evidence,
+                ));
+                unknown_configurations |= value
+                    .templates
+                    .evidence
+                    .iter()
+                    .any(|evidence| matches!(evidence, TemplateListEvidence::Issue(_)));
+            }
+            SettingCase::Malformed(value) => {
+                configurations.push(partial_configuration(
+                    db,
+                    project,
+                    &value.templates.evidence,
+                ));
+                unknown_configurations |= value
+                    .templates
+                    .evidence
+                    .iter()
+                    .any(|evidence| matches!(evidence, TemplateListEvidence::Issue(_)));
+            }
+            SettingCase::Unset => {
+                configurations.push(TemplateContextProcessorConfiguration(Vec::new()));
+            }
         }
+    }
 
-        for path in &backend.context_processors {
-            let resolved = resolve_prefix(db, project, path.value().as_str());
-            processors.push(TemplateContextProcessor {
+    let processors = configurations
+        .iter()
+        .flat_map(|configuration| &configuration.0)
+        .flat_map(TemplateContextProcessorSlot::definite_processors)
+        .cloned()
+        .collect();
+
+    TemplateContextProcessors {
+        processors,
+        configurations,
+        unknown_configurations,
+    }
+}
+
+fn partial_configuration(
+    db: &dyn ProjectDb,
+    project: Project,
+    evidence: &[TemplateListEvidence],
+) -> TemplateContextProcessorConfiguration {
+    TemplateContextProcessorConfiguration(
+        template_backend_evidence_slots(evidence)
+            .map(|(_backend_index, evidence)| match evidence {
+                TemplateListEvidence::Backend(backend) => partial_slot(db, project, backend),
+                TemplateListEvidence::Issue(_) => TemplateContextProcessorSlot::Unknown {
+                    definite: Vec::new(),
+                    possible: Vec::new(),
+                },
+            })
+            .collect(),
+    )
+}
+
+fn partial_slot(
+    db: &dyn ProjectDb,
+    project: Project,
+    backend: &PartialTemplateBackend,
+) -> TemplateContextProcessorSlot {
+    let processors = resolve_processors(db, project, &backend.context_processors.known);
+    let backend_name = backend
+        .backend
+        .known
+        .as_ref()
+        .map(|backend| backend.value.as_str());
+
+    if !backend.backend.issues.is_empty() || backend_name.is_none() {
+        return TemplateContextProcessorSlot::Unknown {
+            definite: Vec::new(),
+            possible: processors,
+        };
+    }
+    if backend_name != Some("django.template.backends.django.DjangoTemplates") {
+        return TemplateContextProcessorSlot::NotDjango;
+    }
+    if backend.options.issues.is_empty() && backend.context_processors.issues.is_empty() {
+        TemplateContextProcessorSlot::Known(processors)
+    } else {
+        TemplateContextProcessorSlot::Unknown {
+            definite: processors.clone(),
+            possible: processors,
+        }
+    }
+}
+
+fn resolve_processors(
+    db: &dyn ProjectDb,
+    project: Project,
+    paths: &[WithOrigin<TemplateContextProcessorPath>],
+) -> Vec<TemplateContextProcessor> {
+    paths
+        .iter()
+        .map(|path| {
+            let resolved = resolve_prefix(db, project, path.value.as_str());
+            TemplateContextProcessor {
                 path: path.clone(),
                 module: resolved.module,
                 unresolved_tail: resolved.unresolved_tail,
-            });
-        }
-    }
-
-    if omissions.is_empty() {
-        TemplateContextProcessors(TemplateContextProcessorDiscovery::Exhaustive(processors))
-    } else {
-        TemplateContextProcessors(TemplateContextProcessorDiscovery::WithOmissions {
-            processors,
-            omissions,
+            }
         })
-    }
+        .collect()
 }

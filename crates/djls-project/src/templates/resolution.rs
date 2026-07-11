@@ -20,68 +20,178 @@ use crate::project::Project;
 use crate::python::resolve_package_dirs;
 use crate::settings::EvaluatedPath;
 use crate::settings::django_settings;
+use crate::settings::settings_module_file;
+use crate::settings::types::InstalledAppEvidence;
+use crate::settings::types::PathListEvidence;
+use crate::settings::types::SettingCase;
+use crate::settings::types::TemplateListEvidence;
+use crate::settings::types::template_backend_evidence_slots;
 use crate::templates::installed_app_package_module;
 
-/// The ordered template-root search sequence Django Discovery extracted from settings.
+/// The feasible ordered template-root search sequences extracted from settings.
+///
+/// Settings alternatives remain separate so resolution can compare the winner of each complete
+/// configuration rather than treating roots from mutually exclusive branches as one loader list.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateDirectories(Vec<RootEntry>);
+pub struct TemplateDirectories(Vec<TemplateDirectoryAlternative>);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TemplateDirectoryAlternative(Vec<RootEntry>);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum RootEntry {
-    Known(Utf8PathBuf),
-    Unknown(UnknownRoots),
+    Known {
+        root: Utf8PathBuf,
+        backend: usize,
+    },
+    /// One unenumerable element at this exact position; roots before and after it keep
+    /// their ordering guarantees. A missing backend means the backend itself is unknown.
+    Unknown {
+        backend: Option<usize>,
+    },
 }
 
-/// Roots the configuration may contain that extraction could not enumerate.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, salsa::Update)]
-enum UnknownRoots {
-    /// One unenumerable element at this exact position; roots before and after it keep
-    /// their ordering guarantees.
-    Positioned,
-    /// Whole backends may be unextracted; later candidates are parallel alternatives,
-    /// not an ordered tail.
-    AlternativeBackends,
+impl TemplateDirectoryAlternative {
+    fn push_root(&mut self, root: Utf8PathBuf, backend: usize) {
+        self.0.push(RootEntry::Known { root, backend });
+    }
+
+    fn mark_unknown_roots(&mut self, backend: Option<usize>) {
+        if !matches!(self.0.last(), Some(RootEntry::Unknown { backend: existing }) if *existing == backend)
+        {
+            self.0.push(RootEntry::Unknown { backend });
+        }
+    }
 }
 
 impl TemplateDirectories {
     pub fn known_roots(&self) -> impl Iterator<Item = &Utf8Path> {
-        self.0.iter().filter_map(|entry| match entry {
-            RootEntry::Known(root) => Some(root.as_path()),
-            RootEntry::Unknown(_) => None,
-        })
+        let mut seen = FxHashSet::default();
+        self.0
+            .iter()
+            .flat_map(|alternative| &alternative.0)
+            .filter_map(move |entry| match entry {
+                RootEntry::Known { root, .. } if seen.insert(root.as_path()) => {
+                    Some(root.as_path())
+                }
+                RootEntry::Known { .. } | RootEntry::Unknown { .. } => None,
+            })
     }
 
     #[must_use]
     pub fn configuration_may_omit_roots(&self) -> bool {
-        self.0
-            .iter()
-            .any(|entry| matches!(entry, RootEntry::Unknown(_)))
+        self.0.len() > 1
+            || self.0.iter().any(|alternative| {
+                alternative
+                    .0
+                    .iter()
+                    .any(|entry| matches!(entry, RootEntry::Unknown { .. }))
+            })
     }
 
-    fn search(&self) -> &[RootEntry] {
+    fn alternatives(&self) -> &[TemplateDirectoryAlternative] {
         &self.0
     }
+}
 
-    fn unknown_roots_count(&self) -> usize {
-        self.0
-            .iter()
-            .filter(|entry| matches!(entry, RootEntry::Unknown(_)))
-            .count()
+enum InstalledAppEntry {
+    Known(String),
+    Unknown,
+}
+
+struct InstalledAppsProjection(Vec<InstalledAppEntry>);
+
+fn project_installed_apps(
+    case: &SettingCase<
+        crate::settings::types::InstalledAppsValue,
+        crate::settings::types::DynamicInstalledApps,
+        crate::settings::types::MalformedInstalledApps,
+    >,
+) -> InstalledAppsProjection {
+    match case {
+        SettingCase::Known(value) => InstalledAppsProjection(
+            value
+                .apps
+                .iter()
+                .map(|app| InstalledAppEntry::Known(app.value.clone()))
+                .collect(),
+        ),
+        SettingCase::Dynamic(value) => InstalledAppsProjection(
+            value
+                .apps
+                .evidence
+                .iter()
+                .map(|evidence| match evidence {
+                    InstalledAppEvidence::Known(app) => InstalledAppEntry::Known(app.value.clone()),
+                    InstalledAppEvidence::Issue(_) => InstalledAppEntry::Unknown,
+                })
+                .collect(),
+        ),
+        SettingCase::Malformed(value) => InstalledAppsProjection(
+            value
+                .apps
+                .evidence
+                .iter()
+                .map(|evidence| match evidence {
+                    InstalledAppEvidence::Known(app) => InstalledAppEntry::Known(app.value.clone()),
+                    InstalledAppEvidence::Issue(_) => InstalledAppEntry::Unknown,
+                })
+                .collect(),
+        ),
+        SettingCase::Unset => InstalledAppsProjection(Vec::new()),
     }
+}
 
-    fn push_root(&mut self, root: Utf8PathBuf) {
-        self.0.push(RootEntry::Known(root));
+fn add_backend_roots(
+    db: &dyn ProjectDb,
+    project: Project,
+    backend: &crate::settings::types::PartialTemplateBackend,
+    apps: &InstalledAppsProjection,
+    backend_index: usize,
+    alternative: &mut TemplateDirectoryAlternative,
+) {
+    if backend
+        .backend
+        .known
+        .as_ref()
+        .is_none_or(|name| name.value != "django.template.backends.django.DjangoTemplates")
+    {
+        return;
     }
-
-    fn mark_unknown_roots(&mut self, kind: UnknownRoots) {
-        let already_marked_here = self
-            .0
-            .iter()
-            .rev()
-            .take_while(|entry| matches!(entry, RootEntry::Unknown(_)))
-            .any(|entry| *entry == RootEntry::Unknown(kind));
-        if !already_marked_here {
-            self.0.push(RootEntry::Unknown(kind));
+    for evidence in &backend.dirs.evidence {
+        match evidence {
+            PathListEvidence::Known(dir) => {
+                let EvaluatedPath::Resolved(path) = &dir.value;
+                alternative.push_root(path.clone(), backend_index);
+            }
+            PathListEvidence::Issue(_) => alternative.mark_unknown_roots(Some(backend_index)),
+        }
+    }
+    if !backend.app_dirs.issues.is_empty() {
+        alternative.mark_unknown_roots(Some(backend_index));
+    }
+    if backend
+        .app_dirs
+        .known
+        .as_ref()
+        .is_some_and(|app_dirs| app_dirs.value)
+    {
+        for entry in &apps.0 {
+            let InstalledAppEntry::Known(app) = entry else {
+                alternative.mark_unknown_roots(Some(backend_index));
+                continue;
+            };
+            let Some(package_module) = installed_app_package_module(db, project, app) else {
+                alternative.mark_unknown_roots(Some(backend_index));
+                continue;
+            };
+            let package_dirs = resolve_package_dirs(db, project, package_module);
+            if package_dirs.dirs.is_empty() {
+                alternative.mark_unknown_roots(Some(backend_index));
+            }
+            for package_dir in package_dirs.dirs {
+                alternative.push_root(package_dir.join("templates"), backend_index);
+            }
         }
     }
 }
@@ -90,67 +200,79 @@ impl TemplateDirectories {
 pub fn template_directories(db: &dyn ProjectDb, project: Project) -> TemplateDirectories {
     project.touch_search_path_roots(db);
 
+    if settings_module_file(db, project).is_none() {
+        return TemplateDirectories(vec![TemplateDirectoryAlternative(vec![
+            RootEntry::Unknown { backend: None },
+        ])]);
+    }
+
     let settings = django_settings(db, project);
-    let mut discovery = TemplateDirectories(Vec::new());
+    let mut alternatives = Vec::new();
 
-    let templates_have_positioned_unknown_dir = settings.templates.backends.len() == 1
-        && settings.templates.backends[0].is_django_templates_backend()
-        && settings.templates.backends[0]
-            .dirs
-            .iter()
-            .any(|dir| matches!(dir, EvaluatedPath::Unknown));
-    if !settings.templates.is_fully_extracted() && !templates_have_positioned_unknown_dir {
-        // Alternative or wholly unknown backend values may occur before any extracted backend.
-        // A lone backend's unknown DIRS element is different: its exact position is retained below.
-        discovery.mark_unknown_roots(UnknownRoots::AlternativeBackends);
-    }
+    for configuration in settings.feasible_configurations() {
+        let apps = project_installed_apps(configuration.installed_apps);
+        let mut alternative = TemplateDirectoryAlternative(Vec::new());
 
-    for backend in settings
-        .templates
-        .backends
-        .iter()
-        .filter(|backend| backend.is_django_templates_backend())
-    {
-        let unknowns_before_backend = discovery.unknown_roots_count();
-
-        for dir in &backend.dirs {
-            match dir {
-                EvaluatedPath::Resolved(path) => discovery.push_root(path.clone()),
-                EvaluatedPath::Unknown => discovery.mark_unknown_roots(UnknownRoots::Positioned),
-            }
-        }
-
-        if backend.app_dirs == Some(true) {
-            if !settings.installed_apps.is_fully_extracted() {
-                discovery.mark_unknown_roots(UnknownRoots::Positioned);
-            }
-            for app in &settings.installed_apps.values {
-                let Some(package_module) = installed_app_package_module(db, project, app) else {
-                    discovery.mark_unknown_roots(UnknownRoots::Positioned);
-                    continue;
-                };
-                let package_dirs = resolve_package_dirs(db, project, package_module);
-                if package_dirs.dirs.is_empty() {
-                    discovery.mark_unknown_roots(UnknownRoots::Positioned);
-                    continue;
-                }
-
-                for package_dir in package_dirs.dirs {
-                    // Keep the candidate even when it appears absent. The detailed walk below
-                    // distinguishes an exhaustively missing directory from a metadata failure.
-                    discovery.push_root(package_dir.join("templates"));
+        match configuration.templates {
+            SettingCase::Known(value) => {
+                for (backend_index, backend) in value.backends.iter().enumerate() {
+                    let partial = crate::settings::types::PartialTemplateBackend::from_complete(
+                        backend.clone(),
+                    );
+                    add_backend_roots(
+                        db,
+                        project,
+                        &partial,
+                        &apps,
+                        backend_index,
+                        &mut alternative,
+                    );
                 }
             }
+            SettingCase::Dynamic(value) => add_partial_backend_roots(
+                db,
+                project,
+                &value.templates.evidence,
+                &apps,
+                &mut alternative,
+            ),
+            SettingCase::Malformed(value) => add_partial_backend_roots(
+                db,
+                project,
+                &value.templates.evidence,
+                &apps,
+                &mut alternative,
+            ),
+            SettingCase::Unset => {}
         }
-
-        if !backend.is_fully_extracted()
-            && discovery.unknown_roots_count() == unknowns_before_backend
-        {
-            discovery.mark_unknown_roots(UnknownRoots::AlternativeBackends);
-        }
+        // Keep one entry per feasible settings configuration. Environment correlation relies on
+        // this index matching the Template Library configuration derived from the same branch.
+        alternatives.push(alternative);
     }
 
-    discovery
+    TemplateDirectories(alternatives)
+}
+
+fn add_partial_backend_roots(
+    db: &dyn ProjectDb,
+    project: Project,
+    evidence: &[TemplateListEvidence],
+    apps: &InstalledAppsProjection,
+    alternative: &mut TemplateDirectoryAlternative,
+) {
+    for (backend_index, evidence) in template_backend_evidence_slots(evidence) {
+        match evidence {
+            TemplateListEvidence::Backend(backend) => {
+                if !backend.backend.issues.is_empty() {
+                    alternative.mark_unknown_roots(None);
+                }
+                add_backend_roots(db, project, backend, apps, backend_index, alternative);
+            }
+            TemplateListEvidence::Issue(_) => {
+                alternative.mark_unknown_roots(None);
+            }
+        }
+    }
 }
 
 #[salsa::interned]
@@ -251,6 +373,24 @@ impl<'db> TemplateResolution<'db> {
             .copied()
     }
 
+    /// Returns template names with a concrete match in the backends that can render `file`.
+    pub fn template_names_for_backend_scope(
+        self,
+        db: &'db dyn ProjectDb,
+        file: File,
+    ) -> Vec<TemplateName<'db>> {
+        let scope = self.backend_scope_for_file(db, file);
+        self.template_names(db)
+            .filter(
+                |name| match self.resolve_excluding_in_scope(db, *name, &[], &scope) {
+                    FindTemplateResult::Found(_) => true,
+                    FindTemplateResult::Inconclusive(search) => !search.possible_origins.is_empty(),
+                    FindTemplateResult::DoesNotExist(_) => false,
+                },
+            )
+            .collect()
+    }
+
     pub fn origins_for_name(
         self,
         db: &'db dyn ProjectDb,
@@ -273,18 +413,6 @@ impl<'db> TemplateResolution<'db> {
             .map_or(&[], Vec::as_slice)
     }
 
-    /// Returns the first-discovered template name for a file.
-    ///
-    /// This is the name Django binds the file to in template-directory discovery order, and it
-    /// anchors relative-name resolution.
-    pub fn primary_template_name(
-        self,
-        db: &'db dyn ProjectDb,
-        file: File,
-    ) -> Option<TemplateName<'db>> {
-        self.template_names_for_file(db, file).first().copied()
-    }
-
     #[must_use]
     pub fn resolve(
         self,
@@ -292,6 +420,111 @@ impl<'db> TemplateResolution<'db> {
         name: TemplateName<'db>,
     ) -> FindTemplateResult<'db> {
         self.resolve_excluding(db, name, &[])
+    }
+
+    pub(crate) fn backend_selections_for_file(
+        self,
+        db: &'db dyn ProjectDb,
+        file: File,
+    ) -> Vec<BackendSelection> {
+        let index = template_directory_index(db, self);
+        let mut selections = Vec::new();
+
+        for name in self.template_names_for_file(db, file) {
+            for (configuration, search) in index.searches(db).iter().enumerate() {
+                collect_backend_selections(db, search, *name, file, configuration, &mut selections);
+            }
+        }
+
+        selections
+    }
+
+    #[must_use]
+    fn backend_scope_for_file(self, db: &'db dyn ProjectDb, file: File) -> TemplateBackendScope {
+        TemplateBackendScope(self.backend_selections_for_file(db, file))
+    }
+
+    #[must_use]
+    pub fn backend_scope_for_origin(
+        self,
+        db: &'db dyn ProjectDb,
+        origin: TemplateOrigin<'db>,
+    ) -> TemplateBackendScope {
+        let index = template_directory_index(db, self);
+        let mut selections = Vec::new();
+        let name = origin.template_name(db);
+        let file = origin.file(db);
+
+        for (configuration, search) in index.searches(db).iter().enumerate() {
+            collect_backend_selections(db, search, name, file, configuration, &mut selections);
+        }
+        TemplateBackendScope(selections)
+    }
+
+    #[must_use]
+    pub fn resolve_for_file(
+        self,
+        db: &'db dyn ProjectDb,
+        name: TemplateName<'db>,
+        file: File,
+    ) -> FindTemplateResult<'db> {
+        self.resolve_excluding_in_scope(db, name, &[], &self.backend_scope_for_file(db, file))
+    }
+
+    /// Normalize and resolve a raw reference from one concrete source origin.
+    ///
+    /// Keeping the source origin in this interface preserves both the template name used as the
+    /// relative-reference anchor and the settings/backend selections under which that origin is
+    /// renderable. Callers handling a physical file with multiple names must invoke this for each
+    /// origin and join the scoped outcomes rather than choosing one file-level name.
+    #[must_use]
+    pub fn resolve_reference_from_origin(
+        self,
+        db: &'db dyn ProjectDb,
+        source: TemplateOrigin<'db>,
+        raw_name: TemplateName<'db>,
+        excluded: &[TemplateOrigin<'db>],
+        allow_self: bool,
+    ) -> Option<ScopedTemplateReferenceResolution<'db>> {
+        self.resolve_reference_from_origin_in_scope(
+            db,
+            source,
+            raw_name,
+            excluded,
+            allow_self,
+            &self.backend_scope_for_origin(db, source),
+        )
+    }
+
+    /// Resolve from an origin name while retaining a scope established by an earlier lookup.
+    ///
+    /// Inheritance uses this to keep the child's backend selections throughout the ancestor chain
+    /// instead of widening to every backend that can independently render a shared ancestor file.
+    #[must_use]
+    pub fn resolve_reference_from_origin_in_scope(
+        self,
+        db: &'db dyn ProjectDb,
+        source: TemplateOrigin<'db>,
+        raw_name: TemplateName<'db>,
+        excluded: &[TemplateOrigin<'db>],
+        allow_self: bool,
+        scope: &TemplateBackendScope,
+    ) -> Option<ScopedTemplateReferenceResolution<'db>> {
+        let resolved = resolve_relative_name(
+            Some(source.template_name(db).name(db)),
+            raw_name.name(db),
+            allow_self,
+        )?;
+        let target_name = match resolved {
+            Cow::Borrowed(_) => raw_name,
+            Cow::Owned(name) => TemplateName::new(db, name),
+        };
+        let result = self.resolve_excluding_origins_in_scope(db, target_name, excluded, scope);
+        Some(ScopedTemplateReferenceResolution {
+            source,
+            target_name,
+            result,
+        })
     }
 
     /// Finds the first non-excluded origin in Django loader order.
@@ -305,58 +538,213 @@ impl<'db> TemplateResolution<'db> {
         name: TemplateName<'db>,
         excluded: &[File],
     ) -> FindTemplateResult<'db> {
+        self.resolve_excluding_in_scope(db, name, excluded, &TemplateBackendScope::default())
+    }
+
+    #[must_use]
+    pub fn resolve_excluding_origins_in_scope(
+        self,
+        db: &'db dyn ProjectDb,
+        name: TemplateName<'db>,
+        excluded: &[TemplateOrigin<'db>],
+        scope: &TemplateBackendScope,
+    ) -> FindTemplateResult<'db> {
+        let excluded_files = excluded
+            .iter()
+            .filter(|origin| origin.template_name(db) == name)
+            .map(|origin| origin.file(db))
+            .collect::<Vec<_>>();
+        self.resolve_excluding_in_scope(db, name, &excluded_files, scope)
+    }
+
+    #[must_use]
+    fn resolve_excluding_in_scope(
+        self,
+        db: &'db dyn ProjectDb,
+        name: TemplateName<'db>,
+        excluded: &[File],
+        scope: &TemplateBackendScope,
+    ) -> FindTemplateResult<'db> {
         let index = template_directory_index(db, self);
         let excluded: FxHashSet<_> = excluded.iter().copied().collect();
-        let mut certainty = SearchCertainty::Exhaustive;
+        let outcomes = if scope.0.is_empty() {
+            index
+                .searches(db)
+                .iter()
+                .map(|search| resolve_alternative(db, search, name, &excluded))
+                .collect::<Vec<_>>()
+        } else {
+            scope
+                .0
+                .iter()
+                .map(|selection| match *selection {
+                    BackendSelection::Known {
+                        configuration,
+                        backend,
+                    } => {
+                        let search = &index.searches(db)[configuration];
+                        let filtered = search
+                            .iter()
+                            .filter(|evidence| evidence.matches_backend(backend))
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        resolve_alternative(db, &filtered, name, &excluded)
+                    }
+                    BackendSelection::Unknown { .. } => AlternativeOutcome::Inconclusive {
+                        origins: Vec::new(),
+                    },
+                })
+                .collect::<Vec<_>>()
+        };
 
-        for evidence in index.search(db) {
-            match evidence {
-                TemplateSearchEvidence::Origin(origin)
-                    if origin.template_name(db) == name && !excluded.contains(&origin.file(db)) =>
-                {
-                    match &mut certainty {
-                        SearchCertainty::Exhaustive => {
-                            return FindTemplateResult::Found(*origin);
+        let unanimous_file = outcomes.first().and_then(|outcome| match outcome {
+            AlternativeOutcome::Found { origin, .. } => Some(origin.file(db)),
+            AlternativeOutcome::DoesNotExist | AlternativeOutcome::Inconclusive { .. } => None,
+        });
+        if let Some(file) = unanimous_file
+            && outcomes.iter().all(
+                |outcome| matches!(outcome, AlternativeOutcome::Found { origin, .. } if origin.file(db) == file),
+            )
+        {
+            let AlternativeOutcome::Found { origin, .. } = outcomes[0] else {
+                unreachable!("the unanimous outcome was checked as found")
+            };
+            return FindTemplateResult::Found(origin);
+        }
+
+        if outcomes
+            .iter()
+            .all(|outcome| matches!(outcome, AlternativeOutcome::DoesNotExist))
+        {
+            let directories = template_directories(db, self.project(db));
+            let mut roots = Vec::new();
+            if scope.0.is_empty() {
+                roots.extend(directories.known_roots());
+            } else {
+                for selection in &scope.0 {
+                    let BackendSelection::Known {
+                        configuration,
+                        backend,
+                    } = *selection
+                    else {
+                        // An open backend has no concrete roots to report as tried.
+                        continue;
+                    };
+                    let Some(alternative) = directories.alternatives().get(configuration) else {
+                        continue;
+                    };
+                    for entry in &alternative.0 {
+                        let RootEntry::Known {
+                            root,
+                            backend: candidate,
+                        } = entry
+                        else {
+                            continue;
+                        };
+                        if *candidate == backend && !roots.contains(&root.as_path()) {
+                            roots.push(root.as_path());
                         }
-                        SearchCertainty::Ordered { possible } => {
-                            possible.push(*origin);
-                            break;
-                        }
-                        SearchCertainty::Branching { possible } => possible.push(*origin),
                     }
                 }
-                TemplateSearchEvidence::UnknownRoots(kind) => {
-                    certainty = certainty.weaken(*kind);
-                }
-                TemplateSearchEvidence::Issue(TemplateSearchIssue::Walk { .. }) => {
-                    certainty = certainty.weaken_in_order();
-                }
-                TemplateSearchEvidence::Issue(TemplateSearchIssue::File {
-                    name: issue_name,
-                    ..
-                }) if issue_name == name.name(db) => {
-                    certainty = certainty.weaken_in_order();
-                }
-                TemplateSearchEvidence::Origin(_) | TemplateSearchEvidence::Issue(_) => {}
             }
+            let tried = roots
+                .into_iter()
+                .filter_map(|root| safe_join(root, name.name(db)).ok())
+                .collect();
+            return FindTemplateResult::DoesNotExist(TemplateDoesNotExist { name, tried });
         }
 
-        match certainty {
-            SearchCertainty::Exhaustive => {
-                let tried = template_directories(db, self.project(db))
-                    .known_roots()
-                    .filter_map(|root| safe_join(root, name.name(db)).ok())
-                    .collect();
-                FindTemplateResult::DoesNotExist(TemplateDoesNotExist { name, tried })
+        FindTemplateResult::Inconclusive(InconclusiveTemplateSearch {
+            name,
+            possible_origins: possible_origins(db, outcomes),
+        })
+    }
+}
+
+fn collect_backend_selections<'db>(
+    db: &'db dyn ProjectDb,
+    search: &[TemplateSearchEvidence<'db>],
+    name: TemplateName<'db>,
+    file: File,
+    configuration: usize,
+    selections: &mut Vec<BackendSelection>,
+) {
+    let file_path = file.path(db);
+    for evidence in search {
+        let selection = match evidence {
+            TemplateSearchEvidence::Origin { origin, backend }
+                if origin.template_name(db) == name && origin.file(db) == file =>
+            {
+                BackendSelection::Known {
+                    configuration,
+                    backend: *backend,
+                }
             }
-            SearchCertainty::Ordered { possible } | SearchCertainty::Branching { possible } => {
-                FindTemplateResult::Inconclusive(InconclusiveTemplateSearch {
-                    name,
-                    possible_origins: possible,
-                })
+            // Unknown roots can contain this file under the same template name. Retain that
+            // feasible configuration even when another configuration supplied the concrete name.
+            TemplateSearchEvidence::UnknownRoots {
+                backend: Some(backend),
+            } => BackendSelection::Known {
+                configuration,
+                backend: *backend,
+            },
+            TemplateSearchEvidence::UnknownRoots { backend: None } => {
+                BackendSelection::Unknown { configuration }
             }
+            // A failed walk can contribute only when its known root can physically contain this
+            // file, and a failed file lookup only when it names this exact path and template name.
+            TemplateSearchEvidence::Issue {
+                issue: TemplateSearchIssue::Walk { root, .. },
+                backend,
+            } if file_path
+                .strip_prefix(root)
+                .is_ok_and(|relative| relative.clean().as_str() == name.name(db)) =>
+            {
+                BackendSelection::Known {
+                    configuration,
+                    backend: *backend,
+                }
+            }
+            TemplateSearchEvidence::Issue {
+                issue:
+                    TemplateSearchIssue::File {
+                        name: issue_name,
+                        path,
+                        ..
+                    },
+                backend,
+            } if issue_name == name.name(db) && path == file_path => BackendSelection::Known {
+                configuration,
+                backend: *backend,
+            },
+            TemplateSearchEvidence::Origin { .. } | TemplateSearchEvidence::Issue { .. } => {
+                continue;
+            }
+        };
+        if !selections.contains(&selection) {
+            selections.push(selection);
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScopedTemplateReferenceResolution<'db> {
+    pub source: TemplateOrigin<'db>,
+    pub target_name: TemplateName<'db>,
+    pub result: FindTemplateResult<'db>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TemplateBackendScope(Vec<BackendSelection>);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BackendSelection {
+    Known {
+        configuration: usize,
+        backend: usize,
+    },
+    /// A feasible settings configuration whose backend and roots cannot be enumerated.
+    Unknown { configuration: usize },
 }
 
 #[salsa::tracked]
@@ -378,15 +766,38 @@ struct TemplateDirectoryIndex<'db> {
     names_by_file: FxHashMap<File, Vec<TemplateName<'db>>>,
     #[tracked]
     #[returns(ref)]
-    search: Vec<TemplateSearchEvidence<'db>>,
+    searches: Vec<Vec<TemplateSearchEvidence<'db>>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 enum TemplateSearchEvidence<'db> {
-    Origin(TemplateOrigin<'db>),
-    UnknownRoots(UnknownRoots),
-    Issue(TemplateSearchIssue),
+    Origin {
+        origin: TemplateOrigin<'db>,
+        backend: usize,
+    },
+    UnknownRoots {
+        backend: Option<usize>,
+    },
+    Issue {
+        issue: TemplateSearchIssue,
+        backend: usize,
+    },
 }
+
+impl TemplateSearchEvidence<'_> {
+    fn matches_backend(&self, backend: usize) -> bool {
+        match self {
+            Self::Origin {
+                backend: candidate, ..
+            }
+            | Self::Issue {
+                backend: candidate, ..
+            } => *candidate == backend,
+            Self::UnknownRoots { backend: candidate } => *candidate == Some(backend),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 enum TemplateSearchIssue {
     Walk {
@@ -410,38 +821,54 @@ fn template_directory_index<'db>(
     let mut ordered = Vec::new();
     let mut by_template_name = FxHashMap::default();
     let mut names_by_file = FxHashMap::default();
-    let mut search = Vec::new();
+    let mut searches = Vec::new();
+    let mut origins = FxHashMap::default();
 
-    for evidence in files.search() {
-        match evidence {
-            ProjectTemplateSearchEvidence::File(template) => {
-                let template_name = TemplateName::new(db, template.name().to_string());
-                let origin = TemplateOrigin::new(db, template_name, template.file());
-                let file_names = names_by_file
-                    .entry(template.file())
-                    .or_insert_with(Vec::new);
-                if !file_names.contains(&template_name) {
-                    file_names.push(template_name);
+    for alternative in files.searches() {
+        let mut search = Vec::new();
+        for evidence in alternative {
+            match evidence {
+                ProjectTemplateSearchEvidence::File { template, backend } => {
+                    let template_name = TemplateName::new(db, template.name().to_string());
+                    let origin = *origins
+                        .entry((template_name, template.file()))
+                        .or_insert_with(|| {
+                            let origin = TemplateOrigin::new(db, template_name, template.file());
+                            let file_names = names_by_file
+                                .entry(template.file())
+                                .or_insert_with(Vec::new);
+                            if !file_names.contains(&template_name) {
+                                file_names.push(template_name);
+                            }
+                            by_template_name
+                                .entry(template_name)
+                                .or_insert_with(Vec::new)
+                                .push(origin);
+                            ordered.push(origin);
+                            origin
+                        });
+                    search.push(TemplateSearchEvidence::Origin {
+                        origin,
+                        backend: *backend,
+                    });
                 }
-                by_template_name
-                    .entry(template_name)
-                    .or_insert_with(Vec::new)
-                    .push(origin);
-                ordered.push(origin);
-                search.push(TemplateSearchEvidence::Origin(origin));
-            }
-            ProjectTemplateSearchEvidence::UnknownRoots(kind) => {
-                search.push(TemplateSearchEvidence::UnknownRoots(*kind));
-            }
-            ProjectTemplateSearchEvidence::Issue(issue) => {
-                search.push(TemplateSearchEvidence::Issue(issue.clone()));
+                ProjectTemplateSearchEvidence::UnknownRoots { backend } => {
+                    search.push(TemplateSearchEvidence::UnknownRoots { backend: *backend });
+                }
+                ProjectTemplateSearchEvidence::Issue { issue, backend } => {
+                    search.push(TemplateSearchEvidence::Issue {
+                        issue: issue.clone(),
+                        backend: *backend,
+                    });
+                }
             }
         }
+        searches.push(search);
     }
 
     tracing::debug!("Discovered {} total template origins", ordered.len());
 
-    TemplateDirectoryIndex::new(db, ordered, by_template_name, names_by_file, search)
+    TemplateDirectoryIndex::new(db, ordered, by_template_name, names_by_file, searches)
 }
 
 /// Outcome of an ordered template-name search.
@@ -456,42 +883,87 @@ pub enum FindTemplateResult<'db> {
     Inconclusive(InconclusiveTemplateSearch<'db>),
 }
 
-/// How much an in-progress ordered search can still claim.
-///
-/// A match under [`Exhaustive`](Self::Exhaustive) wins definitively. [`Ordered`](Self::Ordered)
-/// means an unenumerable gap precedes this point, so the first viable match is only the sole
-/// possible known winner. [`Branching`](Self::Branching) means alternative backends may exist,
-/// so every later branch can hold its own possible winner. Certainty only weakens: a later gap
-/// never demotes an already-returned definite match.
-enum SearchCertainty<'db> {
-    Exhaustive,
-    Ordered { possible: Vec<TemplateOrigin<'db>> },
-    Branching { possible: Vec<TemplateOrigin<'db>> },
+enum AlternativeOutcome<'db> {
+    Found { origin: TemplateOrigin<'db> },
+    DoesNotExist,
+    Inconclusive { origins: Vec<TemplateOrigin<'db>> },
 }
 
-impl<'db> SearchCertainty<'db> {
-    fn weaken(self, kind: UnknownRoots) -> Self {
-        match kind {
-            UnknownRoots::Positioned => self.weaken_in_order(),
-            UnknownRoots::AlternativeBackends => Self::Branching {
-                possible: self.into_possible(),
-            },
+fn possible_origins<'db>(
+    db: &'db dyn ProjectDb,
+    outcomes: Vec<AlternativeOutcome<'db>>,
+) -> Vec<TemplateOrigin<'db>> {
+    let mut possible = Vec::new();
+    let mut seen = FxHashSet::default();
+    for outcome in outcomes {
+        let origins = match outcome {
+            AlternativeOutcome::Found { origin } => vec![origin],
+            AlternativeOutcome::Inconclusive { origins } => origins,
+            AlternativeOutcome::DoesNotExist => Vec::new(),
+        };
+        for origin in origins {
+            if seen.insert(origin.file(db)) {
+                possible.push(origin);
+            }
         }
     }
+    possible
+}
 
-    fn weaken_in_order(self) -> Self {
-        match self {
-            Self::Exhaustive => Self::Ordered {
-                possible: Vec::new(),
-            },
-            state @ (Self::Ordered { .. } | Self::Branching { .. }) => state,
+fn resolve_alternative<'db>(
+    db: &'db dyn ProjectDb,
+    search: &[TemplateSearchEvidence<'db>],
+    name: TemplateName<'db>,
+    excluded: &FxHashSet<File>,
+) -> AlternativeOutcome<'db> {
+    let mut open_selections = Vec::new();
+    for evidence in search {
+        match evidence {
+            TemplateSearchEvidence::Origin { origin, .. }
+                if origin.template_name(db) == name && !excluded.contains(&origin.file(db)) =>
+            {
+                return if open_selections.is_empty() {
+                    AlternativeOutcome::Found { origin: *origin }
+                } else {
+                    AlternativeOutcome::Inconclusive {
+                        origins: vec![*origin],
+                    }
+                };
+            }
+            TemplateSearchEvidence::UnknownRoots { backend } => {
+                if !open_selections.contains(backend) {
+                    open_selections.push(*backend);
+                }
+            }
+            TemplateSearchEvidence::Issue {
+                issue: TemplateSearchIssue::Walk { .. },
+                backend,
+            } => {
+                let backend = Some(*backend);
+                if !open_selections.contains(&backend) {
+                    open_selections.push(backend);
+                }
+            }
+            TemplateSearchEvidence::Issue {
+                issue:
+                    TemplateSearchIssue::File {
+                        name: issue_name, ..
+                    },
+                backend,
+            } if issue_name == name.name(db) => {
+                let backend = Some(*backend);
+                if !open_selections.contains(&backend) {
+                    open_selections.push(backend);
+                }
+            }
+            TemplateSearchEvidence::Origin { .. } | TemplateSearchEvidence::Issue { .. } => {}
         }
     }
-
-    fn into_possible(self) -> Vec<TemplateOrigin<'db>> {
-        match self {
-            Self::Exhaustive => Vec::new(),
-            Self::Ordered { possible } | Self::Branching { possible } => possible,
+    if open_selections.is_empty() {
+        AlternativeOutcome::DoesNotExist
+    } else {
+        AlternativeOutcome::Inconclusive {
+            origins: Vec::new(),
         }
     }
 }
@@ -511,36 +983,55 @@ pub struct InconclusiveTemplateSearch<'db> {
 /// Positive template files and ordered evidence from searching configured roots.
 #[derive(Clone, Default, PartialEq, Eq)]
 struct ProjectTemplateFiles {
-    search: Vec<ProjectTemplateSearchEvidence>,
+    searches: Vec<Vec<ProjectTemplateSearchEvidence>>,
 }
 
 impl ProjectTemplateFiles {
-    fn search(&self) -> &[ProjectTemplateSearchEvidence] {
-        &self.search
+    fn searches(&self) -> &[Vec<ProjectTemplateSearchEvidence>] {
+        &self.searches
     }
 }
 
 impl fmt::Debug for ProjectTemplateFiles {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProjectTemplateFiles")
-            .field("search", &self.search)
+            .field("searches", &self.searches)
             .finish()
     }
 }
 
 #[derive(Clone, PartialEq, Eq)]
 enum ProjectTemplateSearchEvidence {
-    File(ProjectTemplateFile),
-    UnknownRoots(UnknownRoots),
-    Issue(TemplateSearchIssue),
+    File {
+        template: ProjectTemplateFile,
+        backend: usize,
+    },
+    UnknownRoots {
+        backend: Option<usize>,
+    },
+    Issue {
+        issue: TemplateSearchIssue,
+        backend: usize,
+    },
 }
 
 impl fmt::Debug for ProjectTemplateSearchEvidence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::File(file) => file.fmt(f),
-            Self::UnknownRoots(kind) => f.debug_tuple("UnknownRoots").field(kind).finish(),
-            Self::Issue(issue) => issue.fmt(f),
+            Self::File { template, backend } => f
+                .debug_struct("File")
+                .field("template", template)
+                .field("backend", backend)
+                .finish(),
+            Self::UnknownRoots { backend } => f
+                .debug_struct("UnknownRoots")
+                .field("backend", backend)
+                .finish(),
+            Self::Issue { issue, backend } => f
+                .debug_struct("Issue")
+                .field("issue", issue)
+                .field("backend", backend)
+                .finish(),
         }
     }
 }
@@ -590,78 +1081,92 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
         }
     }
 
-    let mut search = Vec::new();
+    let mut searches = Vec::new();
     let walk_options = WalkOptions::unrestricted();
     let directories = template_directories(db, project);
 
-    for entry in directories.search() {
-        let root = match entry {
-            RootEntry::Unknown(kind) => {
-                search.push(ProjectTemplateSearchEvidence::UnknownRoots(*kind));
-                continue;
+    for alternative in directories.alternatives() {
+        let mut search = Vec::new();
+        for entry in &alternative.0 {
+            let (root, backend) = match entry {
+                RootEntry::Unknown { backend } => {
+                    search.push(ProjectTemplateSearchEvidence::UnknownRoots { backend: *backend });
+                    continue;
+                }
+                RootEntry::Known { root, backend } => (root, *backend),
+            };
+            let (entries, issues) = match db.walk_root(root, &walk_options) {
+                // Missing and file roots are exhaustively empty: nothing to load templates from.
+                RootWalk::Missing | RootWalk::File(_) => continue,
+                RootWalk::Directory { entries, issues } => (entries, issues),
+                RootWalk::Inaccessible(kind) => (Vec::new(), vec![kind]),
+            };
+            let mut root_evidence = Vec::new();
+            // A traversal issue can hide a matching file anywhere in this root, so it must precede
+            // every positive retained from the same walk.
+            for kind in issues {
+                tracing::warn!(
+                    "Failed to fully walk template directory {}: {:?}",
+                    root,
+                    kind
+                );
+                search.push(ProjectTemplateSearchEvidence::Issue {
+                    issue: TemplateSearchIssue::Walk {
+                        root: root.clone(),
+                        kind,
+                    },
+                    backend,
+                });
             }
-            RootEntry::Known(root) => root,
-        };
-        let (entries, issues) = match db.walk_root(root, &walk_options) {
-            // Missing and file roots are exhaustively empty: nothing to load templates from.
-            RootWalk::Missing | RootWalk::File(_) => continue,
-            RootWalk::Directory { entries, issues } => (entries, issues),
-            RootWalk::Inaccessible(kind) => (Vec::new(), vec![kind]),
-        };
-        let mut root_evidence = Vec::new();
-        // A traversal issue can hide a matching file anywhere in this root, so it must precede
-        // every positive retained from the same walk.
-        for kind in issues {
-            tracing::warn!(
-                "Failed to fully walk template directory {}: {:?}",
-                root,
-                kind
-            );
-            search.push(ProjectTemplateSearchEvidence::Issue(
-                TemplateSearchIssue::Walk {
-                    root: root.clone(),
-                    kind,
-                },
-            ));
-        }
-        for entry in entries {
-            if entry.kind != WalkEntryKind::File {
-                continue;
-            }
-            let name = entry.relative.clean().to_string();
-            match path_to_file(db, &entry.path) {
-                Ok(file) => root_evidence.push(ProjectTemplateSearchEvidence::File(
-                    ProjectTemplateFile::new(name, entry.path, file),
-                )),
-                Err(error) => {
-                    tracing::warn!("Failed to index template file {}: {}", entry.path, error);
-                    root_evidence.push(ProjectTemplateSearchEvidence::Issue(
-                        TemplateSearchIssue::File {
-                            name,
-                            path: entry.path,
-                            error,
-                        },
-                    ));
+            for entry in entries {
+                if entry.kind != WalkEntryKind::File {
+                    continue;
+                }
+                let name = entry.relative.clean().to_string();
+                match path_to_file(db, &entry.path) {
+                    Ok(file) => root_evidence.push(ProjectTemplateSearchEvidence::File {
+                        template: ProjectTemplateFile::new(name, entry.path, file),
+                        backend,
+                    }),
+                    Err(error) => {
+                        tracing::warn!("Failed to index template file {}: {}", entry.path, error);
+                        root_evidence.push(ProjectTemplateSearchEvidence::Issue {
+                            issue: TemplateSearchIssue::File {
+                                name,
+                                path: entry.path,
+                                error,
+                            },
+                            backend,
+                        });
+                    }
                 }
             }
-        }
 
-        root_evidence.sort_by(|a, b| match (a, b) {
-            (ProjectTemplateSearchEvidence::File(a), ProjectTemplateSearchEvidence::File(b)) => {
-                a.name.cmp(&b.name).then_with(|| a.path.cmp(&b.path))
-            }
-            (
-                ProjectTemplateSearchEvidence::Issue(TemplateSearchIssue::File { name: a, .. }),
-                ProjectTemplateSearchEvidence::Issue(TemplateSearchIssue::File { name: b, .. }),
-            ) => a.cmp(b),
-            (ProjectTemplateSearchEvidence::File(_), _) => std::cmp::Ordering::Less,
-            (_, ProjectTemplateSearchEvidence::File(_)) => std::cmp::Ordering::Greater,
-            _ => std::cmp::Ordering::Equal,
-        });
-        search.extend(root_evidence);
+            root_evidence.sort_by(|a, b| match (a, b) {
+                (
+                    ProjectTemplateSearchEvidence::File { template: a, .. },
+                    ProjectTemplateSearchEvidence::File { template: b, .. },
+                ) => a.name.cmp(&b.name).then_with(|| a.path.cmp(&b.path)),
+                (
+                    ProjectTemplateSearchEvidence::Issue {
+                        issue: TemplateSearchIssue::File { name: a, .. },
+                        ..
+                    },
+                    ProjectTemplateSearchEvidence::Issue {
+                        issue: TemplateSearchIssue::File { name: b, .. },
+                        ..
+                    },
+                ) => a.cmp(b),
+                (ProjectTemplateSearchEvidence::File { .. }, _) => std::cmp::Ordering::Less,
+                (_, ProjectTemplateSearchEvidence::File { .. }) => std::cmp::Ordering::Greater,
+                _ => std::cmp::Ordering::Equal,
+            });
+            search.extend(root_evidence);
+        }
+        searches.push(search);
     }
 
-    ProjectTemplateFiles { search }
+    ProjectTemplateFiles { searches }
 }
 
 #[cfg(test)]

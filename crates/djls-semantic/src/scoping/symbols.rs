@@ -1,5 +1,9 @@
+#[cfg(test)]
+use djls_project::EnvironmentSymbolLookup;
+#[cfg(test)]
 use djls_project::TemplateLibraries;
-use djls_project::TemplateSymbol;
+use djls_project::TemplateSymbolAvailability;
+use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
@@ -86,47 +90,35 @@ impl SymbolScope {
 
         SymbolAvailability::Unknown
     }
-
-    fn contains(&self, symbol_name: &str) -> bool {
-        self.available.contains(symbol_name)
-    }
 }
 
+#[cfg(test)]
 fn insert_template_symbols(
     tags: &mut SymbolScope,
     filters: &mut SymbolScope,
     template_libraries: &TemplateLibraries,
 ) {
-    for library in template_libraries
-        .definitely_loaded_libraries()
-        .filter(|library| library.load_name().is_none())
-    {
-        for symbol in library.symbols() {
-            match symbol.kind {
-                TemplateSymbolKind::Tag => tags.insert_available(symbol.name.as_str()),
-                TemplateSymbolKind::Filter => filters.insert_available(symbol.name.as_str()),
+    for (name, lookup) in template_libraries.definite_symbol_candidates(TemplateSymbolKind::Tag) {
+        match lookup {
+            EnvironmentSymbolLookup::Builtin => tags.insert_available(&name),
+            EnvironmentSymbolLookup::RequiresLoad(libraries) => {
+                for library in libraries {
+                    tags.insert_candidate(&name, library.as_str());
+                }
             }
+            EnvironmentSymbolLookup::Inconclusive | EnvironmentSymbolLookup::Absent => {}
         }
     }
-
-    // Known loadable records remain useful as unloaded candidates even when an
-    // open configuration remainder prevents asserting that any one is active.
-    for library in template_libraries
-        .resolved_libraries()
-        .filter(|library| library.load_name().is_some())
+    for (name, lookup) in template_libraries.definite_symbol_candidates(TemplateSymbolKind::Filter)
     {
-        let load_name = library
-            .load_name()
-            .expect("installed libraries should carry a load name");
-        for symbol in library.symbols() {
-            match symbol.kind {
-                TemplateSymbolKind::Tag => {
-                    tags.insert_candidate(symbol.name.as_str(), load_name.as_str());
-                }
-                TemplateSymbolKind::Filter => {
-                    filters.insert_candidate(symbol.name.as_str(), load_name.as_str());
+        match lookup {
+            EnvironmentSymbolLookup::Builtin => filters.insert_available(&name),
+            EnvironmentSymbolLookup::RequiresLoad(libraries) => {
+                for library in libraries {
+                    filters.insert_candidate(&name, library.as_str());
                 }
             }
+            EnvironmentSymbolLookup::Inconclusive | EnvironmentSymbolLookup::Absent => {}
         }
     }
 }
@@ -134,13 +126,14 @@ fn insert_template_symbols(
 /// The set of tags and filters available at a given position in a template,
 /// plus a mapping of unavailable-but-known symbols to their required library/libraries.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AvailableSymbols {
+pub(crate) struct AvailableSymbols {
     tags: SymbolScope,
     filters: SymbolScope,
 }
 
 impl AvailableSymbols {
     /// Build available symbols from a pre-computed load state and template libraries.
+    #[cfg(test)]
     #[must_use]
     fn from_load_state(load_state: &LoadState<'_>, template_libraries: &TemplateLibraries) -> Self {
         let mut tags = SymbolScope::default();
@@ -154,19 +147,40 @@ impl AvailableSymbols {
         Self { tags, filters }
     }
 
+    fn from_candidates(
+        load_state: &LoadState<'_>,
+        tags: &[TemplateSymbolCandidate],
+        filters: &[TemplateSymbolCandidate],
+    ) -> Self {
+        fn insert(scope: &mut SymbolScope, candidates: &[TemplateSymbolCandidate]) {
+            for candidate in candidates {
+                match &candidate.availability {
+                    TemplateSymbolAvailability::Builtin { .. } => {
+                        scope.insert_available(candidate.symbol.name());
+                    }
+                    TemplateSymbolAvailability::RequiresLoad { load_name } => {
+                        scope.insert_candidate(candidate.symbol.name(), load_name.as_str());
+                    }
+                }
+            }
+        }
+
+        let mut tag_scope = SymbolScope::default();
+        let mut filter_scope = SymbolScope::default();
+        insert(&mut tag_scope, tags);
+        insert(&mut filter_scope, filters);
+        tag_scope.apply_load_state(load_state);
+        filter_scope.apply_load_state(load_state);
+        Self {
+            tags: tag_scope,
+            filters: filter_scope,
+        }
+    }
+
     /// Check whether a tag name is available at this position.
     #[must_use]
     pub(crate) fn check_tag(&self, tag_name: &str) -> SymbolAvailability {
         self.tags.check(tag_name)
-    }
-
-    /// Check whether a template symbol is available at this position.
-    #[must_use]
-    pub fn contains_symbol(&self, symbol: &TemplateSymbol) -> bool {
-        match symbol.kind {
-            TemplateSymbolKind::Tag => self.tags.contains(symbol.name()),
-            TemplateSymbolKind::Filter => self.filters.contains(symbol.name()),
-        }
     }
 
     /// Check whether a filter name is available at this position.
@@ -188,11 +202,9 @@ pub(crate) struct SymbolIndex {
 
 impl SymbolIndex {
     /// Build a `SymbolIndex` from loaded libraries and template libraries.
+    #[cfg(test)]
     #[must_use]
-    pub(crate) fn build(
-        loaded_libraries: &LoadedLibraries,
-        template_libraries: &TemplateLibraries,
-    ) -> Self {
+    fn build(loaded_libraries: &LoadedLibraries, template_libraries: &TemplateLibraries) -> Self {
         let empty_loaded = LoadedLibraries::new(vec![]);
         let empty_state = empty_loaded.available_at(0);
         let initial = AvailableSymbols::from_load_state(&empty_state, template_libraries);
@@ -213,6 +225,36 @@ impl SymbolIndex {
             "SymbolIndex boundaries must be sorted by position"
         );
 
+        Self {
+            initial,
+            boundaries,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn build_environment(
+        db: &dyn crate::db::Db,
+        loaded_libraries: &LoadedLibraries,
+        environment: djls_project::TemplateEnvironment<'_>,
+    ) -> Self {
+        let tags = environment.symbol_candidates(db, TemplateSymbolKind::Tag);
+        let filters = environment.symbol_candidates(db, TemplateSymbolKind::Filter);
+        let empty_loaded = LoadedLibraries::new(vec![]);
+        let initial =
+            AvailableSymbols::from_candidates(&empty_loaded.available_at(0), &tags, &filters);
+        let boundaries = loaded_libraries
+            .statements()
+            .iter()
+            .map(|statement| {
+                let position = statement.span().end();
+                let symbols = AvailableSymbols::from_candidates(
+                    &loaded_libraries.available_at(position),
+                    &tags,
+                    &filters,
+                );
+                (position, symbols)
+            })
+            .collect();
         Self {
             initial,
             boundaries,

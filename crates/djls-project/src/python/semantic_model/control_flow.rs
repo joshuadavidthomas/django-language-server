@@ -10,7 +10,7 @@ pub(super) enum Truthiness {
 }
 
 impl Truthiness {
-    pub(super) const fn from_bool(value: bool) -> Self {
+    const fn from_bool(value: bool) -> Self {
         if value {
             Self::AlwaysTrue
         } else {

@@ -94,7 +94,7 @@ impl WarmCachePhase {
                 Some(template_directories(db, project).known_roots().count())
             }
             Self::IndexTemplateLibraries => {
-                let libraries = db.template_libraries();
+                let libraries = djls_project::template_libraries(db, project);
                 Some(libraries.installed_library_count())
             }
             Self::IndexTemplates => Some(template_resolution(db, project).origins(db).count()),

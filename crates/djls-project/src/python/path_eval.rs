@@ -15,7 +15,7 @@ impl PythonPathBindings {
         self.paths.insert(name.into(), value);
     }
 
-    pub(crate) fn get(&self, name: &str) -> Option<&Utf8PathBuf> {
+    fn get(&self, name: &str) -> Option<&Utf8PathBuf> {
         self.paths.get(name)
     }
 }

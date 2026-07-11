@@ -1,7 +1,9 @@
+use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::Project;
 use djls_project::SymbolKey;
+use djls_project::TemplateSymbolKind;
 use djls_project::extract_filter_arities;
 use djls_project::template_libraries;
 use rustc_hash::FxHashMap;
@@ -71,4 +73,38 @@ pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterArityS
     }
 
     specs
+}
+
+/// Return the effective filter arity at one occurrence when every feasible backend agrees.
+pub(crate) fn effective_filter_arity(
+    db: &dyn Db,
+    file: djls_source::File,
+    filter_name: &str,
+    load_state: &crate::scoping::LoadState<'_>,
+) -> Option<FilterArity> {
+    if db.project().is_none() {
+        return db.filter_arity_specs().get(filter_name).cloned();
+    }
+    let loaded = load_state.libraries_loading_symbol(filter_name);
+    let alternatives = crate::db::template_environment_for_file(db, file)
+        .effective_definition_libraries(db, filter_name, TemplateSymbolKind::Filter, &loaded);
+    let definitions: Option<Vec<Option<FilterArity>>> = alternatives
+        .into_iter()
+        .map(|alternative| match alternative {
+            EffectiveDefinitionLibrary::Known(library) => Some(library.and_then(|library| {
+                extract_filter_arities(db, library.file(), library.module_name().clone())
+                    .arities()
+                    .iter()
+                    .find(|(key, _)| key.name == filter_name)
+                    .map(|(_, arity)| arity.clone())
+            })),
+            EffectiveDefinitionLibrary::Unknown => None,
+        })
+        .collect();
+    let definitions = definitions?;
+    let first = definitions.first()?.as_ref()?;
+    definitions
+        .iter()
+        .all(|definition| definition.as_ref() == Some(first))
+        .then(|| first.clone())
 }

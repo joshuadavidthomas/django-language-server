@@ -7,7 +7,7 @@
 ```
 
 ```snapshot
-error[S117]: Tag 'one_arg_tag' takes exactly 1 argument, but 0 were given
+error[S117]: Tag 'one_arg_tag' requires at least 1 argument
  --> test.html:1:1
   |
 1 | {% one_arg_tag %}
@@ -21,7 +21,7 @@ error[S117]: Tag 'one_arg_tag' takes exactly 1 argument, but 0 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'one_arg_tag' takes exactly 1 argument, but 2 were given
+error[S117]: Tag 'one_arg_tag' accepts at most 1 argument
  --> test.html:1:1
   |
 1 | {% one_arg_tag first second %}
