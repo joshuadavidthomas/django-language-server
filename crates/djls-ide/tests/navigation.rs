@@ -84,6 +84,75 @@ fn goto_definition_falls_back_to_location_without_link_support() {
 }
 
 #[test]
+fn goto_definition_reports_the_known_possible_winner_for_inconclusive_search() {
+    let mut db = TestDatabase::new();
+    let source = r#"{% extends "base.html" %}"#;
+    let child_path = "/test/project/templates/child.html";
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates', '/test/project/app/templates'], 'APP_DIRS': False}]\n",
+        )
+        .template_file("child.html", child_path, source)
+        .template_file("base.html", "/test/project/templates/base.html", "first")
+        .template_file("base.html", "/test/project/app/templates/base.html", "second")
+        .install(&mut db);
+
+    let file = db.file(Utf8Path::new(child_path));
+    let response = goto_definition(
+        &db,
+        file,
+        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        true,
+    )
+    .expect("known possible origins should remain navigable");
+
+    let ls_types::GotoDefinitionResponse::Link(links) = response else {
+        panic!("location-link support should return location links");
+    };
+    let target_uris = links
+        .iter()
+        .map(|link| link.target_uri.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(target_uris, ["file:///test/project/templates/base.html"]);
+    assert!(links.iter().all(|link| {
+        link.origin_selection_range
+            == Some(ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 21),
+            ))
+    }));
+}
+
+#[test]
+fn goto_definition_returns_none_for_originless_inconclusive_search() {
+    let mut db = TestDatabase::new();
+    let source = r#"{% extends "missing.html" %}"#;
+    let child_path = "/test/project/templates/child.html";
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .template_file("child.html", child_path, source)
+        .install(&mut db);
+
+    let file = db.file(Utf8Path::new(child_path));
+    let response = goto_definition(
+        &db,
+        file,
+        Offset::new(u32::try_from(source.find("missing").unwrap()).unwrap()),
+        false,
+    );
+
+    assert_eq!(response, None);
+}
+
+#[test]
 fn find_references_reports_template_name_interior_range() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;

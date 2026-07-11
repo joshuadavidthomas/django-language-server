@@ -38,6 +38,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Changed template navigation to avoid reporting templates as missing when configuration or filesystem search is incomplete, while retaining known possible destinations.
 - Changed unreadable files to be skipped instead of analyzed as empty source.
 - Changed Python model and template-spec extraction to retain known facts after recoverable syntax errors.
 - Changed template goto definition to return origin ranges for clients that support definition links.

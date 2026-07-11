@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use djls_project::FindTemplateResult;
 use djls_project::Project;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
@@ -31,8 +32,7 @@ use crate::tags::TagSpecs;
 pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> TemplateInheritance<'_> {
     let resolution = template_resolution(db, project);
     let mut ancestors = Vec::new();
-    let mut visited = FxHashSet::default();
-    visited.insert(file);
+    let mut excluded = vec![file];
     let mut current_file = file;
     let mut current_template_name = resolution.primary_template_name(db, file);
 
@@ -60,29 +60,29 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
         };
 
         let template_name = TemplateName::new(db, resolved_name.into_owned());
-        let candidates = resolution.origins_for_name(db, template_name);
-        if candidates.is_empty() {
-            break if resolution.known_template_dirs(db).is_some() {
-                ChainEnd::Unresolved {
-                    name: template_name.name(db).clone(),
+        let origin = match resolution.resolve_excluding(db, template_name, &excluded) {
+            FindTemplateResult::Found(origin) => origin,
+            FindTemplateResult::DoesNotExist(error) => {
+                if resolution.origins_for_name(db, template_name).is_empty() {
+                    break ChainEnd::Unresolved {
+                        name: error.name.name(db).clone(),
+                    };
                 }
-            } else {
-                ChainEnd::IncompleteDirs
-            };
-        }
-
-        let Some(origin) = candidates
-            .iter()
-            .copied()
-            .find(|origin| !visited.contains(&origin.file(db)))
-        else {
-            break ChainEnd::Cycle;
+                break ChainEnd::Cycle;
+            }
+            FindTemplateResult::Inconclusive(search) => {
+                // Guessing a parent under an incomplete search could hang blocks off the
+                // wrong ancestor; end the chain and surface the uncertainty instead.
+                break ChainEnd::InconclusiveParent {
+                    name: search.name.name(db).clone(),
+                };
+            }
         };
 
         current_file = origin.file(db);
         current_template_name = Some(origin.template_name(db));
         ancestors.push(origin);
-        visited.insert(current_file);
+        excluded.push(current_file);
     };
 
     TemplateInheritance::new(db, ancestors, end)
@@ -105,7 +105,7 @@ pub enum ChainEnd {
     Root,
     Dynamic { span: Span },
     Unresolved { name: String },
-    IncompleteDirs,
+    InconclusiveParent { name: String },
     Cycle,
 }
 

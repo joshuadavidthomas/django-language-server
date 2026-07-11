@@ -75,7 +75,7 @@ fn corpus_template_inheritance_terminates() {
     println!("  Root: {}", distribution.root);
     println!("  Dynamic: {}", distribution.dynamic);
     println!("  Unresolved: {}", distribution.unresolved);
-    println!("  IncompleteDirs: {}", distribution.incomplete_dirs);
+    println!("  InconclusiveParent: {}", distribution.inconclusive_parent);
     println!("  Cycle: {}", distribution.cycle);
 }
 
@@ -84,7 +84,7 @@ struct ChainEndDistribution {
     root: usize,
     dynamic: usize,
     unresolved: usize,
-    incomplete_dirs: usize,
+    inconclusive_parent: usize,
     cycle: usize,
 }
 
@@ -94,7 +94,7 @@ impl ChainEndDistribution {
             ChainEnd::Root => self.root += 1,
             ChainEnd::Dynamic { .. } => self.dynamic += 1,
             ChainEnd::Unresolved { .. } => self.unresolved += 1,
-            ChainEnd::IncompleteDirs => self.incomplete_dirs += 1,
+            ChainEnd::InconclusiveParent { .. } => self.inconclusive_parent += 1,
             ChainEnd::Cycle => self.cycle += 1,
         }
     }

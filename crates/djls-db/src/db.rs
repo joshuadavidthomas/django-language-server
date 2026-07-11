@@ -8,14 +8,12 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_project::TemplateLibraries;
 use djls_project::compute_model_graph;
 use djls_project::template_libraries;
-use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
 use djls_semantic::compute_filter_arity_specs;
@@ -153,11 +151,6 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        self.project()
-            .and_then(|project| template_resolution(self, project).known_template_dirs(self))
-    }
-
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         self.settings().diagnostics().clone()
     }
@@ -205,6 +198,8 @@ mod marker_tests {
 
 #[cfg(test)]
 mod invalidation_tests {
+    use std::collections::BTreeMap;
+    use std::io;
     use std::sync::Arc;
     use std::sync::Mutex;
 
@@ -222,11 +217,13 @@ mod invalidation_tests {
     use djls_source::ChangeEvent;
     use djls_source::Db as SourceDb;
     use djls_source::File;
+    use djls_source::FileSystem;
     use djls_source::InMemoryFileSystem;
     use djls_source::Offset;
     use djls_source::OsFileSystem;
     use djls_source::SourceChanges;
     use djls_source::SourceFiles;
+    use djls_source::WalkOptions;
     use djls_source::path_to_file;
     use djls_templates::parse_template;
     use salsa::Database;
@@ -245,6 +242,65 @@ mod invalidation_tests {
     impl EventLog {
         fn take(&self) -> Vec<salsa::Event> {
             std::mem::take(&mut *self.events.lock().unwrap())
+        }
+    }
+
+    struct CountingFileSystem {
+        inner: InMemoryFileSystem,
+        walk_counts: Mutex<BTreeMap<Utf8PathBuf, usize>>,
+    }
+
+    impl CountingFileSystem {
+        fn new(inner: InMemoryFileSystem) -> Self {
+            Self {
+                inner,
+                walk_counts: Mutex::new(BTreeMap::new()),
+            }
+        }
+
+        fn walk_count(&self, root: &Utf8Path) -> usize {
+            self.walk_counts
+                .lock()
+                .unwrap()
+                .get(root)
+                .copied()
+                .unwrap_or_default()
+        }
+    }
+
+    impl FileSystem for CountingFileSystem {
+        fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+            self.inner.read_to_string(path)
+        }
+
+        fn exists(&self, path: &Utf8Path) -> bool {
+            self.inner.exists(path)
+        }
+
+        fn is_file(&self, path: &Utf8Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Utf8Path) -> bool {
+            self.inner.is_dir(path)
+        }
+
+        fn case_sensitivity(&self) -> djls_source::CaseSensitivity {
+            self.inner.case_sensitivity()
+        }
+
+        fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+            self.inner.path_exists_case_sensitive(path, prefix)
+        }
+
+        fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> djls_source::RootWalk {
+            *self
+                .walk_counts
+                .lock()
+                .unwrap()
+                .entry(root.to_path_buf())
+                .or_default() += 1;
+            self.inner.walk_root(root, options)
         }
     }
 
@@ -548,7 +604,78 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn semantic_db_template_dirs_returns_none_when_derivation_is_unknown() {
+    fn template_resolution_views_share_one_walk_per_root_revision() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let templates_dir = root.join("templates");
+
+        let mut inner = InMemoryFileSystem::new();
+        inner.add_file(root.join("manage.py"), String::new());
+        inner.add_file(
+            root.join("settings.py"),
+            format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+            ),
+        );
+        inner.add_file(templates_dir.join("base.html"), "base".to_string());
+        let fs = Arc::new(CountingFileSystem::new(inner));
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            storage: salsa::Storage::default(),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+        {
+            let resolution = djls_project::template_resolution(&db, project);
+            let name = djls_project::TemplateName::new(&db, "base.html".to_string());
+            assert_eq!(resolution.origins(&db).count(), 1);
+            assert_eq!(resolution.template_names(&db).count(), 1);
+            assert_eq!(resolution.origins_for_name(&db, name).len(), 1);
+            assert!(matches!(
+                resolution.resolve(&db, name),
+                djls_project::FindTemplateResult::Found(_)
+            ));
+        }
+        assert_eq!(
+            fs.walk_count(&templates_dir),
+            1,
+            "all resolution views should reuse the same directory index"
+        );
+
+        let source_root = db.files().expect_root(&db, templates_dir.as_path());
+        db.bump_file_root_revision(source_root);
+
+        {
+            let resolution = djls_project::template_resolution(&db, project);
+            let name = djls_project::TemplateName::new(&db, "base.html".to_string());
+            assert_eq!(resolution.origins(&db).count(), 1);
+            assert_eq!(resolution.template_names(&db).count(), 1);
+            assert_eq!(resolution.origins_for_name(&db, name).len(), 1);
+            assert!(matches!(
+                resolution.resolve(&db, name),
+                djls_project::FindTemplateResult::Found(_)
+            ));
+        }
+        assert_eq!(
+            fs.walk_count(&templates_dir),
+            2,
+            "a relevant root revision bump should trigger exactly one additional walk"
+        );
+    }
+
+    #[test]
+    fn template_directories_reports_incomplete_derivation() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -571,11 +698,11 @@ mod invalidation_tests {
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        assert!(db.template_dirs().is_none());
+        assert!(djls_project::template_directories(&db, project).configuration_may_omit_roots());
     }
 
     #[test]
-    fn semantic_db_template_dirs_does_not_index_templates() {
+    fn template_directories_does_not_index_templates() {
         let event_log = EventLog::default();
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
@@ -615,20 +742,25 @@ mod invalidation_tests {
         db.project = Some(project);
         event_log.take();
 
-        assert_eq!(db.template_dirs().unwrap(), vec![templates_dir]);
+        assert_eq!(
+            djls_project::template_directories(&db, project)
+                .known_roots()
+                .collect::<Vec<_>>(),
+            [templates_dir.as_path()]
+        );
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "template_dirs"),
-            "template_dirs should derive the trusted directory list"
+            was_executed(&db, &events, "template_directories"),
+            "template_directories should derive the trusted directory list"
         );
         assert!(
             !was_executed(&db, &events, "project_template_files"),
-            "template_dirs should not walk template files"
+            "template_directories should not walk template files"
         );
     }
 
     #[test]
-    fn settings_source_change_invalidates_template_dirs() {
+    fn settings_source_change_invalidates_template_directories() {
         let event_log = EventLog::default();
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
@@ -672,7 +804,12 @@ mod invalidation_tests {
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        assert_eq!(db.template_dirs().unwrap(), vec![templates_dir.clone()]);
+        assert_eq!(
+            djls_project::template_directories(&db, project)
+                .known_roots()
+                .collect::<Vec<_>>(),
+            [templates_dir.as_path()]
+        );
         event_log.take();
 
         let settings_file = path_to_file(&db, &settings_path).expect("fixture file should exist");
@@ -685,16 +822,21 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
             .apply(&mut db);
 
-        assert_eq!(db.template_dirs().unwrap(), vec![other_templates_dir]);
+        assert_eq!(
+            djls_project::template_directories(&db, project)
+                .known_roots()
+                .collect::<Vec<_>>(),
+            [other_templates_dir.as_path()]
+        );
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "template_dirs"),
-            "template_dirs should re-execute after the settings source changes"
+            was_executed(&db, &events, "template_directories"),
+            "template_directories should re-execute after the settings source changes"
         );
     }
 
     #[test]
-    fn unrelated_file_revision_does_not_invalidate_template_dirs() {
+    fn unrelated_file_revision_does_not_invalidate_template_directories() {
         let event_log = EventLog::default();
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
@@ -735,17 +877,27 @@ mod invalidation_tests {
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        assert_eq!(db.template_dirs().unwrap(), vec![templates_dir]);
+        assert_eq!(
+            djls_project::template_directories(&db, project)
+                .known_roots()
+                .collect::<Vec<_>>(),
+            [templates_dir.as_path()]
+        );
         event_log.take();
 
         let other_file = path_to_file(&db, &other_path).expect("fixture file should exist");
         db.bump_file_revision(other_file);
 
-        assert_eq!(db.template_dirs().unwrap(), vec![root.join("templates")]);
+        assert_eq!(
+            djls_project::template_directories(&db, project)
+                .known_roots()
+                .collect::<Vec<_>>(),
+            [root.join("templates")]
+        );
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "template_dirs"),
-            "template_dirs should stay cached after an unrelated file revision changes"
+            !was_executed(&db, &events, "template_directories"),
+            "template_directories should stay cached after an unrelated file revision changes"
         );
     }
 

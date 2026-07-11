@@ -1,3 +1,4 @@
+use djls_project::FindTemplateResult;
 use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::TemplateName;
@@ -64,6 +65,18 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
                 std::borrow::Cow::Borrowed(_) => raw_target_template_name,
                 std::borrow::Cow::Owned(name) => TemplateName::new(db, name),
             };
+            match resolution.resolve(db, target_template_name) {
+                FindTemplateResult::Found(_) => {}
+                // Possible origins surviving an incomplete search are still real reference
+                // targets worth indexing; an inconclusive miss with no candidates indexes
+                // nothing rather than guessing.
+                FindTemplateResult::Inconclusive(search) if !search.possible_origins.is_empty() => {
+                }
+                FindTemplateResult::DoesNotExist(_) | FindTemplateResult::Inconclusive(_) => {
+                    continue;
+                }
+            }
+
             let reference = TemplateReference::new(
                 db,
                 source,

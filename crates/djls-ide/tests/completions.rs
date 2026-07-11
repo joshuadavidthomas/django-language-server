@@ -200,6 +200,36 @@ fn template_name_completions_use_resolvable_project_names() {
 }
 
 #[test]
+fn template_name_completions_retain_known_templates_when_search_is_incomplete() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#);
+    let child_path = "/test/project/templates/child.html";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .template_file("child.html", child_path, &source)
+        .template_file("base.html", "/test/project/templates/base.html", "base")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new(child_path));
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("known template names should remain completion candidates");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let labels = items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(labels, ["base.html", "child.html"]);
+}
+
+#[test]
 fn template_name_completion_replaces_quoted_argument_interior() {
     let mut db = TestDatabase::new();
     let (source, offset) = source_and_offset(r#"{% extends "acc§ount/detail.html" %}"#);

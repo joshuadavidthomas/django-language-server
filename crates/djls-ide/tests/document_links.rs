@@ -70,6 +70,27 @@ fn document_links_resolve_template_references_with_interior_ranges() {
 }
 
 #[test]
+fn document_links_skip_inconclusive_template_references() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/child.html";
+    let source = "{% extends \"base.html\" %}\n";
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .template_file("child.html", child_path, source)
+        .template_file("base.html", "/test/project/templates/base.html", "base")
+        .install(&mut db);
+
+    let file = db.file(Utf8Path::new(child_path));
+
+    assert!(document_links(&db, file).is_empty());
+}
+
+#[test]
 fn document_links_resolve_relative_include_to_sibling_template() {
     let mut db = TestDatabase::new();
     let child_path = "/test/project/templates/dir/child.html";

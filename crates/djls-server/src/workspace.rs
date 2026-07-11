@@ -45,6 +45,7 @@ use djls_source::FileSystem;
 use djls_source::FxDashMap;
 use djls_source::OsFileSystem;
 use djls_source::PositionEncoding;
+use djls_source::RootWalk;
 use djls_source::WalkEntry;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
@@ -302,21 +303,32 @@ impl FileSystem for OverlayFileSystem {
             || self.disk.path_exists_case_sensitive(path, prefix)
     }
 
-    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
-        let mut entries = self.disk.walk_entries(root, options)?;
-
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        // Open buffers are authoritative evidence that the root's subtree
+        // exists, so buffers under a root the disk reports as missing or
+        // inaccessible upgrade it to a traversed directory (retaining the
+        // disk's issue as certainty evidence).
+        let mut buffered = Vec::new();
         for (path, _document) in self.buffers.iter() {
-            for entry in walk_entries_for_buffer(root, &path, options) {
-                if entries.iter().any(|existing| existing.path == entry.path) {
-                    continue;
-                }
-                entries.push(entry);
-            }
+            buffered.extend(walk_entries_for_buffer(root, &path, options));
         }
 
+        let disk = self.disk.walk_root(root, options);
+        if buffered.is_empty() {
+            return disk;
+        }
+
+        let (mut entries, issues) = match disk {
+            RootWalk::Missing => (Vec::new(), Vec::new()),
+            RootWalk::Inaccessible(kind) => (Vec::new(), vec![kind]),
+            RootWalk::File(entry) => (vec![entry], Vec::new()),
+            RootWalk::Directory { entries, issues } => (entries, issues),
+        };
+
+        entries.append(&mut buffered);
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         entries.dedup_by(|left, right| left.path == right.path);
-        Ok(entries)
+        RootWalk::Directory { entries, issues }
     }
 }
 
@@ -432,6 +444,49 @@ mod tests {
         TextDocument::new(path.to_path_buf(), content.to_string(), 1, FileKind::Python)
     }
 
+    struct WalkIssueFileSystem {
+        inner: InMemoryFileSystem,
+    }
+
+    impl FileSystem for WalkIssueFileSystem {
+        fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+            self.inner.read_to_string(path)
+        }
+
+        fn exists(&self, path: &Utf8Path) -> bool {
+            self.inner.exists(path)
+        }
+
+        fn is_file(&self, path: &Utf8Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Utf8Path) -> bool {
+            self.inner.is_dir(path)
+        }
+
+        fn case_sensitivity(&self) -> CaseSensitivity {
+            self.inner.case_sensitivity()
+        }
+
+        fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+            self.inner.path_exists_case_sensitive(path, prefix)
+        }
+
+        fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+            match self.inner.walk_root(root, options) {
+                RootWalk::Directory {
+                    entries,
+                    mut issues,
+                } => {
+                    issues.push(io::ErrorKind::PermissionDenied);
+                    RootWalk::Directory { entries, issues }
+                }
+                other => other,
+            }
+        }
+    }
+
     #[test]
     fn overlay_reads_from_buffer_before_disk() {
         let mut disk = InMemoryFileSystem::new();
@@ -455,13 +510,51 @@ mod tests {
         let path = Utf8PathBuf::from("/project/templates/buffer.html");
         buffers.open(path.clone(), text_document(&db, &path, "buffer"));
 
-        let entries = fs.walk_entries(root, &WalkOptions::unrestricted()).unwrap();
+        let RootWalk::Directory { entries, issues } =
+            fs.walk_root(root, &WalkOptions::unrestricted())
+        else {
+            panic!("expected a traversed directory");
+        };
         let relatives: Vec<_> = entries
             .iter()
             .map(|entry| entry.relative.as_str())
             .collect();
 
         assert_eq!(relatives, vec!["buffer.html"]);
+        assert_eq!(issues, Vec::new());
+    }
+
+    #[test]
+    fn overlay_detailed_walk_retains_disk_and_buffer_entries_with_disk_issue() {
+        let root = Utf8Path::new("/project/templates");
+        let disk_path = Utf8PathBuf::from("/project/templates/disk.html");
+        let buffer_path = Utf8PathBuf::from("/project/templates/buffer.html");
+        let mut disk = InMemoryFileSystem::new();
+        disk.add_file(disk_path, "disk".to_string());
+
+        let buffers = Buffers::new();
+        let fs = OverlayFileSystem::new(
+            buffers.clone(),
+            Arc::new(WalkIssueFileSystem { inner: disk }),
+        );
+        let db = TestDb::new(Arc::new(InMemoryFileSystem::new()));
+        buffers.open(
+            buffer_path.clone(),
+            text_document(&db, &buffer_path, "buffer"),
+        );
+
+        let RootWalk::Directory { entries, issues } =
+            fs.walk_root(root, &WalkOptions::unrestricted())
+        else {
+            panic!("expected a traversed directory");
+        };
+        let relatives: Vec<_> = entries
+            .iter()
+            .map(|entry| entry.relative.as_str())
+            .collect();
+
+        assert_eq!(relatives, vec!["buffer.html", "disk.html"]);
+        assert_eq!(issues, vec![io::ErrorKind::PermissionDenied]);
     }
 
     #[test]
@@ -495,7 +588,10 @@ mod tests {
             text_document(&db, &visible_path, "visible"),
         );
 
-        let entries = fs.walk_entries(root, &WalkOptions::default()).unwrap();
+        let RootWalk::Directory { entries, .. } = fs.walk_root(root, &WalkOptions::default())
+        else {
+            panic!("expected a traversed directory");
+        };
         let relatives: Vec<_> = entries
             .iter()
             .map(|entry| entry.relative.as_str())

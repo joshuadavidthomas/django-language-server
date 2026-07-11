@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
 use djls_project::ModelGraph;
 use djls_project::Project;
@@ -263,12 +262,6 @@ impl ProjectDb for OsTestDatabase {
 impl SemanticDb for TestDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
-    }
-
-    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        self.project.and_then(|project| {
-            djls_project::template_resolution(self, project).known_template_dirs(self)
-        })
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {

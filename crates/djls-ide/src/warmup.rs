@@ -1,3 +1,4 @@
+use djls_project::template_directories;
 use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
 
@@ -89,7 +90,9 @@ impl WarmCachePhase {
                 let _ = db.model_graph();
                 None
             }
-            Self::ResolveTemplateDirs => Some(db.template_dirs().map_or(0, |dirs| dirs.len())),
+            Self::ResolveTemplateDirs => {
+                Some(template_directories(db, project).known_roots().count())
+            }
             Self::IndexTemplateLibraries => {
                 let libraries = db.template_libraries();
                 Some(libraries.installed_library_count())

@@ -4,6 +4,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
+use djls_source::RootWalk;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 use djls_source::path_to_file;
@@ -195,10 +196,19 @@ pub(crate) fn templatetag_package_candidates(
             continue;
         }
 
-        let entries = match db.walk_entries(&templatetags_dir, &WalkOptions::shallow()) {
-            Ok(entries) => entries,
-            Err(err) => {
-                tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
+        let entries = match db.walk_root(&templatetags_dir, &WalkOptions::shallow()) {
+            RootWalk::Directory { entries, issues } => {
+                if !issues.is_empty() {
+                    tracing::warn!(
+                        "Partially walked template tag package {templatetags_dir}: {issues:?}"
+                    );
+                    scan.mark_incomplete();
+                }
+                entries
+            }
+            RootWalk::Missing | RootWalk::File(_) => continue,
+            RootWalk::Inaccessible(kind) => {
+                tracing::warn!("Failed to walk template tag package {templatetags_dir}: {kind:?}");
                 scan.mark_incomplete();
                 continue;
             }
@@ -330,10 +340,21 @@ fn discover_templatetag_candidate_sources(
     let mut results = Vec::new();
     let mut complete = true;
 
-    let entries = match fs.walk_entries(base_dir, &options) {
-        Ok(entries) => entries,
-        Err(err) => {
-            tracing::warn!("Failed to walk Python source root {}: {}", base_dir, err);
+    let entries = match fs.walk_root(base_dir, &options) {
+        RootWalk::Directory { entries, issues } => {
+            if !issues.is_empty() {
+                tracing::warn!(
+                    "Partially walked Python source root {}: {:?}",
+                    base_dir,
+                    issues
+                );
+                complete = false;
+            }
+            entries
+        }
+        RootWalk::Missing | RootWalk::File(_) => Vec::new(),
+        RootWalk::Inaccessible(kind) => {
+            tracing::warn!("Failed to walk Python source root {}: {:?}", base_dir, kind);
             return TemplateTagCandidateSourceScan::new(results, false);
         }
     };

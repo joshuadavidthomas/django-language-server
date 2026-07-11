@@ -4,6 +4,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
+use djls_source::RootWalk;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 use rustc_hash::FxHashMap;
@@ -87,10 +88,20 @@ fn discover_model_files_in_root(
 
     let mut results = Vec::new();
 
-    let entries = match fs.walk_entries(base_dir, &options) {
-        Ok(entries) => entries,
-        Err(err) => {
-            tracing::warn!("Failed to walk Python source root {}: {}", base_dir, err);
+    let entries = match fs.walk_root(base_dir, &options) {
+        RootWalk::Directory { entries, issues } => {
+            if !issues.is_empty() {
+                tracing::warn!(
+                    "Partially walked Python source root {}: {:?}",
+                    base_dir,
+                    issues
+                );
+            }
+            entries
+        }
+        RootWalk::Missing | RootWalk::File(_) => return results,
+        RootWalk::Inaccessible(kind) => {
+            tracing::warn!("Failed to walk Python source root {}: {:?}", base_dir, kind);
             return results;
         }
     };

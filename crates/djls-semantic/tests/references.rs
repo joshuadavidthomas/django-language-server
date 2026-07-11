@@ -203,6 +203,51 @@ fn template_references_include_only_active_references() {
 }
 
 #[test]
+fn template_references_exclude_missing_targets() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates"],
+        vec![(
+            "child.html",
+            "/test/project/templates/child.html",
+            "{% include 'missing.html' %}",
+        )],
+    );
+
+    let missing = TemplateName::new(&db, "missing.html".to_string());
+
+    assert!(references_to_template_name(&db, project, missing).is_empty());
+}
+
+#[test]
+fn template_references_keep_known_inconclusive_targets() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .template_file(
+            "child.html",
+            "/test/project/templates/child.html",
+            "{% include 'partial.html' %}",
+        )
+        .template_file(
+            "partial.html",
+            "/test/project/templates/partial.html",
+            "partial",
+        )
+        .build(&db);
+    let partial = TemplateName::new(&db, "partial.html".to_string());
+
+    let references = references_to_template_name(&db, project, partial);
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].kind(&db), TemplateReferenceKind::Include);
+}
+
+#[test]
 fn template_references_to_template_name_include_all_sources() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(

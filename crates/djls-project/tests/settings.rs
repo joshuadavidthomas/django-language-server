@@ -14,7 +14,7 @@ use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
-use djls_source::WalkEntry;
+use djls_source::RootWalk;
 use djls_source::WalkOptions;
 use djls_testing::Corpus;
 use djls_testing::OsTestDatabase;
@@ -139,6 +139,8 @@ fn settings_accept_supported_python_newer_than_ruff_default_target() {
 enum FileSystemFailure {
     Read(Utf8PathBuf),
     Walk(Utf8PathBuf),
+    PartialWalk(Utf8PathBuf),
+    PathToFile(Utf8PathBuf),
 }
 
 struct FailingFileSystem {
@@ -165,6 +167,12 @@ impl FileSystem for FailingFileSystem {
     }
 
     fn is_file(&self, path: &Utf8Path) -> bool {
+        if let FileSystemFailure::PathToFile(unindexable) = &self.failure
+            && path == unindexable
+        {
+            return false;
+        }
+
         self.inner.is_file(path)
     }
 
@@ -180,17 +188,22 @@ impl FileSystem for FailingFileSystem {
         self.inner.path_exists_case_sensitive(path, prefix)
     }
 
-    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
-        if let FileSystemFailure::Walk(failing_root) = &self.failure
-            && root == failing_root
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "test root is unwalkable",
-            ));
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        match &self.failure {
+            FileSystemFailure::Walk(failing_root) if root == failing_root => {
+                RootWalk::Inaccessible(io::ErrorKind::PermissionDenied)
+            }
+            FileSystemFailure::PartialWalk(failing_root) if root == failing_root => {
+                match self.inner.walk_root(root, options) {
+                    RootWalk::Directory { entries, .. } => RootWalk::Directory {
+                        entries,
+                        issues: vec![io::ErrorKind::PermissionDenied],
+                    },
+                    other => other,
+                }
+            }
+            _ => self.inner.walk_root(root, options),
         }
-
-        self.inner.walk_entries(root, options)
     }
 }
 
@@ -204,6 +217,51 @@ fn project_with_settings(
         fixture = fixture.file(*path, *source);
     }
     fixture.install(db)
+}
+
+fn project_with_file_system_failure(
+    files: &[(&str, &str)],
+    failure: FileSystemFailure,
+) -> (OsTestDatabase, Project) {
+    let mut fs = InMemoryFileSystem::new();
+    for (path, source) in files {
+        fs.add_file(Utf8PathBuf::from(*path), (*source).to_string());
+    }
+
+    let mut db =
+        OsTestDatabase::with_file_system(Arc::new(FailingFileSystem { inner: fs, failure }));
+    let root = Utf8PathBuf::from("/proj");
+    let interpreter = Interpreter::Auto;
+    let pythonpath = Vec::new();
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        root.as_path(),
+        &interpreter,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = Project::new(
+        &db,
+        root,
+        search_paths,
+        interpreter,
+        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        pythonpath,
+        Vec::new(),
+        djls_conf::Settings::default().tagspecs().clone(),
+    );
+    db.set_project(project);
+
+    (db, project)
+}
+
+fn complete_template_dirs(db: &dyn djls_project::Db, project: Project) -> Vec<Utf8PathBuf> {
+    let directories = template_directories(db, project);
+    assert!(!directories.configuration_may_omit_roots());
+    directories
+        .known_roots()
+        .map(Utf8Path::to_path_buf)
+        .collect()
 }
 
 fn apply_project_discovery(db: &mut TestDatabase) {
@@ -623,9 +681,7 @@ fn template_dirs_resolve_settings_module_file() {
         )],
     );
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/templates")]);
 }
@@ -667,6 +723,151 @@ fn template_dirs_merge_equivalent_explicit_backend_branches() {
 }
 
 #[test]
+fn template_resolution_earlier_walk_failure_weakens_later_candidate() {
+    let settings = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/first', '/proj/second'], 'APP_DIRS': False}]\n";
+    let (db, project) = project_with_file_system_failure(
+        &[
+            ("/proj/myproject/settings.py", settings),
+            ("/proj/first/other.html", "other"),
+            ("/proj/second/base.html", "base"),
+        ],
+        FileSystemFailure::Walk(Utf8PathBuf::from("/proj/first")),
+    );
+    let name = TemplateName::new(&db, "base.html".to_string());
+
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected the earlier walk failure to make resolution inconclusive");
+    };
+
+    assert_eq!(search.name, name);
+    assert_eq!(search.possible_origins.len(), 1);
+    assert_eq!(
+        search.possible_origins[0].path_buf(&db),
+        Utf8Path::new("/proj/second/base.html")
+    );
+}
+
+#[test]
+fn template_resolution_retains_candidate_from_partial_walk_as_possible_origin() {
+    let settings = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n";
+    let (db, project) = project_with_file_system_failure(
+        &[
+            ("/proj/myproject/settings.py", settings),
+            ("/proj/templates/base.html", "base"),
+        ],
+        FileSystemFailure::PartialWalk(Utf8PathBuf::from("/proj/templates")),
+    );
+    let name = TemplateName::new(&db, "base.html".to_string());
+
+    let resolution = template_resolution(&db, project);
+    assert_eq!(resolution.origins(&db).count(), 1);
+    let FindTemplateResult::Inconclusive(search) = resolution.resolve(&db, name) else {
+        panic!("expected the partial walk to make its retained candidate uncertain");
+    };
+
+    assert_eq!(search.possible_origins.len(), 1);
+    assert_eq!(
+        search.possible_origins[0].path_buf(&db),
+        Utf8Path::new("/proj/templates/base.html")
+    );
+}
+
+#[test]
+fn template_resolution_definite_earlier_candidate_wins_before_later_walk_failure() {
+    let settings = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/first', '/proj/second'], 'APP_DIRS': False}]\n";
+    let (db, project) = project_with_file_system_failure(
+        &[
+            ("/proj/myproject/settings.py", settings),
+            ("/proj/first/base.html", "base"),
+            ("/proj/second/other.html", "other"),
+        ],
+        FileSystemFailure::Walk(Utf8PathBuf::from("/proj/second")),
+    );
+    let name = TemplateName::new(&db, "base.html".to_string());
+
+    let FindTemplateResult::Found(origin) = template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected the definite earlier candidate to win");
+    };
+
+    assert_eq!(origin.path_buf(&db), Utf8Path::new("/proj/first/base.html"));
+}
+
+#[test]
+fn template_resolution_no_candidate_with_walk_failure_is_inconclusive() {
+    let settings = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n";
+    let (db, project) = project_with_file_system_failure(
+        &[
+            ("/proj/myproject/settings.py", settings),
+            ("/proj/templates/other.html", "other"),
+        ],
+        FileSystemFailure::Walk(Utf8PathBuf::from("/proj/templates")),
+    );
+    let name = TemplateName::new(&db, "missing.html".to_string());
+
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected the failed walk to make a missing result inconclusive");
+    };
+
+    assert_eq!(search.name, name);
+    assert!(search.possible_origins.is_empty());
+}
+
+#[test]
+fn template_resolution_target_path_conversion_failure_is_inconclusive() {
+    let settings = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n";
+    let target = Utf8PathBuf::from("/proj/templates/base.html");
+    let (db, project) = project_with_file_system_failure(
+        &[
+            ("/proj/myproject/settings.py", settings),
+            ("/proj/templates/base.html", "base"),
+        ],
+        FileSystemFailure::PathToFile(target),
+    );
+    let name = TemplateName::new(&db, "base.html".to_string());
+
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected the target indexing failure to make resolution inconclusive");
+    };
+
+    assert_eq!(search.name, name);
+    assert!(search.possible_origins.is_empty());
+}
+
+#[test]
+fn template_resolution_app_dirs_candidate_walk_failure_is_inconclusive() {
+    let settings = "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n";
+    let (db, project) = project_with_file_system_failure(
+        &[
+            ("/proj/myproject/settings.py", settings),
+            ("/proj/blog/__init__.py", ""),
+        ],
+        FileSystemFailure::Walk(Utf8PathBuf::from("/proj/blog/templates")),
+    );
+    let name = TemplateName::new(&db, "missing.html".to_string());
+
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected the APP_DIRS metadata failure to make resolution inconclusive");
+    };
+
+    assert!(search.possible_origins.is_empty());
+    assert_eq!(
+        template_directories(&db, project)
+            .known_roots()
+            .collect::<Vec<_>>(),
+        [Utf8Path::new("/proj/blog/templates")]
+    );
+}
+
+#[test]
 fn template_dirs_keep_different_explicit_backend_alternatives() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
@@ -682,10 +883,10 @@ fn template_dirs_keep_different_explicit_backend_alternatives() {
         ],
     );
 
-    let resolution = template_resolution(&db, project);
-    assert!(resolution.known_template_dirs(&db).is_none());
+    let directories = template_directories(&db, project);
+    assert!(directories.configuration_may_omit_roots());
 
-    let origins: Vec<_> = resolution
+    let origins: Vec<_> = template_resolution(&db, project)
         .origins(&db)
         .map(|origin| origin.path_buf(&db).clone())
         .collect();
@@ -696,6 +897,38 @@ fn template_dirs_keep_different_explicit_backend_alternatives() {
             Utf8PathBuf::from("/proj/b/index.html"),
         ]
     );
+
+    let name = TemplateName::new(&db, "index.html".to_string());
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected alternative backend ordering to precede known roots");
+    };
+    assert_eq!(search.possible_origins.len(), 2);
+}
+
+#[test]
+fn unknown_backend_before_known_backend_weakens_known_candidate() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/templates/index.html", "index"),
+            (
+                "/proj/myproject/settings.py",
+                "TEMPLATES = [UNKNOWN, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n",
+            ),
+        ],
+    );
+    let name = TemplateName::new(&db, "index.html".to_string());
+
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected unknown backend ordering to precede the known root");
+    };
+    assert_eq!(search.possible_origins.len(), 1);
 }
 
 #[test]
@@ -728,9 +961,9 @@ fn missing_template_backend_is_partial_and_contributes_no_backend_facts() {
         serde_json::Value::Null
     );
 
-    let resolution = template_resolution(&db, project);
-    assert!(resolution.known_template_dirs(&db).is_none());
-    assert_eq!(resolution.origins(&db).count(), 0);
+    let directories = template_directories(&db, project);
+    assert!(directories.configuration_may_omit_roots());
+    assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
     assert!(
         template_context_processors(&db, project)
             .processors()
@@ -773,9 +1006,9 @@ fn non_string_template_backend_is_partial_and_contributes_no_backend_facts() {
         serde_json::Value::Null
     );
 
-    let resolution = template_resolution(&db, project);
-    assert!(resolution.known_template_dirs(&db).is_none());
-    assert_eq!(resolution.origins(&db).count(), 0);
+    let directories = template_directories(&db, project);
+    assert!(directories.configuration_may_omit_roots());
+    assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
     assert!(
         template_context_processors(&db, project)
             .processors()
@@ -793,9 +1026,9 @@ fn template_dirs_return_unknown_for_missing_settings_module() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(&mut db, "myproject.settings", &[]);
 
-    let dirs = template_resolution(&db, project).known_template_dirs(&db);
+    let directories = template_directories(&db, project);
 
-    assert!(dirs.is_none());
+    assert!(directories.configuration_may_omit_roots());
 }
 
 #[test]
@@ -823,9 +1056,7 @@ fn template_dirs_resolve_relative_star_imports() {
         ],
     );
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(
         dirs,
@@ -861,9 +1092,7 @@ fn template_dirs_resolve_relative_star_imports_from_package_module() {
         ],
     );
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(
         dirs,
@@ -890,9 +1119,7 @@ fn template_dirs_recover_from_star_import_cycle() {
         ],
     );
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/blog/templates")]);
 }
@@ -914,9 +1141,7 @@ fn template_dirs_include_dirs_entries_before_app_dirs() {
         ],
     );
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(
         dirs,
@@ -943,9 +1168,7 @@ fn template_dirs_resolve_app_config_entries() {
         ],
     );
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/blog/templates")]);
 }
@@ -966,9 +1189,7 @@ fn template_dirs_resolve_app_config_class_from_init_module() {
         ],
     );
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/something/templates")]);
 }
@@ -989,9 +1210,9 @@ fn template_dirs_demote_broken_app_config_entry_to_partial() {
         ],
     );
 
-    let dirs = template_resolution(&db, project).known_template_dirs(&db);
+    let directories = template_directories(&db, project);
 
-    assert!(dirs.is_none());
+    assert!(directories.configuration_may_omit_roots());
 }
 
 #[test]
@@ -1142,9 +1363,7 @@ fn template_dirs_resolve_apps_from_site_packages_search_path() {
         .search_paths(search_paths)
         .install(&mut db);
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(dirs, vec![Utf8PathBuf::from("/site/pkg/templates")]);
 }
@@ -1164,9 +1383,7 @@ fn template_dirs_resolve_bare_namespace_app_entry() {
         ],
     );
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("namespace app template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/nsapp/templates")]);
 }
@@ -1192,9 +1409,7 @@ fn template_dirs_resolve_namespace_app_portions_in_root_order() {
         .search_paths(search_paths)
         .install(&mut db);
 
-    let dirs = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("namespace app template dirs should be known");
+    let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(
         dirs,
@@ -1221,9 +1436,9 @@ fn template_dirs_demote_file_module_app_to_partial() {
         ],
     );
 
-    let dirs = template_resolution(&db, project).known_template_dirs(&db);
+    let directories = template_directories(&db, project);
 
-    assert!(dirs.is_none());
+    assert!(directories.configuration_may_omit_roots());
 }
 
 #[test]
@@ -1238,9 +1453,9 @@ fn template_dirs_demote_unresolved_app_to_partial() {
         )],
     );
 
-    let dirs = template_resolution(&db, project).known_template_dirs(&db);
+    let directories = template_directories(&db, project);
 
-    assert!(dirs.is_none());
+    assert!(directories.configuration_may_omit_roots());
 }
 
 #[test]
@@ -2135,10 +2350,11 @@ fn django_facts_golden_template_dirs_match() {
                 .replace("${SITE_PACKAGES}", django_source_root.as_str())
         })
         .collect();
-    let actual: Vec<_> = template_resolution(&db, project)
-        .known_template_dirs(&db)
-        .expect("template dirs should be known")
+    let actual: Vec<_> = complete_template_dirs(&db, project)
         .into_iter()
+        // APP_DIRS now retains missing candidate roots so detailed walking can distinguish
+        // absence from metadata failure; the golden records concrete directories only.
+        .filter(|path| db.path_is_dir(path))
         .map(|path| path.to_string())
         .collect();
 

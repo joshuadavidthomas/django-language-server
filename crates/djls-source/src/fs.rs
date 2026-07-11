@@ -115,7 +115,7 @@ impl CaseSensitivity {
 /// template-name mapping while preserving the full path for reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalkEntry {
-    /// Root path passed to `walk_entries`.
+    /// Root path passed to `walk_root`.
     pub root: Utf8PathBuf,
     /// Full path to the discovered entry.
     pub path: Utf8PathBuf,
@@ -140,6 +140,30 @@ impl WalkEntry {
     }
 }
 
+/// Result of walking a filesystem root.
+///
+/// A walk never hides partial results: entries discovered before a traversal
+/// problem stay in [`Directory`](Self::Directory) alongside the problem itself,
+/// and the root's disposition is reported from the same observation as the
+/// entries rather than requiring a separate probe. Issues carry only stable
+/// error kinds so outcomes do not depend on platform-specific error messages.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RootWalk {
+    /// The root does not exist (or is neither file nor directory): an
+    /// exhaustively empty search, not an error.
+    Missing,
+    /// The root is itself a file rather than a directory to traverse.
+    File(WalkEntry),
+    /// The root is a directory that was traversed. Issues weaken any claim of
+    /// exhaustiveness but never erase found entries.
+    Directory {
+        entries: Vec<WalkEntry>,
+        issues: Vec<io::ErrorKind>,
+    },
+    /// The root could not be classified at all; nothing under it is knowable.
+    Inaccessible(io::ErrorKind),
+}
+
 /// Filesystem view used by source and semantic crates.
 ///
 /// Implementations may read from disk, memory, an overlay, or a benchmark source
@@ -158,8 +182,9 @@ pub trait FileSystem: Send + Sync {
     fn case_sensitivity(&self) -> CaseSensitivity;
     /// Return whether a path exists with exact on-disk casing after `prefix`.
     fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool;
-    /// Walk entries under a root using the supplied traversal policy.
-    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>>;
+    /// Walk a root using the supplied traversal policy, reporting the root's
+    /// disposition alongside any discovered entries and traversal issues.
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk;
 }
 
 impl<T> FileSystem for Mutex<T>
@@ -202,10 +227,10 @@ where
             .path_exists_case_sensitive(path, prefix)
     }
 
-    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
         self.lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .walk_entries(root, options)
+            .walk_root(root, options)
     }
 }
 
@@ -352,21 +377,23 @@ impl FileSystem for InMemoryFileSystem {
         })
     }
 
-    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        let root_file = self.files.keys().find(|path| {
+            if self.case_sensitivity.is_case_sensitive() {
+                *path == root
+            } else {
+                paths_eq_ignore_ascii_case(path, root)
+            }
+        });
+        if let Some(path) = root_file {
+            return RootWalk::File(WalkEntry::file_root(path));
+        }
         if !self.exists(root) {
-            return Ok(Vec::new());
+            return RootWalk::Missing;
         }
 
         let mut entries = Vec::new();
         for path in self.files.keys() {
-            if (self.case_sensitivity.is_case_sensitive() && path == root)
-                || (!self.case_sensitivity.is_case_sensitive()
-                    && paths_eq_ignore_ascii_case(path, root))
-            {
-                entries.push(WalkEntry::file_root(path));
-                continue;
-            }
-
             let file_relative_components: Vec<_> = if self.case_sensitivity.is_case_sensitive() {
                 if !path.starts_with(root) {
                     continue;
@@ -445,7 +472,10 @@ impl FileSystem for InMemoryFileSystem {
 
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         entries.dedup_by(|left, right| left.path == right.path);
-        Ok(entries)
+        RootWalk::Directory {
+            entries,
+            issues: Vec::new(),
+        }
     }
 }
 
@@ -594,13 +624,21 @@ impl FileSystem for OsFileSystem {
             .unwrap_or_else(|| Self::path_exists_case_sensitive_slow(path, prefix))
     }
 
-    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
-        if root.is_file() {
-            return Ok(vec![WalkEntry::file_root(root)]);
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        let metadata = match root.as_std_path().metadata() {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return RootWalk::Missing;
+            }
+            Err(error) => {
+                return RootWalk::Inaccessible(error.kind());
+            }
+        };
+        if metadata.is_file() {
+            return RootWalk::File(WalkEntry::file_root(root));
         }
-
-        if !root.is_dir() {
-            return Ok(Vec::new());
+        if !metadata.is_dir() {
+            return RootWalk::Missing;
         }
 
         let mut builder = WalkBuilder::new(root.as_std_path());
@@ -625,7 +663,18 @@ impl FileSystem for OsFileSystem {
         }
 
         let mut entries = Vec::new();
-        for entry in builder.build().filter_map(Result::ok) {
+        let mut issues = Vec::new();
+        for result in builder.build() {
+            let entry = match result {
+                Ok(entry) => entry,
+                Err(error) => {
+                    let kind = error
+                        .into_io_error()
+                        .map_or(io::ErrorKind::Other, |error| error.kind());
+                    issues.push(kind);
+                    continue;
+                }
+            };
             let Some(path) = Utf8Path::from_path(entry.path()) else {
                 continue;
             };
@@ -649,7 +698,9 @@ impl FileSystem for OsFileSystem {
 
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         entries.dedup_by(|left, right| left.path == right.path);
-        Ok(entries)
+        issues.sort_by_cached_key(|kind| format!("{kind:?}"));
+        issues.dedup();
+        RootWalk::Directory { entries, issues }
     }
 }
 
@@ -738,12 +789,10 @@ mod tests {
         );
         fs.add_file("/project/other.py".into(), "other".to_string());
 
-        let files = fs
-            .walk_entries(
-                Utf8Path::new("/project/templates"),
-                &WalkOptions::unrestricted(),
-            )
-            .unwrap();
+        let files = dir_entries(fs.walk_root(
+            Utf8Path::new("/project/templates"),
+            &WalkOptions::unrestricted(),
+        ));
         let relatives: Vec<_> = files
             .iter()
             .filter(|entry| entry.kind == WalkEntryKind::File)
@@ -762,12 +811,10 @@ mod tests {
             "page".to_string(),
         );
 
-        let files = fs
-            .walk_entries(
-                Utf8Path::new("/project/templates"),
-                &WalkOptions::unrestricted(),
-            )
-            .unwrap();
+        let files = dir_entries(fs.walk_root(
+            Utf8Path::new("/project/templates"),
+            &WalkOptions::unrestricted(),
+        ));
         let paths: Vec<_> = files
             .iter()
             .filter(|entry| entry.kind == WalkEntryKind::File)
@@ -795,9 +842,7 @@ mod tests {
         fs.add_file("/project/.hidden/secret.html".into(), "secret".to_string());
         fs.add_file("/project/visible.html".into(), "visible".to_string());
 
-        let files = fs
-            .walk_entries(Utf8Path::new("/project"), &WalkOptions::default())
-            .unwrap();
+        let files = dir_entries(fs.walk_root(Utf8Path::new("/project"), &WalkOptions::default()));
         let relatives: Vec<_> = files
             .iter()
             .filter(|entry| entry.kind == WalkEntryKind::File)
@@ -855,6 +900,17 @@ mod tests {
             .collect()
     }
 
+    #[track_caller]
+    fn dir_entries(walk: RootWalk) -> Vec<WalkEntry> {
+        match walk {
+            RootWalk::Directory { entries, issues } => {
+                assert_eq!(issues, Vec::new());
+                entries
+            }
+            other => panic!("expected a traversed directory, got {other:?}"),
+        }
+    }
+
     #[test]
     fn os_walk_skips_hidden_directories_by_default() {
         let dir = tempfile::tempdir().unwrap();
@@ -862,9 +918,9 @@ mod tests {
         std::fs::write(dir.path().join(".hidden/secret.html"), "secret").unwrap();
         std::fs::write(dir.path().join("visible.html"), "visible").unwrap();
 
-        let entries = OsFileSystem::default()
-            .walk_entries(&temp_path(&dir), &WalkOptions::default())
-            .unwrap();
+        let entries = dir_entries(
+            OsFileSystem::default().walk_root(&temp_path(&dir), &WalkOptions::default()),
+        );
         let names = entry_names(&entries);
 
         assert!(names.contains(&"visible.html"));
@@ -882,9 +938,7 @@ mod tests {
             hidden: true,
             ..WalkOptions::default()
         };
-        let entries = OsFileSystem::default()
-            .walk_entries(&temp_path(&dir), &options)
-            .unwrap();
+        let entries = dir_entries(OsFileSystem::default().walk_root(&temp_path(&dir), &options));
         let names = entry_names(&entries);
 
         assert!(names.contains(&"visible.html"));
@@ -904,9 +958,9 @@ mod tests {
         std::fs::write(dir.path().join("ignored/skip.html"), "skip").unwrap();
         std::fs::write(dir.path().join("keep.html"), "keep").unwrap();
 
-        let entries = OsFileSystem::default()
-            .walk_entries(&temp_path(&dir), &WalkOptions::default())
-            .unwrap();
+        let entries = dir_entries(
+            OsFileSystem::default().walk_root(&temp_path(&dir), &WalkOptions::default()),
+        );
         let names = entry_names(&entries);
 
         assert!(names.contains(&"keep.html"));
@@ -930,9 +984,7 @@ mod tests {
             no_ignore: true,
             ..WalkOptions::default()
         };
-        let entries = OsFileSystem::default()
-            .walk_entries(&temp_path(&dir), &options)
-            .unwrap();
+        let entries = dir_entries(OsFileSystem::default().walk_root(&temp_path(&dir), &options));
         let names = entry_names(&entries);
 
         assert!(names.contains(&"keep.html"));
@@ -950,9 +1002,7 @@ mod tests {
             globs: vec!["page.*".to_string()],
             ..WalkOptions::default()
         };
-        let entries = OsFileSystem::default()
-            .walk_entries(&temp_path(&dir), &options)
-            .unwrap();
+        let entries = dir_entries(OsFileSystem::default().walk_root(&temp_path(&dir), &options));
         let names = entry_names(&entries);
 
         assert!(names.contains(&"page.html"));
@@ -971,13 +1021,34 @@ mod tests {
             max_depth: Some(1),
             ..WalkOptions::default()
         };
-        let entries = OsFileSystem::default()
-            .walk_entries(&temp_path(&dir), &options)
-            .unwrap();
+        let entries = dir_entries(OsFileSystem::default().walk_root(&temp_path(&dir), &options));
         let names = entry_names(&entries);
 
         assert!(names.contains(&"top.html"));
         assert!(!names.contains(&"deep.html"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn os_detailed_walk_retains_entries_when_another_entry_errors() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("found.html"), "found").unwrap();
+        symlink(dir.path(), dir.path().join("loop")).unwrap();
+        let options = WalkOptions {
+            follow_links: true,
+            ..WalkOptions::unrestricted()
+        };
+
+        let RootWalk::Directory { entries, issues } =
+            OsFileSystem::default().walk_root(&temp_path(&dir), &options)
+        else {
+            panic!("expected a traversed directory");
+        };
+
+        assert_eq!(entry_names(&entries), ["found.html"]);
+        assert!(!issues.is_empty());
     }
 
     #[test]
@@ -986,12 +1057,13 @@ mod tests {
         let file_path = Utf8PathBuf::from_path_buf(dir.path().join("single.html")).unwrap();
         std::fs::write(file_path.as_std_path(), "single").unwrap();
 
-        let entries = OsFileSystem::default()
-            .walk_entries(&file_path, &WalkOptions::default())
-            .unwrap();
+        let RootWalk::File(entry) =
+            OsFileSystem::default().walk_root(&file_path, &WalkOptions::default())
+        else {
+            panic!("expected a file root");
+        };
 
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].path, file_path);
-        assert_eq!(entries[0].relative, Utf8PathBuf::from("single.html"));
+        assert_eq!(entry.path, file_path);
+        assert_eq!(entry.relative, Utf8PathBuf::from("single.html"));
     }
 }

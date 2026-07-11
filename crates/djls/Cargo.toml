@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 djls-conf = { workspace = true }
 djls-db = { workspace = true }
+djls-project = { workspace = true }
 djls-semantic = { workspace = true }
 djls-server = { workspace = true }
 djls-source = { workspace = true }

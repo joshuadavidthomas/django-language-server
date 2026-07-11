@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use djls_project::FindTemplateResult;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolAvailability;
@@ -42,10 +44,25 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                     let tried = error
                         .tried
                         .iter()
-                        .map(|source| format!("- `{}`", source.path))
+                        .map(|path| format!("- `{path}`"))
                         .collect::<Vec<_>>()
                         .join("\n");
                     sections.push(format!("Template not found.\n\nTried:\n\n{tried}"));
+                }
+                FindTemplateResult::Inconclusive(search) => {
+                    // An incomplete search must not claim the template is missing; report what
+                    // the search did establish instead.
+                    let mut message = "Template search is incomplete.".to_string();
+                    if !search.possible_origins.is_empty() {
+                        let possible = search
+                            .possible_origins
+                            .iter()
+                            .map(|origin| format!("- `{}`", origin.path_buf(db)))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let _ = write!(message, "\n\nPossible matches:\n\n{possible}");
+                    }
+                    sections.push(message);
                 }
             }
             Some((sections.join("\n---\n"), span))

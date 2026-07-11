@@ -37,8 +37,18 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
                         FindTemplateResult::DoesNotExist(error) => {
                             tracing::debug!(
                                 "Skipping unresolved template document link for '{}': {:?}",
-                                error.template_name.name(db),
+                                error.name.name(db),
                                 error.tried
+                            );
+                            None
+                        }
+                        FindTemplateResult::Inconclusive(search) => {
+                            // Document links render persistently in the buffer, so a link that
+                            // might target the wrong shadow is worse than no link; only
+                            // definitive resolutions are linked.
+                            tracing::debug!(
+                                "Skipping inconclusive template document link for '{}'",
+                                search.name.name(db)
                             );
                             None
                         }
