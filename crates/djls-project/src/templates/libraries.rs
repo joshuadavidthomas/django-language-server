@@ -26,19 +26,22 @@ const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.loader_tags",
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TemplateLibraryStatus {
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateLibraryKind {
     Builtin,
-    Installed,
-    Available,
+    Installed {
+        load_name: LibraryName,
+    },
+    Available {
+        load_name: LibraryName,
+        app: PythonModuleName,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibrary {
-    load_name: Option<LibraryName>,
-    app: Option<PythonModuleName>,
     module: PythonModule,
-    status: TemplateLibraryStatus,
+    kind: TemplateLibraryKind,
     symbols: Vec<TemplateSymbol>,
 }
 
@@ -46,10 +49,8 @@ impl TemplateLibrary {
     #[must_use]
     pub(crate) fn builtin(module: PythonModule, symbols: Vec<TemplateSymbol>) -> Self {
         Self {
-            load_name: None,
-            app: None,
             module,
-            status: TemplateLibraryStatus::Builtin,
+            kind: TemplateLibraryKind::Builtin,
             symbols: merge_symbols(symbols),
         }
     }
@@ -61,10 +62,8 @@ impl TemplateLibrary {
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self {
-            load_name: Some(load_name),
-            app: None,
             module,
-            status: TemplateLibraryStatus::Installed,
+            kind: TemplateLibraryKind::Installed { load_name },
             symbols: merge_symbols(symbols),
         }
     }
@@ -77,17 +76,19 @@ impl TemplateLibrary {
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self {
-            load_name: Some(load_name),
-            app: Some(app),
             module,
-            status: TemplateLibraryStatus::Available,
+            kind: TemplateLibraryKind::Available { load_name, app },
             symbols: merge_symbols(symbols),
         }
     }
 
     #[must_use]
     pub fn load_name(&self) -> Option<&LibraryName> {
-        self.load_name.as_ref()
+        match &self.kind {
+            TemplateLibraryKind::Builtin => None,
+            TemplateLibraryKind::Installed { load_name }
+            | TemplateLibraryKind::Available { load_name, .. } => Some(load_name),
+        }
     }
 
     #[must_use]
@@ -112,9 +113,9 @@ impl TemplateLibrary {
 
     #[must_use]
     fn available_app(&self) -> Option<&PythonModuleName> {
-        match self.status {
-            TemplateLibraryStatus::Available => self.app.as_ref(),
-            TemplateLibraryStatus::Builtin | TemplateLibraryStatus::Installed => None,
+        match &self.kind {
+            TemplateLibraryKind::Available { app, .. } => Some(app),
+            TemplateLibraryKind::Builtin | TemplateLibraryKind::Installed { .. } => None,
         }
     }
 }
@@ -199,7 +200,6 @@ pub enum MissingLibraryLookup {
 enum TemplateLibraryIssue {
     OpenSettings,
     Discovery,
-    ConfiguredAlias(LibraryName),
     Source(Option<LibraryName>),
 }
 
@@ -235,9 +235,15 @@ impl TemplateLibraryConfigurations {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TemplateLibraryReference {
+    Resolved(usize),
+    Unresolved,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct TemplateBackendLibraries {
-    loadable_by_name: BTreeMap<LibraryName, usize>,
+    loadable_by_name: BTreeMap<LibraryName, TemplateLibraryReference>,
     builtin_indices: Vec<usize>,
 }
 
@@ -248,7 +254,6 @@ type DiscoveredLibrary = (LibraryName, PythonModule, Vec<TemplateSymbol>);
 pub struct TemplateLibraries {
     libraries: Vec<TemplateLibrary>,
     installed_by_name: BTreeMap<LibraryName, usize>,
-    configured_claims: BTreeSet<LibraryName>,
     configurations: TemplateLibraryConfigurations,
     available_by_name: BTreeMap<LibraryName, Vec<usize>>,
     issues: Vec<TemplateLibraryIssue>,
@@ -259,7 +264,6 @@ impl Default for TemplateLibraries {
         Self {
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
-            configured_claims: BTreeSet::new(),
             configurations: TemplateLibraryConfigurations::WithOmissions(Vec::new()),
             available_by_name: BTreeMap::new(),
             issues: vec![TemplateLibraryIssue::OpenSettings],
@@ -280,7 +284,6 @@ impl TemplateLibraries {
         let mut inventory = Self {
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
-            configured_claims: BTreeSet::new(),
             configurations: if open {
                 TemplateLibraryConfigurations::WithOmissions(vec![vec![
                     TemplateBackendLibraries::default(),
@@ -301,7 +304,6 @@ impl TemplateLibraries {
         for library in libraries {
             inventory.insert_library(library);
         }
-        inventory.configured_claims = inventory.installed_by_name.keys().cloned().collect();
         inventory.rebuild_configuration();
         inventory.sort_and_dedup_available();
         inventory
@@ -325,11 +327,15 @@ impl TemplateLibraries {
                                     .enumerate()
                                     .rev()
                                     .find(|(_index, library)| {
-                                        library.status == TemplateLibraryStatus::Installed
-                                            && library.load_name() == Some(&name)
-                                            && library.module_name() == &module
+                                        matches!(
+                                            &library.kind,
+                                            TemplateLibraryKind::Installed { load_name }
+                                                if load_name == &name
+                                        ) && library.module_name() == &module
                                     })
-                                    .map(|(index, _library)| (name, index))
+                                    .map(|(index, _library)| {
+                                        (name, TemplateLibraryReference::Resolved(index))
+                                    })
                             })
                             .collect(),
                         builtin_indices: builtins
@@ -339,7 +345,7 @@ impl TemplateLibraries {
                                     .iter()
                                     .enumerate()
                                     .find(|(_index, library)| {
-                                        library.status == TemplateLibraryStatus::Builtin
+                                        matches!(&library.kind, TemplateLibraryKind::Builtin)
                                             && library.module_name() == &module
                                     })
                                     .map(|(index, _library)| index)
@@ -354,13 +360,17 @@ impl TemplateLibraries {
 
     fn rebuild_configuration(&mut self) {
         let backend = TemplateBackendLibraries {
-            loadable_by_name: self.installed_by_name.clone(),
+            loadable_by_name: self
+                .installed_by_name
+                .iter()
+                .map(|(name, index)| (name.clone(), TemplateLibraryReference::Resolved(*index)))
+                .collect(),
             builtin_indices: self
                 .libraries
                 .iter()
                 .enumerate()
                 .filter_map(|(index, library)| {
-                    (library.status == TemplateLibraryStatus::Builtin).then_some(index)
+                    matches!(&library.kind, TemplateLibraryKind::Builtin).then_some(index)
                 })
                 .collect(),
         };
@@ -374,9 +384,11 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn completion_library_names(&self) -> Vec<LibraryName> {
-        self.installed_by_name
-            .keys()
-            .chain(&self.configured_claims)
+        self.configurations
+            .known()
+            .iter()
+            .flatten()
+            .flat_map(|backend| backend.loadable_by_name.keys())
             .cloned()
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -432,18 +444,22 @@ impl TemplateLibraries {
     pub fn loadable_library(&self, name: &LibraryName) -> LoadableLibraryLookup<'_> {
         let mut outcomes = Vec::new();
         let mut indexes = Vec::new();
+        let mut unresolved = false;
         for configuration in self.configurations.known() {
             let mut configuration_matches = Vec::new();
             let mut absent = configuration.is_empty();
             for backend in configuration {
                 match backend.loadable_by_name.get(name).copied() {
-                    Some(index) if !configuration_matches.contains(&index) => {
+                    Some(TemplateLibraryReference::Resolved(index))
+                        if !configuration_matches.contains(&index) =>
+                    {
                         configuration_matches.push(index);
                         if !indexes.contains(&index) {
                             indexes.push(index);
                         }
                     }
-                    Some(_) => {}
+                    Some(TemplateLibraryReference::Resolved(_)) => {}
+                    Some(TemplateLibraryReference::Unresolved) => unresolved = true,
                     None => absent = true,
                 }
             }
@@ -465,18 +481,14 @@ impl TemplateLibraries {
         });
 
         if self.configurations.has_omissions()
-            || self
-                .issues
-                .iter()
-                .any(|issue| matches!(issue, TemplateLibraryIssue::ConfiguredAlias(alias) if alias == name))
+            || unresolved
             || (records.is_empty()
-                && !self.configured_claims.contains(name)
                 && self.issues.iter().any(|issue| match issue {
                     TemplateLibraryIssue::Discovery => true,
                     TemplateLibraryIssue::Source(Some(source_name)) => source_name == name,
-                    TemplateLibraryIssue::OpenSettings
-                    | TemplateLibraryIssue::ConfiguredAlias(_)
-                    | TemplateLibraryIssue::Source(None) => false,
+                    TemplateLibraryIssue::OpenSettings | TemplateLibraryIssue::Source(None) => {
+                        false
+                    }
                 }))
         {
             return LoadableLibraryLookup::Inconclusive(records);
@@ -531,10 +543,7 @@ impl TemplateLibraries {
                 return MissingLibraryLookup::Inconclusive;
             }
             LoadableLibraryLookup::Inconclusive(candidates)
-                if !candidates.is_empty()
-                    || self.issues.iter().any(|issue| {
-                        matches!(issue, TemplateLibraryIssue::ConfiguredAlias(alias) if alias == name)
-                    }) =>
+                if !candidates.is_empty() || self.has_unresolved_reference(name) =>
             {
                 return MissingLibraryLookup::Inconclusive;
             }
@@ -554,7 +563,6 @@ impl TemplateLibraries {
         if self.configurations.has_omissions()
             || self.issues.iter().any(|issue| match issue {
                 TemplateLibraryIssue::Discovery | TemplateLibraryIssue::OpenSettings => true,
-                TemplateLibraryIssue::ConfiguredAlias(alias) => alias == name,
                 TemplateLibraryIssue::Source(Some(source_name)) => source_name == name,
                 TemplateLibraryIssue::Source(None) => false,
             })
@@ -572,7 +580,10 @@ impl TemplateLibraries {
                 for index in backend
                     .loadable_by_name
                     .values()
-                    .copied()
+                    .filter_map(|reference| match reference {
+                        TemplateLibraryReference::Resolved(index) => Some(*index),
+                        TemplateLibraryReference::Unresolved => None,
+                    })
                     .chain(backend.builtin_indices.iter().copied())
                 {
                     if !indexes.contains(&index) {
@@ -595,16 +606,23 @@ impl TemplateLibraries {
             .filter(move |_| closed_single_backend)
     }
 
+    fn has_unresolved_reference(&self, name: &LibraryName) -> bool {
+        self.configurations.known().iter().flatten().any(|backend| {
+            backend.loadable_by_name.get(name) == Some(&TemplateLibraryReference::Unresolved)
+        })
+    }
+
     fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
         self.resolved_libraries()
-            .filter(|library| library.status == TemplateLibraryStatus::Builtin)
+            .filter(|library| matches!(&library.kind, TemplateLibraryKind::Builtin))
     }
 
     fn installed_libraries(&self) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
         self.resolved_libraries().filter_map(|library| {
-            (library.status == TemplateLibraryStatus::Installed)
-                .then(|| library.load_name().map(|name| (name, library)))
-                .flatten()
+            let TemplateLibraryKind::Installed { load_name } = &library.kind else {
+                return None;
+            };
+            Some((load_name, library))
         })
     }
 
@@ -640,39 +658,33 @@ impl TemplateLibraries {
     }
 
     fn insert_library(&mut self, library: TemplateLibrary) -> usize {
-        match library.status {
-            TemplateLibraryStatus::Builtin => {
+        match &library.kind {
+            TemplateLibraryKind::Builtin => {
                 let index = self.libraries.len();
                 self.libraries.push(library);
                 index
             }
-            TemplateLibraryStatus::Installed => {
-                let name = library
-                    .load_name
-                    .clone()
-                    .expect("installed libraries should carry a load name");
+            TemplateLibraryKind::Installed { load_name } => {
+                let load_name = load_name.clone();
                 let index = self.libraries.len();
                 self.libraries.push(library);
-                self.installed_by_name.insert(name, index);
+                self.installed_by_name.insert(load_name, index);
                 index
             }
-            TemplateLibraryStatus::Available => {
-                let name = library
-                    .load_name
-                    .clone()
-                    .expect("available libraries should carry a load name");
-                let app = library
-                    .app
-                    .clone()
-                    .expect("available libraries should carry an app");
+            TemplateLibraryKind::Available { load_name, app } => {
+                let load_name = load_name.clone();
+                let app = app.clone();
                 let module_name = library.module_name().clone();
                 if let Some(existing_index) = self.libraries.iter().position(|existing| {
-                    existing.status == TemplateLibraryStatus::Available
-                        && existing.load_name() == Some(&name)
-                        && existing.app.as_ref() == Some(&app)
-                        && existing.module_name() == &module_name
+                    matches!(
+                        &existing.kind,
+                        TemplateLibraryKind::Available {
+                            load_name: existing_name,
+                            app: existing_app,
+                        } if existing_name == &load_name && existing_app == &app
+                    ) && existing.module_name() == &module_name
                 }) {
-                    let indexes = self.available_by_name.entry(name).or_default();
+                    let indexes = self.available_by_name.entry(load_name).or_default();
                     if !indexes.contains(&existing_index) {
                         indexes.push(existing_index);
                     }
@@ -681,7 +693,10 @@ impl TemplateLibraries {
 
                 let index = self.libraries.len();
                 self.libraries.push(library);
-                self.available_by_name.entry(name).or_default().push(index);
+                self.available_by_name
+                    .entry(load_name)
+                    .or_default()
+                    .push(index);
                 index
             }
         }
@@ -818,7 +833,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
 
     if backend_configurations.is_empty() {
         backend_configurations.push(TemplateBackendLibraries {
-            loadable_by_name: app_libraries,
+            loadable_by_name: resolved_library_references(&app_libraries),
             builtin_indices: Vec::new(),
         });
     }
@@ -827,6 +842,15 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         .replace_known(vec![backend_configurations]);
     libraries.insert_available_candidates(db, project, &installed_template_library_modules);
     libraries
+}
+
+fn resolved_library_references(
+    libraries: &BTreeMap<LibraryName, usize>,
+) -> BTreeMap<LibraryName, TemplateLibraryReference> {
+    libraries
+        .iter()
+        .map(|(name, index)| (name.clone(), TemplateLibraryReference::Resolved(*index)))
+        .collect()
 }
 
 fn insert_backend_libraries(
@@ -842,7 +866,7 @@ fn insert_backend_libraries(
     }
 
     let mut result = TemplateBackendLibraries {
-        loadable_by_name: app_libraries.clone(),
+        loadable_by_name: resolved_library_references(app_libraries),
         builtin_indices: Vec::new(),
     };
     for (load_name, module_name) in &backend.libraries {
@@ -850,13 +874,12 @@ fn insert_backend_libraries(
             libraries.issues.push(TemplateLibraryIssue::OpenSettings);
             continue;
         };
-        libraries.configured_claims.insert(load_name.clone());
         let Some((module, symbols, source)) =
             library_from_module_name(db, project, module_name.clone())
         else {
-            libraries
-                .issues
-                .push(TemplateLibraryIssue::ConfiguredAlias(load_name));
+            result
+                .loadable_by_name
+                .insert(load_name, TemplateLibraryReference::Unresolved);
             continue;
         };
         if source == TemplateLibrarySource::Recovered {
@@ -869,7 +892,9 @@ fn insert_backend_libraries(
             module,
             symbols,
         ));
-        result.loadable_by_name.insert(load_name, index);
+        result
+            .loadable_by_name
+            .insert(load_name, TemplateLibraryReference::Resolved(index));
     }
 
     let builtins = DEFAULT_TEMPLATE_BUILTINS
