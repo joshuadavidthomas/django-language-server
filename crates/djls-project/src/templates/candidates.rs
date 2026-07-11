@@ -99,8 +99,7 @@ pub(crate) enum TemplateTagCandidateScan {
     Exhaustive(Vec<TemplateTagCandidate>),
     WithOmissions {
         candidates: Vec<TemplateTagCandidate>,
-        first: TemplateTagCandidateIssue,
-        rest: Vec<TemplateTagCandidateIssue>,
+        omissions: Vec<TemplateTagCandidateIssue>,
     },
 }
 
@@ -137,11 +136,10 @@ impl TemplateTagCandidateScan {
                 let candidates = std::mem::take(candidates);
                 *self = Self::WithOmissions {
                     candidates,
-                    first: issue,
-                    rest: Vec::new(),
+                    omissions: vec![issue],
                 };
             }
-            Self::WithOmissions { rest, .. } => rest.push(issue),
+            Self::WithOmissions { omissions, .. } => omissions.push(issue),
         }
     }
 
@@ -161,12 +159,8 @@ impl TemplateTagCandidateScan {
             Self::Exhaustive(candidates) => (candidates, Vec::new()),
             Self::WithOmissions {
                 candidates,
-                first,
-                mut rest,
-            } => {
-                rest.insert(0, first);
-                (candidates, rest)
-            }
+                omissions,
+            } => (candidates, omissions),
         }
     }
 }
