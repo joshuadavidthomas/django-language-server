@@ -26,7 +26,7 @@
 //! // For LSP integration with Salsa (primary usage):
 //! use djls_templates::{parse_template, TemplateErrorAccumulator};
 //!
-//! let nodelist = parse_template(db, file);
+//! let nodelist = parse_template(db, file).expect("template should be readable");
 //! let errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
 //!
 //! // For direct parsing (testing/debugging):
@@ -52,6 +52,7 @@ pub use db::TemplateErrorAccumulator;
 use djls_source::Db;
 use djls_source::File;
 use djls_source::FileKind;
+use djls_source::FileReadError;
 pub use error::TemplateError;
 pub use filters::Filter;
 pub use nodelist::Node;
@@ -63,15 +64,42 @@ pub use tokens::TagDelimiter;
 pub use tokens::Token;
 pub use visitor::Visitor;
 
+#[derive(Clone, PartialEq, Eq, salsa::Update)]
+pub enum TemplateParseResult<'db> {
+    Parsed(NodeList<'db>),
+    NotTemplate,
+    Unreadable(FileReadError),
+}
+
+impl<'db> TemplateParseResult<'db> {
+    /// Return the parsed tree or panic with the supplied fixture context.
+    ///
+    /// This is intended for callers that have already established that the
+    /// file is a readable template, such as tests and benchmarks.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the file is not a template or could not be read.
+    #[track_caller]
+    #[must_use]
+    pub fn expect(self, message: &str) -> NodeList<'db> {
+        match self {
+            Self::Parsed(nodelist) => nodelist,
+            Self::NotTemplate => panic!("{message}: file is not a template"),
+            Self::Unreadable(error) => panic!("{message}: {error}"),
+        }
+    }
+}
+
 /// Lex a Django template file.
 #[salsa::tracked(returns(ref))]
-pub fn lex_template(db: &dyn Db, file: File) -> Vec<Token> {
-    let source = file.source(db);
+pub fn lex_template(db: &dyn Db, file: File) -> Result<Vec<Token>, FileReadError> {
+    let source = file.try_source(db)?;
     if *source.kind() != FileKind::Template {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
-    lex_template_impl(source.as_ref())
+    Ok(lex_template_impl(source.as_ref()))
 }
 
 /// Lex a template using the pure lexer.
@@ -89,10 +117,13 @@ pub fn lex_template_impl(source: &str) -> Vec<Token> {
 ///     parse_template::accumulated::<TemplateDiagnostic>(db, file);
 /// ```
 #[salsa::tracked]
-pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
-    let source = file.source(db);
+pub fn parse_template(db: &dyn Db, file: File) -> TemplateParseResult<'_> {
+    let source = match file.try_source(db) {
+        Ok(source) => source,
+        Err(error) => return TemplateParseResult::Unreadable(error),
+    };
     if *source.kind() != FileKind::Template {
-        return None;
+        return TemplateParseResult::NotTemplate;
     }
 
     let (nodes, errors) = parse_template_impl(source.as_ref());
@@ -103,7 +134,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
     }
 
     // Always return a NodeList (may contain Error nodes if there were parse errors)
-    Some(NodeList::new(db, nodes))
+    TemplateParseResult::Parsed(NodeList::new(db, nodes))
 }
 
 /// Parse a template using the pure parser (no database needed)

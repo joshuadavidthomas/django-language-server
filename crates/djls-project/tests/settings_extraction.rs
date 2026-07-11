@@ -3,7 +3,7 @@ use camino::Utf8PathBuf;
 use djls_project::Interpreter;
 use djls_project::Project;
 use djls_project::SearchPaths;
-use djls_project::testing::compute_django_discovery;
+use djls_project::testing::compute_project_facts;
 use djls_project::testing::django_settings;
 use djls_source::Db as _;
 use djls_testing::ProjectFixture;
@@ -901,7 +901,7 @@ fn unreachable_import_is_not_a_semantic_dependency() {
         "if False:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
         &[("base", "INSTALLED_APPS = [")],
     );
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -920,7 +920,7 @@ fn unreachable_elif_import_is_not_a_semantic_dependency() {
         "if FLAG:\n    INSTALLED_APPS = ['local']\nelif False:\n    from base import INSTALLED_APPS",
         &[("base", "INSTALLED_APPS = [")],
     );
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -939,7 +939,7 @@ fn ambiguous_branch_import_effects_are_semantic_dependencies() {
         "if FLAG:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
         &[("base", "INSTALLED_APPS = [")],
     );
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -962,7 +962,7 @@ fn loop_import_effects_are_dependencies_without_accepting_values() {
         "for app in []:\n    from base import INSTALLED_APPS",
         &[("base", "INSTALLED_APPS = [")],
     );
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -985,7 +985,7 @@ fn loop_star_import_degrades_existing_bindings_without_accepting_values() {
         "INSTALLED_APPS = ['local']\nfor app in PLUGINS:\n    from base import *",
         &[("base", "INSTALLED_APPS = ['base']")],
     );
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -1007,7 +1007,7 @@ fn loop_nested_unreachable_star_import_does_not_degrade_bindings() {
         "INSTALLED_APPS = ['local']\nfor app in PLUGINS:\n    if False:\n        from base import *",
         &[("base", "INSTALLED_APPS = [")],
     );
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),
@@ -1026,7 +1026,7 @@ fn while_false_body_import_is_not_a_semantic_dependency() {
         "while False:\n    from base import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['local']",
         &[("base", "INSTALLED_APPS = [")],
     );
-    let discovery = compute_django_discovery(&db, project);
+    let discovery = compute_project_facts(&db, project);
 
     assert_eq!(
         discovery.file_paths(),

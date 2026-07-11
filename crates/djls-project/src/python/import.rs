@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use camino::Utf8PathBuf;
 use djls_source::File;
+use djls_source::FileReadError;
 use djls_source::Span;
 use ruff_python_ast::Alias;
 use ruff_python_ast::Stmt;
@@ -21,7 +21,7 @@ pub(crate) enum ImportLoadResult {
     Loaded(PythonSource),
     Unresolved,
     SkippedExternal,
-    ReadFailed { file: File, path: Utf8PathBuf },
+    ReadFailed { file: File, error: FileReadError },
 }
 
 pub(crate) trait PythonImportLoader {
@@ -30,40 +30,22 @@ pub(crate) trait PythonImportLoader {
     fn load_named_import(&mut self, import: PythonImportRequest<'_>) -> ImportLoadResult;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SourceReadMode {
-    Tracked,
-    Discovery,
-}
-
 pub(crate) struct ProjectImportLoader<'db> {
     db: &'db dyn ProjectDb,
     project: Project,
-    mode: SourceReadMode,
 }
 
 impl<'db> ProjectImportLoader<'db> {
-    pub(crate) fn tracked(db: &'db dyn ProjectDb, project: Project) -> Self {
-        Self::new(db, project, SourceReadMode::Tracked)
+    pub(crate) const fn tracked(db: &'db dyn ProjectDb, project: Project) -> Self {
+        Self { db, project }
     }
 
-    pub(crate) fn discovery(db: &'db dyn ProjectDb, project: Project) -> Self {
-        Self::new(db, project, SourceReadMode::Discovery)
-    }
-
-    fn new(db: &'db dyn ProjectDb, project: Project, mode: SourceReadMode) -> Self {
-        Self { db, project, mode }
-    }
-
-    pub(crate) fn read_source(&self, file: File) -> Option<PythonSource> {
-        let source = match self.mode {
-            SourceReadMode::Tracked => file.source(self.db).as_str().to_string(),
-            SourceReadMode::Discovery => self.db.read_file(file.path(self.db)).ok()?,
-        };
-        Some(PythonSource::new(
+    pub(crate) fn read_source(&self, file: File) -> Result<PythonSource, FileReadError> {
+        let source = file.try_source(self.db)?;
+        Ok(PythonSource::new(
             file,
             file.path(self.db).to_path_buf(),
-            source,
+            source.as_str().to_string(),
         ))
     }
 
@@ -74,10 +56,7 @@ impl<'db> ProjectImportLoader<'db> {
     fn load_module_source(&mut self, module: &PythonModule) -> ImportLoadResult {
         let file = module.file();
         self.read_source(file).map_or_else(
-            || ImportLoadResult::ReadFailed {
-                file,
-                path: file.path(self.db).to_path_buf(),
-            },
+            |error| ImportLoadResult::ReadFailed { file, error },
             ImportLoadResult::Loaded,
         )
     }

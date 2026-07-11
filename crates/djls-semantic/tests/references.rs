@@ -2,6 +2,8 @@ use djls_project::Project;
 use djls_project::TemplateName;
 use djls_semantic::TemplateReferenceKind;
 use djls_semantic::references_to_template_name;
+use djls_source::ChangeEvent;
+use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
@@ -65,6 +67,34 @@ fn template_references_record_extends_and_include_kinds() {
     );
     assert_eq!(partial_refs.len(), 1);
     assert_eq!(partial_refs[0].kind(&db), TemplateReferenceKind::Include);
+}
+
+#[test]
+fn unreadable_referencing_template_contributes_no_references() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/child.html";
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates"],
+        vec![
+            ("child.html", child_path, "{% include 'partial.html' %}"),
+            (
+                "partial.html",
+                "/test/project/templates/partial.html",
+                "partial",
+            ),
+        ],
+    );
+    {
+        let partial = TemplateName::new(&db, "partial.html".to_string());
+        assert_eq!(references_to_template_name(&db, project, partial).len(), 1);
+    }
+
+    db.remove_file(child_path);
+    SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+
+    let partial = TemplateName::new(&db, "partial.html".to_string());
+    assert!(references_to_template_name(&db, project, partial).is_empty());
 }
 
 #[test]

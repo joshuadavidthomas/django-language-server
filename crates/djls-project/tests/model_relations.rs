@@ -14,7 +14,9 @@ use djls_project::testing::extract_model_graph;
 use djls_project::testing::model_location;
 use djls_project::testing::model_relation_locations;
 use djls_project::testing::python_syntax_errors;
-use djls_source::Db as SourceDb;
+use djls_source::ChangeEvent;
+use djls_source::Db as _;
+use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
@@ -48,8 +50,7 @@ fn relation_value<'a>(graph: &'a Value, model: &str, field: &str) -> &'a Value {
 
 fn update_file(db: &mut TestDatabase, path: &str, content: &str) {
     db.add_file(path, content);
-    let file = db.file(Utf8Path::new(path));
-    db.bump_file_revision(file);
+    SourceChanges::new([ChangeEvent::ContentChanged(path.into())]).apply(db);
 }
 
 fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {

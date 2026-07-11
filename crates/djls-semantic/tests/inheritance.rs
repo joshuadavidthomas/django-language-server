@@ -12,9 +12,12 @@ use djls_semantic::TagSpecs;
 use djls_semantic::TemplateSymbols;
 use djls_semantic::block_overrides;
 use djls_semantic::builtin_tag_specs;
+use djls_semantic::inherited_blocks;
 use djls_semantic::template_inheritance;
 use djls_semantic::template_symbols;
+use djls_source::ChangeEvent;
 use djls_source::File;
+use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
@@ -97,6 +100,56 @@ fn extracts_partial_defs_from_partial_role_specs() {
             full_span: Span::saturating_from_bounds_usize(0, source.len()),
         }]
     );
+}
+
+#[test]
+fn unreadable_current_template_does_not_create_an_empty_tree() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/child.html";
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates"],
+        vec![
+            (child_path, "{% extends 'base.html' %}"),
+            ("/test/project/templates/base.html", "base"),
+        ],
+    );
+    let child = db.file(Utf8Path::new(child_path));
+    assert_eq!(
+        template_inheritance(&db, project, child)
+            .ancestors(&db)
+            .len(),
+        1
+    );
+
+    db.remove_file(child_path);
+    SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+
+    let inheritance = template_inheritance(&db, project, child);
+    assert!(inheritance.ancestors(&db).is_empty());
+    assert_eq!(inheritance.end(&db), ChainEnd::Root);
+}
+
+#[test]
+fn unreadable_ancestor_template_contributes_no_inherited_symbols() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/child.html";
+    let base_path = "/test/project/templates/base.html";
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates"],
+        vec![
+            (child_path, "{% extends 'base.html' %}"),
+            (base_path, "{% block title %}Base{% endblock %}"),
+        ],
+    );
+    let child = db.file(Utf8Path::new(child_path));
+    assert_eq!(inherited_blocks(&db, project, child).len(), 1);
+
+    db.remove_file(base_path);
+    SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+
+    assert!(inherited_blocks(&db, project, child).is_empty());
 }
 
 #[test]

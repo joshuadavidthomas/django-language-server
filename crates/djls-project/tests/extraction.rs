@@ -5,7 +5,8 @@ use djls_project::SymbolKey;
 use djls_project::extract_tag_rules;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::python_syntax_errors;
-use djls_source::Db as _;
+use djls_source::ChangeEvent;
+use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_testing::ExtractionBundle;
 use djls_testing::SalsaEventLog;
@@ -188,7 +189,7 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let _ = event_log.take();
 
     db.add_file(path.as_str(), &format!("{source}# comment only\n"));
-    db.bump_file_revision(file);
+    SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
     assert!(!extract_tag_rules(&db, file, module_name).is_empty());
     let events = event_log.take();

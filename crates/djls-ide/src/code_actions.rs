@@ -26,13 +26,17 @@ pub fn code_actions(
     range: Span,
     encoding: PositionEncoding,
 ) -> Option<Vec<ls_types::CodeActionOrCommand>> {
-    let source = file.source(db);
+    let Ok(source) = file.try_source(db) else {
+        return None;
+    };
     if *source.kind() != FileKind::Template {
         return None;
     }
     let source_text = source.as_str();
 
-    let Some(parsed) = djls_templates::parse_template(db, file) else {
+    let djls_templates::TemplateParseResult::Parsed(parsed) =
+        djls_templates::parse_template(db, file)
+    else {
         return Some(Vec::new());
     };
 

@@ -192,7 +192,7 @@ pub fn template_references_in_file(
     file: File,
 ) -> TemplateReferencesInFile<'_> {
     let tag_specs = compute_tag_specs(db, project);
-    let Some(nodelist) = parse_template(db, file) else {
+    let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateReferencesInFile::new(db, Vec::new());
     };
     let tree = build_template_tree(db, nodelist);
@@ -217,7 +217,7 @@ pub fn template_library_references_in_file(
     db: &dyn SemanticDb,
     file: File,
 ) -> TemplateLibraryReferencesInFile<'_> {
-    let Some(nodelist) = parse_template(db, file) else {
+    let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateLibraryReferencesInFile::new(db, Vec::new());
     };
     let tree = build_template_tree(db, nodelist);

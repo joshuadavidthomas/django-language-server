@@ -121,19 +121,8 @@ impl Project {
         let interpreter = Interpreter::discover(settings.venv_path());
         let django_settings_module = django_settings_module_name(db.file_system(), &root, settings);
         let env_vars = load_env_file(db.file_system(), &root, settings);
-        let search_paths = SearchPaths::from_project_settings(
-            db.file_system(),
-            &root,
-            &interpreter,
-            settings.pythonpath(),
-        );
         let pythonpath = settings.pythonpath().to_vec();
         let tagspecs = settings.tagspecs().clone();
-
-        if self.search_paths(db) != &search_paths {
-            search_paths.register_roots(db);
-            self.set_search_paths(db).to(search_paths);
-        }
 
         if self.interpreter(db) != &interpreter {
             self.set_interpreter(db).to(interpreter);

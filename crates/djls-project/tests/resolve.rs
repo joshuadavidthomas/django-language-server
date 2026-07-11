@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
-use djls_project::testing::compute_django_discovery;
+use djls_project::testing::compute_django_environment;
+use djls_project::testing::compute_project_facts;
 use djls_project::testing::model_modules;
 use djls_project::*;
 use djls_source::Db as _;
@@ -36,7 +37,10 @@ impl TestModelGraph {
 fn compute_model_graph(db: &TestDatabase, project: Project) -> TestModelGraph {
     let mut graph = TestModelGraph::default();
     for module in model_modules(db, project).iter().rev() {
-        let source = module.file().source(db);
+        let source = module
+            .file()
+            .try_source(db)
+            .expect("resolved module should be readable");
         for line in source.as_str().lines() {
             let Some(rest) = line.trim_start().strip_prefix("class ") else {
                 continue;
@@ -85,8 +89,9 @@ fn project_with_template_settings(
 
 fn apply_project_discovery(db: &mut TestDatabase) {
     let project = db.project().expect("project should be configured");
-    let discovery = compute_django_discovery(db, project);
-    apply_django_discovery(db, discovery);
+    let environment = compute_django_environment(db, project);
+    apply_django_environment(db, environment);
+    let _facts = compute_project_facts(db, project);
 }
 
 fn will_execute_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
@@ -931,7 +936,7 @@ fn django_discovery_discovers_site_packages_created_after_bootstrap() {
 }
 
 #[test]
-fn compute_and_apply_django_discovery_discovers_site_packages_created_after_bootstrap() {
+fn environment_then_project_facts_discovers_site_packages_created_after_bootstrap() {
     let mut db = TestDatabase::new();
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -961,7 +966,7 @@ fn compute_and_apply_django_discovery_discovers_site_packages_created_after_boot
 }
 
 #[test]
-fn django_discovery_enumerates_new_empty_templatetag_candidate_before_root_bump() {
+fn project_facts_enumerate_new_empty_templatetag_candidate_before_root_bump() {
     let mut db = TestDatabase::new();
     db.add_file("/project/blog/__init__.py", "");
     db.add_file("/project/blog/templatetags/__init__.py", "");
@@ -975,14 +980,12 @@ fn django_discovery_enumerates_new_empty_templatetag_candidate_before_root_bump(
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let candidates =
-        DiscoveryPhase::ProjectFacts(ProjectFactsPhase::TemplateTagCandidates).run(&db, project);
+    let candidates = ProjectFactsPhase::TemplateTagCandidates.run(&db, project);
     assert_eq!(candidates.count(), 0);
 
     db.add_file("/project/blog/templatetags/future.py", "");
 
-    let candidates =
-        DiscoveryPhase::ProjectFacts(ProjectFactsPhase::TemplateTagCandidates).run(&db, project);
+    let candidates = ProjectFactsPhase::TemplateTagCandidates.run(&db, project);
     assert_eq!(candidates.count(), 1);
 }
 

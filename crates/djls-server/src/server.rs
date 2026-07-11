@@ -285,7 +285,8 @@ impl LanguageServer for DjangoLanguageServer {
                 )?;
                 let db = snapshot.db();
 
-                if *file.source(db).kind() != FileKind::Template {
+                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
+                {
                     return None;
                 }
 
@@ -309,7 +310,8 @@ impl LanguageServer for DjangoLanguageServer {
                 )?;
                 let db = snapshot.db();
 
-                if *file.source(db).kind() != FileKind::Template {
+                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
+                {
                     return None;
                 }
 
@@ -336,7 +338,8 @@ impl LanguageServer for DjangoLanguageServer {
                 )?;
                 let db = snapshot.db();
 
-                if *file.source(db).kind() != FileKind::Template {
+                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
+                {
                     return None;
                 }
 
@@ -394,7 +397,8 @@ impl LanguageServer for DjangoLanguageServer {
                 };
                 let db = snapshot.db();
 
-                if *file.source(db).kind() != FileKind::Template {
+                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
+                {
                     return Vec::new();
                 }
 
@@ -418,7 +422,8 @@ impl LanguageServer for DjangoLanguageServer {
                 };
                 let db = snapshot.db();
 
-                if *file.source(db).kind() != FileKind::Template {
+                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
+                {
                     return Vec::new();
                 }
 
@@ -442,7 +447,8 @@ impl LanguageServer for DjangoLanguageServer {
                 };
                 let db = snapshot.db();
 
-                if *file.source(db).kind() != FileKind::Template {
+                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
+                {
                     return Vec::new();
                 }
 
@@ -466,7 +472,8 @@ impl LanguageServer for DjangoLanguageServer {
                 )?;
                 let db = snapshot.db();
 
-                if *file.source(db).kind() != FileKind::Template {
+                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
+                {
                     return None;
                 }
 
@@ -495,7 +502,8 @@ impl LanguageServer for DjangoLanguageServer {
                 )?;
                 let db = snapshot.db();
 
-                if *file.source(db).kind() != FileKind::Template {
+                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
+                {
                     return None;
                 }
 
@@ -524,7 +532,9 @@ impl LanguageServer for DjangoLanguageServer {
                     return Vec::new();
                 }
 
-                let source = file.source(db);
+                let Ok(source) = file.try_source(db) else {
+                    return Vec::new();
+                };
                 if *source.kind() != FileKind::Template {
                     return Vec::new();
                 }

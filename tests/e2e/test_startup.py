@@ -258,7 +258,6 @@ async def test_supported_client_receives_startup_progress_begin_report_end(
         "Discovering model modules",
         "Discovering template libraries",
         "Discovering template tag candidates",
-        "Applying project facts",
         "Building tag specs",
         "Building filter arity specs",
         "Building model graph",

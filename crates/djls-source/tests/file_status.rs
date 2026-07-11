@@ -1,8 +1,10 @@
 use camino::Utf8Path;
+use djls_source::ChangeEvent;
 use djls_source::Db as _;
 use djls_source::File;
 use djls_source::FileError;
 use djls_source::FileStatus;
+use djls_source::SourceChanges;
 use djls_source::path_to_file;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
@@ -100,7 +102,82 @@ fn path_to_file_existing_file_returns_file_with_source() {
 
     let file = path_to_file(&db, Utf8Path::new(path)).expect("file should exist");
 
-    assert_eq!(file.source(&db).as_str(), "print('hello')\n");
+    assert_eq!(
+        file.try_source(&db)
+            .expect("file should be readable")
+            .as_str(),
+        "print('hello')\n"
+    );
+}
+
+#[test]
+fn readable_empty_source_is_distinct_from_unreadable_source() {
+    let mut db = TestDatabase::new();
+    let path = Utf8Path::new("/project/empty.py");
+    db.add_file(path.as_str(), "");
+    let file = path_to_file(&db, path).expect("file should exist");
+
+    assert_eq!(
+        file.try_source(&db)
+            .expect("file should be readable")
+            .as_str(),
+        ""
+    );
+
+    db.remove_file(path.as_str());
+    SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+    let error = file
+        .try_source(&db)
+        .expect_err("deleted file should be unreadable");
+    assert_eq!(error.path(), path);
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+
+    db.add_file(path.as_str(), "recreated");
+    SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+    assert_eq!(
+        file.try_source(&db)
+            .expect("recreated file should be readable")
+            .as_str(),
+        "recreated"
+    );
+}
+
+#[test]
+fn rescan_refreshes_content_and_backdates_equal_outcomes() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let path = Utf8Path::new("/project/app.py");
+    db.add_file(path.as_str(), "old");
+    let file = path_to_file(&db, path).expect("file should exist");
+    assert_eq!(file.try_source(&db).unwrap().as_str(), "old");
+
+    let old_revision = file.revision(&db);
+    db.add_file(path.as_str(), "new");
+    SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+    assert_eq!(file.revision(&db), old_revision + 1);
+    assert_eq!(file.try_source(&db).unwrap().as_str(), "new");
+
+    let unchanged_revision = file.revision(&db);
+    let _ = event_log.take();
+    SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+    assert_eq!(file.revision(&db), unchanged_revision);
+    assert_eq!(file.try_source(&db).unwrap().as_str(), "new");
+    assert_eq!(execution_count(&db, &event_log.take(), "try_source"), 0);
+}
+
+#[test]
+fn content_change_synchronizes_source_with_one_revision_bump() {
+    let mut db = TestDatabase::new();
+    let path = Utf8Path::new("/project/app.py");
+    db.add_file(path.as_str(), "old");
+    let file = path_to_file(&db, path).expect("file should exist");
+    let old_revision = file.revision(&db);
+
+    db.add_file(path.as_str(), "new");
+    SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
+
+    assert_eq!(file.revision(&db), old_revision + 1);
+    assert_eq!(file.try_source(&db).unwrap().as_str(), "new");
 }
 
 #[test]

@@ -73,7 +73,9 @@ use crate::validation::TemplateValidator;
 /// need Django meaning for a file.
 #[salsa::tracked]
 pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
-    let Some(nodelist) = djls_templates::parse_template(db, file) else {
+    let djls_templates::TemplateParseResult::Parsed(nodelist) =
+        djls_templates::parse_template(db, file)
+    else {
         return;
     };
 

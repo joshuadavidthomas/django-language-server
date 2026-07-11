@@ -11,14 +11,16 @@ mod templates;
 
 pub use db::Db;
 pub use discovery::CountLabel;
-pub use discovery::DiscoveryPhase;
-pub use discovery::DjangoDiscoveryData;
-pub use discovery::DjangoDiscoveryPart;
 pub use discovery::DjangoDiscoveryProgress;
+pub use discovery::DjangoEnvironmentData;
+pub use discovery::EnvironmentPart;
 pub use discovery::EnvironmentPhase;
+pub use discovery::ProjectFactsData;
+pub use discovery::ProjectFactsPart;
 pub use discovery::ProjectFactsPhase;
-pub use discovery::apply_django_discovery;
-pub use discovery::django_discovery_phases;
+pub use discovery::apply_django_environment;
+pub use discovery::environment_phases;
+pub use discovery::project_facts_phases;
 pub use models::ModelGraph;
 pub use models::ModelId;
 pub use models::compute_model_graph;
@@ -101,7 +103,8 @@ pub mod testing {
     use djls_source::FileStatus;
     use djls_source::Span;
 
-    pub use crate::discovery::compute_django_discovery;
+    pub use crate::discovery::compute_django_environment;
+    pub use crate::discovery::compute_project_facts;
     pub use crate::models::model_modules;
     pub use crate::models::resolve_model_graph_from_modules;
     pub use crate::python::PythonSyntaxError;
@@ -243,6 +246,7 @@ pub mod testing {
             .durability(salsa::Durability::LOW)
             .path_durability(salsa::Durability::HIGH)
             .new(db);
+        db.files().register_file(db, file);
         super::PythonModule::new(
             module_name,
             path,

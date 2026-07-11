@@ -10,6 +10,7 @@ use djls_source::File;
 use djls_source::Span;
 use djls_templates::NodeList;
 use djls_templates::TagBit;
+use djls_templates::TemplateParseResult;
 use djls_templates::TemplateString;
 use djls_templates::parse_template;
 use rustc_hash::FxHashSet;
@@ -36,7 +37,7 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
     let mut current_template_name = resolution.primary_template_name(db, file);
 
     let end = loop {
-        let Some(nodelist) = parse_template(db, current_file) else {
+        let TemplateParseResult::Parsed(nodelist) = parse_template(db, current_file) else {
             // Parser failures leave no observable extends target. Treat the
             // file as a root rather than claiming a resolution failure.
             break ChainEnd::Root;
@@ -130,7 +131,7 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
 
     for origin in template_inheritance(db, project, file).ancestors(db) {
         let ancestor_file = origin.file(db);
-        let Some(nodelist) = parse_template(db, ancestor_file) else {
+        let TemplateParseResult::Parsed(nodelist) = parse_template(db, ancestor_file) else {
             continue;
         };
         for block in template_symbols(db, nodelist).blocks() {
@@ -209,7 +210,7 @@ fn file_winning_extends_target_is<'db>(
     file: File,
     target_name: TemplateName<'db>,
 ) -> bool {
-    let Some(nodelist) = parse_template(db, file) else {
+    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return false;
     };
 
@@ -227,7 +228,9 @@ fn file_winning_extends_target_is<'db>(
 }
 
 fn first_block_site(db: &dyn Db, file: File, name: &str) -> Option<BlockSite> {
-    let nodelist = parse_template(db, file)?;
+    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
+        return None;
+    };
     template_symbols(db, nodelist)
         .blocks()
         .iter()
