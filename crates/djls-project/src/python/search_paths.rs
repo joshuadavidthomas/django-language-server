@@ -2,6 +2,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
+use djls_source::RootWalk;
 use djls_source::Utf8PathClean;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
@@ -160,7 +161,9 @@ impl SearchPaths {
     }
 
     fn add_pth_editable_roots(&mut self, fs: &dyn FileSystem, site_packages: &Utf8Path) {
-        let Ok(entries) = fs.walk_entries(site_packages, &WalkOptions::shallow()) else {
+        let RootWalk::Directory { entries, .. } =
+            fs.walk_root(site_packages, &WalkOptions::shallow())
+        else {
             return;
         };
 

@@ -28,6 +28,7 @@ pub use fs::CaseSensitivity;
 pub use fs::FileSystem;
 pub use fs::InMemoryFileSystem;
 pub use fs::OsFileSystem;
+pub use fs::RootWalk;
 pub use fs::WalkEntry;
 pub use fs::WalkEntryKind;
 pub use fs::WalkOptions;

@@ -4,8 +4,8 @@ use salsa::Setter;
 use crate::File;
 use crate::FileRoot;
 use crate::FileSystem;
+use crate::RootWalk;
 use crate::SourceFiles;
-use crate::WalkEntry;
 use crate::WalkOptions;
 
 #[salsa::db]
@@ -26,12 +26,8 @@ pub trait Db: salsa::Database {
         self.file_system().is_dir(path)
     }
 
-    fn walk_entries(
-        &self,
-        root: &Utf8Path,
-        options: &WalkOptions,
-    ) -> std::io::Result<Vec<WalkEntry>> {
-        self.file_system().walk_entries(root, options)
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        self.file_system().walk_root(root, options)
     }
 
     /// Bump the revision for a tracked file to invalidate dependent queries.

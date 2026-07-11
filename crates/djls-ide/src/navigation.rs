@@ -55,10 +55,46 @@ pub fn goto_definition(
                         ))
                     }
                 }
+                FindTemplateResult::Inconclusive(search) => {
+                    // Jumping to a probable origin beats refusing to navigate; with several
+                    // candidates the editor presents the list and the user picks.
+                    if supports_location_links {
+                        let links = search
+                            .possible_origins
+                            .iter()
+                            .filter_map(|origin| {
+                                let target_uri = origin.path_buf(db).to_lsp_uri()?;
+                                let target_range = ls_types::Range::default();
+                                Some(ls_types::LocationLink {
+                                    origin_selection_range: Some(
+                                        span.to_lsp_range(file.line_index(db)),
+                                    ),
+                                    target_uri,
+                                    target_range,
+                                    target_selection_range: target_range,
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        (!links.is_empty()).then_some(ls_types::GotoDefinitionResponse::Link(links))
+                    } else {
+                        let locations = search
+                            .possible_origins
+                            .iter()
+                            .filter_map(|origin| {
+                                Some(ls_types::Location {
+                                    uri: origin.path_buf(db).to_lsp_uri()?,
+                                    range: ls_types::Range::default(),
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        (!locations.is_empty())
+                            .then_some(ls_types::GotoDefinitionResponse::Array(locations))
+                    }
+                }
                 FindTemplateResult::DoesNotExist(error) => {
                     tracing::warn!(
                         "Template '{}' not found. Tried: {:?}",
-                        error.template_name.name(db),
+                        error.name.name(db),
                         error.tried
                     );
                     None

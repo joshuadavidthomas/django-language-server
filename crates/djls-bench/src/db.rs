@@ -15,6 +15,7 @@ use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FileSystem;
 use djls_source::FxDashMap;
+use djls_source::RootWalk;
 use djls_source::SourceChanges;
 use djls_source::SourceFiles;
 use djls_source::WalkEntry;
@@ -59,14 +60,17 @@ impl FileSystem for SourceMapFileSystem {
         self.exists(path)
     }
 
-    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        if self.is_file(root) {
+            return RootWalk::File(WalkEntry::file_root(root));
+        }
+        if !self.is_dir(root) {
+            return RootWalk::Missing;
+        }
+
         let mut entries = Vec::new();
         for path in self.sources.iter().map(|entry| entry.key().clone()) {
-            if !path.starts_with(root) {
-                continue;
-            }
-            if path == root {
-                entries.push(WalkEntry::file_root(root));
+            if !path.starts_with(root) || path == root {
                 continue;
             }
 
@@ -115,7 +119,10 @@ impl FileSystem for SourceMapFileSystem {
         }
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         entries.dedup_by(|left, right| left.path == right.path);
-        Ok(entries)
+        RootWalk::Directory {
+            entries,
+            issues: Vec::new(),
+        }
     }
 }
 
@@ -212,12 +219,6 @@ impl ProjectDb for Db {
 impl SemanticDb for Db {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
-    }
-
-    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        self.project().and_then(|project| {
-            djls_project::template_resolution(self, project).known_template_dirs(self)
-        })
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {

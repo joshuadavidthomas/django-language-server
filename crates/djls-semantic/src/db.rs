@@ -1,4 +1,3 @@
-use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_project::Db as ProjectDb;
 use djls_project::ModelGraph;
@@ -12,8 +11,6 @@ use crate::tags::TagSpecs;
 pub trait Db: ProjectDb {
     /// Get the Django tag specifications for semantic analysis.
     fn tag_specs(&self) -> &TagSpecs;
-
-    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>>;
 
     /// Get the diagnostics configuration.
     fn diagnostics_config(&self) -> DiagnosticsConfig;

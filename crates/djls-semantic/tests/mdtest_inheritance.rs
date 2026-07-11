@@ -180,7 +180,9 @@ fn render_chain_end(end: ChainEnd) -> String {
         ChainEnd::Root => "root".to_string(),
         ChainEnd::Dynamic { span } => format!("dynamic @{}", render_span(span)),
         ChainEnd::Unresolved { name } => format!("unresolved {name:?}"),
-        ChainEnd::IncompleteDirs => "incomplete-dirs".to_string(),
+        ChainEnd::InconclusiveParent { name } => {
+            format!("inconclusive-parent {name:?}")
+        }
         ChainEnd::Cycle => "cycle".to_string(),
     }
 }

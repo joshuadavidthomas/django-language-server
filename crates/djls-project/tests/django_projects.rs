@@ -12,8 +12,8 @@ use djls_project::compute_model_graph;
 use djls_project::file_to_module;
 use djls_project::file_to_module_resolution;
 use djls_project::resolve_package_dirs;
+use djls_project::template_directories;
 use djls_project::template_libraries;
-use djls_project::template_resolution;
 use djls_project::testing::compute_project_facts;
 use djls_testing::OsTestDatabase;
 
@@ -45,9 +45,12 @@ fn venv_override(venv: &Utf8Path) -> djls_conf::Settings {
 }
 
 fn template_dirs(db: &OsTestDatabase, project: Project) -> Vec<Utf8PathBuf> {
-    template_resolution(db, project)
-        .known_template_dirs(db)
-        .expect("template dirs should be complete")
+    let directories = template_directories(db, project);
+    assert!(!directories.configuration_may_omit_roots());
+    directories
+        .known_roots()
+        .map(Utf8Path::to_path_buf)
+        .collect()
 }
 
 #[test]

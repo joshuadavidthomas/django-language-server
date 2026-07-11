@@ -1,6 +1,7 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileSystem;
+use djls_source::RootWalk;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
@@ -56,8 +57,7 @@ impl Interpreter {
 
         let lib_dir = venv.join("lib");
         let mut site_packages_directories = Vec::new();
-        if fs.is_dir(&lib_dir)
-            && let Ok(entries) = fs.walk_entries(&lib_dir, &WalkOptions::shallow())
+        if let RootWalk::Directory { entries, .. } = fs.walk_root(&lib_dir, &WalkOptions::shallow())
         {
             for entry in entries {
                 if entry.kind != WalkEntryKind::Directory {

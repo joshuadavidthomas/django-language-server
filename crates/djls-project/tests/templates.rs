@@ -240,7 +240,7 @@ fn template_names_for_file_returns_names_in_discovery_order() {
 }
 
 #[test]
-fn find_template_returns_first_origin_for_duplicate_template_names() {
+fn resolve_returns_first_origin_for_duplicate_template_names() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(
         &mut db,
@@ -272,7 +272,7 @@ fn find_template_returns_first_origin_for_duplicate_template_names() {
 }
 
 #[test]
-fn find_template_reports_tried_sources_for_missing_template() {
+fn resolve_reports_missing_template() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(
         &mut db,
@@ -281,21 +281,139 @@ fn find_template_reports_tried_sources_for_missing_template() {
     );
 
     let name = TemplateName::new(&db, "missing.html".to_string());
-    let result = template_resolution(&db, project).resolve(&db, name);
-    let FindTemplateResult::DoesNotExist(error) = result else {
-        panic!("expected missing.html to be missing");
+    let FindTemplateResult::DoesNotExist(error) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected missing template");
     };
-    let tried: Vec<_> = error
-        .tried
-        .iter()
-        .map(|source| source.path.as_str())
-        .collect();
+
+    assert_eq!(error.name, name);
+    assert_eq!(
+        error.tried,
+        [
+            Utf8Path::new("/test/project/templates/missing.html"),
+            Utf8Path::new("/test/project/app/templates/missing.html"),
+        ]
+    );
+}
+
+#[test]
+fn earlier_uncertainty_weakens_a_later_candidate() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates', '/test/project/app/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file("/test/project/templates/base.html", "first")
+        .file("/test/project/app/templates/base.html", "second")
+        .build(&db);
+
+    let name = TemplateName::new(&db, "base.html".to_string());
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected inconclusive search");
+    };
+
+    assert_eq!(search.name, name);
+    assert_eq!(search.possible_origins.len(), 1);
+    let directories = template_directories(&db, project);
+    assert!(directories.configuration_may_omit_roots());
+    assert_eq!(
+        directories.known_roots().collect::<Vec<_>>(),
+        [
+            Utf8Path::new("/test/project/templates"),
+            Utf8Path::new("/test/project/app/templates"),
+        ]
+    );
+}
+
+#[test]
+fn later_dynamic_directory_does_not_weaken_an_earlier_winner() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', UNKNOWN], 'APP_DIRS': False}]\n",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .build(&db);
+
+    let name = TemplateName::new(&db, "base.html".to_string());
+    let result = template_resolution(&db, project).resolve(&db, name);
+
+    assert!(matches!(result, FindTemplateResult::Found(_)));
+}
+
+#[test]
+fn later_uncertainty_does_not_weaken_an_earlier_winner() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = ['missing']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': True}]\n",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .build(&db);
+
+    let name = TemplateName::new(&db, "base.html".to_string());
+    let result = template_resolution(&db, project).resolve(&db, name);
+
+    assert!(matches!(result, FindTemplateResult::Found(_)));
+}
+
+#[test]
+fn missing_template_with_directory_uncertainty_is_inconclusive() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN], 'APP_DIRS': False}]\n",
+        )
+        .build(&db);
+
+    let name = TemplateName::new(&db, "missing.html".to_string());
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("expected inconclusive search");
+    };
+
+    assert_eq!(search.name, name);
+    assert!(search.possible_origins.is_empty());
+}
+
+#[test]
+fn resolve_excluding_skips_excluded_origins() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates", "/test/project/app/templates"],
+        vec![
+            ("base.html", "/test/project/templates/base.html", "first"),
+            (
+                "base.html",
+                "/test/project/app/templates/base.html",
+                "second",
+            ),
+        ],
+    );
+    let resolution = template_resolution(&db, project);
+    let name = TemplateName::new(&db, "base.html".to_string());
+    let first = resolution.origins_for_name(&db, name)[0].file(&db);
+
+    let FindTemplateResult::Found(origin) = resolution.resolve_excluding(&db, name, &[first])
+    else {
+        panic!("expected the non-excluded origin");
+    };
 
     assert_eq!(
-        tried,
-        [
-            "/test/project/templates/missing.html",
-            "/test/project/app/templates/missing.html"
-        ]
+        origin.path_buf(&db).as_str(),
+        "/test/project/app/templates/base.html"
     );
 }

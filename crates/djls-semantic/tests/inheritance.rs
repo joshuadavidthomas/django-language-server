@@ -304,6 +304,83 @@ fn template_inheritance_follows_extends_role_not_builtin_name() {
 }
 
 #[test]
+fn template_inheritance_reports_missing_parent_as_unresolved() {
+    let db = TestDatabase::new();
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates"],
+        vec![(
+            "/test/project/templates/child.html",
+            "{% extends 'missing.html' %}",
+        )],
+    );
+    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+
+    let (ancestors, end) = inheritance_summary(&db, project, child);
+
+    assert!(ancestors.is_empty());
+    assert_eq!(
+        end,
+        ChainEnd::Unresolved {
+            name: "missing.html".to_string()
+        }
+    );
+}
+
+#[test]
+fn template_inheritance_reports_inconclusive_parent_search() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/test/project/templates/child.html",
+            "{% extends 'base.html' %}",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .build(&db);
+    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+
+    let (ancestors, end) = inheritance_summary(&db, project, child);
+
+    assert!(ancestors.is_empty());
+    assert_eq!(
+        end,
+        ChainEnd::InconclusiveParent {
+            name: "base.html".to_string()
+        }
+    );
+}
+
+#[test]
+fn template_inheritance_preserves_cycle_detection() {
+    let db = TestDatabase::new();
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates"],
+        vec![
+            (
+                "/test/project/templates/first.html",
+                "{% extends 'second.html' %}",
+            ),
+            (
+                "/test/project/templates/second.html",
+                "{% extends 'first.html' %}",
+            ),
+        ],
+    );
+    let first = db.file(Utf8Path::new("/test/project/templates/first.html"));
+
+    let (ancestors, end) = inheritance_summary(&db, project, first);
+
+    assert_eq!(ancestors, ["/test/project/templates/second.html"]);
+    assert_eq!(end, ChainEnd::Cycle);
+}
+
+#[test]
 fn extracts_blocks_and_extends_by_role_not_builtin_names() {
     let mut specs = builtin_tag_specs();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([

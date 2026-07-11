@@ -6,9 +6,11 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::ValueEnum;
 use djls_db::DjangoDatabase;
-use djls_semantic::Db as _;
+use djls_project::Db as _;
+use djls_project::template_directories;
 use djls_source::Db as _;
 use djls_source::FileKind;
+use djls_source::RootWalk;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
@@ -39,46 +41,14 @@ pub(crate) fn discover_files(
     project_root: &Utf8Path,
     options: &WalkOptions,
 ) -> Vec<Utf8PathBuf> {
-    let roots: Vec<Utf8PathBuf> = if !paths.is_empty() {
-        paths
-            .iter()
-            .map(|path| {
-                if path.is_relative() {
-                    project_root.join(path)
-                } else {
-                    path.clone()
-                }
-            })
-            .collect()
-    } else if let Some(dirs) = db.template_dirs() {
-        dirs.into_iter().collect()
-    } else {
-        vec![project_root.to_owned()]
-    };
+    let roots = discovery_roots(paths, db, project_root);
 
     let mut files = Vec::new();
     for path in &roots {
-        if db.path_is_file(path) {
-            if is_template(path) {
-                let path = match path.as_std_path().canonicalize() {
-                    Ok(canonical) => {
-                        #[cfg(windows)]
-                        let canonical = dunce::simplified(&canonical).to_path_buf();
-                        Utf8PathBuf::from_path_buf(canonical).unwrap_or_else(|_| path.clone())
-                    }
-                    Err(_) => path.clone(),
-                };
-                files.push(path);
-            }
-            continue;
-        }
-
-        if !db.path_is_dir(path) {
-            continue;
-        }
-
-        let Ok(entries) = db.walk_entries(path, options) else {
-            continue;
+        let entries = match db.walk_root(path, options) {
+            RootWalk::File(entry) => vec![entry],
+            RootWalk::Directory { entries, .. } => entries,
+            RootWalk::Missing | RootWalk::Inaccessible(_) => continue,
         };
         for entry in entries {
             if entry.kind != WalkEntryKind::File || !is_template(&entry.path) {
@@ -102,6 +72,46 @@ pub(crate) fn discover_files(
     files
 }
 
+/// Selects the directories a batch command enumerates templates from.
+///
+/// Explicit CLI paths always win. Otherwise every known template root is scanned, and the
+/// project root is added only when configuration may omit roots: a batch scan would rather
+/// visit extra files than silently skip templates the settings could not enumerate. A fully
+/// extracted configuration with no roots gets no fallback, so the scan does not invent roots
+/// the project never declared.
+fn discovery_roots(
+    paths: &[Utf8PathBuf],
+    db: &DjangoDatabase,
+    project_root: &Utf8Path,
+) -> Vec<Utf8PathBuf> {
+    if !paths.is_empty() {
+        return paths
+            .iter()
+            .map(|path| {
+                if path.is_relative() {
+                    project_root.join(path)
+                } else {
+                    path.clone()
+                }
+            })
+            .collect();
+    }
+
+    let Some(project) = db.project() else {
+        return vec![project_root.to_owned()];
+    };
+    let directories = template_directories(db, project);
+    let mut roots: Vec<Utf8PathBuf> = directories
+        .known_roots()
+        .map(Utf8Path::to_path_buf)
+        .collect();
+    if directories.configuration_may_omit_roots() && !roots.iter().any(|root| root == project_root)
+    {
+        roots.push(project_root.to_owned());
+    }
+    roots
+}
+
 pub(crate) fn resolve_project_root() -> Result<Utf8PathBuf> {
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
     Utf8PathBuf::from_path_buf(cwd)
@@ -120,6 +130,73 @@ mod tests {
     use djls_source::OsFileSystem;
 
     use super::*;
+
+    fn project_database(project_root: &Utf8Path) -> DjangoDatabase {
+        let settings = Settings::new(project_root, None).unwrap();
+        let mut db = DjangoDatabase::new(
+            Arc::new(OsFileSystem::default()),
+            &settings,
+            Some(project_root),
+        );
+        db.apply_project_settings(settings);
+        db
+    }
+
+    fn write_settings_project(project_root: &Utf8Path, settings_source: &str) {
+        std::fs::write(
+            project_root.join("djls.toml"),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        std::fs::write(project_root.join("settings.py"), settings_source).unwrap();
+    }
+
+    #[test]
+    fn explicit_paths_take_precedence_over_discovered_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let configured = root.join("configured");
+        write_settings_project(
+            &root,
+            &format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{configured}'], 'APP_DIRS': False}}]\n"
+            ),
+        );
+        let db = project_database(&root);
+
+        assert_eq!(
+            discovery_roots(&[Utf8PathBuf::from("explicit")], &db, &root),
+            [root.join("explicit")]
+        );
+    }
+
+    #[test]
+    fn no_paths_use_closed_known_roots_without_project_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        write_settings_project(
+            &root,
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False}]\n",
+        );
+        let db = project_database(&root);
+
+        assert!(discovery_roots(&[], &db, &root).is_empty());
+    }
+
+    #[test]
+    fn incomplete_roots_add_project_root_without_duplicates() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        write_settings_project(
+            &root,
+            &format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}', dynamic()], 'APP_DIRS': False}}]\n"
+            ),
+        );
+        let db = project_database(&root);
+
+        assert_eq!(discovery_roots(&[], &db, &root), [root]);
+    }
 
     #[test]
     fn discovers_templates_under_explicit_directory() {
