@@ -87,8 +87,6 @@ fn validate_incremental(bencher: Bencher) {
         })
         .collect();
 
-    let mut revision = 1_u64;
-
     bencher.bench_local(move || {
         let mut validated = 0;
         for _ in 0..BATCH_INNER_ITERS {
@@ -100,8 +98,7 @@ fn validate_incremental(bencher: Bencher) {
                 };
                 template.use_modified = !template.use_modified;
 
-                db.set_file_contents(template.file, contents, revision);
-                revision = revision.wrapping_add(1);
+                db.set_file_contents(template.file, contents);
 
                 let nodelist = djls_templates::parse_template(&db, template.file)
                     .expect("benchmark template should parse");

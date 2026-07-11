@@ -10,16 +10,17 @@ use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_source::CaseSensitivity;
+use djls_source::ChangeEvent;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FileSystem;
 use djls_source::FxDashMap;
+use djls_source::SourceChanges;
 use djls_source::SourceFiles;
 use djls_source::WalkEntry;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 use djls_source::path_to_file;
-use salsa::Setter;
 
 #[derive(Clone)]
 struct SourceMapFileSystem {
@@ -173,10 +174,10 @@ impl Db {
         path_to_file(self, &path).expect("inserted benchmark source should be visible")
     }
 
-    pub fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {
-        let path = file.path(self);
+    pub fn set_file_contents(&mut self, file: File, contents: &str) {
+        let path = file.path(self).clone();
         self.fs.sources.insert(path.clone(), contents.to_string());
-        file.set_revision(self).to(revision);
+        SourceChanges::new([ChangeEvent::ContentChanged(path)]).apply(self);
     }
 }
 

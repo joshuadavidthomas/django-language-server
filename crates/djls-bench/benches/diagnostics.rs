@@ -149,8 +149,6 @@ fn collect_incremental(bencher: Bencher) {
         })
         .collect();
 
-    let mut revision = 1_u64;
-
     bencher.bench_local(move || {
         let mut total = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
@@ -162,8 +160,7 @@ fn collect_incremental(bencher: Bencher) {
                 };
                 template.use_modified = !template.use_modified;
 
-                db.set_file_contents(template.file, contents, revision);
-                revision = revision.wrapping_add(1);
+                db.set_file_contents(template.file, contents);
 
                 total += djls_ide::collect_diagnostics(&db, template.file)
                     .expect("template fixture should be eligible for diagnostics")
