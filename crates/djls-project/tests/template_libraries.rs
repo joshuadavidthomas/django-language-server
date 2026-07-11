@@ -11,7 +11,6 @@ use djls_project::TemplateSymbolLookup;
 use djls_project::TemplateSymbolName;
 use djls_project::testing;
 use djls_project::testing::TemplateBackendLibrariesInput;
-use djls_project::testing::TemplateLibraryConfigurationInput;
 use djls_project::testing::TemplateLibraryInput;
 use djls_testing::TestDatabase;
 
@@ -81,15 +80,11 @@ fn configured_libraries(
     configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
 ) -> TemplateLibraries {
     let db = TestDatabase::new();
-    testing::template_libraries_with_configurations(
-        &db,
-        inputs,
-        configurations
-            .into_iter()
-            .map(|backends| TemplateLibraryConfigurationInput { backends })
-            .collect(),
-        open,
-    )
+    if open {
+        testing::template_libraries_with_configuration_omissions(&db, inputs, configurations)
+    } else {
+        testing::template_libraries_with_configurations(&db, inputs, configurations)
+    }
 }
 
 #[test]

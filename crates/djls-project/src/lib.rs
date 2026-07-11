@@ -186,11 +186,6 @@ pub mod testing {
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct TemplateLibraryConfigurationInput {
-        pub backends: Vec<TemplateBackendLibrariesInput>,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TemplateLibraryInput {
         Builtin {
             module: super::PythonModuleName,
@@ -251,16 +246,29 @@ pub mod testing {
     pub fn template_libraries_with_configurations(
         db: &dyn super::Db,
         inputs: Vec<TemplateLibraryInput>,
-        configurations: Vec<TemplateLibraryConfigurationInput>,
-        open: bool,
+        configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
     ) -> super::TemplateLibraries {
-        let mut libraries = template_libraries(db, open, inputs);
+        configure_template_libraries(template_libraries(db, false, inputs), configurations)
+    }
+
+    #[must_use]
+    pub fn template_libraries_with_configuration_omissions(
+        db: &dyn super::Db,
+        inputs: Vec<TemplateLibraryInput>,
+        configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
+    ) -> super::TemplateLibraries {
+        configure_template_libraries(template_libraries(db, true, inputs), configurations)
+    }
+
+    fn configure_template_libraries(
+        mut libraries: super::TemplateLibraries,
+        configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
+    ) -> super::TemplateLibraries {
         libraries.set_testing_configurations(
             configurations
                 .into_iter()
-                .map(|configuration| {
-                    configuration
-                        .backends
+                .map(|backends| {
+                    backends
                         .into_iter()
                         .map(|backend| (backend.loadable, backend.builtins))
                         .collect()

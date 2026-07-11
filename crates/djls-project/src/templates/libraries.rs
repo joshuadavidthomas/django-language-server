@@ -203,15 +203,36 @@ enum TemplateLibraryIssue {
     Source(Option<LibraryName>),
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct TemplateLibraryConfigurations {
-    known: Vec<TemplateLibraryConfiguration>,
-    open: bool,
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateLibraryConfigurations {
+    Exhaustive(Vec<Vec<TemplateBackendLibraries>>),
+    WithOmissions(Vec<Vec<TemplateBackendLibraries>>),
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct TemplateLibraryConfiguration {
-    backends: Vec<TemplateBackendLibraries>,
+impl TemplateLibraryConfigurations {
+    fn known(&self) -> &[Vec<TemplateBackendLibraries>] {
+        match self {
+            Self::Exhaustive(known) | Self::WithOmissions(known) => known,
+        }
+    }
+
+    const fn has_omissions(&self) -> bool {
+        matches!(self, Self::WithOmissions(_))
+    }
+
+    fn replace_known(&mut self, known: Vec<Vec<TemplateBackendLibraries>>) {
+        *self = if self.has_omissions() {
+            Self::WithOmissions(known)
+        } else {
+            Self::Exhaustive(known)
+        };
+    }
+
+    fn mark_omissions(&mut self) {
+        if let Self::Exhaustive(known) = self {
+            *self = Self::WithOmissions(std::mem::take(known));
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -239,10 +260,7 @@ impl Default for TemplateLibraries {
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
             configured_claims: BTreeSet::new(),
-            configurations: TemplateLibraryConfigurations {
-                known: Vec::new(),
-                open: true,
-            },
+            configurations: TemplateLibraryConfigurations::WithOmissions(Vec::new()),
             available_by_name: BTreeMap::new(),
             issues: vec![TemplateLibraryIssue::OpenSettings],
         }
@@ -263,11 +281,14 @@ impl TemplateLibraries {
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
             configured_claims: BTreeSet::new(),
-            configurations: TemplateLibraryConfigurations {
-                known: vec![TemplateLibraryConfiguration {
-                    backends: vec![TemplateBackendLibraries::default()],
-                }],
-                open,
+            configurations: if open {
+                TemplateLibraryConfigurations::WithOmissions(vec![vec![
+                    TemplateBackendLibraries::default(),
+                ]])
+            } else {
+                TemplateLibraryConfigurations::Exhaustive(vec![vec![
+                    TemplateBackendLibraries::default(),
+                ]])
             },
             available_by_name: BTreeMap::new(),
             issues: if open {
@@ -290,13 +311,10 @@ impl TemplateLibraries {
         &mut self,
         configurations: Vec<Vec<TestingBackendConfiguration>>,
     ) {
-        if configurations.is_empty() {
-            self.configurations.open = true;
-        }
-        self.configurations.known = configurations
+        let known = configurations
             .into_iter()
-            .map(|backends| TemplateLibraryConfiguration {
-                backends: backends
+            .map(|backends| {
+                backends
                     .into_iter()
                     .map(|(loadable, builtins)| TemplateBackendLibraries {
                         loadable_by_name: loadable
@@ -328,9 +346,10 @@ impl TemplateLibraries {
                             })
                             .collect(),
                     })
-                    .collect(),
+                    .collect()
             })
             .collect();
+        self.configurations.replace_known(known);
     }
 
     fn rebuild_configuration(&mut self) {
@@ -345,9 +364,7 @@ impl TemplateLibraries {
                 })
                 .collect(),
         };
-        self.configurations.known = vec![TemplateLibraryConfiguration {
-            backends: vec![backend],
-        }];
+        self.configurations.replace_known(vec![vec![backend]]);
     }
 
     #[must_use]
@@ -415,10 +432,10 @@ impl TemplateLibraries {
     pub fn loadable_library(&self, name: &LibraryName) -> LoadableLibraryLookup<'_> {
         let mut outcomes = Vec::new();
         let mut indexes = Vec::new();
-        for configuration in &self.configurations.known {
+        for configuration in self.configurations.known() {
             let mut configuration_matches = Vec::new();
-            let mut absent = configuration.backends.is_empty();
-            for backend in &configuration.backends {
+            let mut absent = configuration.is_empty();
+            for backend in configuration {
                 match backend.loadable_by_name.get(name).copied() {
                     Some(index) if !configuration_matches.contains(&index) => {
                         configuration_matches.push(index);
@@ -447,7 +464,7 @@ impl TemplateLibraries {
                 .all(|(matches, absent)| !*absent && matches.as_slice() == [index])
         });
 
-        if self.configurations.open
+        if self.configurations.has_omissions()
             || self
                 .issues
                 .iter()
@@ -500,7 +517,7 @@ impl TemplateLibraries {
                 load_name: load_name.clone(),
             };
         }
-        if self.configurations.open || !self.issues.is_empty() {
+        if self.configurations.has_omissions() || !self.issues.is_empty() {
             TemplateSymbolLookup::Inconclusive
         } else {
             TemplateSymbolLookup::Absent
@@ -534,7 +551,7 @@ impl TemplateLibraries {
             apps.dedup();
             return MissingLibraryLookup::FoundInApps { primary_app, apps };
         }
-        if self.configurations.open
+        if self.configurations.has_omissions()
             || self.issues.iter().any(|issue| match issue {
                 TemplateLibraryIssue::Discovery | TemplateLibraryIssue::OpenSettings => true,
                 TemplateLibraryIssue::ConfiguredAlias(alias) => alias == name,
@@ -550,8 +567,8 @@ impl TemplateLibraries {
 
     pub fn resolved_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
         let mut indexes = Vec::new();
-        for configuration in &self.configurations.known {
-            for backend in &configuration.backends {
+        for configuration in self.configurations.known() {
+            for backend in configuration {
                 for index in backend
                     .loadable_by_name
                     .values()
@@ -570,9 +587,10 @@ impl TemplateLibraries {
     }
 
     pub fn definitely_loaded_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
-        let closed_single_backend = !self.configurations.open
-            && self.configurations.known.len() == 1
-            && self.configurations.known[0].backends.len() == 1;
+        let known_configurations = self.configurations.known();
+        let closed_single_backend = !self.configurations.has_omissions()
+            && known_configurations.len() == 1
+            && known_configurations[0].len() == 1;
         self.resolved_libraries()
             .filter(move |_| closed_single_backend)
     }
@@ -804,9 +822,9 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             builtin_indices: Vec::new(),
         });
     }
-    libraries.configurations.known = vec![TemplateLibraryConfiguration {
-        backends: backend_configurations,
-    }];
+    libraries
+        .configurations
+        .replace_known(vec![backend_configurations]);
     libraries.insert_available_candidates(db, project, &installed_template_library_modules);
     libraries
 }
@@ -819,7 +837,7 @@ fn insert_backend_libraries(
     libraries: &mut TemplateLibraries,
 ) -> TemplateBackendLibraries {
     if !backend.is_fully_extracted() {
-        libraries.configurations.open = true;
+        libraries.configurations.mark_omissions();
         libraries.issues.push(TemplateLibraryIssue::OpenSettings);
     }
 
