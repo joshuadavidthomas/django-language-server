@@ -4,10 +4,10 @@ use ruff_python_ast as ast;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
+use super::PythonSyntaxImpact;
 use super::control_flow::Truthiness;
 use super::control_flow::evaluate_test_with;
-use super::evaluation::PythonSyntaxImpact;
-use super::mutation_target::MutationTarget;
+use super::mutation::MutationTarget;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::python::PythonSyntaxError;

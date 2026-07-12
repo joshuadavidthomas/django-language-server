@@ -1,19 +1,12 @@
-mod control_flow;
 mod evaluation;
-mod evaluation_query;
-mod evaluator;
-mod mutation_target;
-mod mutations;
-mod statement_walk;
-mod touched_names;
 
 pub(crate) fn testing_python_module_evaluation(
     db: &dyn crate::Db,
     project: crate::Project,
     file: djls_source::File,
 ) -> crate::testing::PythonModuleEvaluationView {
-    let values = evaluation_query::python_module_values(db, project, file).clone();
-    let dependencies = evaluation_query::python_module_dependencies(db, project, file).clone();
+    let values = evaluation::python_module_values(db, project, file).clone();
+    let dependencies = evaluation::python_module_dependencies(db, project, file).clone();
     let (bindings, namespace_unknowns, syntax_errors, mutations, read_error) = match values {
         evaluation::PythonModuleValuesOutcome::Readable(values) => (
             values
@@ -262,13 +255,13 @@ fn import_outcome_view(
 }
 
 fn mutation_access_view(
-    access: self::mutations::PythonMutationAccess,
+    access: evaluation::PythonMutationAccess,
 ) -> crate::testing::PythonMutationAccessView {
     match access {
-        self::mutations::PythonMutationAccess::Index(index) => {
+        evaluation::PythonMutationAccess::Index(index) => {
             crate::testing::PythonMutationAccessView::Index(index)
         }
-        self::mutations::PythonMutationAccess::Key(key) => {
+        evaluation::PythonMutationAccess::Key(key) => {
             crate::testing::PythonMutationAccessView::Key(key)
         }
     }
@@ -283,10 +276,10 @@ pub(crate) use self::evaluation::PythonListItem;
 pub(crate) use self::evaluation::PythonModuleValues;
 pub(crate) use self::evaluation::PythonModuleValuesOutcome;
 pub(crate) use self::evaluation::PythonMutation;
+pub(crate) use self::evaluation::PythonMutationAccess;
 pub(crate) use self::evaluation::PythonUnknown;
 pub(crate) use self::evaluation::PythonUnknownCause;
 pub(crate) use self::evaluation::PythonValue;
 pub(crate) use self::evaluation::PythonValueKind;
-pub(crate) use self::evaluation_query::python_module_dependencies;
-pub(crate) use self::evaluation_query::python_module_values;
-pub(crate) use self::mutations::PythonMutationAccess;
+pub(crate) use self::evaluation::python_module_dependencies;
+pub(crate) use self::evaluation::python_module_values;
