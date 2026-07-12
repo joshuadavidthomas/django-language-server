@@ -119,7 +119,8 @@ async def test_hover_describes_loaded_tags(client: LanguageClient):
     assert result is not None
     assert result.contents.kind == MarkupKind.Markdown
     assert "```text\n(tag) static\n```" in result.contents.value
-    assert "Requires `{% load static %}`." in result.contents.value
+    assert "Defined in `django.templatetags.static`." in result.contents.value
+    assert "Requires `{% load static %}`." not in result.contents.value
 
 
 @pytest.mark.asyncio

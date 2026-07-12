@@ -132,6 +132,7 @@ pub struct Db {
     files: SourceFiles,
     tag_specs: Arc<TagSpecs>,
     filter_arity_specs: Arc<FilterAritySpecs>,
+    project: Option<Project>,
     storage: salsa::Storage<Self>,
 }
 
@@ -145,6 +146,7 @@ impl Db {
             files: SourceFiles::default(),
             tag_specs: Arc::new(TagSpecs::default()),
             filter_arity_specs: Arc::new(FilterAritySpecs::new()),
+            project: None,
             storage: salsa::Storage::default(),
         }
     }
@@ -161,6 +163,18 @@ impl Db {
         self
     }
 
+    pub(crate) fn add_fixture_source(
+        &self,
+        path: impl Into<Utf8PathBuf>,
+        contents: impl Into<String>,
+    ) {
+        self.fs.sources.insert(path.into(), contents.into());
+    }
+
+    pub(crate) fn set_project(&mut self, project: Project) {
+        self.project = Some(project);
+    }
+
     /// Add source content and return the corresponding tracked file.
     ///
     /// # Panics
@@ -168,7 +182,7 @@ impl Db {
     /// Panics if the inserted benchmark source is not visible through the filesystem.
     pub fn file_with_contents(&mut self, path: impl Into<Utf8PathBuf>, contents: &str) -> File {
         let path = path.into();
-        self.fs.sources.insert(path.clone(), contents.to_string());
+        self.add_fixture_source(path.clone(), contents);
         path_to_file(self, &path).expect("inserted benchmark source should be visible")
     }
 
@@ -202,7 +216,7 @@ impl SourceDb for Db {
 #[salsa::db]
 impl ProjectDb for Db {
     fn project(&self) -> Option<Project> {
-        None
+        self.project
     }
 }
 

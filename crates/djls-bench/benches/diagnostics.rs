@@ -226,7 +226,7 @@ fn render_validation_output(bencher: Bencher) {
 #[divan::bench]
 fn render_validation_synthetic_output(bencher: Bencher) {
     let mut db = realistic_db();
-    let file = db.file_with_contents("bench.html", MANY_ERRORS_SOURCE);
+    let file = db.file_with_contents("/bench.html", MANY_ERRORS_SOURCE);
 
     let check = djls_bench::check_file(&db, file);
     assert!(

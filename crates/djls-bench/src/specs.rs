@@ -1,11 +1,17 @@
 use std::sync::OnceLock;
 
+use camino::Utf8Path;
+use djls_conf::TagSpecDef;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
+use djls_project::Interpreter;
+use djls_project::Project;
 use djls_project::PythonModuleName;
+use djls_project::SearchPaths;
 use djls_project::SymbolKey;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
+use djls_source::Db as SourceDb;
 use djls_testing::extract_bundle;
 
 use crate::Db;
@@ -16,6 +22,8 @@ const I18N: &str = "django.templatetags.i18n";
 struct RealisticSpecs {
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
+    defaulttags_source: String,
+    i18n_source: String,
 }
 
 fn build_filter_arities(
@@ -96,12 +104,77 @@ fn build_realistic_specs() -> RealisticSpecs {
     RealisticSpecs {
         tag_specs,
         filter_arity_specs,
+        defaulttags_source,
+        i18n_source,
     }
 }
 
 fn realistic_specs() -> &'static RealisticSpecs {
     static SPECS: OnceLock<RealisticSpecs> = OnceLock::new();
     SPECS.get_or_init(build_realistic_specs)
+}
+
+fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
+    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}}}]\n";
+    const DEFAULTFILTERS: &str = concat!(
+        "from django import template\nregister = template.Library()\n",
+        "@register.filter\ndef title(value): pass\n",
+        "@register.filter\ndef lower(value): pass\n",
+        "@register.filter\ndef upper(value): pass\n",
+        "@register.filter\ndef default(value, arg): pass\n",
+        "@register.filter\ndef date(value, arg=None): pass\n",
+        "@register.filter\ndef truncatewords(value, arg): pass\n",
+        "@register.filter\ndef floatformat(value, arg=None): pass\n",
+        "@register.filter\ndef join(value, arg): pass\n",
+        "@register.filter\ndef cut(value, arg): pass\n",
+        "@register.filter\ndef yesno(value, arg=None): pass\n",
+        "@register.filter\ndef pluralize(value, arg=None): pass\n",
+        "@register.filter\ndef center(value, arg): pass\n",
+    );
+    const LOADER_TAGS: &str = concat!(
+        "from django import template\nregister = template.Library()\n",
+        "@register.tag\ndef block(parser, token): pass\n",
+        "@register.tag\ndef extends(parser, token): pass\n",
+        "@register.tag\ndef include(parser, token): pass\n",
+    );
+
+    for (path, source) in [
+        ("/project/__init__.py", ""),
+        ("/project/settings.py", SETTINGS),
+        ("/django/__init__.py", ""),
+        ("/django/template/__init__.py", ""),
+        ("/django/template/defaultfilters.py", DEFAULTFILTERS),
+        ("/django/template/loader_tags.py", LOADER_TAGS),
+        ("/django/templatetags/__init__.py", ""),
+        (
+            "/django/templatetags/static.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef static(parser, token): pass\n",
+        ),
+    ] {
+        db.add_fixture_source(path, source);
+    }
+    db.add_fixture_source(
+        "/django/template/defaulttags.py",
+        specs.defaulttags_source.clone(),
+    );
+    db.add_fixture_source("/django/templatetags/i18n.py", specs.i18n_source.clone());
+
+    let root = Utf8Path::new("/");
+    let interpreter = Interpreter::Auto;
+    let search_paths =
+        SearchPaths::from_project_settings(db.file_system(), root, &interpreter, &[]);
+    search_paths.register_roots(db);
+    let project = Project::new(
+        db,
+        root.to_path_buf(),
+        search_paths,
+        interpreter,
+        Some(PythonModuleName::parse("project.settings").unwrap()),
+        Vec::new(),
+        Vec::new(),
+        TagSpecDef::default(),
+    );
+    db.set_project(project);
 }
 
 /// Create a benchmark `Db` configured for semantic structure projections.
@@ -117,8 +190,9 @@ pub fn structure_db() -> Db {
 #[must_use]
 pub fn realistic_db() -> Db {
     let specs = realistic_specs();
-
-    Db::new()
+    let mut db = Db::new()
         .with_tag_specs(specs.tag_specs.clone())
-        .with_filter_arity_specs(specs.filter_arity_specs.clone())
+        .with_filter_arity_specs(specs.filter_arity_specs.clone());
+    install_template_environment(&mut db, specs);
+    db
 }
