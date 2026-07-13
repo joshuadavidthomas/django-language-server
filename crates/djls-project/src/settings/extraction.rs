@@ -3,18 +3,20 @@ use djls_source::File;
 use djls_source::Origin;
 
 use crate::db::Db as ProjectDb;
-use crate::python::PythonBindingAlternative;
-use crate::python::PythonBoundValue;
-use crate::python::PythonDict;
-use crate::python::PythonDictItem;
-use crate::python::PythonList;
-use crate::python::PythonListItem;
-use crate::python::PythonModuleValues;
-use crate::python::PythonMutation;
-use crate::python::PythonMutationAccess;
-use crate::python::PythonUnknown;
-use crate::python::PythonValue;
-use crate::python::PythonValueKind;
+use crate::python::evaluation::BranchConstraints;
+use crate::python::evaluation::PythonBindingAlternative;
+use crate::python::evaluation::PythonBoundValue;
+use crate::python::evaluation::PythonDict;
+use crate::python::evaluation::PythonDictItem;
+use crate::python::evaluation::PythonList;
+use crate::python::evaluation::PythonListItem;
+use crate::python::evaluation::PythonModuleValues;
+use crate::python::evaluation::PythonMutation;
+use crate::python::evaluation::PythonMutationAccess;
+use crate::python::evaluation::PythonUnknown;
+use crate::python::evaluation::PythonUnknownCause;
+use crate::python::evaluation::PythonValue;
+use crate::python::evaluation::PythonValueKind;
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::DynamicInstalledApps;
 use crate::settings::types::DynamicScalarSetting;
@@ -79,7 +81,7 @@ impl KnownSetting {
 
 struct NamespaceDynamicEvidence {
     issue: SettingIssue,
-    constraints: crate::python::BranchConstraints,
+    constraints: BranchConstraints,
 }
 
 pub(crate) fn settings_from_values(
@@ -270,7 +272,7 @@ where
     SettingAlternatives::from_correlated(cases)
 }
 
-fn setting_correlation(constraints: &crate::python::BranchConstraints) -> SettingCorrelation {
+fn setting_correlation(constraints: &BranchConstraints) -> SettingCorrelation {
     SettingCorrelation::normalized(constraints.normalized_alternatives().to_vec())
 }
 
@@ -1039,7 +1041,7 @@ fn staticfiles_dirs(
 struct PathListProjection {
     paths: OrderedPathList,
     malformed: bool,
-    constraints: crate::python::BranchConstraints,
+    constraints: BranchConstraints,
 }
 
 impl PathListProjection {
@@ -1047,7 +1049,7 @@ impl PathListProjection {
         Self {
             paths: OrderedPathList::new(),
             malformed: false,
-            constraints: crate::python::BranchConstraints::unconstrained(),
+            constraints: BranchConstraints::unconstrained(),
         }
     }
 }
@@ -1201,7 +1203,7 @@ fn path_list_variant(
 
 struct EvaluatedPathCandidate {
     path: WithOrigin<EvaluatedPath>,
-    constraints: crate::python::BranchConstraints,
+    constraints: BranchConstraints,
 }
 
 fn evaluated_paths(db: &dyn ProjectDb, value: &PythonValue) -> Vec<EvaluatedPathCandidate> {
@@ -1334,26 +1336,22 @@ fn python_list_item_origin(item: &PythonListItem) -> Option<Origin> {
 
 fn alternative_limit_issue(origin: Origin) -> SettingIssue {
     unknown_issue(&PythonUnknown {
-        cause: crate::python::PythonUnknownCause::AlternativeLimitExceeded,
+        cause: PythonUnknownCause::AlternativeLimitExceeded,
         origin: Some(origin),
     })
 }
 
 fn unknown_issue(unknown: &PythonUnknown) -> SettingIssue {
     let kind = match unknown.cause {
-        crate::python::PythonUnknownCause::Unreadable(_) => SettingIssueKind::Unreadable,
-        crate::python::PythonUnknownCause::SyntaxErrors(_) => SettingIssueKind::SyntaxError,
-        crate::python::PythonUnknownCause::UnsupportedMutation => {
-            SettingIssueKind::UnsupportedMutation
-        }
-        crate::python::PythonUnknownCause::UnsupportedExpression
-        | crate::python::PythonUnknownCause::InvalidImport(_)
-        | crate::python::PythonUnknownCause::ImportNotFound(_)
-        | crate::python::PythonUnknownCause::SkippedExternal(_)
-        | crate::python::PythonUnknownCause::Cycle
-        | crate::python::PythonUnknownCause::AlternativeLimitExceeded => {
-            SettingIssueKind::DynamicExpression
-        }
+        PythonUnknownCause::Unreadable(_) => SettingIssueKind::Unreadable,
+        PythonUnknownCause::SyntaxErrors(_) => SettingIssueKind::SyntaxError,
+        PythonUnknownCause::UnsupportedMutation => SettingIssueKind::UnsupportedMutation,
+        PythonUnknownCause::UnsupportedExpression
+        | PythonUnknownCause::InvalidImport(_)
+        | PythonUnknownCause::ImportNotFound(_)
+        | PythonUnknownCause::SkippedExternal(_)
+        | PythonUnknownCause::Cycle
+        | PythonUnknownCause::AlternativeLimitExceeded => SettingIssueKind::DynamicExpression,
     };
     issue(kind, unknown.origin)
 }

@@ -2,9 +2,9 @@ use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonModuleValuesOutcome;
-use crate::python::python_module_dependencies;
-use crate::python::python_module_values;
+use crate::python::evaluation::PythonModuleValuesOutcome;
+use crate::python::evaluation::python_module_dependencies;
+use crate::python::evaluation::python_module_values;
 use crate::settings::DjangoSettings;
 use crate::settings::extraction::settings_from_values;
 
