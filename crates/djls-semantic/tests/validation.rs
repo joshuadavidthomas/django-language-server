@@ -6,7 +6,7 @@ use camino::Utf8PathBuf;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::compute_tag_specs;
+use djls_semantic::library_tag_specs;
 use djls_semantic::validate_template_file;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
@@ -20,6 +20,30 @@ fn standard_db() -> TestDatabase {
 
 fn partial_db() -> TestDatabase {
     partial_validation_db()
+}
+
+fn configured_tag_specs(
+    definitions: &[(&str, &str, djls_conf::TagTypeDef)],
+) -> djls_conf::TagSpecDef {
+    djls_conf::TagSpecDef {
+        libraries: definitions
+            .iter()
+            .map(|(module, name, tag_type)| djls_conf::TagLibraryDef {
+                module: (*module).to_string(),
+                requires_engine: None,
+                tags: vec![djls_conf::TagDef {
+                    name: (*name).to_string(),
+                    tag_type: tag_type.clone(),
+                    end: None,
+                    intermediates: Vec::new(),
+                    args: Vec::new(),
+                    extra: None,
+                }],
+                extra: None,
+            })
+            .collect(),
+        ..djls_conf::TagSpecDef::default()
+    }
 }
 
 fn partial_ambiguous_db() -> TestDatabase {
@@ -264,6 +288,313 @@ fn conflicting_backend_specs_do_not_produce_argument_arity_or_structure_diagnost
 }
 
 #[test]
+fn source_less_configured_library_preserves_block_structure() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .tag_specs(configured_tag_specs(&[(
+            "missing.panel_tags",
+            "panel",
+            djls_conf::TagTypeDef::Block,
+        )]))
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load panels %}{% panel %}body",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        errors.iter().any(
+            |error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "panel")
+        ),
+        "configured structure should remain active without Python source: {errors:?}"
+    );
+    assert!(!errors.iter().any(|error| matches!(
+        error,
+        ValidationError::UnknownLibrary { name, .. }
+            | ValidationError::UnknownTag { tag: name, .. }
+            | ValidationError::UnloadedTag { tag: name, .. }
+            if name == "panels" || name == "panel"
+    )));
+}
+
+#[test]
+fn loaded_source_less_alias_suppresses_same_named_available_app_guidance() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'missing.shared'}}}]\n",
+        )
+        .file("/proj/available_app/__init__.py", "")
+        .file("/proj/available_app/templatetags/__init__.py", "")
+        .file(
+            "/proj/available_app/templatetags/shared.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef shared_tag(): pass\n@register.filter\ndef shared_filter(value): return value\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load shared %}{% shared_tag %}{{ value|shared_filter }}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::TagNotInInstalledApps { tag, .. } if tag == "shared_tag"
+        ) || matches!(
+            error,
+            ValidationError::FilterNotInInstalledApps { filter, .. } if filter == "shared_filter"
+        )),
+        "an open source-less inventory must not become known absence: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownLibrary { name, .. } if name == "shared"
+        )),
+        "the configured source-less library remains definitively loadable: {errors:?}"
+    );
+}
+
+#[test]
+fn source_less_default_builtins_keep_django_grammar_and_load_configured_library() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .tag_specs(configured_tag_specs(&[(
+            "missing.panel_tags",
+            "panel",
+            djls_conf::TagTypeDef::Standalone,
+        )]))
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load panels %}{% panel %}{% if condition %}{% for item in items %}{% comment %}{% endfor %}{% endif %}{% endcomment %}{% empty %}empty{% endfor %}{% else %}fallback{% endif %}",
+        )
+        .build(&db);
+    db.set_project(project);
+
+    let libraries = djls_project::template_libraries(&db, project);
+    for module in [
+        "django.template.defaulttags",
+        "django.template.defaultfilters",
+        "django.template.loader_tags",
+    ] {
+        let library = libraries
+            .resolved_libraries()
+            .find(|library| library.module_name_str() == module)
+            .expect("canonical default builtin identity should remain present");
+        assert!(library.source_file().is_none());
+        assert!(library.symbol_inventory_is_open());
+    }
+    let panel_library = libraries
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "missing.panel_tags")
+        .expect("configured source-less library should remain present");
+    assert!(panel_library.source_file().is_none());
+
+    let defaulttags = libraries
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "django.template.defaulttags")
+        .expect("defaulttags identity should remain present");
+    let specs = library_tag_specs(&db, project, defaulttags.key(&db));
+    for name in ["if", "for", "load", "comment", "verbatim"] {
+        assert!(
+            specs.get(name).is_some(),
+            "missing hardcoded spec for {name}"
+        );
+    }
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownLibrary { name, .. }
+                | ValidationError::UnknownTag { tag: name, .. }
+                | ValidationError::UnloadedTag { tag: name, .. }
+                | ValidationError::UnclosedTag { tag: name, .. }
+                | ValidationError::OrphanedTag { tag: name, .. }
+                if matches!(
+                    name.as_str(),
+                    "panels"
+                        | "panel"
+                        | "if"
+                        | "for"
+                        | "comment"
+                        | "endcomment"
+                        | "empty"
+                        | "else"
+                        | "endfor"
+                        | "endif"
+                )
+        )),
+        "source-less canonical grammar and configured load should stay effective: {errors:?}"
+    );
+}
+
+#[test]
+fn configured_same_name_specs_remain_keyed_by_library() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .tag_specs(configured_tag_specs(&[
+            ("alpha_tags", "shared", djls_conf::TagTypeDef::Block),
+            ("beta_tags", "shared", djls_conf::TagTypeDef::Standalone),
+        ]))
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]\n",
+        )
+        .file(
+            "/proj/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file(
+            "/proj/beta_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/proj/templates/page.html", "")
+        .install(&mut db);
+
+    let libraries = djls_project::template_libraries(&db, project);
+    let alpha = libraries
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "alpha_tags")
+        .expect("alpha should resolve");
+    let beta = libraries
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "beta_tags")
+        .expect("beta should resolve");
+
+    assert!(
+        library_tag_specs(&db, project, alpha.key(&db))
+            .get("shared")
+            .and_then(|spec| spec.end_tag.as_ref())
+            .is_some(),
+        "alpha's configured block shape must not be overwritten by beta"
+    );
+    assert!(
+        library_tag_specs(&db, project, beta.key(&db))
+            .get("shared")
+            .is_some_and(|spec| spec.end_tag.is_none()),
+        "beta's configured standalone shape must not inherit alpha's same-name spec"
+    );
+}
+
+#[test]
+fn configured_dynamic_registration_is_available_through_its_library_catalog() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .tag_specs(configured_tag_specs(&[(
+            "dynamic_tags",
+            "dynamic_panel",
+            djls_conf::TagTypeDef::Block,
+        )]))
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'dynamic': 'dynamic_tags'}}}]\n",
+        )
+        .file(
+            "/proj/dynamic_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef sourced_tag():\n    return ''\ndef compile_panel(parser, token):\n    return Node()\ntag_name = 'dynamic_panel'\nregister.tag(tag_name, compile_panel)\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load dynamic %}{% dynamic_panel %}body{% enddynamic_panel %}",
+        )
+        .install(&mut db);
+
+    let libraries = djls_project::template_libraries(&db, project);
+    let dynamic = libraries
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "dynamic_tags")
+        .expect("configured dynamic library should resolve");
+    let symbol = dynamic
+        .symbol(djls_project::TemplateSymbolKind::Tag, "dynamic_panel")
+        .expect("configured-only definition should enter the keyed catalog");
+    assert!(matches!(
+        symbol.definition,
+        djls_project::SymbolDefinition::Unknown
+    ));
+    assert!(matches!(
+        dynamic
+            .symbol(djls_project::TemplateSymbolKind::Tag, "sourced_tag")
+            .expect("source registration should remain cataloged")
+            .definition,
+        djls_project::SymbolDefinition::Exact { .. }
+    ));
+    assert!(
+        library_tag_specs(&db, project, dynamic.key(&db))
+            .get("dynamic_panel")
+            .is_some(),
+        "configured-only definition should enter the keyed semantic product"
+    );
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownTag { tag, .. }
+                | ValidationError::UnloadedTag { tag, .. }
+                | ValidationError::UnclosedTag { tag, .. }
+                | ValidationError::OrphanedTag { tag, .. }
+                if tag == "dynamic_panel" || tag == "enddynamic_panel"
+        )),
+        "configured dynamic registration should have loaded block meaning: {errors:?}"
+    );
+}
+
+#[test]
+fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'panel_tags'}}}]\n",
+        )
+        .file(
+            "/proj/django/template/defaultfilters.py",
+            "from django import template\nregister = template.Library()\n@register.filter\ndef title(value): return value\n",
+        )
+        .file(
+            "/proj/panel_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag(name='panel')\ndef panel(parser, token):\n    nodelist = parser.parse(('elsepanel', 'endpanel'))\n    parser.delete_first_token()\n    return Node(nodelist)\n",
+        )
+        .file("/proj/templates/page.html", "{% load panels %}")
+        .install(&mut db);
+
+    let vocabulary = djls_semantic::semantic_grammar_vocabulary(&db, project);
+    assert!(!vocabulary.is_open());
+    let closer = vocabulary.closer_candidates("endif");
+    let if_definition = closer
+        .iter()
+        .find(|definition| definition.name() == "if")
+        .expect("builtin if should contribute its closer spelling");
+    assert_eq!(
+        if_definition.library().module(&db).as_str(),
+        "django.template.defaulttags"
+    );
+    assert!(
+        vocabulary
+            .intermediate_candidates("else")
+            .contains(if_definition)
+    );
+}
+
+#[test]
 fn unloaded_custom_collision_does_not_override_builtin_if_grammar() {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'collisions': 'collision_tags'}}}]\n";
@@ -299,6 +630,75 @@ fn unloaded_custom_collision_does_not_override_builtin_if_grammar() {
             .iter()
             .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "if")),
         "the fixture must expose the builtin if block specification: {unclosed_errors:?}"
+    );
+}
+
+#[test]
+fn unloaded_custom_closer_still_reports_unknown_tag() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'panel_tags'}}}]\n",
+        )
+        .file(
+            "/proj/panel_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag(name='panel')\ndef panel(parser, token):\n    body = parser.parse(('endpanel',))\n    return Node(body)\n",
+        )
+        .file(
+            "/proj/django/template/defaultfilters.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/proj/templates/page.html", "{% endpanel %}")
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        errors.iter().any(
+            |error| matches!(error, ValidationError::UnknownTag { tag, .. } if tag == "endpanel")
+        ),
+        "a project-global closer spelling must not suppress file-local scoping: {errors:?}"
+    );
+}
+
+#[test]
+fn feasible_backend_builtin_if_collision_stays_semantically_inconclusive() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['collision_tags']}}]\n";
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/settings.py", settings)
+        .file(
+            "/proj/collision_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag(name='if')\ndef custom_if(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 1:\n        raise template.TemplateSyntaxError('no arguments')\n    body = parser.parse(('endcustom',))\n    return Node(body)\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% if and %}body{% endif %}",
+        )
+        .install(&mut db);
+
+    let file = db.file(Utf8Path::new("/proj/templates/page.html"));
+    assert!(
+        djls_semantic::tag_specs_for_file(&db, file)
+            .get("if")
+            .is_none(),
+        "conflicting feasible definitions must not acquire builtin structure, arguments, or role"
+    );
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnclosedTag { .. }
+                | ValidationError::OrphanedTag { .. }
+                | ValidationError::OrphanedClosingTag { .. }
+                | ValidationError::UnbalancedStructure { .. }
+                | ValidationError::ExtractedRuleViolation { .. }
+                | ValidationError::ExpressionSyntaxError { .. }
+                | ValidationError::UnknownTag { .. }
+        )),
+        "inconclusive builtin-name meaning must not emit structural, argument, role-driven, or expression diagnostics: {errors:?}"
     );
 }
 
@@ -689,8 +1089,16 @@ fn extracted_block_db(source: &str) -> TestDatabase {
         )
         .install(&mut db);
 
-    let specs = compute_tag_specs(&db, project).clone();
-    db.with_specs(specs)
+    let library = djls_project::template_libraries(&db, project)
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
+        .expect("fixture library should be discovered");
+    let library_specs = library_tag_specs(&db, project, library.key(&db));
+    let mut specs = djls_semantic::TagSpecs::default();
+    if let Some(spec) = library_specs.get("mystery") {
+        specs.insert("mystery".to_string(), spec.clone());
+    }
+    db.with_projectless_tag_specs(specs)
 }
 
 fn extracted_unknown_block_db() -> TestDatabase {
@@ -729,7 +1137,7 @@ def do_mystery(parser, token):
 fn extracted_unknown_block_does_not_require_synthesized_end_tag() {
     let db = extracted_unknown_block_db();
     assert_eq!(
-        db.tag_specs()
+        db.projectless_tag_specs()
             .get("mystery")
             .and_then(|spec| spec.end_tag.as_ref())
             .map(|end_tag| end_tag.name.as_ref()),
@@ -755,7 +1163,7 @@ fn extracted_unknown_block_does_not_require_synthesized_end_tag() {
 fn extracted_self_named_block_requires_concretized_end_tag() {
     let db = extracted_self_named_block_db();
     assert_eq!(
-        db.tag_specs()
+        db.projectless_tag_specs()
             .get("mystery")
             .and_then(|spec| spec.end_tag.as_ref())
             .map(|end_tag| end_tag.name.as_ref()),
@@ -1520,8 +1928,8 @@ fn corpus_templates_have_no_argument_false_positives() {
 
         let (specs, arities) = build_entry_specs(&corpus, &entry_dir);
         let db = TestDatabase::new()
-            .with_specs(specs)
-            .with_arity_specs(arities);
+            .with_projectless_tag_specs(specs)
+            .with_projectless_filter_arity_specs(arities);
 
         for (i, template_path) in templates.into_iter().enumerate() {
             let Ok(content) = std::fs::read_to_string(template_path.as_std_path()) else {
@@ -1568,8 +1976,8 @@ fn corpus_known_invalid_templates_produce_errors() {
     let (specs, arities) = build_specs_from_extraction(&corpus, &django_dir);
 
     let db = TestDatabase::new()
-        .with_specs(specs)
-        .with_arity_specs(arities);
+        .with_projectless_tag_specs(specs)
+        .with_projectless_filter_arity_specs(arities);
 
     // for tag with wrong number of args
     let errors = collect_argument_validation_errors_with_revision(

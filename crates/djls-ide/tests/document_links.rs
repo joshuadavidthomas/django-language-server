@@ -128,6 +128,39 @@ fn document_links_skip_inconclusive_template_references() {
 }
 
 #[test]
+fn document_links_do_not_invent_origin_for_source_less_configured_library() {
+    let mut db = TestDatabase::new();
+    let template_path = "/test/project/templates/load.html";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("project.settings")
+        .tag_specs(djls_conf::TagSpecDef {
+            libraries: vec![djls_conf::TagLibraryDef {
+                module: "missing.panel_tags".to_string(),
+                requires_engine: None,
+                tags: vec![djls_conf::TagDef {
+                    name: "panel".to_string(),
+                    tag_type: djls_conf::TagTypeDef::Block,
+                    end: None,
+                    intermediates: Vec::new(),
+                    args: Vec::new(),
+                    extra: None,
+                }],
+                extra: None,
+            }],
+            ..djls_conf::TagSpecDef::default()
+        })
+        .file(
+            "/test/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
+        )
+        .file(template_path, "{% load panels %}")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new(template_path));
+
+    assert!(document_links(&db, file).is_empty());
+}
+
+#[test]
 fn document_links_skip_library_candidate_beside_open_backend_alternative() {
     let mut db = TestDatabase::new();
     let template_path = "/test/project/templates/load.html";

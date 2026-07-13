@@ -115,7 +115,10 @@ fn realistic_specs() -> &'static RealisticSpecs {
 }
 
 fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
-    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}}}]\n";
+    // Custom builtin module identities preserve this benchmark's extracted-only workload. Using
+    // Django's canonical module names would merge semantic's hardcoded builtin roles and change
+    // the pinned diagnostic contract from source extraction to fallback-spec behavior.
+    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}, 'builtins': ['bench.defaulttags', 'bench.defaultfilters', 'bench.loader_tags']}}]\n";
     const DEFAULTFILTERS: &str = concat!(
         "from django import template\nregister = template.Library()\n",
         "@register.filter\ndef title(value): pass\n",
@@ -146,6 +149,9 @@ fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
         ("/django/template/defaultfilters.py", DEFAULTFILTERS),
         ("/django/template/loader_tags.py", LOADER_TAGS),
         ("/django/templatetags/__init__.py", ""),
+        ("/bench/__init__.py", ""),
+        ("/bench/defaultfilters.py", DEFAULTFILTERS),
+        ("/bench/loader_tags.py", LOADER_TAGS),
         (
             "/django/templatetags/static.py",
             "from django import template\nregister = template.Library()\n@register.tag\ndef static(parser, token): pass\n",
@@ -157,6 +163,7 @@ fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
         "/django/template/defaulttags.py",
         specs.defaulttags_source.clone(),
     );
+    db.add_fixture_source("/bench/defaulttags.py", specs.defaulttags_source.clone());
     db.add_fixture_source("/django/templatetags/i18n.py", specs.i18n_source.clone());
 
     let root = Utf8Path::new("/");
@@ -181,7 +188,7 @@ fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
 #[must_use]
 pub fn structure_db() -> Db {
     let specs = realistic_specs();
-    Db::new().with_tag_specs(specs.tag_specs.clone())
+    Db::new().with_projectless_tag_specs(specs.tag_specs.clone())
 }
 
 /// Create a benchmark `Db` configured with realistic Django tag specs,
@@ -191,8 +198,8 @@ pub fn structure_db() -> Db {
 pub fn realistic_db() -> Db {
     let specs = realistic_specs();
     let mut db = Db::new()
-        .with_tag_specs(specs.tag_specs.clone())
-        .with_filter_arity_specs(specs.filter_arity_specs.clone());
+        .with_projectless_tag_specs(specs.tag_specs.clone())
+        .with_projectless_filter_arity_specs(specs.filter_arity_specs.clone());
     install_template_environment(&mut db, specs);
     db
 }

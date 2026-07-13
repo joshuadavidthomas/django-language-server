@@ -3437,7 +3437,7 @@ fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
 }
 
 #[test]
-fn template_libraries_omit_missing_configured_alias_and_demote_knowledge() {
+fn template_libraries_retain_missing_configured_alias_without_source() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3450,7 +3450,11 @@ fn template_libraries_omit_missing_configured_alias_and_demote_knowledge() {
 
     let libraries = template_libraries(&db, project);
 
-    assert!(libraries.loadable_library_str("missing").found().is_none());
+    assert!(matches!(
+        libraries.loadable_library_str("missing"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "missing_tags" && library.source_file().is_none()
+    ));
 }
 
 #[test]
@@ -3486,7 +3490,7 @@ fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() 
 }
 
 #[test]
-fn template_libraries_active_libraries_include_only_resolved_libraries() {
+fn template_libraries_include_resolved_and_configured_only_libraries() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3510,13 +3514,26 @@ fn template_libraries_active_libraries_include_only_resolved_libraries() {
         .map(|library| library.module_name_str().to_string())
         .collect();
 
-    assert_eq!(active_modules, vec!["good_tags"]);
+    assert_eq!(
+        active_modules,
+        vec![
+            "good_tags",
+            "missing_tags",
+            "django.template.defaulttags",
+            "django.template.defaultfilters",
+            "django.template.loader_tags",
+        ]
+    );
     assert!(matches!(
         libraries.loadable_library_str("good"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "good_tags"
     ));
-    assert!(libraries.loadable_library_str("missing").found().is_none());
+    assert!(matches!(
+        libraries.loadable_library_str("missing"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "missing_tags" && library.source_file().is_none()
+    ));
     assert!(libraries.loadable_library_str("invalid").found().is_none());
 }
 

@@ -238,7 +238,7 @@ impl<'db, 'index> TemplateTreeBuilder<'db, 'index> {
             TagClass::Intermediate { possible_openers } => {
                 self.accumulate_orphaned_intermediate(name, possible_openers, full_span);
             }
-            TagClass::Unknown => {
+            TagClass::Standalone | TagClass::Unknown => {
                 self.add_standalone_tag(name, name_span, bits, full_span);
             }
         }

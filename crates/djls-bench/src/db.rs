@@ -126,8 +126,8 @@ impl FileSystem for SourceMapFileSystem {
 pub struct Db {
     fs: SourceMapFileSystem,
     files: SourceFiles,
-    tag_specs: Arc<TagSpecs>,
-    filter_arity_specs: Arc<FilterAritySpecs>,
+    projectless_tag_specs: Arc<TagSpecs>,
+    projectless_filter_arity_specs: Arc<FilterAritySpecs>,
     project: Option<Project>,
     storage: salsa::Storage<Self>,
 }
@@ -140,22 +140,22 @@ impl Db {
                 sources: Arc::new(FxDashMap::default()),
             },
             files: SourceFiles::default(),
-            tag_specs: Arc::new(TagSpecs::default()),
-            filter_arity_specs: Arc::new(FilterAritySpecs::new()),
+            projectless_tag_specs: Arc::new(TagSpecs::default()),
+            projectless_filter_arity_specs: Arc::new(FilterAritySpecs::new()),
             project: None,
             storage: salsa::Storage::default(),
         }
     }
 
     #[must_use]
-    pub(crate) fn with_tag_specs(mut self, specs: TagSpecs) -> Self {
-        self.tag_specs = Arc::new(specs);
+    pub(crate) fn with_projectless_tag_specs(mut self, specs: TagSpecs) -> Self {
+        self.projectless_tag_specs = Arc::new(specs);
         self
     }
 
     #[must_use]
-    pub(crate) fn with_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
-        self.filter_arity_specs = Arc::new(specs);
+    pub(crate) fn with_projectless_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
+        self.projectless_filter_arity_specs = Arc::new(specs);
         self
     }
 
@@ -218,16 +218,16 @@ impl ProjectDb for Db {
 
 #[salsa::db]
 impl SemanticDb for Db {
-    fn tag_specs(&self) -> &TagSpecs {
-        &self.tag_specs
+    fn projectless_tag_specs(&self) -> &TagSpecs {
+        &self.projectless_tag_specs
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn filter_arity_specs(&self) -> &FilterAritySpecs {
-        &self.filter_arity_specs
+    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
+        &self.projectless_filter_arity_specs
     }
 
     fn model_graph(&self) -> &djls_project::ModelGraph {

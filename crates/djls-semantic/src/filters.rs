@@ -1,11 +1,10 @@
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
-use djls_project::Project;
 use djls_project::SymbolKey;
+use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
 use djls_project::extract_filter_arities;
-use djls_project::template_libraries;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
@@ -56,23 +55,23 @@ impl FilterAritySpecs {
     }
 }
 
-/// Compute `FilterAritySpecs` from a project's extraction results.
-///
-/// Merges filter arity data from discovered template tag modules, with
-/// last-wins semantics for name collisions.
-#[salsa::tracked(returns(ref))]
-pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterAritySpecs {
-    let mut specs = FilterAritySpecs::new();
+/// Independently backdatable semantic Filter facts for one Template Library.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LibraryFilterSpecs(FilterAritySpecs);
 
-    for library in template_libraries(db, project).resolved_libraries() {
-        let extraction = extract_filter_arities(db, library.file(), library.module_name().clone());
-        let filter_arities = extraction.arities();
-        if !filter_arities.is_empty() {
-            specs.merge_filter_arities(filter_arities);
-        }
+impl LibraryFilterSpecs {
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&FilterArity> {
+        self.0.get(name)
     }
+}
 
-    specs
+#[salsa::tracked(returns(ref))]
+pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryKey) -> LibraryFilterSpecs {
+    let extraction = extract_filter_arities(db, key);
+    let mut specs = FilterAritySpecs::new();
+    specs.merge_filter_arities(extraction.arities());
+    LibraryFilterSpecs(specs)
 }
 
 /// Return the effective filter arity at one occurrence when every feasible backend agrees.
@@ -83,7 +82,10 @@ pub(crate) fn effective_filter_arity(
     load_state: &crate::scoping::LoadState<'_>,
 ) -> Option<FilterArity> {
     if db.project().is_none() {
-        return db.filter_arity_specs().get(filter_name).cloned();
+        return db
+            .projectless_filter_arity_specs()
+            .get(filter_name)
+            .cloned();
     }
     let loaded = load_state.libraries_loading_symbol(filter_name);
     let alternatives = crate::db::template_environment_for_file(db, file)
@@ -92,12 +94,16 @@ pub(crate) fn effective_filter_arity(
         .into_iter()
         .map(|alternative| match alternative {
             EffectiveDefinitionLibrary::Known(library) => Some(library.and_then(|library| {
-                extract_filter_arities(db, library.file(), library.module_name().clone())
-                    .arities()
-                    .iter()
-                    .find(|(key, _)| key.name == filter_name)
-                    .map(|(_, arity)| arity.clone())
+                library_filter_specs(db, library.key(db))
+                    .get(filter_name)
+                    .cloned()
             })),
+            EffectiveDefinitionLibrary::Unobserved(library) => {
+                library_filter_specs(db, library.key(db))
+                    .get(filter_name)
+                    .cloned()
+                    .map(Some)
+            }
             EffectiveDefinitionLibrary::Unknown => None,
         })
         .collect();

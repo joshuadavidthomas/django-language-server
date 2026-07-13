@@ -2,6 +2,8 @@ pub(crate) mod loads;
 pub(crate) mod symbols;
 
 use djls_project::EffectiveDefinitionLibrary;
+use djls_project::SymbolDefinition;
+use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
@@ -129,18 +131,7 @@ pub fn effective_symbol_candidates_at(
                     let EffectiveDefinitionLibrary::Known(Some(library)) = definition else {
                         return None;
                     };
-                    let symbol = library
-                        .symbols()
-                        .iter()
-                        .filter(|symbol| symbol.kind == kind && symbol.name() == name)
-                        .find(|symbol| symbol.doc().is_some_and(|doc| !doc.trim().is_empty()))
-                        .or_else(|| {
-                            library
-                                .symbols()
-                                .iter()
-                                .find(|symbol| symbol.kind == kind && symbol.name() == name)
-                        })?
-                        .clone();
+                    let symbol = library.symbol(kind, &name)?.clone();
                     let availability = library.load_name().map_or_else(
                         || TemplateSymbolAvailability::Builtin {
                             module: library.module_name().clone(),
@@ -149,16 +140,19 @@ pub fn effective_symbol_candidates_at(
                             load_name: load_name.clone(),
                         },
                     );
-                    Some(TemplateSymbolCandidate {
-                        symbol,
-                        availability,
-                    })
+                    Some((
+                        library.key(db),
+                        TemplateSymbolCandidate {
+                            symbol,
+                            availability,
+                        },
+                    ))
                 })
                 .collect::<Option<Vec<_>>>()?;
             let first = candidates.first()?;
             if !candidates
                 .iter()
-                .all(|candidate| candidate.symbol.has_same_definition(&first.symbol))
+                .all(|candidate| effective_definitions_agree(first, candidate))
             {
                 return None;
             }
@@ -168,7 +162,7 @@ pub fn effective_symbol_candidates_at(
             // stable tie-breaker instead of making backend order observable.
             let symbol = candidates
                 .iter()
-                .map(|candidate| &candidate.symbol)
+                .map(|(_, candidate)| &candidate.symbol)
                 .max_by_key(|symbol| {
                     symbol
                         .doc()
@@ -176,8 +170,8 @@ pub fn effective_symbol_candidates_at(
                         .map(str::trim)
                 })?
                 .clone();
-            let mut availability = first.availability.clone();
-            for candidate in &candidates[1..] {
+            let mut availability = first.1.availability.clone();
+            for (_, candidate) in &candidates[1..] {
                 if availability == candidate.availability {
                     continue;
                 }
@@ -207,4 +201,14 @@ pub fn effective_symbol_candidates_at(
             })
         })
         .collect()
+}
+
+fn effective_definitions_agree(
+    left: &(TemplateLibraryKey, TemplateSymbolCandidate),
+    right: &(TemplateLibraryKey, TemplateSymbolCandidate),
+) -> bool {
+    left.1.symbol.has_same_definition(&right.1.symbol)
+        || (left.0 == right.0
+            && matches!(left.1.symbol.definition, SymbolDefinition::Unknown)
+            && matches!(right.1.symbol.definition, SymbolDefinition::Unknown))
 }

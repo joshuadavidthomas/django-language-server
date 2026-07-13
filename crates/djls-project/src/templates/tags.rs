@@ -1,5 +1,5 @@
 mod analysis;
-mod blocks;
+pub(crate) mod blocks;
 mod registry;
 mod signature;
 mod types;
@@ -15,17 +15,15 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::python::PythonModuleName;
 use crate::python::RecoveredPythonModuleResult;
 use crate::python::recovered_python_module;
-use crate::templates::for_each_registration;
+use crate::templates::TemplateLibraryKey;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
 use crate::templates::tags::analysis::extract_return_value;
 use crate::templates::tags::analysis::process_statements;
-use crate::templates::tags::blocks::EndTagEvidence;
 pub use crate::templates::tags::types::ArgumentCountConstraint;
 pub use crate::templates::tags::types::AsVar;
 pub use crate::templates::tags::types::BlockSpec;
@@ -42,6 +40,7 @@ pub use crate::templates::tags::types::TagArgument;
 pub use crate::templates::tags::types::TagArgumentKind;
 pub use crate::templates::tags::types::TagRule;
 pub use crate::templates::tags::types::TagRuleMap;
+use crate::templates::template_library_tag_facts;
 
 /// Interned key for a helper function call.
 ///
@@ -135,77 +134,16 @@ fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctio
     found
 }
 
-/// Extract tag validation rules from a Python file, cached by Salsa.
-///
-/// This domain-specific query lets tag argument validation depend only on tag
-/// rule extraction. Filter-only changes can backdate here and avoid invalidating
-/// tag specs.
+/// Equality-bearing Tag Rule projection for one Template Library.
 #[salsa::tracked(returns(ref))]
-pub fn extract_tag_rules(
-    db: &dyn djls_source::Db,
-    file: File,
-    registration_module: PythonModuleName,
-) -> TagRuleMap {
-    with_parsed_body(db, file, |body| {
-        let registration_module = registration_module.into_string();
-        let mut tag_rules = TagRuleMap::default();
-
-        for_each_registration(body, &registration_module, |reg, func, key| {
-            if let Some(rule) = reg.kind.extract_tag_rule(func) {
-                tag_rules.insert(key, rule.into());
-            }
-        });
-
-        tag_rules
-    })
+pub fn extract_tag_rules(db: &dyn crate::db::Db, key: TemplateLibraryKey) -> TagRuleMap {
+    template_library_tag_facts(db, key).tag_rules().clone()
 }
 
-/// Extract block specs from a Python file, cached by Salsa.
-///
-/// This domain-specific query lets structural tag validation depend on block
-/// extraction without also depending on filter arities.
+/// Equality-bearing Block Spec projection for one Template Library.
 #[salsa::tracked(returns(ref))]
-pub fn extract_block_specs(
-    db: &dyn djls_source::Db,
-    file: File,
-    registration_module: PythonModuleName,
-) -> BlockSpecs {
-    with_parsed_body(db, file, |body| {
-        let registration_module = registration_module.into_string();
-        let mut block_specs = BlockSpecs::default();
-
-        for_each_registration(body, &registration_module, |reg, func, key| {
-            if let Some(block_spec) = reg.kind.extract_block_spec(func) {
-                let end_tag = match block_spec.end_tag {
-                    EndTagEvidence::Literal(end_tag) => Some(end_tag),
-                    EndTagEvidence::SelfNamed => Some(format!("end{}", key.name)),
-                    EndTagEvidence::Unknown => None,
-                };
-                block_specs.insert(
-                    key,
-                    BlockSpec {
-                        end_tag,
-                        intermediates: block_spec.intermediates,
-                        opaque: block_spec.opaque,
-                    },
-                );
-            }
-        });
-
-        block_specs
-    })
-}
-
-fn with_parsed_body<M: Default>(
-    db: &dyn djls_source::Db,
-    file: File,
-    f: impl FnOnce(&[Stmt]) -> M,
-) -> M {
-    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file) else {
-        return M::default();
-    };
-
-    f(module.body(db))
+pub fn extract_block_specs(db: &dyn crate::db::Db, key: TemplateLibraryKey) -> BlockSpecs {
+    template_library_tag_facts(db, key).block_specs().clone()
 }
 
 #[cfg(test)]

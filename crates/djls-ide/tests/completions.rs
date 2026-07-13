@@ -168,6 +168,67 @@ fn multi_backend_same_definition_uses_loaded_availability_presentation() {
 }
 
 #[test]
+fn configured_only_tag_survives_effective_candidates_and_completion() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset("{% load dynamic %}\n{% dynamic_§ %}");
+    let tag_specs = djls_conf::TagSpecDef {
+        libraries: vec![djls_conf::TagLibraryDef {
+            module: "dynamic_tags".to_string(),
+            requires_engine: None,
+            tags: vec![djls_conf::TagDef {
+                name: "dynamic_panel".to_string(),
+                tag_type: djls_conf::TagTypeDef::Standalone,
+                end: None,
+                intermediates: Vec::new(),
+                args: Vec::new(),
+                extra: None,
+            }],
+            extra: None,
+        }],
+        ..djls_conf::TagSpecDef::default()
+    };
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .tag_specs(tag_specs)
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['dynamic_tags'], 'libraries': {'dynamic': 'empty_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'dynamic': 'dynamic_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/dynamic_tags.py",
+            "from django import template\nregister = template.Library()\nname = 'dynamic_panel'\nregister.tag(name, lambda parser, token: Node())\n",
+        )
+        .file(
+            "/test/project/empty_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/test/project/templates/page.html", &source)
+        .install(&mut db);
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+    let configured_symbol = djls_project::template_libraries(&db, project)
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "dynamic_tags")
+        .and_then(|library| library.symbol(djls_project::TemplateSymbolKind::Tag, "dynamic_panel"))
+        .expect("configured-only tag should enter its Template Library catalog");
+    assert!(matches!(
+        configured_symbol.definition,
+        djls_project::SymbolDefinition::Unknown
+    ));
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("configured-only tag should complete");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+
+    assert!(
+        items.iter().any(|item| item.label == "dynamic_panel"),
+        "configured-only Unknown definitions must agree by Template Library identity: {items:?}"
+    );
+}
+
+#[test]
 fn conflicting_backend_signatures_do_not_offer_argument_snippets() {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";

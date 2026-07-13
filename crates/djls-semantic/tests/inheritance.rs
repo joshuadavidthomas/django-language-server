@@ -97,7 +97,7 @@ fn extracts_partial_defs_from_partial_role_specs() {
         )
         .with_role(TagRole::TemplatePartial),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% partialdef card %}Body{% endpartialdef %}";
     let symbols = symbols_for_source(&db, source);
 
@@ -127,7 +127,7 @@ fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
             djls_semantic::TemplateReferenceKind::Extends,
         )),
     );
-    let mut db = TestDatabase::new().with_specs(specs);
+    let mut db = TestDatabase::new().with_projectless_tag_specs(specs);
     let project = ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file(
@@ -539,7 +539,7 @@ fn template_inheritance_follows_extends_role_not_builtin_name() {
             djls_semantic::TemplateReferenceKind::Extends,
         )),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let project = project_with_templates(
         &db,
         vec!["/test/project/templates"],
@@ -752,7 +752,7 @@ fn extracts_blocks_and_extends_by_role_not_builtin_names() {
             )),
         ),
     ])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = r#"{% overextends "base.html" %}
 {% section content %}Body{% endsection %}"#;
     let symbols = symbols_for_source(&db, source);

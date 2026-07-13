@@ -5,6 +5,7 @@ use djls_project::SymbolKey;
 use djls_project::extract_block_specs;
 use djls_project::extract_filter_arities;
 use djls_project::extract_tag_rules;
+use djls_project::template_library_definition_facts;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::python_syntax_errors;
 use djls_source::ChangeEvent;
@@ -187,13 +188,14 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let file = db.file(path);
     let module_name = PythonModuleName::parse("test.templatetags.known").unwrap();
 
-    assert!(!extract_tag_rules(&db, file, module_name.clone()).is_empty());
+    let key = djls_project::TemplateLibraryKey::new(&db, Some(file), module_name);
+    assert!(!extract_tag_rules(&db, key).is_empty());
     let _ = event_log.take();
 
     db.add_file(path.as_str(), &format!("{source}# comment only\n"));
     SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
-    assert!(!extract_tag_rules(&db, file, module_name).is_empty());
+    assert!(!extract_tag_rules(&db, key).is_empty());
     let events = event_log.take();
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 0);
@@ -207,8 +209,21 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
     db.add_file("/test/defaulttags.py", DEFAULTTAGS_SOURCE);
     let tags_file = db.file(Utf8Path::new("/test/defaulttags.py"));
     let tags_module = PythonModuleName::parse("django.template.defaulttags").unwrap();
-    let rules = extract_tag_rules(&db, tags_file, tags_module.clone());
-    let blocks = extract_block_specs(&db, tags_file, tags_module);
+    let tags_key = djls_project::TemplateLibraryKey::new(&db, Some(tags_file), tags_module);
+    let facts = template_library_definition_facts(&db, tags_key);
+    assert!(facts.is_library());
+    assert!(
+        facts
+            .symbol(djls_project::TemplateSymbolKind::Tag, "for")
+            .is_some()
+    );
+    assert!(
+        facts
+            .symbol(djls_project::TemplateSymbolKind::Filter, "for")
+            .is_none()
+    );
+    let rules = extract_tag_rules(&db, tags_key);
+    let blocks = extract_block_specs(&db, tags_key);
     assert!(
         rules.keys().any(
             |key| key.name == "for" && key.registration_module == "django.template.defaulttags"
@@ -218,16 +233,26 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
 
     let events = event_log.take();
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(
+        execution_count(&db, &events, "template_library_source_analysis"),
+        1,
+        "definitions, Tag Rules, and Block Specs must share one registration analysis",
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_definition_facts"),
+        1
+    );
     assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 1);
     assert_eq!(execution_count(&db, &events, "extract_block_specs"), 1);
 
     db.add_file("/test/defaultfilters.py", DEFAULTFILTERS_SOURCE);
     let filters_file = db.file(Utf8Path::new("/test/defaultfilters.py"));
-    let filters = extract_filter_arities(
+    let filters_key = djls_project::TemplateLibraryKey::new(
         &db,
-        filters_file,
+        Some(filters_file),
         PythonModuleName::parse("django.template.defaultfilters").unwrap(),
     );
+    let filters = extract_filter_arities(&db, filters_key);
     assert!(
         filters.arities().keys().any(|key| key.name == "lower"
             && key.registration_module == "django.template.defaultfilters")
@@ -235,13 +260,13 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
 
     let events = event_log.take();
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(
+        execution_count(&db, &events, "template_library_source_analysis"),
+        1,
+    );
     assert_eq!(execution_count(&db, &events, "extract_filter_arities"), 1);
 
-    let _ = extract_filter_arities(
-        &db,
-        filters_file,
-        PythonModuleName::parse("django.template.defaultfilters").unwrap(),
-    );
+    let _ = extract_filter_arities(&db, filters_key);
     assert_eq!(
         execution_count(&db, &event_log.take(), "extract_filter_arities"),
         0,

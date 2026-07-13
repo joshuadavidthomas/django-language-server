@@ -1,8 +1,6 @@
 mod python_evaluation;
 
-use camino::Utf8PathBuf;
 use djls_source::File;
-use djls_source::FileStatus;
 use djls_source::Span;
 pub use python_evaluation::PythonBindingAlternativeView;
 pub use python_evaluation::PythonBindingView;
@@ -28,11 +26,9 @@ use crate::models::ModelGraph;
 pub use crate::models::model_modules;
 pub use crate::models::resolve_model_graph_from_modules;
 use crate::project::Project;
-use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 pub use crate::python::PythonSyntaxError;
 pub use crate::python::PythonSyntaxErrorClass;
-use crate::python::SearchPath;
 use crate::templates::LibraryName;
 use crate::templates::TemplateLibraries;
 use crate::templates::TemplateLibrary;
@@ -138,7 +134,7 @@ pub fn template_libraries_with_omissions(
 }
 
 fn build_template_libraries(
-    db: &dyn Db,
+    _db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
     has_omissions: bool,
 ) -> TemplateLibraries {
@@ -146,19 +142,19 @@ fn build_template_libraries(
         .into_iter()
         .map(|input| match input {
             TemplateLibraryInput::Builtin { module, symbols } => {
-                TemplateLibrary::builtin(testing_module(db, module), symbols)
+                TemplateLibrary::configured_builtin(module, symbols)
             }
             TemplateLibraryInput::Installed {
                 load_name,
                 module,
                 symbols,
-            } => TemplateLibrary::installed(load_name, testing_module(db, module), symbols),
+            } => TemplateLibrary::configured_installed(load_name, module, symbols),
             TemplateLibraryInput::Available {
                 load_name,
                 app,
                 module,
                 symbols,
-            } => TemplateLibrary::available(load_name, app, testing_module(db, module), symbols),
+            } => TemplateLibrary::configured_available(load_name, app, module, symbols),
         })
         .collect();
 
@@ -206,22 +202,4 @@ fn configure_template_libraries(
             .collect(),
     );
     libraries
-}
-
-fn testing_module(db: &dyn Db, module_name: PythonModuleName) -> PythonModule {
-    let path = Utf8PathBuf::from(format!(
-        "/__djls_testing__/{}.py",
-        module_name.as_str().replace('.', "/")
-    ));
-    let file = File::builder(path.clone(), 0, FileStatus::Exists)
-        .durability(salsa::Durability::LOW)
-        .path_durability(salsa::Durability::HIGH)
-        .new(db);
-    db.files().register_file(db, file);
-    PythonModule::new(
-        module_name,
-        path,
-        file,
-        SearchPath::FirstParty(Utf8PathBuf::from("/__djls_testing__")),
-    )
 }

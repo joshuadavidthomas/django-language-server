@@ -27,17 +27,16 @@ impl ExtractionBundle {
 
 #[must_use]
 pub fn extract_bundle(
-    db: &dyn djls_source::Db,
+    db: &dyn djls_project::Db,
     file: File,
     registration_module: PythonModuleName,
 ) -> ExtractionBundle {
-    let tag_rules =
-        djls_project::extract_tag_rules(db, file, registration_module.clone()).to_owned();
-    let filter_arities =
-        djls_project::extract_filter_arities(db, file, registration_module.clone())
-            .arities()
-            .to_owned();
-    let block_specs = djls_project::extract_block_specs(db, file, registration_module).to_owned();
+    let key = djls_project::TemplateLibraryKey::new(db, Some(file), registration_module);
+    let tag_rules = djls_project::extract_tag_rules(db, key).to_owned();
+    let filter_arities = djls_project::extract_filter_arities(db, key)
+        .arities()
+        .to_owned();
+    let block_specs = djls_project::extract_block_specs(db, key).to_owned();
 
     ExtractionBundle {
         tag_rules,

@@ -453,7 +453,7 @@ fn model_modules_tolerate_unregistered_search_paths() {
 }
 
 #[test]
-fn template_libraries_tolerate_unregistered_search_paths() {
+fn template_library_sources_tolerate_unregistered_search_paths() {
     let mut db = TestDatabase::new();
     db.add_file("/project/django/templatetags/__init__.py", "");
     db.add_file(
@@ -475,14 +475,17 @@ fn template_libraries_tolerate_unregistered_search_paths() {
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries.resolved_libraries().collect();
+    let active: Vec<_> = libraries
+        .resolved_libraries()
+        .filter(|library| library.source_file().is_some())
+        .collect();
 
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].module_name().as_str(), "django.templatetags.i18n");
 }
 
 #[test]
-fn template_library_resolution_uses_project_venv_site_packages_root() {
+fn template_library_source_resolution_uses_project_venv_site_packages_root() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/django/templatetags/__init__.py",
@@ -508,16 +511,25 @@ fn template_library_resolution_uses_project_venv_site_packages_root() {
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries.resolved_libraries().collect();
+    let active: Vec<_> = libraries
+        .resolved_libraries()
+        .filter(|library| library.source_file().is_some())
+        .collect();
 
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].module_name().as_str(), "django.templatetags.i18n");
-    let root = db.files().expect_root(&db, active[0].file().path(&db));
+    let root = db.files().expect_root(
+        &db,
+        active[0]
+            .source_file()
+            .expect("resolved fixture library should have source")
+            .path(&db),
+    );
     assert_eq!(root.kind(&db), FileRootKind::SearchPath);
 }
 
 #[test]
-fn template_library_resolution_prefers_first_party_module_shadowing_dependency() {
+fn template_library_source_resolution_prefers_first_party_module_shadowing_dependency() {
     let mut db = TestDatabase::new();
     db.add_file("/project/django/templatetags/__init__.py", "");
     db.add_file(
@@ -548,17 +560,23 @@ fn template_library_resolution_prefers_first_party_module_shadowing_dependency()
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries.resolved_libraries().collect();
+    let active: Vec<_> = libraries
+        .resolved_libraries()
+        .filter(|library| library.source_file().is_some())
+        .collect();
 
     assert_eq!(active.len(), 1);
     assert_eq!(
-        active[0].file().path(&db),
+        active[0]
+            .source_file()
+            .expect("resolved fixture library should have source")
+            .path(&db),
         Utf8Path::new("/project/django/templatetags/i18n.py")
     );
 }
 
 #[test]
-fn active_template_libraries_preserve_builtin_order_across_roots() {
+fn active_template_library_sources_preserve_builtin_order_across_roots() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/a/templatetags/tags.py",
@@ -586,6 +604,7 @@ fn active_template_libraries_preserve_builtin_order_across_roots() {
     let libraries = template_libraries(&db, project);
     let module_names: Vec<_> = libraries
         .resolved_libraries()
+        .filter(|library| library.source_file().is_some())
         .map(|library| library.module_name().as_str().to_string())
         .collect();
 
@@ -596,7 +615,7 @@ fn active_template_libraries_preserve_builtin_order_across_roots() {
 }
 
 #[test]
-fn active_template_libraries_yield_installed_before_builtins() {
+fn active_template_library_sources_yield_installed_before_builtins() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/installed_tags.py",
@@ -624,6 +643,7 @@ fn active_template_libraries_yield_installed_before_builtins() {
     let libraries = template_libraries(&db, project);
     let module_names: Vec<_> = libraries
         .resolved_libraries()
+        .filter(|library| library.source_file().is_some())
         .map(|library| library.module_name().as_str().to_string())
         .collect();
 
@@ -631,7 +651,7 @@ fn active_template_libraries_yield_installed_before_builtins() {
 }
 
 #[test]
-fn builtin_template_libraries_preserve_order_across_roots() {
+fn builtin_template_library_sources_preserve_order_across_roots() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/z_first.py",
@@ -673,6 +693,7 @@ def duplicate(value, arg):
     let libraries = template_libraries(&db, project);
     let module_names: Vec<_> = libraries
         .resolved_libraries()
+        .filter(|library| library.source_file().is_some())
         .map(|library| library.module_name().as_str().to_string())
         .collect();
 

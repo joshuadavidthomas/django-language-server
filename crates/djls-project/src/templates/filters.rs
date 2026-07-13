@@ -1,14 +1,11 @@
-use djls_source::File;
 use ruff_python_ast::StmtFunctionDef;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::python::PythonModuleName;
-use crate::python::RecoveredPythonModuleResult;
-use crate::python::recovered_python_module;
 use crate::templates::SymbolKey;
-use crate::templates::for_each_registration;
+use crate::templates::TemplateLibraryKey;
+use crate::templates::template_library_filter_facts;
 
 pub type FilterArityMap = FxHashMap<SymbolKey, FilterArity>;
 
@@ -42,25 +39,13 @@ pub struct FilterArity {
 /// filter signature extraction.
 #[salsa::tracked(returns(ref))]
 pub fn extract_filter_arities(
-    db: &dyn djls_source::Db,
-    file: File,
-    registration_module: PythonModuleName,
+    db: &dyn crate::db::Db,
+    key: TemplateLibraryKey,
 ) -> FilterArityExtraction {
-    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file) else {
-        return FilterArityExtraction::default();
-    };
-
-    let registration_module = registration_module.into_string();
-    let mut filter_arities = FilterArityMap::default();
-
-    for_each_registration(module.body(db), &registration_module, |reg, func, key| {
-        if let Some(arity) = reg.kind.extract_filter_arity(func) {
-            filter_arities.insert(key, arity);
-        }
-    });
-
     FilterArityExtraction {
-        arities: filter_arities,
+        arities: template_library_filter_facts(db, key)
+            .filter_arities()
+            .clone(),
     }
 }
 

@@ -126,13 +126,16 @@ impl<'a> TemplateValidator<'a> {
             self.extends_position = ExtendsPosition::AfterExtends;
         }
 
-        // 2. Scoping validation (skip structural tags and the effective library loader)
-        if effective_role != Some(TagRole::TemplateLibraryLoader)
-            && !matches!(
-                self.tag_index.at(span.start()).classify(name),
-                TagClass::Closer { .. } | TagClass::Intermediate { .. }
-            )
-        {
+        // 2. Scoping validation (skip structural tags and the effective library loader).
+        // Structural interpretation requires one effective grammar across all feasible backends.
+        // UnknownTag suppression is weaker: a closer/intermediate spelling is valid when at least
+        // one feasible backend loads the opening definition. An unloaded candidate is insufficient.
+        let grammar_spelling_is_valid = matches!(
+            self.tag_index.at(span.start()).classify(name),
+            TagClass::Closer { .. } | TagClass::Intermediate { .. }
+        ) || self
+            .grammar_spelling_is_valid_in_any_backend(name, span.start());
+        if effective_role != Some(TagRole::TemplateLibraryLoader) && !grammar_spelling_is_valid {
             let symbols = self.symbol_index.symbols_at(span.start());
             let unknown_load_can_supply_tag = self
                 .loaded_libraries
@@ -170,6 +173,35 @@ impl<'a> TemplateValidator<'a> {
         }
 
         self.extends_position = self.extends_position.record_non_text();
+    }
+
+    fn grammar_spelling_is_valid_in_any_backend(&self, name: &str, position: u32) -> bool {
+        let Some(project) = self.db.project() else {
+            return false;
+        };
+        let vocabulary = crate::semantic_grammar_vocabulary(self.db, project);
+        let load_state = self.loaded_libraries.available_at(position);
+        vocabulary
+            .closer_candidates(name)
+            .iter()
+            .chain(vocabulary.intermediate_candidates(name))
+            .any(|candidate| {
+                let loaded = load_state.libraries_loading_symbol(candidate.name());
+                let definitions = self.environment.effective_definition_libraries(
+                    self.db,
+                    candidate.name(),
+                    djls_project::TemplateSymbolKind::Tag,
+                    &loaded,
+                );
+                definitions.iter().any(|definition| match definition {
+                    djls_project::EffectiveDefinitionLibrary::Known(Some(library))
+                    | djls_project::EffectiveDefinitionLibrary::Unobserved(library) => {
+                        library.key(self.db) == *candidate.library()
+                    }
+                    djls_project::EffectiveDefinitionLibrary::Known(None)
+                    | djls_project::EffectiveDefinitionLibrary::Unknown => false,
+                })
+            })
     }
 
     fn validate_variable(&mut self, variable: ActiveTemplateVariable<'_>) {

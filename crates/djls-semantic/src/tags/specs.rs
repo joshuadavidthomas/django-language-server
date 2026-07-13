@@ -162,8 +162,15 @@ impl TagSpecs {
     }
 
     #[must_use]
+    pub(crate) fn from_tagspec_library(library: &djls_conf::TagLibraryDef) -> TagSpecs {
+        let mut doc = djls_conf::TagSpecDef::default();
+        doc.libraries.push(library.clone());
+        Self::from_tagspec_def(&doc)
+    }
+
+    #[must_use]
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn from_tagspec_def(doc: &djls_conf::TagSpecDef) -> TagSpecs {
+    fn from_tagspec_def(doc: &djls_conf::TagSpecDef) -> TagSpecs {
         let mut specs = FxHashMap::default();
 
         for library in &doc.libraries {

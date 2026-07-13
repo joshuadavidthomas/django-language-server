@@ -263,6 +263,103 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
 }
 
 #[test]
+fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .tag_specs(djls_conf::TagSpecDef {
+            libraries: vec![djls_conf::TagLibraryDef {
+                module: "missing.panel_tags".to_string(),
+                requires_engine: None,
+                tags: vec![djls_conf::TagDef {
+                    name: "panel".to_string(),
+                    tag_type: djls_conf::TagTypeDef::Block,
+                    end: None,
+                    intermediates: Vec::new(),
+                    args: Vec::new(),
+                    extra: None,
+                }],
+                extra: None,
+            }],
+            ..djls_conf::TagSpecDef::default()
+        })
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
+        )
+        .build(&db);
+
+    let libraries = template_libraries(&db, project);
+    let LoadableLibraryLookup::Found(library) = libraries.loadable_library_str("panels") else {
+        panic!("configured library should remain definitively loadable");
+    };
+    assert_eq!(library.module_name_str(), "missing.panel_tags");
+    assert!(library.source_file().is_none());
+    assert!(
+        library
+            .symbol(TemplateSymbolKind::Tag, "panel")
+            .is_some_and(|symbol| matches!(symbol.definition, SymbolDefinition::Unknown))
+    );
+    assert_eq!(library.key(&db).file(&db), None);
+}
+
+#[test]
+fn source_less_alias_keeps_missing_same_named_available_app_symbols_inconclusive() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'shared': 'missing.shared'}}}]\n",
+        )
+        .file("/project/available_app/__init__.py", "")
+        .file("/project/available_app/templatetags/__init__.py", "")
+        .file(
+            "/project/available_app/templatetags/shared.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef shared_tag(): pass\n@register.filter\ndef shared_filter(value): return value\n",
+        )
+        .build(&db);
+
+    let libraries = template_libraries(&db, project);
+    let LoadableLibraryLookup::Found(library) = libraries.loadable_library_str("shared") else {
+        panic!("the configured source-less alias should be definitively loadable");
+    };
+    assert!(library.source_file().is_none());
+    assert!(library.symbol_inventory_is_open());
+    assert_eq!(
+        libraries.environment_symbol_lookup("shared_tag", TemplateSymbolKind::Tag),
+        EnvironmentSymbolLookup::Inconclusive
+    );
+    assert_eq!(
+        libraries.environment_symbol_lookup("shared_filter", TemplateSymbolKind::Filter),
+        EnvironmentSymbolLookup::Inconclusive
+    );
+    assert_eq!(
+        libraries.template_symbol_lookup("shared_tag", TemplateSymbolKind::Tag),
+        TemplateSymbolLookup::Inconclusive
+    );
+    assert_eq!(
+        libraries.template_symbol_lookup("shared_filter", TemplateSymbolKind::Filter),
+        TemplateSymbolLookup::Inconclusive
+    );
+
+    let environment = TemplateEnvironment::from_project_inventory(libraries);
+    for kind in [TemplateSymbolKind::Tag, TemplateSymbolKind::Filter] {
+        let name = match kind {
+            TemplateSymbolKind::Tag => "shared_tag",
+            TemplateSymbolKind::Filter => "shared_filter",
+        };
+        assert!(matches!(
+            environment
+                .effective_definition_libraries(&db, name, kind, &["shared"])
+                .as_slice(),
+            [EffectiveDefinitionLibrary::Unobserved(candidate)]
+                if candidate.key(&db) == library.key(&db)
+        ));
+    }
+}
+
+#[test]
 fn exact_alias_after_unknown_key_is_definitive_while_other_names_stay_open() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
@@ -412,6 +509,20 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
     let candidates = libraries.template_symbol_candidates(TemplateSymbolKind::Filter);
     assert_eq!(candidates.len(), 2);
     assert_eq!(candidates[0].symbol.name(), "duplicate");
+    let duplicate_library = libraries
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "a_second")
+        .expect("indexed builtin should be present");
+    assert!(
+        duplicate_library
+            .symbol(TemplateSymbolKind::Filter, "duplicate")
+            .is_some()
+    );
+    assert!(
+        duplicate_library
+            .symbol(TemplateSymbolKind::Tag, "duplicate")
+            .is_none()
+    );
     assert_eq!(candidates[0].symbol.doc.as_deref(), Some("second"));
     assert!(matches!(
         candidates[0].availability,
@@ -425,7 +536,7 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
 }
 
 #[test]
-fn resolved_libraries_retain_duplicate_builtins_in_order() {
+fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
     let db = TestDatabase::new();
     let libraries = testing::template_libraries(
         &db,
@@ -441,17 +552,12 @@ fn resolved_libraries_retain_duplicate_builtins_in_order() {
         .collect();
     assert_eq!(
         modules,
-        vec![
-            "django.template.defaulttags",
-            "project.builtins",
-            "django.template.defaulttags",
-        ]
+        vec!["django.template.defaulttags", "project.builtins"]
     );
-    assert!(libraries.resolved_libraries().all(|library| {
-        library
-            .file()
-            .path(&db)
-            .as_str()
-            .starts_with("/__djls_testing__/")
-    }));
+    assert!(
+        libraries
+            .resolved_libraries()
+            .all(|library| library.source_file().is_none()),
+        "configured test evidence must not invent source origins"
+    );
 }

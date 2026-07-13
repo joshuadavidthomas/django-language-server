@@ -94,6 +94,46 @@ fn check_clean_template_exits_zero() {
 }
 
 #[test]
+fn check_without_django_source_keeps_builtin_grammar_and_source_less_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let config = std::fs::read_to_string(dir.path().join("djls.toml")).unwrap();
+    std::fs::write(
+        dir.path().join("djls.toml"),
+        format!(
+            "django_settings_module = \"settings\"\n{config}\n[[tagspecs.libraries]]\nmodule = \"missing.panel_tags\"\n\n[[tagspecs.libraries.tags]]\nname = \"panel\"\ntype = \"standalone\"\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("settings.py"),
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
+    )
+    .unwrap();
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::write(
+        templates.join("source-less.html"),
+        "{% load panels %}{% panel %}{% if condition %}{% for item in items %}{% comment %}{% endfor %}{% endif %}{% endcomment %}{% empty %}empty{% endfor %}{% else %}fallback{% endif %}\n",
+    )
+    .unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["check", "templates/source-less.html"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "Expected source-less grammar to validate\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn check_broken_template_exits_one() {
     let dir = tempfile::tempdir().unwrap();
     setup_project(dir.path());

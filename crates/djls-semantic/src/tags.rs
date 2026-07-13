@@ -1,15 +1,13 @@
 mod rules;
 mod specs;
 
-use djls_project::BlockSpecs;
-use djls_project::EffectiveDefinitionLibrary;
+use djls_project::ContextualLibraryStep;
 use djls_project::Project;
-use djls_project::TagRuleMap;
+use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
 use djls_project::extract_block_specs;
 use djls_project::extract_tag_rules;
 use djls_project::template_environment;
-use djls_project::template_libraries;
 pub(crate) use rules::evaluate_tag_rules;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
@@ -37,59 +35,62 @@ pub enum TagRole {
     RouteReference,
 }
 
-/// Compute `TagSpecs` from tag-rule and block-spec extraction results.
-///
-/// This tracked function reads only the extraction domains needed to build tag
-/// specs. Filter-only extraction changes should not invalidate this query.
-///
-/// Does NOT read from `Arc<Mutex<Settings>>`.
-#[salsa::tracked(returns(ref))]
-pub fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
-    let tagspecs = project.tagspecs(db);
+/// Independently backdatable semantic Tag facts for one Template Library.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LibraryTagSpecs(TagSpecs);
 
-    let mut specs = builtin_tag_specs();
-
-    for library in template_libraries(db, project).resolved_libraries() {
-        let block_specs = extract_block_specs(db, library.file(), library.module_name().clone());
-        if !block_specs.is_empty() {
-            specs.merge_block_specs(block_specs);
-        }
-
-        let tag_rules = extract_tag_rules(db, library.file(), library.module_name().clone());
-        if !tag_rules.is_empty() {
-            specs.merge_tag_rules(tag_rules);
-        }
+impl LibraryTagSpecs {
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&TagSpec> {
+        self.0.get(name)
     }
 
-    if !tagspecs.libraries.is_empty() {
-        let fallback = TagSpecs::from_tagspec_def(tagspecs);
-        specs.merge_fallback(fallback);
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&String, &TagSpec)> {
+        self.0.iter()
     }
-
-    specs
 }
 
-fn spec_from_library(
+/// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
+#[salsa::tracked(returns(ref))]
+#[allow(clippy::needless_pass_by_value)]
+pub fn library_tag_specs(
     db: &dyn Db,
-    library: &djls_project::TemplateLibrary,
-    name: &str,
-) -> Option<TagSpec> {
-    let mut specs = db.tag_specs().clone();
-    specs.retain(|_, spec| spec.module() == library.module_name_str());
+    project: Project,
+    key: TemplateLibraryKey,
+) -> LibraryTagSpecs {
+    let mut specs = builtin_tag_specs();
+    specs.retain(|_, spec| spec.module() == key.module(db).as_str());
 
-    let rules = extract_tag_rules(db, library.file(), library.module_name().clone());
-    if let Some((key, rule)) = rules.iter().find(|(key, _)| key.name == name) {
-        let mut selected = TagRuleMap::default();
-        selected.insert(key.clone(), rule.clone());
-        specs.merge_tag_rules(&selected);
+    let rules = extract_tag_rules(db, key);
+    if !rules.is_empty() {
+        specs.merge_tag_rules(rules);
     }
-    let blocks = extract_block_specs(db, library.file(), library.module_name().clone());
-    if let Some((key, block)) = blocks.as_map().iter().find(|(key, _)| key.name == name) {
-        let mut selected = BlockSpecs::default();
-        selected.insert(key.clone(), block.clone());
-        specs.merge_block_specs(&selected);
+    let blocks = extract_block_specs(db, key);
+    if !blocks.is_empty() {
+        specs.merge_block_specs(blocks);
     }
-    specs.get(name).cloned()
+
+    specs.merge_fallback(configured_library_tag_specs(db, project, key).clone());
+    LibraryTagSpecs(specs)
+}
+
+/// Equality-bearing configured fallback for one Template Library.
+#[salsa::tracked(returns(ref))]
+fn configured_library_tag_specs(
+    db: &dyn Db,
+    project: Project,
+    key: TemplateLibraryKey,
+) -> TagSpecs {
+    project
+        .tagspecs(db)
+        .libraries
+        .iter()
+        .filter(|library| library.module == key.module(db).as_str())
+        .map(TagSpecs::from_tagspec_library)
+        .fold(TagSpecs::default(), |mut specs, configured| {
+            specs.merge(configured);
+            specs
+        })
 }
 
 /// Return the effective tag spec at one occurrence, but only when every feasible backend agrees.
@@ -100,7 +101,7 @@ pub(crate) fn effective_tag_spec(
     load_state: &LoadState<'_>,
 ) -> Option<TagSpec> {
     let Some(project) = db.project() else {
-        return db.tag_specs().get(name).cloned();
+        return db.projectless_tag_specs().get(name).cloned();
     };
     effective_tag_spec_in_project(db, project, file, name, load_state)
 }
@@ -146,46 +147,38 @@ fn effective_tag_spec_from_environment(
     name: &str,
     loaded: &[&str],
 ) -> Option<TagSpec> {
-    // A manually configured spec is explicit fallback evidence for extraction gaps. Builtin specs
-    // alone are not: backend uncertainty must not silently promote them to effective definitions.
-    let configured_fallback = project
-        .tagspecs(db)
-        .libraries
-        .iter()
-        .any(|library| library.tags.iter().any(|tag| tag.name == name))
-        .then(|| db.tag_specs().get(name).cloned())
-        .flatten();
-    let alternatives =
-        environment.effective_definition_libraries(db, name, TemplateSymbolKind::Tag, loaded);
-    if alternatives.is_empty() {
-        return db.tag_specs().get(name).cloned();
-    }
-
-    let mut has_gap = false;
-    let mut definitions = Vec::new();
-    for alternative in alternatives {
-        match alternative {
-            EffectiveDefinitionLibrary::Known(library) => {
-                definitions.push(library.and_then(|library| spec_from_library(db, library, name)));
+    let definitions: Option<Vec<Option<TagSpec>>> = environment
+        .contextual_library_chains(db, loaded)
+        .into_iter()
+        .map(|chain| {
+            let mut effective = None;
+            let mut unknown = false;
+            for step in chain.steps() {
+                let ContextualLibraryStep::Library(library) = step else {
+                    unknown = true;
+                    continue;
+                };
+                if let Some(spec) = library_tag_specs(db, project, library.key(db)).get(name) {
+                    effective = Some(spec.clone());
+                    unknown = false;
+                } else if library.symbol(TemplateSymbolKind::Tag, name).is_some() {
+                    effective = None;
+                    unknown = false;
+                } else if library.symbol_inventory_is_open()
+                    && !hardcoded_tag_inventory_is_complete(library.module_name_str())
+                {
+                    unknown = true;
+                }
             }
-            EffectiveDefinitionLibrary::Unknown => has_gap = true,
-        }
-    }
-
-    let Some(first) = definitions.iter().find_map(Option::as_ref) else {
-        return configured_fallback;
-    };
-    if definitions
+            (!unknown).then_some(effective)
+        })
+        .collect();
+    let definitions = definitions?;
+    let first = definitions.first()?.as_ref()?;
+    definitions
         .iter()
-        .filter_map(Option::as_ref)
-        .any(|definition| definition != first)
-    {
-        return None;
-    }
-    if has_gap || definitions.iter().any(Option::is_none) {
-        return (configured_fallback.as_ref() == Some(first)).then(|| first.clone());
-    }
-    Some(first.clone())
+        .all(|definition| definition.as_ref() == Some(first))
+        .then(|| first.clone())
 }
 
 /// Specs effective before any file-local `{% load %}` statement.
@@ -213,8 +206,7 @@ pub(crate) fn effective_tag_specs_for_load_state_in_project_scope(
     load_state: &LoadState<'_>,
 ) -> TagSpecs {
     let environment = template_environment(db, project, scope_file);
-    let mut names: std::collections::HashSet<_> = db.tag_specs().keys().cloned().collect();
-    names.extend(environment.candidate_symbol_names(db, TemplateSymbolKind::Tag));
+    let names = semantic_tag_candidate_names(db, project, environment);
 
     let mut specs = TagSpecs::default();
     for name in names {
@@ -232,13 +224,11 @@ pub(crate) fn effective_tag_specs_for_load_state(
     file: djls_source::File,
     load_state: &LoadState<'_>,
 ) -> TagSpecs {
-    let mut names: std::collections::HashSet<_> = db.tag_specs().keys().cloned().collect();
-    if let Some(project) = db.project() {
-        names.extend(
-            template_environment(db, project, file)
-                .candidate_symbol_names(db, TemplateSymbolKind::Tag),
-        );
-    }
+    let names = if let Some(project) = db.project() {
+        semantic_tag_candidate_names(db, project, template_environment(db, project, file))
+    } else {
+        db.projectless_tag_specs().keys().cloned().collect()
+    };
 
     let mut specs = TagSpecs::default();
     for name in names {
@@ -247,4 +237,32 @@ pub(crate) fn effective_tag_specs_for_load_state(
         }
     }
     specs
+}
+
+fn hardcoded_tag_inventory_is_complete(module: &str) -> bool {
+    matches!(
+        module,
+        "django.template.defaulttags"
+            | "django.template.defaultfilters"
+            | "django.template.loader_tags"
+    )
+}
+
+fn semantic_tag_candidate_names(
+    db: &dyn Db,
+    project: Project,
+    environment: djls_project::TemplateEnvironment<'_>,
+) -> std::collections::HashSet<String> {
+    let mut names: std::collections::HashSet<_> = environment
+        .candidate_symbol_names(db, TemplateSymbolKind::Tag)
+        .into_iter()
+        .collect();
+    for library in environment.resolved_libraries(db) {
+        names.extend(
+            library_tag_specs(db, project, library.key(db))
+                .iter()
+                .map(|(name, _spec)| name.clone()),
+        );
+    }
+    names
 }

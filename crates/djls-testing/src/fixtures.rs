@@ -310,7 +310,7 @@ impl ProjectFixture {
     }
 
     #[must_use]
-    fn tag_specs(mut self, tag_specs: TagSpecDef) -> Self {
+    pub fn tag_specs(mut self, tag_specs: TagSpecDef) -> Self {
         self.tag_specs = tag_specs;
         self
     }
@@ -588,8 +588,8 @@ fn validation_db(partial: bool) -> TestDatabase {
     }))
     .expect("validation fallback tag specs should deserialize");
     let mut db = TestDatabase::new()
-        .with_specs(specs)
-        .with_arity_specs(standard_filter_arities());
+        .with_projectless_tag_specs(specs)
+        .with_projectless_filter_arity_specs(standard_filter_arities());
     let open_key = if partial {
         ", UNKNOWN: 'maybe'"
     } else {
@@ -621,6 +621,74 @@ fn validation_db(partial: bool) -> TestDatabase {
         }
         source
     };
+    let mut defaulttags = tags(&[
+        "comment",
+        "csrf_token",
+        "debug",
+        "filter",
+        "firstof",
+        "for",
+        "if",
+        "ifchanged",
+        "load",
+        "spaceless",
+        "templatetag",
+        "verbatim",
+        "with",
+    ]);
+    defaulttags.push_str(
+        r#"
+@register.tag
+def autoescape(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise TemplateSyntaxError("'autoescape' tag requires exactly one argument.")
+    if bits[1] not in ("on", "off"):
+        raise TemplateSyntaxError("'autoescape' argument should be 'on' or 'off'")
+
+@register.tag
+def cycle(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("'cycle' tag requires at least two arguments")
+
+@register.tag
+def lorem(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 4:
+        raise TemplateSyntaxError("Incorrect format for 'lorem' tag")
+
+@register.tag
+def now(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise TemplateSyntaxError("'now' statement takes one argument")
+
+@register.tag
+def regroup(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 6:
+        raise TemplateSyntaxError("'regroup' tag takes five arguments")
+    if bits[2] != "by":
+        raise TemplateSyntaxError("second argument to 'regroup' tag must be 'by'")
+    if bits[4] != "as":
+        raise TemplateSyntaxError("next-to-last argument to 'regroup' tag must be 'as'")
+
+@register.tag
+def url(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("'url' takes at least one argument, a URL pattern name.")
+
+@register.tag
+def widthratio(parser, token):
+    bits = token.split_contents()
+    if len(bits) not in (4, 6):
+        raise TemplateSyntaxError("widthratio takes at least three arguments")
+    if len(bits) == 6 and bits[4] != "as":
+        raise TemplateSyntaxError("Invalid syntax in widthratio tag. Expecting 'as' keyword")
+"#,
+    );
 
     ProjectFixture::new("/")
         .django_settings_module("project.settings")
@@ -639,23 +707,24 @@ fn validation_db(partial: bool) -> TestDatabase {
         .file("/example/alpha/templatetags/__init__.py", "")
         .file("/example/beta/__init__.py", "")
         .file("/example/beta/templatetags/__init__.py", "")
-        .file(
-            "/django/template/defaulttags.py",
-            tags(&[
-                "autoescape", "comment", "csrf_token", "cycle", "debug", "filter",
-                "firstof", "for", "if", "ifchanged", "load", "lorem", "now", "regroup",
-                "spaceless", "templatetag", "url", "verbatim", "widthratio", "with",
-            ]),
-        )
+        .file("/django/template/defaulttags.py", defaulttags)
         .file(
             "/django/template/defaultfilters.py",
             format!(
-                "{register}@register.filter\ndef title(value): pass\n@register.filter\ndef lower(value): pass\n@register.filter\ndef length(value): pass\n@register.filter\ndef default(value, arg): pass\n@register.filter\ndef truncatewords(value, arg): pass\n@register.filter\ndef date(value, arg=None): pass\n@register.filter\ndef upper(value): pass\n"
+                "{}\n{}",
+                include_str!("../../djls-project/src/templates/tags/testdata/django_defaultfilters.py"),
+                "@register.filter\ndef title(value): pass\n@register.filter\ndef lower(value): pass\n@register.filter\ndef length(value): pass\n@register.filter\ndef default(value, arg): pass\n@register.filter\ndef truncatewords(value, arg): pass\n@register.filter\ndef date(value, arg=None): pass\n@register.filter\ndef upper(value): pass\n"
             ),
         )
         .file(
             "/django/template/loader_tags.py",
-            tags(&["block", "extends", "include"]),
+            format!(
+                "{}\n{}",
+                include_str!(
+                    "../../djls-project/src/templates/tags/testdata/django_loader_tags.py"
+                ),
+                tags(&["block", "extends", "include"])
+            ),
         )
         .file(
             "/example/templatetags/custom.py",
@@ -688,7 +757,10 @@ fn validation_db(partial: bool) -> TestDatabase {
         )
         .file("/django/templatetags/l10n.py", tags(&["localize"]))
         .file("/django/templatetags/static.py", tags(&["static"]))
-        .file("/django/templatetags/tz.py", tags(&["localtime", "timezone"]))
+        .file(
+            "/django/templatetags/tz.py",
+            tags(&["localtime", "timezone"]),
+        )
         .file(
             "/django/contrib/humanize/templatetags/humanize.py",
             filters(&["intcomma"]),

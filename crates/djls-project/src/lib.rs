@@ -43,6 +43,8 @@ pub use templates::AvailableAppCandidates;
 pub use templates::BlockSpec;
 pub use templates::BlockSpecs;
 pub use templates::ChoiceAt;
+pub use templates::ContextualLibraryChain;
+pub use templates::ContextualLibraryStep;
 pub use templates::EffectiveDefinitionLibrary;
 pub use templates::EnvironmentSymbolLookup;
 pub use templates::ExtractedDiagnosticConstraint;
@@ -76,6 +78,8 @@ pub use templates::TemplateDoesNotExist;
 pub use templates::TemplateEnvironment;
 pub use templates::TemplateLibraries;
 pub use templates::TemplateLibrary;
+pub use templates::TemplateLibraryDefinitionFacts;
+pub use templates::TemplateLibraryKey;
 pub use templates::TemplateName;
 pub use templates::TemplateOrigin;
 pub use templates::TemplateResolution;
@@ -93,6 +97,7 @@ pub use templates::template_context_processors;
 pub use templates::template_directories;
 pub use templates::template_environment;
 pub use templates::template_libraries;
+pub use templates::template_library_definition_facts;
 pub use templates::template_resolution;
 
 // Test and benchmark support only; not part of the stable Project Facts façade.

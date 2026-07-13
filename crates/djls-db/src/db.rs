@@ -14,8 +14,6 @@ use djls_project::Project;
 use djls_project::compute_model_graph;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
-use djls_semantic::compute_filter_arity_specs;
-use djls_semantic::compute_tag_specs;
 use djls_source::Db as SourceDb;
 use djls_source::FileSystem;
 use djls_source::SourceFiles;
@@ -139,25 +137,26 @@ impl SourceDb for DjangoDatabase {
 
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
-    fn tag_specs(&self) -> &TagSpecs {
-        if let Some(project) = self.project() {
-            compute_tag_specs(self, project)
-        } else {
-            static DEFAULT: std::sync::LazyLock<TagSpecs> =
-                std::sync::LazyLock::new(djls_semantic::builtin_tag_specs);
-            &DEFAULT
-        }
+    fn projectless_tag_specs(&self) -> &TagSpecs {
+        static DEFAULT: std::sync::LazyLock<TagSpecs> =
+            std::sync::LazyLock::new(djls_semantic::builtin_tag_specs);
+        assert!(
+            self.project.is_none(),
+            "project-backed analysis must derive tag specs from keyed Template Libraries"
+        );
+        &DEFAULT
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         self.settings().diagnostics().clone()
     }
 
-    fn filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
-        self.project()
-            .map_or(djls_semantic::FilterAritySpecs::empty_ref(), |project| {
-                compute_filter_arity_specs(self, project)
-            })
+    fn projectless_filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
+        assert!(
+            self.project.is_none(),
+            "project-backed analysis must derive filter specs from keyed Template Libraries"
+        );
+        djls_semantic::FilterAritySpecs::empty_ref()
     }
 
     fn model_graph(&self) -> &djls_project::ModelGraph {
@@ -331,7 +330,9 @@ mod invalidation_tests {
             .filter(|event| match &event.kind {
                 salsa::EventKind::WillExecute { database_key } => db
                     .ingredient_debug_name(database_key.ingredient_index())
-                    .ends_with(query_name),
+                    .rsplit("::")
+                    .next()
+                    .is_some_and(|name| name == query_name),
                 _ => false,
             })
             .count()
@@ -472,6 +473,7 @@ mod invalidation_tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn current_template_analysis_pipeline_execution_baseline() {
         let TemplateInheritanceFixture {
             db,
@@ -485,6 +487,7 @@ mod invalidation_tests {
         let libraries = template_libraries(&db, project);
         let modules: Vec<_> = libraries
             .resolved_libraries()
+            .filter(|library| library.source_file().is_some())
             .map(djls_project::TemplateLibrary::module_name_str)
             .collect();
         assert_eq!(
@@ -494,18 +497,30 @@ mod invalidation_tests {
         let events = event_log.take();
         assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
 
-        let tag_specs = db.tag_specs();
-        assert!(tag_specs.get("load").is_some());
-        assert!(tag_specs.get("block").is_some());
-        let events = event_log.take();
-        assert_eq!(exact_execution_count(&db, &events, "compute_tag_specs"), 1);
-
-        let filter_specs = db.filter_arity_specs();
-        assert_eq!(filter_specs, djls_semantic::FilterAritySpecs::empty_ref());
+        for library in libraries
+            .resolved_libraries()
+            .filter(|library| library.source_file().is_some())
+        {
+            let key = library.key(&db);
+            let facts = djls_project::template_library_definition_facts(&db, key);
+            assert!(facts.is_library());
+            let tags = djls_semantic::library_tag_specs(&db, project, key);
+            let filters = djls_semantic::library_filter_specs(&db, key);
+            if library.module_name_str() == "django.template.defaulttags" {
+                assert!(tags.get("load").is_some());
+            }
+            assert!(filters.get("missing").is_none());
+        }
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "compute_filter_arity_specs"),
-            1
+            exact_execution_count(&db, &events, "template_library_definition_facts"),
+            0,
+            "catalog assembly should have primed equality-bearing definition facts",
+        );
+        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 2);
+        assert_eq!(
+            exact_execution_count(&db, &events, "library_filter_specs"),
+            2
         );
 
         let environment = djls_semantic::template_environment_for_file(&db, child_file);
@@ -566,23 +581,30 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn tag_specs_cached_on_repeated_access() {
-        let (db, event_log) = test_db_with_project();
+    fn per_library_semantic_products_are_cached_on_repeated_access() {
+        let TemplateInheritanceFixture {
+            db,
+            event_log,
+            project,
+            ..
+        } = template_inheritance_fixture();
+        let libraries = template_libraries(&db, project);
+        let library = libraries
+            .resolved_libraries()
+            .next()
+            .expect("fixture should discover a builtin library");
+        let key = library.key(&db);
+        let _ = djls_semantic::library_tag_specs(&db, project, key);
+        let _ = djls_semantic::library_filter_specs(&db, key);
+        event_log.take();
 
-        // First call — should execute compute_tag_specs
-        let _specs1 = db.tag_specs();
+        let _ = djls_semantic::library_tag_specs(&db, project, key);
+        let _ = djls_semantic::library_filter_specs(&db, key);
         let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should execute on first call"
-        );
-
-        // Second call — should be cached, no WillExecute
-        let _specs2 = db.tag_specs();
-        let events = event_log.take();
-        assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should NOT re-execute on second call (cached)"
+        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
+        assert_eq!(
+            exact_execution_count(&db, &events, "library_filter_specs"),
+            0
         );
     }
 
@@ -630,9 +652,15 @@ mod invalidation_tests {
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let specs = db.tag_specs();
+        let libraries = template_libraries(&db, project);
+        let library = libraries
+            .resolved_libraries()
+            .find(|library| library.module_name_str() == "project_tags")
+            .expect("configured builtin should resolve before settings change");
         assert!(
-            specs.get("project_tag").is_some(),
+            djls_semantic::library_tag_specs(&db, project, library.key(&db))
+                .get("project_tag")
+                .is_some(),
             "configured builtin tag should be extracted before settings change"
         );
         event_log.take();
@@ -645,19 +673,18 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
             .apply(&mut db);
 
-        let specs = db.tag_specs();
         assert!(
-            specs.get("project_tag").is_none(),
-            "removed configured builtin tag should no longer be extracted"
+            template_libraries(&db, project)
+                .resolved_libraries()
+                .all(|library| library.module_name_str() != "project_tags"),
+            "removed configured builtin should leave the active catalog"
         );
         let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "template_libraries"),
-            "template_libraries should re-execute after the settings source changes"
-        );
-        assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "tag specs should re-execute after Template Library facts change"
+        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
+        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
+        assert_eq!(
+            exact_execution_count(&db, &events, "library_filter_specs"),
+            0
         );
     }
 
@@ -1245,14 +1272,29 @@ env_file = ".env.local"
     }
 
     #[test]
-    fn tagspecs_change_invalidates_compute_tag_specs() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _specs = db.tag_specs();
+    fn tagspecs_change_invalidates_library_tag_products_not_filters() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            project,
+            ..
+        } = template_inheritance_fixture();
+        let libraries = template_libraries(&db, project);
+        let defaulttags = libraries
+            .resolved_libraries()
+            .find(|library| library.module_name_str() == "django.template.defaulttags")
+            .map(|library| library.key(&db))
+            .expect("defaulttags should be active");
+        let loader_tags = libraries
+            .resolved_libraries()
+            .find(|library| library.module_name_str() == "django.template.loader_tags")
+            .map(|library| library.key(&db))
+            .expect("loader_tags should be active");
+        let defaulttags_identity = (defaulttags.file(&db), defaulttags.module(&db).clone());
+        let loader_tags_identity = (loader_tags.file(&db), loader_tags.module(&db).clone());
+        let _ = djls_semantic::library_tag_specs(&db, project, defaulttags);
+        let _ = djls_semantic::library_tag_specs(&db, project, loader_tags);
         event_log.take();
-
-        let project = db.project.unwrap();
 
         let new_tagspecs = djls_conf::TagSpecDef {
             version: "0.6.0".to_string(),
@@ -1260,7 +1302,7 @@ env_file = ".env.local"
             requires_engine: None,
             extends: vec![],
             libraries: vec![djls_conf::TagLibraryDef {
-                module: "myapp.templatetags.custom".to_string(),
+                module: "django.template.defaulttags".to_string(),
                 requires_engine: None,
                 tags: vec![djls_conf::TagDef {
                     name: "switch".to_string(),
@@ -1276,60 +1318,152 @@ env_file = ".env.local"
         };
 
         project.set_tagspecs(&mut db).to(new_tagspecs);
+        let defaulttags = djls_project::TemplateLibraryKey::new(
+            &db,
+            defaulttags_identity.0,
+            defaulttags_identity.1,
+        );
+        let loader_tags = djls_project::TemplateLibraryKey::new(
+            &db,
+            loader_tags_identity.0,
+            loader_tags_identity.1,
+        );
 
-        // Access again — should re-execute
-        let _specs = db.tag_specs();
-        let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after tagspecs change"
+            djls_semantic::library_tag_specs(&db, project, defaulttags)
+                .get("switch")
+                .is_some()
+        );
+        let _ = djls_semantic::library_tag_specs(&db, project, loader_tags);
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &events, "configured_library_tag_specs"),
+            2
+        );
+        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 1);
+        assert_eq!(
+            exact_execution_count(&db, &events, "library_filter_specs"),
+            0
         );
     }
 
     #[test]
-    fn same_value_no_invalidation() {
-        let (db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _specs = db.tag_specs();
+    #[allow(clippy::too_many_lines)]
+    fn library_tag_and_filter_products_backdate_independently_and_locally() {
+        let event_log = EventLog::default();
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let alpha_path = root.join("alpha_tags.py");
+        let beta_path = root.join("beta_tags.py");
+        let alpha_source = |tag_extra: &str, filter_extra: &str| {
+            format!(
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef alpha_tag(value{tag_extra}): pass\n@register.filter\ndef alpha_filter(value{filter_extra}): pass\n"
+            )
+        };
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(
+                root.join("settings.py"),
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}, 'builtins': []}}]\n".to_string(),
+            );
+            fs.add_file(alpha_path.clone(), alpha_source("", ""));
+            fs.add_file(
+                beta_path,
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef beta_tag(value): pass\n@register.filter\ndef beta_filter(value): pass\n".to_string(),
+            );
+        }
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| log.events.lock().unwrap().push(event)
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+        let libraries = template_libraries(&db, project);
+        let keys: Vec<_> = libraries
+            .resolved_libraries()
+            .filter(|library| matches!(library.module_name_str(), "alpha_tags" | "beta_tags"))
+            .map(|library| library.key(&db))
+            .collect();
+        assert_eq!(keys.len(), 2);
+        for key in &keys {
+            let _ = djls_semantic::library_tag_specs(&db, project, *key);
+            let _ = djls_semantic::library_filter_specs(&db, *key);
+        }
         event_log.take();
 
-        // Simulate a no-op update path: compare against an identical value and
-        // intentionally skip any setter call.
-        let project = db.project.unwrap();
-        let current = project.tagspecs(&db).clone();
-
-        assert_eq!(project.tagspecs(&db), &current);
-        // No setter called — cache should be preserved
-
-        let _specs = db.tag_specs();
+        let alpha_key = *keys
+            .iter()
+            .find(|key| key.module(&db).as_str() == "alpha_tags")
+            .unwrap();
+        fs.lock()
+            .unwrap()
+            .add_file(alpha_path.clone(), alpha_source("", ", arg"));
+        SourceChanges::new([ChangeEvent::ContentChanged(alpha_path.clone())]).apply(&mut db);
+        let _ = template_libraries(&db, project);
+        let alpha_tags = djls_semantic::library_tag_specs(&db, project, alpha_key);
+        let alpha_filters = djls_semantic::library_filter_specs(&db, alpha_key);
+        assert_eq!(alpha_tags.get("alpha_tag").unwrap().arguments().len(), 1);
+        assert!(alpha_filters.get("alpha_filter").unwrap().expects_arg);
+        for key in keys
+            .iter()
+            .filter(|key| key.module(&db).as_str() == "beta_tags")
+        {
+            let _ = djls_semantic::library_tag_specs(&db, project, *key);
+            let _ = djls_semantic::library_filter_specs(&db, *key);
+        }
         let events = event_log.take();
-        assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should NOT re-execute when value is unchanged"
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_library_definition_facts"),
+            1
         );
-    }
+        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 0);
+        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
+        assert_eq!(
+            exact_execution_count(&db, &events, "library_filter_specs"),
+            1
+        );
 
-    #[test]
-    fn project_settings_unchanged_no_invalidation() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _specs = db.tag_specs();
-        event_log.take();
-
-        // Apply default project settings, matching what the project was created with.
-        let settings = Settings::default();
-        db.project()
-            .expect("project should exist")
-            .reload_from_settings(&mut db, &settings);
-
-        // Access tag_specs — should still be cached
-        let _specs = db.tag_specs();
+        fs.lock()
+            .unwrap()
+            .add_file(alpha_path.clone(), alpha_source(", extra", ", arg"));
+        SourceChanges::new([ChangeEvent::ContentChanged(alpha_path)]).apply(&mut db);
+        let _ = template_libraries(&db, project);
+        let alpha_tags = djls_semantic::library_tag_specs(&db, project, alpha_key);
+        let alpha_filters = djls_semantic::library_filter_specs(&db, alpha_key);
+        assert_eq!(alpha_tags.get("alpha_tag").unwrap().arguments().len(), 2);
+        assert!(alpha_filters.get("alpha_filter").unwrap().expects_arg);
+        for key in keys
+            .iter()
+            .filter(|key| key.module(&db).as_str() == "beta_tags")
+        {
+            let _ = djls_semantic::library_tag_specs(&db, project, *key);
+            let _ = djls_semantic::library_filter_specs(&db, *key);
+        }
         let events = event_log.take();
-        assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should NOT re-execute when settings are unchanged"
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_library_definition_facts"),
+            1
+        );
+        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 0);
+        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 1);
+        assert_eq!(
+            exact_execution_count(&db, &events, "library_filter_specs"),
+            0
         );
     }
 
@@ -1341,12 +1475,14 @@ env_file = ".env.local"
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
 
-        // First extraction
-        let _result1 = djls_project::extract_filter_arities(
+        let library = djls_project::TemplateLibraryKey::new(
             &db,
-            file,
+            Some(file),
             djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
+
+        // First extraction
+        let _result1 = djls_project::extract_filter_arities(&db, library);
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "extract_filter_arities"),
@@ -1354,11 +1490,7 @@ env_file = ".env.local"
         );
 
         // Second call — cached
-        let _result2 = djls_project::extract_filter_arities(
-            &db,
-            file,
-            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
-        );
+        let _result2 = djls_project::extract_filter_arities(&db, library);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "extract_filter_arities"),
@@ -1373,11 +1505,12 @@ env_file = ".env.local"
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
-        let _result = djls_project::extract_filter_arities(
+        let library = djls_project::TemplateLibraryKey::new(
             &db,
-            file,
+            Some(file),
             djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
+        let _result = djls_project::extract_filter_arities(&db, library);
         event_log.take();
 
         // Bump the file revision — but the source is still empty (file not in FS)
@@ -1385,11 +1518,7 @@ env_file = ".env.local"
 
         // Salsa's backdate optimization: file.try_source() returns the same empty text,
         // so extract_filter_arities does NOT re-execute (correct behavior)
-        let _result = djls_project::extract_filter_arities(
-            &db,
-            file,
-            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
-        );
+        let _result = djls_project::extract_filter_arities(&db, library);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "extract_filter_arities"),
@@ -1435,11 +1564,12 @@ def my_filter(value, arg):
 
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
-        let result = djls_project::extract_filter_arities(
+        let library = djls_project::TemplateLibraryKey::new(
             &db,
-            file,
+            Some(file),
             djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
+        let result = djls_project::extract_filter_arities(&db, library);
 
         // Should extract the filter
         let key = djls_project::SymbolKey::filter("test.project.tags", "my_filter");
@@ -1449,11 +1579,12 @@ def my_filter(value, arg):
         );
         assert!(result.arities()[&key].expects_arg);
 
-        let other_module_result = djls_project::extract_filter_arities(
+        let other_library = djls_project::TemplateLibraryKey::new(
             &db,
-            file,
+            Some(file),
             djls_project::PythonModuleName::parse("other.project.tags").unwrap(),
         );
+        let other_module_result = djls_project::extract_filter_arities(&db, other_library);
         let other_key = djls_project::SymbolKey::filter("other.project.tags", "my_filter");
         assert!(other_module_result.arities().contains_key(&other_key));
         assert!(!other_module_result.arities().contains_key(&key));

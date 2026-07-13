@@ -38,7 +38,7 @@ fn opaque_opener_treats_intermediate_as_raw_content() {
             true,
         ),
     );
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let path = "test.html";
     let source = "{% opaque_if %}first{% opaque_else %}second{% endopaque_if %}";
     db.add_file(path, source);

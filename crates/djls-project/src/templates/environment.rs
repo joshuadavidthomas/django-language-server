@@ -4,6 +4,7 @@ use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
+use crate::templates::ContextualLibraryChain;
 use crate::templates::EffectiveDefinitionLibrary;
 use crate::templates::EnvironmentSymbolLookup;
 use crate::templates::LibraryName;
@@ -69,6 +70,16 @@ impl<'db> TemplateEnvironment<'db> {
             .effective_definition_libraries(symbol_name, kind, loaded_names)
     }
 
+    /// Return each feasible backend's ordered builtin and load updates.
+    #[must_use]
+    pub fn contextual_library_chains(
+        self,
+        db: &'db dyn ProjectDb,
+        loaded_names: &[&str],
+    ) -> Vec<ContextualLibraryChain<'db>> {
+        self.libraries(db).contextual_library_chains(loaded_names)
+    }
+
     /// Resolve a load name within the backends that can render this file.
     #[must_use]
     pub fn loadable_library(
@@ -115,6 +126,12 @@ impl<'db> TemplateEnvironment<'db> {
         name: &LibraryName,
     ) -> MissingLibraryLookup {
         self.libraries(db).missing_library_lookup(name)
+    }
+
+    /// Return the concrete library identities participating in the selected environment.
+    #[must_use]
+    pub fn resolved_libraries(self, db: &'db dyn ProjectDb) -> Vec<&'db TemplateLibrary> {
+        self.libraries(db).resolved_libraries().collect()
     }
 
     /// Return every known symbol name from the feasible backend inventory.
@@ -167,7 +184,7 @@ impl<'db> TemplateEnvironment<'db> {
     pub fn library_link(self, db: &'db dyn ProjectDb, name: &LibraryName) -> Option<File> {
         self.loadable_library(db, name)
             .found()
-            .map(TemplateLibrary::file)
+            .and_then(TemplateLibrary::source_file)
     }
 }
 

@@ -11,17 +11,16 @@ use crate::tags::TagSpecs;
 
 #[salsa::db]
 pub trait Db: ProjectDb {
-    /// Get the Django tag specifications for semantic analysis.
-    fn tag_specs(&self) -> &TagSpecs;
+    /// Explicit fixture seam for structural analysis without a Project.
+    ///
+    /// Project-backed paths must derive meaning through per-library products.
+    fn projectless_tag_specs(&self) -> &TagSpecs;
 
     /// Get the diagnostics configuration.
     fn diagnostics_config(&self) -> DiagnosticsConfig;
 
-    /// Get the filter arity specifications for filter argument validation.
-    ///
-    /// Built from extraction results. Returns empty specs when no extraction
-    /// data is available.
-    fn filter_arity_specs(&self) -> &FilterAritySpecs;
+    /// Explicit fixture seam for Filter validation without a Project.
+    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs;
 
     /// Get the merged model graph for the current project.
     ///

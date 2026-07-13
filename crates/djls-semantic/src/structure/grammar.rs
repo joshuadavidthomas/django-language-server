@@ -1,8 +1,106 @@
+use std::collections::BTreeMap;
+
+use djls_project::Project;
+use djls_project::TemplateLibraryKey;
+use djls_project::template_libraries;
 use djls_templates::TagBit;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
 use crate::tags::TagSpecs;
+use crate::tags::library_tag_specs;
+
+/// Identity of an opening Tag Definition contributing semantic grammar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrammarOpeningDefinition {
+    library: TemplateLibraryKey,
+    name: String,
+}
+
+impl GrammarOpeningDefinition {
+    #[must_use]
+    pub fn library(&self) -> &TemplateLibraryKey {
+        &self.library
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// Project vocabulary for orphan closer/intermediate candidate discovery.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SemanticGrammarVocabulary {
+    closers: BTreeMap<String, Vec<GrammarOpeningDefinition>>,
+    intermediates: BTreeMap<String, Vec<GrammarOpeningDefinition>>,
+    open: bool,
+}
+
+impl SemanticGrammarVocabulary {
+    #[must_use]
+    pub fn closer_candidates(&self, name: &str) -> &[GrammarOpeningDefinition] {
+        self.closers.get(name).map_or(&[], Vec::as_slice)
+    }
+
+    #[must_use]
+    pub fn intermediate_candidates(&self, name: &str) -> &[GrammarOpeningDefinition] {
+        self.intermediates.get(name).map_or(&[], Vec::as_slice)
+    }
+
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+}
+
+/// Build the cheap spelling-to-opening-identity vocabulary for a Project.
+#[salsa::tracked(returns(ref))]
+pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGrammarVocabulary {
+    let libraries = template_libraries(db, project);
+    let mut vocabulary = SemanticGrammarVocabulary {
+        open: libraries.definition_names_are_open(),
+        ..SemanticGrammarVocabulary::default()
+    };
+    for library in libraries.resolved_libraries() {
+        let specs = library_tag_specs(db, project, library.key(db));
+        for (name, spec) in specs.iter() {
+            if library
+                .symbol(djls_project::TemplateSymbolKind::Tag, name)
+                .is_none()
+                && !library.symbol_inventory_is_open()
+            {
+                continue;
+            }
+            let Some(end_tag) = &spec.end_tag else {
+                continue;
+            };
+            let definition = GrammarOpeningDefinition {
+                library: library.key(db),
+                name: name.clone(),
+            };
+            let closer_candidates = vocabulary
+                .closers
+                .entry(end_tag.name.as_ref().to_string())
+                .or_default();
+            if !closer_candidates.contains(&definition) {
+                closer_candidates.push(definition.clone());
+            }
+            if !spec.opaque {
+                for intermediate in spec.intermediate_tags.iter() {
+                    let candidates = vocabulary
+                        .intermediates
+                        .entry(intermediate.name.as_ref().to_string())
+                        .or_default();
+                    if !candidates.contains(&definition) {
+                        candidates.push(definition.clone());
+                    }
+                }
+            }
+        }
+    }
+    vocabulary
+}
 
 #[salsa::tracked(returns(ref))]
 pub(crate) fn compute_preliminary_tag_index_for_file(
@@ -151,6 +249,8 @@ impl TagIndex {
     pub fn classify(&self, tag_name: &str) -> TagClass<'_> {
         if self.openers.contains_key(tag_name) {
             TagClass::Opener
+        } else if self.specs.contains_key(tag_name) {
+            TagClass::Standalone
         } else if let Some(possible_openers) = self.closers.get(tag_name) {
             TagClass::Closer {
                 possible_openers: possible_openers.as_slice(),
@@ -258,6 +358,11 @@ impl TagIndex {
             }
         }
 
+        for possible_openers in closers.values_mut().chain(intermediates.values_mut()) {
+            possible_openers.sort();
+            possible_openers.dedup();
+        }
+
         Self {
             specs: specs.clone(),
             openers,
@@ -275,6 +380,8 @@ impl TagIndex {
 pub enum TagClass<'a> {
     /// This tag opens a block
     Opener,
+    /// This tag is an effective standalone definition at this position.
+    Standalone,
     /// This tag closes one or more blocks
     Closer { possible_openers: &'a [String] },
     /// This tag is an intermediate (elif, else, etc.)
@@ -404,11 +511,11 @@ mod tests {
     }
 
     #[test]
-    fn classifies_standalone_and_unknown_tags_as_unknown() {
+    fn distinguishes_standalone_and_unknown_tags() {
         let specs = create_test_specs();
         let index = TagIndex::from_tag_specs(&specs);
 
-        assert_eq!(index.classify("csrf_token"), TagClass::Unknown);
+        assert_eq!(index.classify("csrf_token"), TagClass::Standalone);
         assert_eq!(index.classify("nonexistent"), TagClass::Unknown);
     }
 

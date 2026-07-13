@@ -52,8 +52,8 @@ impl SalsaEventLog {
 pub struct TestDatabase {
     fs: Arc<Mutex<InMemoryFileSystem>>,
     files: SourceFiles,
-    tag_specs: TagSpecs,
-    filter_arity_specs: FilterAritySpecs,
+    projectless_tag_specs: TagSpecs,
+    projectless_filter_arity_specs: FilterAritySpecs,
     diagnostics_config: djls_conf::DiagnosticsConfig,
     project: Option<Project>,
     storage: salsa::Storage<Self>,
@@ -89,8 +89,8 @@ impl TestDatabase {
         Self {
             fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
             files: SourceFiles::default(),
-            tag_specs: builtin_tag_specs(),
-            filter_arity_specs: FilterAritySpecs::new(),
+            projectless_tag_specs: builtin_tag_specs(),
+            projectless_filter_arity_specs: FilterAritySpecs::new(),
             diagnostics_config: djls_conf::DiagnosticsConfig::default(),
             project: None,
             storage,
@@ -98,14 +98,14 @@ impl TestDatabase {
     }
 
     #[must_use]
-    pub fn with_specs(mut self, specs: TagSpecs) -> Self {
-        self.tag_specs = specs;
+    pub fn with_projectless_tag_specs(mut self, specs: TagSpecs) -> Self {
+        self.projectless_tag_specs = specs;
         self
     }
 
     #[must_use]
-    pub fn with_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
-        self.filter_arity_specs = specs;
+    pub fn with_projectless_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
+        self.projectless_filter_arity_specs = specs;
         self
     }
 
@@ -251,16 +251,16 @@ impl ProjectDb for OsTestDatabase {
 
 #[salsa::db]
 impl SemanticDb for TestDatabase {
-    fn tag_specs(&self) -> &TagSpecs {
-        &self.tag_specs
+    fn projectless_tag_specs(&self) -> &TagSpecs {
+        &self.projectless_tag_specs
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         self.diagnostics_config.clone()
     }
 
-    fn filter_arity_specs(&self) -> &FilterAritySpecs {
-        &self.filter_arity_specs
+    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
+        &self.projectless_filter_arity_specs
     }
 
     fn model_graph(&self) -> &ModelGraph {

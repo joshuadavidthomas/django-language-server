@@ -382,7 +382,7 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
             true,
         ),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% opaque_if %}{% if cond %}first{% else %}second{% endif %}{% endopaque_if %}";
 
     db.add_file("test.html", source);
@@ -443,7 +443,7 @@ fn opaque_closer_name_can_also_be_structured_opener() {
             ),
         ),
     ])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% raw %}body{% panel %}";
 
     db.add_file("test.html", source);
@@ -490,6 +490,89 @@ fn opaque_closer_name_can_also_be_structured_opener() {
     ));
 }
 
+fn specs_with_standalone_structural_spellings() -> TagSpecs {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter(
+        ["endif", "else", "empty"].map(|name| {
+            (
+                name.to_string(),
+                TagSpec::new(Cow::Borrowed("test"), None, Cow::Borrowed(&[]), false),
+            )
+        }),
+    )));
+    specs
+}
+
+#[test]
+fn standalone_definitions_win_over_top_level_structural_vocabulary() {
+    let db = TestDatabase::new()
+        .with_projectless_tag_specs(specs_with_standalone_structural_spellings());
+    let source = "{% endif %}{% else %}{% empty %}";
+
+    db.add_file("test.html", source);
+    let file = db.file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
+
+    assert!(
+        errors.is_empty(),
+        "effective standalone definitions must not be orphaned: {errors:?}"
+    );
+    let standalone_tags = root_region(tree, &db)
+        .nodes()
+        .iter()
+        .filter_map(|node| match node {
+            TemplateNode::StandaloneTag { tag, .. } => Some(tag.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(standalone_tags, ["endif", "else", "empty"]);
+}
+
+#[test]
+fn matching_branch_context_wins_but_other_collisions_stay_standalone_in_blocks() {
+    let db = TestDatabase::new()
+        .with_projectless_tag_specs(specs_with_standalone_structural_spellings());
+    let source = "{% if condition %}{% empty %}{% else %}after{% endif %}";
+
+    db.add_file("test.html", source);
+    let file = db.file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
+
+    assert!(
+        errors.is_empty(),
+        "matching if context should consume else/endif without consuming empty: {errors:?}"
+    );
+    let if_container = first_block_body(root_region(tree, &db), "if");
+    let initial_segment = segment_body(tree.regions(&db).get(if_container), "if");
+    assert!(
+        tree.regions(&db)
+            .get(initial_segment)
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TemplateNode::StandaloneTag { tag, .. } if tag == "empty"))
+    );
+    assert!(tree.regions(&db).get(if_container).nodes().iter().any(
+        |node| matches!(node, TemplateNode::Block { tag, role: BlockRole::Segment, .. } if tag == "else")
+    ));
+    assert!(!tree.regions(&db).iter().flat_map(TemplateRegion::nodes).any(
+        |node| matches!(node, TemplateNode::StandaloneTag { tag, .. } if tag == "else" || tag == "endif")
+    ));
+}
+
 #[test]
 fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
     let mut specs = builtin_tag_specs();
@@ -505,7 +588,7 @@ fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
             true,
         ),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% raw %}body";
 
     db.add_file("test.html", source);
@@ -750,7 +833,7 @@ fn custom_block_tags_from_specs_are_blocks() {
             false,
         ),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let tree = tree_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
 
     assert!(root_region(tree, &db).nodes().iter().any(|node| matches!(

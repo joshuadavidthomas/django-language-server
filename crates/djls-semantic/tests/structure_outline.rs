@@ -164,7 +164,7 @@ fn custom_callable_block_tags_produce_callable_outline_items() {
         )
         .with_role(TagRole::TemplateTag),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
 
     assert_eq!(labels(outline), vec!["partialdef card"]);
@@ -197,7 +197,7 @@ fn tags_without_role_hide_standalone_tags_but_keep_blocks() {
             ),
         ),
     ])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let outline = outline_for_source(&db, "{% mytag %}{% myblock thing %}Body{% endmyblock %}");
 
     assert_eq!(labels(outline), vec!["myblock thing"]);

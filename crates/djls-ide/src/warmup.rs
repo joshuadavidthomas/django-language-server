@@ -1,6 +1,9 @@
 use djls_project::template_directories;
+use djls_project::template_libraries;
 use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::library_filter_specs;
+use djls_semantic::library_tag_specs;
 
 /// Noun pair used when reporting a count for an IDE cache warm-up phase.
 ///
@@ -79,11 +82,15 @@ impl WarmCachePhase {
 
         match self {
             Self::BuildTagSpecs => {
-                let _ = db.tag_specs();
+                for library in template_libraries(db, project).resolved_libraries() {
+                    let _ = library_tag_specs(db, project, library.key(db));
+                }
                 None
             }
             Self::BuildFilterAritySpecs => {
-                let _ = db.filter_arity_specs();
+                for library in template_libraries(db, project).resolved_libraries() {
+                    let _ = library_filter_specs(db, library.key(db));
+                }
                 None
             }
             Self::BuildModelGraph => {
