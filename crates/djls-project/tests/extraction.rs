@@ -2,6 +2,8 @@ use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
+use djls_project::extract_block_specs;
+use djls_project::extract_filter_arities;
 use djls_project::extract_tag_rules;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::python_syntax_errors;
@@ -195,6 +197,56 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let events = event_log.take();
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 0);
+}
+
+#[test]
+fn template_library_extraction_products_execute_once_and_share_parsing() {
+    let event_log = SalsaEventLog::default();
+    let db = TestDatabase::with_event_log(event_log.clone());
+
+    db.add_file("/test/defaulttags.py", DEFAULTTAGS_SOURCE);
+    let tags_file = db.file(Utf8Path::new("/test/defaulttags.py"));
+    let tags_module = PythonModuleName::parse("django.template.defaulttags").unwrap();
+    let rules = extract_tag_rules(&db, tags_file, tags_module.clone());
+    let blocks = extract_block_specs(&db, tags_file, tags_module);
+    assert!(
+        rules.keys().any(
+            |key| key.name == "for" && key.registration_module == "django.template.defaulttags"
+        )
+    );
+    assert!(blocks.as_map().keys().any(|key| key.name == "for"));
+
+    let events = event_log.take();
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 1);
+    assert_eq!(execution_count(&db, &events, "extract_block_specs"), 1);
+
+    db.add_file("/test/defaultfilters.py", DEFAULTFILTERS_SOURCE);
+    let filters_file = db.file(Utf8Path::new("/test/defaultfilters.py"));
+    let filters = extract_filter_arities(
+        &db,
+        filters_file,
+        PythonModuleName::parse("django.template.defaultfilters").unwrap(),
+    );
+    assert!(
+        filters.arities().keys().any(|key| key.name == "lower"
+            && key.registration_module == "django.template.defaultfilters")
+    );
+
+    let events = event_log.take();
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(execution_count(&db, &events, "extract_filter_arities"), 1);
+
+    let _ = extract_filter_arities(
+        &db,
+        filters_file,
+        PythonModuleName::parse("django.template.defaultfilters").unwrap(),
+    );
+    assert_eq!(
+        execution_count(&db, &event_log.take(), "extract_filter_arities"),
+        0,
+        "same-revision extraction should be memoized",
+    );
 }
 
 // (b) Edge case — valid Python with no registrations

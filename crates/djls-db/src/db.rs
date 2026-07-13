@@ -321,6 +321,22 @@ mod invalidation_tests {
             .count()
     }
 
+    fn exact_execution_count(
+        db: &DjangoDatabase,
+        events: &[salsa::Event],
+        query_name: &str,
+    ) -> usize {
+        events
+            .iter()
+            .filter(|event| match &event.kind {
+                salsa::EventKind::WillExecute { database_key } => db
+                    .ingredient_debug_name(database_key.ingredient_index())
+                    .ends_with(query_name),
+                _ => false,
+            })
+            .count()
+    }
+
     /// Create a test database with event logging and a pre-configured project.
     ///
     /// Uses `Interpreter::discover(None)` to match what `Project::bootstrap`
@@ -453,6 +469,100 @@ mod invalidation_tests {
             child_path,
             parent_path,
         }
+    }
+
+    #[test]
+    fn current_template_analysis_pipeline_execution_baseline() {
+        let TemplateInheritanceFixture {
+            db,
+            event_log,
+            child_file,
+            ..
+        } = template_inheritance_fixture();
+        let project = db.project().expect("fixture should install a project");
+        event_log.take();
+
+        let libraries = template_libraries(&db, project);
+        let modules: Vec<_> = libraries
+            .resolved_libraries()
+            .map(djls_project::TemplateLibrary::module_name_str)
+            .collect();
+        assert_eq!(
+            modules,
+            ["django.template.defaulttags", "django.template.loader_tags"]
+        );
+        let events = event_log.take();
+        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
+
+        let tag_specs = db.tag_specs();
+        assert!(tag_specs.get("load").is_some());
+        assert!(tag_specs.get("block").is_some());
+        let events = event_log.take();
+        assert_eq!(exact_execution_count(&db, &events, "compute_tag_specs"), 1);
+
+        let filter_specs = db.filter_arity_specs();
+        assert_eq!(filter_specs, djls_semantic::FilterAritySpecs::empty_ref());
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &events, "compute_filter_arity_specs"),
+            1
+        );
+
+        let environment = djls_semantic::template_environment_for_file(&db, child_file);
+        let names = environment.candidate_symbol_names(&db, djls_project::TemplateSymbolKind::Tag);
+        assert!(names.contains("load"));
+        assert!(names.contains("block"));
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_environment_libraries"),
+            1
+        );
+
+        let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
+        event_log.take();
+        let tree = djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        assert!(tree.regions(&db).iter().next().is_some());
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "compute_structural_projection_for_file_in_scope",
+            ),
+            1
+        );
+        assert_eq!(
+            exact_execution_count(&db, &events, "build_template_tree_for_file"),
+            1
+        );
+
+        djls_semantic::validate_template_file(&db, child_file);
+        let errors = djls_semantic::validate_template_file::accumulated::<
+            djls_semantic::ValidationErrorAccumulator,
+        >(&db, child_file);
+        assert!(errors.is_empty());
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &events, "validate_template_file"),
+            1
+        );
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "compute_structural_projection_for_file_in_scope",
+            ),
+            0,
+            "validation should reuse the structural projection built above",
+        );
+
+        djls_semantic::validate_template_file(&db, child_file);
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &events, "validate_template_file"),
+            0,
+            "same-revision validation should be memoized",
+        );
     }
 
     #[test]

@@ -234,3 +234,47 @@ impl SemanticDb for Db {
         djls_project::ModelGraph::empty_ref()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn walked_paths(db: &Db, options: &WalkOptions) -> Vec<Utf8PathBuf> {
+        let RootWalk::Directory { entries, issues } =
+            db.file_system().walk_root(Utf8Path::new("/root"), options)
+        else {
+            panic!("fixture root should be a directory");
+        };
+        assert!(issues.is_empty());
+        entries.into_iter().map(|entry| entry.path).collect()
+    }
+
+    #[test]
+    fn source_map_walk_is_sorted_deduplicated_and_respects_hidden_and_depth() {
+        let db = Db::new();
+        db.add_fixture_source("/root/b/second.py", "");
+        db.add_fixture_source("/root/a/first.py", "");
+        db.add_fixture_source("/root/a/nested/third.py", "");
+        db.add_fixture_source("/root/.hidden/secret.py", "");
+
+        assert_eq!(
+            walked_paths(&db, &WalkOptions::project()),
+            [
+                Utf8PathBuf::from("/root/a"),
+                Utf8PathBuf::from("/root/a/first.py"),
+                Utf8PathBuf::from("/root/a/nested"),
+                Utf8PathBuf::from("/root/a/nested/third.py"),
+                Utf8PathBuf::from("/root/b"),
+                Utf8PathBuf::from("/root/b/second.py"),
+            ]
+        );
+        assert_eq!(
+            walked_paths(&db, &WalkOptions::shallow()),
+            [
+                Utf8PathBuf::from("/root/.hidden"),
+                Utf8PathBuf::from("/root/a"),
+                Utf8PathBuf::from("/root/b"),
+            ]
+        );
+    }
+}

@@ -1,6 +1,7 @@
 use divan::Bencher;
 use djls_bench::DIAGNOSTICS_INNER_ITERS;
 use djls_bench::DIAGNOSTICS_WARMUP_ITERS;
+use djls_bench::DiagnosticDigest;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::ValidationErrorFixture;
 use djls_bench::prime;
@@ -84,16 +85,26 @@ fn render_synthetic(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
-fn collect_cached(bencher: Bencher) {
-    let fixtures = template_fixtures();
-    let mut db = realistic_db();
+fn assert_diagnostic_contract(
+    db: &djls_bench::Db,
+    files: &[djls_source::File],
+    expected: &DiagnosticDigest,
+) {
+    let mut check_digest = DiagnosticDigest::default();
+    let mut collected_count = 0;
 
-    let files: Vec<_> = fixtures
-        .iter()
-        .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
-        .collect();
+    for &file in files {
+        check_digest.merge(&djls_bench::check_file(db, file).diagnostic_digest());
+        collected_count += djls_ide::collect_diagnostics(db, file)
+            .expect("template fixture should be eligible for diagnostics")
+            .len();
+    }
 
+    assert_eq!(&check_digest, expected);
+    assert_eq!(collected_count, expected.total());
+}
+
+fn bench_cached_diagnostics(bencher: Bencher, db: djls_bench::Db, files: Vec<djls_source::File>) {
     for &file in &files {
         prime(DIAGNOSTICS_WARMUP_ITERS, || {
             let _ = djls_ide::collect_diagnostics(&db, file);
@@ -103,14 +114,66 @@ fn collect_cached(bencher: Bencher) {
     bencher.bench_local(move || {
         let mut total = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
-            for file in &files {
-                total += djls_ide::collect_diagnostics(&db, *file)
+            for &file in &files {
+                total += djls_ide::collect_diagnostics(&db, file)
                     .expect("template fixture should be eligible for diagnostics")
                     .len();
             }
         }
         divan::black_box(total);
     });
+}
+
+#[divan::bench]
+fn collect_cached_empty(bencher: Bencher) {
+    const EMPTY_FILE_COUNT: usize = 6;
+
+    let mut db = realistic_db();
+    let files: Vec<_> = (0..EMPTY_FILE_COUNT)
+        .map(|index| db.file_with_contents(format!("/templates/empty/{index}.html"), ""))
+        .collect();
+    let expected = DiagnosticDigest::default();
+    assert_diagnostic_contract(&db, &files, &expected);
+
+    bench_cached_diagnostics(bencher, db, files);
+}
+
+#[divan::bench]
+fn collect_cached_errors(bencher: Bencher) {
+    let mut db = realistic_db();
+    let files: Vec<_> = validation_error_fixtures()
+        .iter()
+        .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
+        .collect();
+    let expected = DiagnosticDigest::from_counts(
+        0,
+        751,
+        [
+            ("S108", 253),
+            ("S109", 1),
+            ("S111", 123),
+            ("S115", 128),
+            ("S116", 124),
+            ("S117", 122),
+        ],
+    );
+    assert_diagnostic_contract(&db, &files, &expected);
+
+    bench_cached_diagnostics(bencher, db, files);
+}
+
+/// Preserve the previous realistic fixture aggregate as an explicitly mixed-output workload.
+#[divan::bench]
+fn collect_cached_realistic_end_to_end(bencher: Bencher) {
+    let mut db = realistic_db();
+    let files: Vec<_> = template_fixtures()
+        .iter()
+        .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
+        .collect();
+    let expected = DiagnosticDigest::from_counts(0, 87, [("S108", 22), ("S109", 45), ("S111", 20)]);
+    assert_diagnostic_contract(&db, &files, &expected);
+
+    bench_cached_diagnostics(bencher, db, files);
 }
 
 struct IncrementalTemplate {

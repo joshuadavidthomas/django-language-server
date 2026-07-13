@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_semantic::ValidationError;
@@ -16,10 +18,63 @@ pub struct CheckResult {
     pub validation_errors: Vec<ValidationError>,
 }
 
+/// Stable semantic output contract for a checked set of templates.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiagnosticDigest {
+    pub parser_count: usize,
+    pub validation_count: usize,
+    pub codes: BTreeMap<&'static str, usize>,
+}
+
+impl DiagnosticDigest {
+    #[must_use]
+    pub fn from_counts(
+        parser_count: usize,
+        validation_count: usize,
+        codes: impl IntoIterator<Item = (&'static str, usize)>,
+    ) -> Self {
+        Self {
+            parser_count,
+            validation_count,
+            codes: codes.into_iter().collect(),
+        }
+    }
+
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.parser_count + self.validation_count
+    }
+
+    pub fn merge(&mut self, other: &Self) {
+        self.parser_count += other.parser_count;
+        self.validation_count += other.validation_count;
+        for (&code, &count) in &other.codes {
+            *self.codes.entry(code).or_default() += count;
+        }
+    }
+}
+
 impl CheckResult {
     #[must_use]
     fn has_diagnostics(&self) -> bool {
         !self.template_errors.is_empty() || !self.validation_errors.is_empty()
+    }
+
+    #[must_use]
+    pub fn diagnostic_digest(&self) -> DiagnosticDigest {
+        let mut codes = BTreeMap::new();
+        for error in &self.template_errors {
+            *codes.entry(error.diagnostic_code()).or_default() += 1;
+        }
+        for error in &self.validation_errors {
+            *codes.entry(error.code()).or_default() += 1;
+        }
+
+        DiagnosticDigest {
+            parser_count: self.template_errors.len(),
+            validation_count: self.validation_errors.len(),
+            codes,
+        }
     }
 }
 
@@ -33,6 +88,11 @@ impl FileCheckResult {
     #[must_use]
     pub fn has_diagnostics(&self) -> bool {
         self.check.has_diagnostics()
+    }
+
+    #[must_use]
+    pub fn diagnostic_digest(&self) -> DiagnosticDigest {
+        self.check.diagnostic_digest()
     }
 
     #[must_use]
@@ -169,4 +229,49 @@ fn render_template_error(
         "",
     );
     Some(fmt.render(&diag))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::realistic_db;
+    use crate::template_fixtures;
+    use crate::validation_error_fixtures;
+
+    fn fixture_digest(fixtures: &[crate::Fixture]) -> DiagnosticDigest {
+        let mut db = realistic_db();
+        let mut digest = DiagnosticDigest::default();
+        for fixture in fixtures {
+            let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
+            digest.merge(&check_file(&db, file).diagnostic_digest());
+        }
+        digest
+    }
+
+    #[test]
+    fn template_fixture_diagnostics_are_stable() {
+        assert_eq!(
+            fixture_digest(template_fixtures()),
+            DiagnosticDigest::from_counts(0, 87, [("S108", 22), ("S109", 45), ("S111", 20)],)
+        );
+    }
+
+    #[test]
+    fn validation_error_fixture_diagnostics_are_stable() {
+        assert_eq!(
+            fixture_digest(validation_error_fixtures()),
+            DiagnosticDigest::from_counts(
+                0,
+                751,
+                [
+                    ("S108", 253),
+                    ("S109", 1),
+                    ("S111", 123),
+                    ("S115", 128),
+                    ("S116", 124),
+                    ("S117", 122),
+                ],
+            )
+        );
+    }
 }

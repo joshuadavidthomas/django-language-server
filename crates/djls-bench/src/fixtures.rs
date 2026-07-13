@@ -20,6 +20,31 @@ pub struct Fixture {
     pub source: String,
 }
 
+/// Stable identity and size contract for a benchmark fixture set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FixtureDigest {
+    pub file_count: usize,
+    pub total_bytes: usize,
+    pub sorted_paths: Vec<Utf8PathBuf>,
+}
+
+impl FixtureDigest {
+    #[must_use]
+    pub fn from_fixtures(fixtures: &[Fixture]) -> Self {
+        let mut sorted_paths: Vec<_> = fixtures
+            .iter()
+            .map(|fixture| fixture.path.clone())
+            .collect();
+        sorted_paths.sort();
+
+        Self {
+            file_count: fixtures.len(),
+            total_bytes: fixtures.iter().map(|fixture| fixture.source.len()).sum(),
+            sorted_paths,
+        }
+    }
+}
+
 impl fmt::Display for Fixture {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.label)
@@ -54,6 +79,16 @@ pub fn validation_error_fixtures() -> &'static [Fixture] {
             .collect()
         })
         .as_slice()
+}
+
+#[must_use]
+pub fn template_fixture_digest() -> FixtureDigest {
+    FixtureDigest::from_fixtures(template_fixtures())
+}
+
+#[must_use]
+pub fn validation_error_fixture_digest() -> FixtureDigest {
+    FixtureDigest::from_fixtures(validation_error_fixtures())
 }
 
 fn map_template_fixture(mut fixture: Fixture) -> Fixture {
@@ -145,4 +180,49 @@ fn collect_files(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_fixture_contract_is_stable() {
+        assert_eq!(
+            template_fixture_digest(),
+            FixtureDigest {
+                file_count: 6,
+                total_bytes: 30_105,
+                sorted_paths: vec![
+                    "/templates/large/stress_test.html".into(),
+                    "/templates/large/views_technical_500.html".into(),
+                    "/templates/medium/admin_login.html".into(),
+                    "/templates/medium/nested_blocks.html".into(),
+                    "/templates/small/dense_tags.html".into(),
+                    "/templates/small/forms_widgets_input.html".into(),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn validation_error_fixture_contract_is_stable() {
+        assert_eq!(
+            validation_error_fixture_digest(),
+            FixtureDigest {
+                file_count: 8,
+                total_bytes: 80_053,
+                sorted_paths: vec![
+                    "/templates/large/dense_validation_errors.html".into(),
+                    "/templates/large/sparse_validation_errors.html".into(),
+                    "/templates/medium/mixed_validation_errors.html".into(),
+                    "/templates/medium/nested_block_errors.html".into(),
+                    "/templates/small/invalid_filter_arity.html".into(),
+                    "/templates/small/invalid_tag_args.html".into(),
+                    "/templates/small/mismatched_block.html".into(),
+                    "/templates/small/unknown_symbols.html".into(),
+                ],
+            }
+        );
+    }
 }
