@@ -5,7 +5,7 @@ use djls_project::LoadableLibraryLookup;
 use djls_source::Span;
 use djls_templates::TagBit;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LoadArgument {
     name: String,
     span: Span,
@@ -47,7 +47,7 @@ impl From<String> for LoadArgument {
 }
 
 /// The kind of a `{% load %}` statement.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LoadKind {
     /// `{% load i18n %}` or `{% load i18n static %}` — loads entire libraries.
     FullLoad { libraries: Vec<LoadArgument> },
@@ -81,7 +81,7 @@ impl LoadKind {
 }
 
 /// A parsed `{% load %}` tag with its source span and load kind.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LoadStatement {
     span: Span,
     kind: LoadKind,
@@ -197,7 +197,7 @@ impl<'a> LoadState<'a> {
 /// Supports querying what libraries/symbols are available at a given byte
 /// position by filtering load statements whose span ends before the query
 /// position and applying state-machine semantics.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct LoadedLibraries {
     statements: Vec<LoadStatement>,
 }

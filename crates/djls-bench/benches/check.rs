@@ -18,6 +18,7 @@ use djls_bench::Db;
 use djls_bench::FileCheckResult;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
+use djls_bench::template_path;
 use djls_source::DiagnosticRenderer;
 
 fn main() {
@@ -87,7 +88,8 @@ fn load_corpus_inner(
         .into_iter()
         .filter_map(|path| {
             let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-            Some((path, source))
+            let relative = path.strip_prefix(corpus.root()).ok()?;
+            Some((template_path(relative), source))
         })
         .collect();
 

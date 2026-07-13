@@ -212,12 +212,16 @@ pub(crate) fn effective_tag_specs_for_load_state_in_project_scope(
     scope_file: djls_source::File,
     load_state: &LoadState<'_>,
 ) -> TagSpecs {
+    let environment = template_environment(db, project, scope_file);
+    let mut names: std::collections::HashSet<_> = db.tag_specs().keys().cloned().collect();
+    names.extend(environment.candidate_symbol_names(db, TemplateSymbolKind::Tag));
+
     let mut specs = TagSpecs::default();
-    for name in db.tag_specs().keys() {
+    for name in names {
         if let Some(spec) =
-            effective_tag_spec_in_project_for_scope(db, project, scope_file, name, load_state)
+            effective_tag_spec_in_project_for_scope(db, project, scope_file, &name, load_state)
         {
-            specs.insert(name.clone(), spec);
+            specs.insert(name, spec);
         }
     }
     specs
@@ -228,10 +232,18 @@ pub(crate) fn effective_tag_specs_for_load_state(
     file: djls_source::File,
     load_state: &LoadState<'_>,
 ) -> TagSpecs {
+    let mut names: std::collections::HashSet<_> = db.tag_specs().keys().cloned().collect();
+    if let Some(project) = db.project() {
+        names.extend(
+            template_environment(db, project, file)
+                .candidate_symbol_names(db, TemplateSymbolKind::Tag),
+        );
+    }
+
     let mut specs = TagSpecs::default();
-    for name in db.tag_specs().keys() {
-        if let Some(spec) = effective_tag_spec(db, file, name, load_state) {
-            specs.insert(name.clone(), spec);
+    for name in names {
+        if let Some(spec) = effective_tag_spec(db, file, &name, load_state) {
+            specs.insert(name, spec);
         }
     }
     specs

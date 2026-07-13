@@ -20,19 +20,7 @@ pub(crate) fn compute_preliminary_tag_index_for_file(
         ),
         None => crate::tags::effective_tag_specs_for_load_state(db, file, &empty.available_at(0)),
     };
-    ScopedTagIndex::single(TagIndex::from_tag_specs(&specs))
-}
-
-#[salsa::tracked(returns(ref))]
-pub(crate) fn compute_tag_index_for_file_in_scope(
-    db: &dyn Db,
-    file: djls_source::File,
-    nodelist: djls_templates::NodeList<'_>,
-    scope_file: djls_source::File,
-) -> ScopedTagIndex {
-    let loaded =
-        crate::scoping::compute_loaded_libraries_for_file_in_scope(db, file, nodelist, scope_file);
-    scoped_tag_index_for_known_loads(db, file, scope_file, loaded)
+    ScopedTagIndex::single(TagIndex::from_tag_specs(specs))
 }
 
 pub(crate) fn scoped_tag_index_for_known_loads(
@@ -45,7 +33,7 @@ pub(crate) fn scoped_tag_index_for_known_loads(
         return scoped_tag_index_for_loads(db, file, loaded);
     };
     let initial = TagIndex::from_tag_specs(
-        &crate::tags::effective_tag_specs_for_load_state_in_project_scope(
+        crate::tags::effective_tag_specs_for_load_state_in_project_scope(
             db,
             project,
             scope_file,
@@ -60,7 +48,7 @@ pub(crate) fn scoped_tag_index_for_known_loads(
             (
                 position,
                 TagIndex::from_tag_specs(
-                    &crate::tags::effective_tag_specs_for_load_state_in_project_scope(
+                    crate::tags::effective_tag_specs_for_load_state_in_project_scope(
                         db,
                         project,
                         scope_file,
@@ -94,7 +82,7 @@ fn scoped_tag_index_for_loads(
     file: djls_source::File,
     loaded: &crate::scoping::LoadedLibraries,
 ) -> ScopedTagIndex {
-    let initial = TagIndex::from_tag_specs(crate::tags::tag_specs_for_file(db, file));
+    let initial = TagIndex::from_tag_specs(crate::tags::tag_specs_for_file(db, file).clone());
     let boundaries = loaded
         .statements()
         .iter()
@@ -102,7 +90,7 @@ fn scoped_tag_index_for_loads(
             let position = statement.span().end();
             (
                 position,
-                TagIndex::from_tag_specs(&crate::tags::effective_tag_specs_for_load_state(
+                TagIndex::from_tag_specs(crate::tags::effective_tag_specs_for_load_state(
                     db,
                     file,
                     &loaded.available_at(position),
@@ -116,7 +104,7 @@ fn scoped_tag_index_for_loads(
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ScopedTagIndex {
     initial: TagIndex,
     boundaries: Vec<(u32, TagIndex)>,
@@ -143,8 +131,9 @@ impl ScopedTagIndex {
 }
 
 /// Index for tag grammar lookups.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TagIndex {
+    specs: TagSpecs,
     openers: FxHashMap<String, OpenerMeta>,
     closers: FxHashMap<String, Vec<String>>,
     intermediates: FxHashMap<String, Vec<String>>,
@@ -205,6 +194,10 @@ impl TagIndex {
             .map(|OpenerMeta { closer, .. }| closer.as_str())
     }
 
+    pub(crate) fn spec(&self, tag_name: &str) -> Option<&crate::TagSpec> {
+        self.specs.get(tag_name)
+    }
+
     pub(crate) fn validate_close(
         &self,
         opener_name: &str,
@@ -233,7 +226,8 @@ impl TagIndex {
 
     /// Build a `TagIndex` from an explicit `TagSpecs` value.
     #[must_use]
-    fn from_tag_specs(specs: &TagSpecs) -> Self {
+    fn from_tag_specs(specs: impl std::borrow::Borrow<TagSpecs>) -> Self {
+        let specs = specs.borrow();
         let mut openers: FxHashMap<String, OpenerMeta> = FxHashMap::default();
         let mut closers: FxHashMap<String, Vec<String>> = FxHashMap::default();
         let mut intermediates: FxHashMap<String, Vec<String>> = FxHashMap::default();
@@ -265,6 +259,7 @@ impl TagIndex {
         }
 
         Self {
+            specs: specs.clone(),
             openers,
             closers,
             intermediates,
@@ -448,7 +443,7 @@ mod tests {
             ),
         );
 
-        let index = TagIndex::from_tag_specs(&TagSpecs::new(specs));
+        let index = TagIndex::from_tag_specs(TagSpecs::new(specs));
 
         assert_eq!(index.classify("opaque_if"), TagClass::Opener);
         assert_eq!(index.classify("opaque_else"), TagClass::Unknown);
@@ -489,7 +484,7 @@ mod tests {
             ),
         );
 
-        let index = TagIndex::from_tag_specs(&TagSpecs::new(specs));
+        let index = TagIndex::from_tag_specs(TagSpecs::new(specs));
 
         match index.classify("shared_else") {
             TagClass::Intermediate { possible_openers } => {

@@ -43,7 +43,7 @@ impl FilterAritySpecs {
 
     /// Look up the arity for a filter by name.
     #[must_use]
-    pub(crate) fn get(&self, filter_name: &str) -> Option<&FilterArity> {
+    fn get(&self, filter_name: &str) -> Option<&FilterArity> {
         self.specs.get(filter_name).map(|(_, arity)| arity)
     }
 

@@ -6,7 +6,6 @@ mod scoping;
 use djls_project::TemplateEnvironment;
 
 use crate::db::Db;
-use crate::filters::FilterAritySpecs;
 use crate::scoping::LoadedLibraries;
 use crate::scoping::SymbolIndex;
 use crate::structure::ActiveTemplateNode;
@@ -93,9 +92,8 @@ impl<'a> TemplateValidator<'a> {
         let bits = tag.bits;
         let span = tag.span;
 
-        let load_state = self.loaded_libraries.available_at(span.start());
-        let effective_spec = crate::tags::effective_tag_spec(self.db, self.file, name, &load_state);
-        let effective_role = effective_spec.as_ref().and_then(crate::TagSpec::role);
+        let effective_spec = self.tag_index.at(span.start()).spec(name);
+        let effective_role = effective_spec.and_then(crate::TagSpec::role);
 
         // 1. Extends validation
         if matches!(
@@ -155,7 +153,7 @@ impl<'a> TemplateValidator<'a> {
         }
 
         // 3. Argument validation
-        if let Some(spec) = effective_spec.as_ref()
+        if let Some(spec) = effective_spec
             && let Some(rules) = spec.extracted_rules()
         {
             arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
@@ -206,12 +204,7 @@ impl<'a> TemplateValidator<'a> {
                         &self.loaded_libraries.available_at(variable.span.start()),
                     )
                 {
-                    let mut specs = FilterAritySpecs::new();
-                    specs.insert(
-                        djls_project::SymbolKey::filter("<effective>", &filter.name),
-                        arity,
-                    );
-                    filters::check_filter_arity_rule(self.db, filter, &specs);
+                    filters::check_filter_arity_rule(self.db, filter, &arity);
                 }
             }
         }

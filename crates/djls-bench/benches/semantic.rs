@@ -59,14 +59,16 @@ struct IncrementalTemplate {
 fn validate_incremental(bencher: Bencher) {
     let fixtures = template_fixtures();
     let mut db = realistic_db();
+    let files = template_files(&mut db);
+
+    for &file in &files {
+        djls_semantic::validate_template_file(&db, file);
+    }
 
     let mut templates: Vec<_> = fixtures
         .iter()
-        .map(|fixture| {
-            let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-
-            djls_semantic::validate_template_file(&db, file);
-
+        .zip(files)
+        .map(|(fixture, file)| {
             let original = fixture.source.clone();
             let modified = {
                 let mut text = original.clone();

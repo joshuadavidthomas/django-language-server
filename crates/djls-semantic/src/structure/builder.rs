@@ -36,9 +36,9 @@ enum TreeOp {
     AccumulateDiagnostic(ValidationError),
 }
 
-pub(crate) struct TemplateTreeBuilder<'db> {
+pub(crate) struct TemplateTreeBuilder<'db, 'index> {
     db: &'db dyn Db,
-    index: &'db ScopedTagIndex,
+    index: &'index ScopedTagIndex,
     root: RegionId,
     stack: Vec<TreeFrame>,
     region_allocs: Vec<(Span, Option<RegionId>)>,
@@ -46,8 +46,8 @@ pub(crate) struct TemplateTreeBuilder<'db> {
     emit_diagnostics: bool,
 }
 
-impl<'db> TemplateTreeBuilder<'db> {
-    pub(crate) fn new(db: &'db dyn Db, index: &'db ScopedTagIndex) -> Self {
+impl<'db, 'index> TemplateTreeBuilder<'db, 'index> {
+    pub(crate) fn new(db: &'db dyn Db, index: &'index ScopedTagIndex) -> Self {
         let mut builder = Self {
             db,
             index,
@@ -66,7 +66,22 @@ impl<'db> TemplateTreeBuilder<'db> {
         self
     }
 
-    pub(crate) fn model(mut self, db: &'db dyn Db, nodelist: NodeList<'db>) -> TemplateTree<'db> {
+    pub(crate) fn model(self, db: &'db dyn Db, nodelist: NodeList<'db>) -> TemplateTree<'db> {
+        let emit_diagnostics = self.emit_diagnostics;
+        let (tree, diagnostics) = self.model_deferred(db, nodelist);
+        if emit_diagnostics {
+            for error in diagnostics {
+                ValidationErrorAccumulator(error).accumulate(db);
+            }
+        }
+        tree
+    }
+
+    pub(crate) fn model_deferred(
+        mut self,
+        db: &'db dyn Db,
+        nodelist: NodeList<'db>,
+    ) -> (TemplateTree<'db>, Vec<ValidationError>) {
         for node in nodelist.nodelist(db) {
             self.visit_node(node);
         }
@@ -82,17 +97,17 @@ impl<'db> TemplateTreeBuilder<'db> {
         id
     }
 
-    fn apply_operations(self) -> TemplateTree<'db> {
+    fn apply_operations(self) -> (TemplateTree<'db>, Vec<ValidationError>) {
         let TemplateTreeBuilder {
             db,
             root,
             region_allocs,
             ops,
-            emit_diagnostics,
             ..
         } = self;
 
         let mut regions = Regions::default();
+        let mut diagnostics = Vec::new();
 
         for (span, parent) in region_allocs {
             regions.alloc(span, parent);
@@ -109,15 +124,11 @@ impl<'db> TemplateTreeBuilder<'db> {
                 TreeOp::FinalizeSpanTo { id, end } => {
                     regions.finalize_region_span(id, end);
                 }
-                TreeOp::AccumulateDiagnostic(error) => {
-                    if emit_diagnostics {
-                        ValidationErrorAccumulator(error).accumulate(db);
-                    }
-                }
+                TreeOp::AccumulateDiagnostic(error) => diagnostics.push(error),
             }
         }
 
-        TemplateTree::new(db, root, regions)
+        (TemplateTree::new(db, root, regions), diagnostics)
     }
 
     fn active_region(&self) -> RegionId {
@@ -599,7 +610,7 @@ struct OpaqueFrame {
     body_start: u32,
 }
 
-impl Visitor for TemplateTreeBuilder<'_> {
+impl Visitor for TemplateTreeBuilder<'_, '_> {
     fn visit_tag(&mut self, name: &str, name_span: Span, bits: &[TagBit], span: Span) {
         self.handle_tag(name, name_span, bits, span);
     }

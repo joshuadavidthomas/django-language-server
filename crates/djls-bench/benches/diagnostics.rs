@@ -91,14 +91,14 @@ fn collect_cached(bencher: Bencher) {
 
     let files: Vec<_> = fixtures
         .iter()
-        .map(|fixture| {
-            let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-            prime(DIAGNOSTICS_WARMUP_ITERS, || {
-                let _ = djls_ide::collect_diagnostics(&db, file);
-            });
-            file
-        })
+        .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
         .collect();
+
+    for &file in &files {
+        prime(DIAGNOSTICS_WARMUP_ITERS, || {
+            let _ = djls_ide::collect_diagnostics(&db, file);
+        });
+    }
 
     bencher.bench_local(move || {
         let mut total = 0;
@@ -129,10 +129,6 @@ fn collect_incremental(bencher: Bencher) {
         .iter()
         .map(|fixture| {
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-            prime(DIAGNOSTICS_WARMUP_ITERS, || {
-                let _ = djls_ide::collect_diagnostics(&db, file);
-            });
-
             let original = fixture.source.clone();
             let modified = {
                 let mut text = original.clone();
@@ -148,6 +144,12 @@ fn collect_incremental(bencher: Bencher) {
             }
         })
         .collect();
+
+    for template in &templates {
+        prime(DIAGNOSTICS_WARMUP_ITERS, || {
+            let _ = djls_ide::collect_diagnostics(&db, template.file);
+        });
+    }
 
     bencher.bench_local(move || {
         let mut total = 0;
@@ -226,7 +228,7 @@ fn render_validation_output(bencher: Bencher) {
 #[divan::bench]
 fn render_validation_synthetic_output(bencher: Bencher) {
     let mut db = realistic_db();
-    let file = db.file_with_contents("/bench.html", MANY_ERRORS_SOURCE);
+    let file = db.file_with_contents("/templates/bench.html", MANY_ERRORS_SOURCE);
 
     let check = djls_bench::check_file(&db, file);
     assert!(

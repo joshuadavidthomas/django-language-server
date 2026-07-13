@@ -6,6 +6,13 @@ use std::sync::OnceLock;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
+const TEMPLATE_ROOT: &str = "/templates";
+
+#[must_use]
+pub fn template_path(relative: &Utf8Path) -> Utf8PathBuf {
+    Utf8Path::new(TEMPLATE_ROOT).join(relative)
+}
+
 #[derive(Clone)]
 pub struct Fixture {
     pub label: String,
@@ -24,7 +31,12 @@ pub type ValidationErrorFixture = Fixture;
 pub fn template_fixtures() -> &'static [Fixture] {
     static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();
     FIXTURES
-        .get_or_init(|| load_fixtures("django", &["html", "htm", "txt", "xml"], "template"))
+        .get_or_init(|| {
+            load_fixtures("django", &["html", "htm", "txt", "xml"], "template")
+                .into_iter()
+                .map(map_template_fixture)
+                .collect()
+        })
         .as_slice()
 }
 
@@ -37,8 +49,16 @@ pub fn validation_error_fixtures() -> &'static [Fixture] {
                 &["html", "htm", "txt", "xml"],
                 "validation error template",
             )
+            .into_iter()
+            .map(map_template_fixture)
+            .collect()
         })
         .as_slice()
+}
+
+fn map_template_fixture(mut fixture: Fixture) -> Fixture {
+    fixture.path = template_path(Utf8Path::new(&fixture.label));
+    fixture
 }
 
 pub fn python_fixtures() -> &'static [Fixture] {

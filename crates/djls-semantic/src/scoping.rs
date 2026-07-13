@@ -7,6 +7,7 @@ use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_source::File;
 use djls_templates::NodeList;
+use salsa::Accumulator;
 
 use crate::db::Db;
 pub(crate) use crate::scoping::loads::LoadKind;
@@ -16,13 +17,22 @@ pub(crate) use crate::scoping::loads::LoadedLibraries;
 pub(crate) use crate::scoping::symbols::SymbolIndex;
 use crate::structure::active_template_tags;
 
+#[salsa::tracked]
+pub(crate) struct StructuralProjection<'db> {
+    #[returns(ref)]
+    pub(crate) loaded_libraries: LoadedLibraries,
+    pub(crate) tree: crate::structure::TemplateTree<'db>,
+}
+
 #[salsa::tracked(returns(ref))]
 pub(crate) fn compute_loaded_libraries_for_file(
     db: &dyn Db,
     file: File,
     nodelist: NodeList<'_>,
 ) -> LoadedLibraries {
-    compute_loaded_libraries_for_file_in_scope(db, file, nodelist, file).clone()
+    compute_structural_projection_for_file_in_scope(db, file, nodelist, file)
+        .loaded_libraries(db)
+        .clone()
 }
 
 #[salsa::tracked(returns(ref))]
@@ -32,6 +42,18 @@ pub(crate) fn compute_loaded_libraries_for_file_in_scope(
     nodelist: NodeList<'_>,
     scope_file: File,
 ) -> LoadedLibraries {
+    compute_structural_projection_for_file_in_scope(db, file, nodelist, scope_file)
+        .loaded_libraries(db)
+        .clone()
+}
+
+#[salsa::tracked]
+pub(crate) fn compute_structural_projection_for_file_in_scope<'db>(
+    db: &'db dyn Db,
+    file: File,
+    nodelist: NodeList<'db>,
+    scope_file: File,
+) -> StructuralProjection<'db> {
     let source = file
         .try_source(db)
         .expect("a parsed template file has readable source");
@@ -42,9 +64,8 @@ pub(crate) fn compute_loaded_libraries_for_file_in_scope(
         let index = crate::structure::grammar::scoped_tag_index_for_known_loads(
             db, file, scope_file, &loaded,
         );
-        let tree = crate::structure::TemplateTreeBuilder::new(db, &index)
-            .without_diagnostics()
-            .model(db, nodelist);
+        let (tree, diagnostics) =
+            crate::structure::TemplateTreeBuilder::new(db, &index).model_deferred(db, nodelist);
         let mut statements = Vec::new();
         for tag in active_template_tags(tree.regions(db), tree.root(db)) {
             let preceding = LoadedLibraries::new(statements.clone());
@@ -68,7 +89,10 @@ pub(crate) fn compute_loaded_libraries_for_file_in_scope(
         }
         let next = LoadedLibraries::new(statements);
         if next == loaded {
-            return next;
+            for error in diagnostics {
+                crate::ValidationErrorAccumulator(error).accumulate(db);
+            }
+            return StructuralProjection::new(db, next, tree);
         }
         loaded = next;
     }

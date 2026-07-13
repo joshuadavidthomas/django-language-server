@@ -29,7 +29,6 @@ pub use crate::structure::folding::TemplateFoldKind;
 pub use crate::structure::folding::build_template_folds;
 pub(crate) use crate::structure::grammar::compute_preliminary_tag_index_for_file;
 pub(crate) use crate::structure::grammar::compute_tag_index_for_file;
-pub(crate) use crate::structure::grammar::compute_tag_index_for_file_in_scope;
 pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
 pub use crate::structure::outline::OutlineItem;
@@ -63,11 +62,8 @@ pub(crate) fn build_template_tree_for_file_in_scope<'db>(
     nodelist: djls_templates::NodeList<'db>,
     scope_file: djls_source::File,
 ) -> TemplateTree<'db> {
-    let builder = TemplateTreeBuilder::new(
-        db,
-        compute_tag_index_for_file_in_scope(db, file, nodelist, scope_file),
-    );
-    builder.model(db, nodelist)
+    crate::scoping::compute_structural_projection_for_file_in_scope(db, file, nodelist, scope_file)
+        .tree(db)
 }
 
 #[salsa::tracked]
@@ -76,6 +72,6 @@ pub fn build_template_tree_for_file<'db>(
     file: djls_source::File,
     nodelist: djls_templates::NodeList<'db>,
 ) -> TemplateTree<'db> {
-    let builder = TemplateTreeBuilder::new(db, compute_tag_index_for_file(db, file, nodelist));
-    builder.model(db, nodelist)
+    crate::scoping::compute_structural_projection_for_file_in_scope(db, file, nodelist, file)
+        .tree(db)
 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io;
 use std::sync::Arc;
 
@@ -60,15 +62,21 @@ impl FileSystem for SourceMapFileSystem {
     }
 
     fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
-        if self.is_file(root) {
+        let source_paths: BTreeSet<_> = self
+            .sources
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        if source_paths.contains(root) {
             return RootWalk::File(WalkEntry::file_root(root));
         }
-        if !self.is_dir(root) {
+        if !source_paths.iter().any(|path| path.starts_with(root)) {
             return RootWalk::Missing;
         }
 
-        let mut entries = Vec::new();
-        for path in self.sources.iter().map(|entry| entry.key().clone()) {
+        let mut entries = BTreeMap::new();
+        for path in &source_paths {
             if !path.starts_with(root) || path == root {
                 continue;
             }
@@ -78,37 +86,27 @@ impl FileSystem for SourceMapFileSystem {
             };
             let mut entry_path = root.to_path_buf();
             let mut entry_relative = Utf8PathBuf::new();
-            for component in file_relative.components() {
-                entry_path.push(component.as_str());
-                entry_relative.push(component.as_str());
+            for (depth, component) in file_relative.components().enumerate() {
+                let component = component.as_str();
+                entry_path.push(component);
+                entry_relative.push(component);
 
-                if !options.hidden
-                    && entry_relative.components().any(|component| {
-                        component.as_str().starts_with('.') && component.as_str() != "."
-                    })
-                {
-                    continue;
+                if !options.hidden && component.starts_with('.') && component != "." {
+                    break;
                 }
-                if let Some(max_depth) = options.max_depth
-                    && entry_relative.components().count() > max_depth
+                if options
+                    .max_depth
+                    .is_some_and(|max_depth| depth + 1 > max_depth)
                 {
-                    continue;
-                }
-                if entries
-                    .iter()
-                    .any(|entry: &WalkEntry| entry.path == entry_path)
-                {
-                    continue;
+                    break;
                 }
 
-                let kind = if self.is_file(&entry_path) {
+                let kind = if source_paths.contains(&entry_path) {
                     WalkEntryKind::File
-                } else if self.is_dir(&entry_path) {
-                    WalkEntryKind::Directory
                 } else {
-                    WalkEntryKind::Other
+                    WalkEntryKind::Directory
                 };
-                entries.push(WalkEntry {
+                entries.entry(entry_path.clone()).or_insert(WalkEntry {
                     root: root.to_path_buf(),
                     path: entry_path.clone(),
                     relative: entry_relative.clone(),
@@ -116,10 +114,8 @@ impl FileSystem for SourceMapFileSystem {
                 });
             }
         }
-        entries.sort_by(|left, right| left.path.cmp(&right.path));
-        entries.dedup_by(|left, right| left.path == right.path);
         RootWalk::Directory {
-            entries,
+            entries: entries.into_values().collect(),
             issues: Vec::new(),
         }
     }

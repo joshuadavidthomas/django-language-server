@@ -13,6 +13,7 @@ pub use fixtures::ValidationErrorFixture;
 pub use fixtures::model_fixtures;
 pub use fixtures::python_fixtures;
 pub use fixtures::template_fixtures;
+pub use fixtures::template_path;
 pub use fixtures::validation_error_fixtures;
 pub use specs::realistic_db;
 pub use specs::structure_db;

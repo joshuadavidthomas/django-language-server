@@ -115,7 +115,7 @@ fn realistic_specs() -> &'static RealisticSpecs {
 }
 
 fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
-    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}}}]\n";
+    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}}}]\n";
     const DEFAULTFILTERS: &str = concat!(
         "from django import template\nregister = template.Library()\n",
         "@register.filter\ndef title(value): pass\n",
