@@ -62,7 +62,7 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
             .as_slice(db)
             .iter()
             .filter_map(|reference| {
-                let target = environment.library_link(db, reference.load_name())?;
+                let target = environment.library_link(reference.load_name())?;
                 Some(ls_types::DocumentLink {
                     range: reference.span().to_lsp_range(line_index),
                     target: Some(target.path(db).to_lsp_uri()?),

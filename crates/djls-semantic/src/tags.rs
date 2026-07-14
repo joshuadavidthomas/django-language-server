@@ -148,7 +148,7 @@ fn effective_tag_spec_from_environment(
     loaded: &[&str],
 ) -> Option<TagSpec> {
     let definitions: Option<Vec<Option<TagSpec>>> = environment
-        .contextual_library_chains(db, loaded)
+        .contextual_library_chains(loaded)
         .into_iter()
         .map(|chain| {
             let mut effective = None;
@@ -254,10 +254,10 @@ fn semantic_tag_candidate_names(
     environment: djls_project::TemplateEnvironment<'_>,
 ) -> std::collections::HashSet<String> {
     let mut names: std::collections::HashSet<_> = environment
-        .candidate_symbol_names(db, TemplateSymbolKind::Tag)
-        .into_iter()
+        .inventory_symbol_names(TemplateSymbolKind::Tag)
+        .map(str::to_owned)
         .collect();
-    for library in environment.resolved_libraries(db) {
+    for library in environment.resolved_libraries() {
         names.extend(
             library_tag_specs(db, project, library.key(db))
                 .iter()

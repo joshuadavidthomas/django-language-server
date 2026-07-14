@@ -233,12 +233,21 @@ impl SymbolIndex {
 
     #[must_use]
     pub(crate) fn build_environment(
-        db: &dyn crate::db::Db,
         loaded_libraries: &LoadedLibraries,
         environment: djls_project::TemplateEnvironment<'_>,
     ) -> Self {
-        let tags = environment.symbol_candidates(db, TemplateSymbolKind::Tag);
-        let filters = environment.symbol_candidates(db, TemplateSymbolKind::Filter);
+        let tags = environment
+            .inventory_symbol_names(TemplateSymbolKind::Tag)
+            .flat_map(|name| {
+                environment.contextual_symbol_candidates(name, TemplateSymbolKind::Tag)
+            })
+            .collect::<Vec<_>>();
+        let filters = environment
+            .inventory_symbol_names(TemplateSymbolKind::Filter)
+            .flat_map(|name| {
+                environment.contextual_symbol_candidates(name, TemplateSymbolKind::Filter)
+            })
+            .collect::<Vec<_>>();
         let empty_loaded = LoadedLibraries::new(vec![]);
         let initial =
             AvailableSymbols::from_candidates(&empty_loaded.available_at(0), &tags, &filters);

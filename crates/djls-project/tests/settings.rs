@@ -1710,7 +1710,7 @@ fn uncertain_backend_dictionary_before_known_backend_keeps_library_identity_alig
 
     assert!(
         matches!(
-            template_environment(&db, project, file).loadable_library_str(&db, "custom"),
+            template_environment(&db, project, file).loadable_library_str("custom"),
             LoadableLibraryLookup::Inconclusive(candidates)
                 if candidates.iter().any(|library| library.module_name_str() == "custom_tags")
         ),
@@ -3153,7 +3153,7 @@ fn partial_django_backend_keeps_alias_definitive_until_open_backend_selection() 
             if library.module_name_str() == "custom_tags"
     ));
     assert!(matches!(
-        template_environment(&db, project, file).loadable_library_str(&db, "custom"),
+        template_environment(&db, project, file).loadable_library_str("custom"),
         LoadableLibraryLookup::Inconclusive(candidates)
             if candidates.iter().any(|library| library.module_name_str() == "custom_tags")
     ));

@@ -737,7 +737,7 @@ pub struct ScopedTemplateReferenceResolution<'db> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TemplateBackendScope(Vec<BackendSelection>);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum BackendSelection {
     Known {
         configuration: usize,

@@ -214,7 +214,6 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
 
 #[test]
 fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
-    let db = TestDatabase::new();
     let inventory = configured_libraries(
         false,
         vec![
@@ -246,15 +245,14 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
     );
     let environment = TemplateEnvironment::from_project_inventory(&inventory);
 
-    let unloaded =
-        environment.effective_definition_libraries(&db, "if", TemplateSymbolKind::Tag, &[]);
+    let unloaded = environment.effective_definition_libraries("if", TemplateSymbolKind::Tag, &[]);
     assert!(matches!(unloaded.as_slice(), [
         EffectiveDefinitionLibrary::Known(Some(library)),
         EffectiveDefinitionLibrary::Known(None),
     ] if library.module_name_str() == "django.template.defaulttags"));
 
     let loaded =
-        environment.effective_definition_libraries(&db, "if", TemplateSymbolKind::Tag, &["alpha"]);
+        environment.effective_definition_libraries("if", TemplateSymbolKind::Tag, &["alpha"]);
     assert!(loaded.iter().all(|alternative| matches!(
         alternative,
         EffectiveDefinitionLibrary::Known(Some(library))
@@ -351,7 +349,7 @@ fn source_less_alias_keeps_missing_same_named_available_app_symbols_inconclusive
         };
         assert!(matches!(
             environment
-                .effective_definition_libraries(&db, name, kind, &["shared"])
+                .effective_definition_libraries(name, kind, &["shared"])
                 .as_slice(),
             [EffectiveDefinitionLibrary::Unobserved(candidate)]
                 if candidate.key(&db) == library.key(&db)
@@ -404,7 +402,6 @@ fn definite_load_restores_certainty_after_uncertain_builtins() {
     let environment = TemplateEnvironment::from_project_inventory(inventory);
 
     let definitions = environment.effective_definition_libraries(
-        &db,
         "restored",
         TemplateSymbolKind::Tag,
         &["certain"],

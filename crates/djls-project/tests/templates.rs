@@ -49,16 +49,58 @@ fn template_environment_correlates_libraries_with_resolving_backends() {
     let alpha_file = db.file(Utf8Path::new("/test/project/a/alpha.html"));
     let beta_file = db.file(Utf8Path::new("/test/project/b/beta.html"));
     let alpha = template_environment(&db, project, alpha_file)
-        .loadable_library_str(&db, "shared")
+        .loadable_library_str("shared")
         .found()
         .expect("backend A should provide shared");
     let beta = template_environment(&db, project, beta_file)
-        .loadable_library_str(&db, "shared")
+        .loadable_library_str("shared")
         .found()
         .expect("backend B should provide shared");
 
     assert_eq!(alpha.module_name_str(), "alpha_tags");
     assert_eq!(beta.module_name_str(), "beta_tags");
+
+    let catalog = template_libraries(&db, project);
+    let catalog_alpha = catalog
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "alpha_tags")
+        .expect("the shared catalog should contain backend A's library");
+    let catalog_beta = catalog
+        .resolved_libraries()
+        .find(|library| library.module_name_str() == "beta_tags")
+        .expect("the shared catalog should contain backend B's library");
+    assert!(
+        std::ptr::eq(alpha, catalog_alpha),
+        "a file environment must borrow backend A's library from the shared catalog"
+    );
+    assert!(
+        std::ptr::eq(beta, catalog_beta),
+        "a file environment must borrow backend B's library from the shared catalog"
+    );
+}
+
+#[test]
+fn file_outside_template_roots_uses_open_project_inventory() {
+    let db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'missing.shared_tags'}}}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file("/test/project/outside.html", "{% load shared %}")
+        .build(&db);
+    let file = db.file(Utf8Path::new("/test/project/outside.html"));
+    let environment = template_environment(&db, project, file);
+
+    let LoadableLibraryLookup::Found(library) = environment.loadable_library_str("shared") else {
+        panic!("project inventory should remain available outside configured roots");
+    };
+    assert_eq!(library.module_name_str(), "missing.shared_tags");
+    assert!(library.source_file().is_none());
+    assert!(library.symbol_inventory_is_open());
+    assert_eq!(
+        environment.symbol("possibly_defined", TemplateSymbolKind::Tag),
+        EnvironmentSymbolLookup::Inconclusive
+    );
 }
 
 #[test]
@@ -93,7 +135,7 @@ fn locally_assembled_dirs_and_installed_apps_stay_on_the_same_branch() {
 
     let file = db.file(Utf8Path::new("/test/project/one-templates/page.html"));
     let library = template_environment(&db, project, file)
-        .loadable_library_str(&db, "shared")
+        .loadable_library_str("shared")
         .found()
         .expect("the template must inherit libraries only from its feasible app branch");
 
@@ -116,7 +158,7 @@ fn template_environment_retains_wholly_unknown_settings_branch() {
     let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
 
     assert!(matches!(
-        template_environment(&db, project, file).loadable_library_str(&db, "shared"),
+        template_environment(&db, project, file).loadable_library_str("shared"),
         LoadableLibraryLookup::Inconclusive(libraries)
             if libraries.iter().any(|library| library.module_name_str() == "alpha_tags")
     ));
@@ -142,7 +184,7 @@ fn duplicate_backend_memberships_preserve_conflicting_libraries() {
 
     let file = db.file(Utf8Path::new("/test/project/shared/page.html"));
     assert!(matches!(
-        template_environment(&db, project, file).loadable_library_str(&db, "shared"),
+        template_environment(&db, project, file).loadable_library_str("shared"),
         LoadableLibraryLookup::Ambiguous(libraries) if libraries.len() == 2
     ));
 
@@ -173,7 +215,7 @@ fn template_environment_is_ambiguous_when_settings_branches_resolve_same_file_di
 
     let file = db.file(Utf8Path::new("/test/project/shared/page.html"));
     assert!(matches!(
-        template_environment(&db, project, file).loadable_library_str(&db, "shared"),
+        template_environment(&db, project, file).loadable_library_str("shared"),
         LoadableLibraryLookup::Ambiguous(libraries) if libraries.len() == 2
     ));
 }

@@ -216,7 +216,6 @@ impl LoadedLibraries {
     #[must_use]
     pub(crate) fn has_unknown_load_that_can_shadow_symbol_before(
         &self,
-        db: &dyn crate::db::Db,
         position: u32,
         symbol: &str,
         environment: djls_project::TemplateEnvironment<'_>,
@@ -229,13 +228,13 @@ impl LoadedLibraries {
             match &stmt.kind {
                 LoadKind::FullLoad { libraries } => libraries.iter().any(|library| {
                     matches!(
-                        environment.loadable_library_str(db, library.as_str()),
+                        environment.loadable_library_str(library.as_str()),
                         LoadableLibraryLookup::Inconclusive(_)
                     )
                 }),
                 LoadKind::SelectiveImport { symbols, library } => {
                     matches!(
-                        environment.loadable_library_str(db, library.as_str()),
+                        environment.loadable_library_str(library.as_str()),
                         LoadableLibraryLookup::Inconclusive(_)
                     ) && symbols.iter().any(|loaded| loaded.as_str() == symbol)
                 }

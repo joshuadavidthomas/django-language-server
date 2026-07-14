@@ -29,13 +29,13 @@ pub(crate) fn check_tag_scoping_rule(
     match symbols.check_tag(name) {
         SymbolAvailability::Available => {}
         SymbolAvailability::Unknown => {
-            match environment.symbol(db, name, TemplateSymbolKind::Tag) {
+            match environment.symbol(name, TemplateSymbolKind::Tag) {
                 EnvironmentSymbolLookup::Builtin
                 | EnvironmentSymbolLookup::RequiresLoad(_)
                 | EnvironmentSymbolLookup::Inconclusive => return,
                 EnvironmentSymbolLookup::Absent => {}
             }
-            match environment.available_app_symbol(db, name, TemplateSymbolKind::Tag) {
+            match environment.available_app_symbol(name, TemplateSymbolKind::Tag) {
                 TemplateSymbolLookup::Inconclusive => {}
                 TemplateSymbolLookup::FoundInApp { app, load_name } => {
                     ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
@@ -87,13 +87,13 @@ pub(crate) fn check_filter_scoping_rule(
     match symbols.check_filter(&filter.name) {
         SymbolAvailability::Available => {}
         SymbolAvailability::Unknown => {
-            match environment.symbol(db, &filter.name, TemplateSymbolKind::Filter) {
+            match environment.symbol(&filter.name, TemplateSymbolKind::Filter) {
                 EnvironmentSymbolLookup::Builtin
                 | EnvironmentSymbolLookup::RequiresLoad(_)
                 | EnvironmentSymbolLookup::Inconclusive => return,
                 EnvironmentSymbolLookup::Absent => {}
             }
-            match environment.available_app_symbol(db, &filter.name, TemplateSymbolKind::Filter) {
+            match environment.available_app_symbol(&filter.name, TemplateSymbolKind::Filter) {
                 TemplateSymbolLookup::Inconclusive => {}
                 TemplateSymbolLookup::FoundInApp { app, load_name } => {
                     ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
@@ -151,7 +151,7 @@ pub(crate) fn check_load_libraries_rule(
             continue;
         };
 
-        match environment.missing_library(db, &load_name) {
+        match environment.missing_library(&load_name) {
             MissingLibraryLookup::Inconclusive => {}
             MissingLibraryLookup::FoundInApps(apps) => {
                 let candidates = apps

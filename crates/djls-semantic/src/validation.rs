@@ -65,7 +65,7 @@ impl<'a> TemplateValidator<'a> {
         let tag_index = compute_tag_index_for_file(db, file, nodelist);
         let loaded_libraries =
             crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist);
-        let symbol_index = SymbolIndex::build_environment(db, loaded_libraries, environment);
+        let symbol_index = SymbolIndex::build_environment(loaded_libraries, environment);
 
         Self {
             db,
@@ -140,7 +140,6 @@ impl<'a> TemplateValidator<'a> {
             let unknown_load_can_supply_tag = self
                 .loaded_libraries
                 .has_unknown_load_that_can_shadow_symbol_before(
-                    self.db,
                     span.start(),
                     name,
                     self.environment,
@@ -188,7 +187,6 @@ impl<'a> TemplateValidator<'a> {
             .any(|candidate| {
                 let loaded = load_state.libraries_loading_symbol(candidate.name());
                 let definitions = self.environment.effective_definition_libraries(
-                    self.db,
                     candidate.name(),
                     djls_project::TemplateSymbolKind::Tag,
                     &loaded,
@@ -212,7 +210,6 @@ impl<'a> TemplateValidator<'a> {
                 let unknown_load_can_shadow_filter = self
                     .loaded_libraries
                     .has_unknown_load_that_can_shadow_symbol_before(
-                        self.db,
                         variable.span.start(),
                         &filter.name,
                         self.environment,

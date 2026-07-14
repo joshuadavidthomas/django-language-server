@@ -89,7 +89,7 @@ pub(crate) fn effective_filter_arity(
     }
     let loaded = load_state.libraries_loading_symbol(filter_name);
     let alternatives = crate::db::template_environment_for_file(db, file)
-        .effective_definition_libraries(db, filter_name, TemplateSymbolKind::Filter, &loaded);
+        .effective_definition_libraries(filter_name, TemplateSymbolKind::Filter, &loaded);
     let definitions: Option<Vec<Option<FilterArity>>> = alternatives
         .into_iter()
         .map(|alternative| match alternative {

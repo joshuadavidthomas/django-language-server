@@ -42,7 +42,7 @@ pub use references::resolve_reference_for_file;
 pub use references::resolve_reference_origins;
 pub use references::template_library_references_in_file;
 pub use references::template_references_in_file;
-pub use scoping::effective_symbol_candidates_at;
+pub use scoping::effective_symbol_candidate_at;
 pub use structure::BlockRole;
 pub use structure::GrammarOpeningDefinition;
 pub use structure::OpaqueRegions;

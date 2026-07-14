@@ -101,106 +101,97 @@ pub(crate) fn compute_structural_projection_for_file_in_scope<'db>(
     panic!("template load discovery did not converge within the number of template tags")
 }
 
-/// Return the single effective definition of each symbol at a source position.
+/// Return the effective definition of one symbol at a source position.
 ///
-/// Django applies builtins and then loaded libraries in source order, with later
-/// definitions shadowing earlier ones. Candidates are omitted when feasible
-/// backends disagree about the effective definition.
+/// Django applies builtins and then loaded libraries in source order, with later definitions
+/// shadowing earlier ones. The candidate is omitted when feasible backends disagree.
 #[must_use]
-pub fn effective_symbol_candidates_at(
+pub fn effective_symbol_candidate_at(
     db: &dyn Db,
     file: File,
     nodelist: NodeList<'_>,
     position: u32,
+    name: &str,
     kind: TemplateSymbolKind,
-) -> Vec<TemplateSymbolCandidate> {
+) -> Option<TemplateSymbolCandidate> {
     let environment = crate::db::template_environment_for_file(db, file);
     let loaded = compute_loaded_libraries_for_file(db, file, nodelist);
     let load_state = loaded.available_at(position);
-    let names = environment.candidate_symbol_names(db, kind);
-
-    names
+    let loaded_names = load_state.libraries_loading_symbol(name);
+    let definitions = environment.effective_definition_libraries(name, kind, &loaded_names);
+    let candidates = definitions
         .into_iter()
-        .filter_map(|name| {
-            let loaded_names = load_state.libraries_loading_symbol(&name);
-            let definitions =
-                environment.effective_definition_libraries(db, &name, kind, &loaded_names);
-            let candidates = definitions
-                .into_iter()
-                .map(|definition| {
-                    let EffectiveDefinitionLibrary::Known(Some(library)) = definition else {
-                        return None;
-                    };
-                    let symbol = library.symbol(kind, &name)?.clone();
-                    let availability = library.load_name().map_or_else(
-                        || TemplateSymbolAvailability::Builtin {
-                            module: library.module_name().clone(),
-                        },
-                        |load_name| TemplateSymbolAvailability::RequiresLoad {
-                            load_name: load_name.clone(),
-                        },
-                    );
-                    Some((
-                        library.key(db),
-                        TemplateSymbolCandidate {
-                            symbol,
-                            availability,
-                        },
-                    ))
-                })
-                .collect::<Option<Vec<_>>>()?;
-            let first = candidates.first()?;
-            if !candidates
-                .iter()
-                .all(|candidate| effective_definitions_agree(first, candidate))
-            {
+        .map(|definition| {
+            let EffectiveDefinitionLibrary::Known(Some(library)) = definition else {
                 return None;
-            }
-
-            // Documentation is presentation metadata and can vary between inventories that
-            // identify the same definition. Prefer a non-empty value, then use its contents as a
-            // stable tie-breaker instead of making backend order observable.
-            let symbol = candidates
-                .iter()
-                .map(|(_, candidate)| &candidate.symbol)
-                .max_by_key(|symbol| {
-                    symbol
-                        .doc()
-                        .filter(|doc| !doc.trim().is_empty())
-                        .map(str::trim)
-                })?
-                .clone();
-            let mut availability = first.1.availability.clone();
-            for (_, candidate) in &candidates[1..] {
-                if availability == candidate.availability {
-                    continue;
-                }
-                match (&availability, &candidate.availability) {
-                    (
-                        TemplateSymbolAvailability::Builtin { .. },
-                        TemplateSymbolAvailability::RequiresLoad { .. },
-                    ) => availability = candidate.availability.clone(),
-                    (
-                        TemplateSymbolAvailability::RequiresLoad { .. },
-                        TemplateSymbolAvailability::Builtin { .. },
-                    ) => {}
-                    (
-                        TemplateSymbolAvailability::RequiresLoad { .. },
-                        TemplateSymbolAvailability::RequiresLoad { .. },
-                    )
-                    | (
-                        TemplateSymbolAvailability::Builtin { .. },
-                        TemplateSymbolAvailability::Builtin { .. },
-                    ) => return None,
-                }
-            }
-
-            Some(TemplateSymbolCandidate {
-                symbol,
-                availability,
-            })
+            };
+            let symbol = library.symbol(kind, name)?.clone();
+            let availability = library.load_name().map_or_else(
+                || TemplateSymbolAvailability::Builtin {
+                    module: library.module_name().clone(),
+                },
+                |load_name| TemplateSymbolAvailability::RequiresLoad {
+                    load_name: load_name.clone(),
+                },
+            );
+            Some((
+                library.key(db),
+                TemplateSymbolCandidate {
+                    symbol,
+                    availability,
+                },
+            ))
         })
-        .collect()
+        .collect::<Option<Vec<_>>>()?;
+    let first = candidates.first()?;
+    if !candidates
+        .iter()
+        .all(|candidate| effective_definitions_agree(first, candidate))
+    {
+        return None;
+    }
+
+    // Documentation is presentation metadata and can vary between inventories that identify the
+    // same definition. Prefer a non-empty value, then use its contents as a stable tie-breaker.
+    let symbol = candidates
+        .iter()
+        .map(|(_, candidate)| &candidate.symbol)
+        .max_by_key(|symbol| {
+            symbol
+                .doc()
+                .filter(|doc| !doc.trim().is_empty())
+                .map(str::trim)
+        })?
+        .clone();
+    let mut availability = first.1.availability.clone();
+    for (_, candidate) in &candidates[1..] {
+        if availability == candidate.availability {
+            continue;
+        }
+        match (&availability, &candidate.availability) {
+            (
+                TemplateSymbolAvailability::Builtin { .. },
+                TemplateSymbolAvailability::RequiresLoad { .. },
+            ) => availability = candidate.availability.clone(),
+            (
+                TemplateSymbolAvailability::RequiresLoad { .. },
+                TemplateSymbolAvailability::Builtin { .. },
+            ) => {}
+            (
+                TemplateSymbolAvailability::RequiresLoad { .. },
+                TemplateSymbolAvailability::RequiresLoad { .. },
+            )
+            | (
+                TemplateSymbolAvailability::Builtin { .. },
+                TemplateSymbolAvailability::Builtin { .. },
+            ) => return None,
+        }
+    }
+
+    Some(TemplateSymbolCandidate {
+        symbol,
+        availability,
+    })
 }
 
 fn effective_definitions_agree(

@@ -30,7 +30,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             span,
         )),
         SemanticOffsetContext::LoadLibrary { name, span } => {
-            let LoadableLibraryLookup::Found(library) = environment.loadable_library_str(db, &name)
+            let LoadableLibraryLookup::Found(library) = environment.loadable_library_str(&name)
             else {
                 return None;
             };
@@ -47,7 +47,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             library,
             span,
         } => Some((
-            render_library_symbol_hover(db, environment, &name, &library, None)?,
+            render_library_symbol_hover(environment, &name, &library, None)?,
             span,
         )),
         SemanticOffsetContext::Tag {
@@ -56,7 +56,6 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             span,
         } => Some((
             render_effective_symbol_hover(
-                db,
                 environment,
                 &name,
                 TemplateSymbolKind::Tag,
@@ -70,7 +69,6 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             span,
         } => Some((
             render_effective_symbol_hover(
-                db,
                 environment,
                 &name,
                 TemplateSymbolKind::Filter,
@@ -136,7 +134,6 @@ fn render_template_reference_hover(
 }
 
 fn render_effective_symbol_hover(
-    db: &dyn djls_semantic::Db,
     environment: TemplateEnvironment<'_>,
     name: &str,
     kind: TemplateSymbolKind,
@@ -146,7 +143,7 @@ fn render_effective_symbol_hover(
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let definitions = environment.effective_definition_libraries(db, name, kind, &loaded_libraries);
+    let definitions = environment.effective_definition_libraries(name, kind, &loaded_libraries);
     let candidates = definitions
         .into_iter()
         .map(|definition| {
@@ -184,14 +181,12 @@ fn render_effective_symbol_hover(
 }
 
 fn render_library_symbol_hover(
-    db: &dyn djls_semantic::Db,
     environment: TemplateEnvironment<'_>,
     name: &str,
     library: &str,
     kind: Option<TemplateSymbolKind>,
 ) -> Option<String> {
-    let LoadableLibraryLookup::Found(library) = environment.loadable_library_str(db, library)
-    else {
+    let LoadableLibraryLookup::Found(library) = environment.loadable_library_str(library) else {
         return None;
     };
     render_symbol_from_library(library, name, kind)

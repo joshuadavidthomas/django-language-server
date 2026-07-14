@@ -524,12 +524,14 @@ mod invalidation_tests {
         );
 
         let environment = djls_semantic::template_environment_for_file(&db, child_file);
-        let names = environment.candidate_symbol_names(&db, djls_project::TemplateSymbolKind::Tag);
-        assert!(names.contains("load"));
-        assert!(names.contains("block"));
+        let names = environment
+            .inventory_symbol_names(djls_project::TemplateSymbolKind::Tag)
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"load"));
+        assert!(names.contains(&"block"));
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_environment_libraries"),
+            exact_execution_count(&db, &events, "template_environment_scope"),
             1
         );
 
@@ -577,6 +579,48 @@ mod invalidation_tests {
             exact_execution_count(&db, &events, "validate_template_file"),
             0,
             "same-revision validation should be memoized",
+        );
+    }
+
+    #[test]
+    fn catalog_changes_do_not_invalidate_unchanged_template_environment_scope() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            fs,
+            project,
+            child_file,
+            ..
+        } = template_inheritance_fixture();
+        let environment = djls_semantic::template_environment_for_file(&db, child_file);
+        assert!(environment.completion_library_names().is_empty());
+        event_log.take();
+
+        let root = project.root(&db).to_path_buf();
+        let templates_dir = root.join("templates");
+        let settings_path = root.join("settings.py");
+        let settings_file =
+            path_to_file(&db, &settings_path).expect("settings fixture should exist");
+        fs.lock().unwrap().add_file(
+            settings_path,
+            format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'custom': 'missing.custom_tags'}}}}}}]\n"
+            ),
+        );
+        SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
+            .apply(&mut db);
+
+        let environment = djls_semantic::template_environment_for_file(&db, child_file);
+        assert_eq!(
+            environment.completion_library_names(),
+            [djls_project::LibraryName::parse("custom").unwrap()]
+        );
+        let events = event_log.take();
+        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_environment_scope"),
+            0,
+            "catalog-only changes must not rebuild an equality-unchanged file scope",
         );
     }
 
