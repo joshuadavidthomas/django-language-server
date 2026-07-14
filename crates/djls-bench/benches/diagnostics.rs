@@ -145,13 +145,16 @@ fn collect_cached_errors(bencher: Bencher) {
         .iter()
         .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
         .collect();
+    // Canonical Django roles intentionally expose structural and `if` expression errors that the
+    // former synthetic builtin identities misclassified; fixture cardinality is unchanged.
     let expected = DiagnosticDigest::from_counts(
         0,
-        751,
+        873,
         [
-            ("S108", 253),
-            ("S109", 1),
+            ("S103", 127),
+            ("S108", 126),
             ("S111", 123),
+            ("S114", 123),
             ("S115", 128),
             ("S116", 124),
             ("S117", 122),
@@ -170,7 +173,8 @@ fn collect_cached_realistic_end_to_end(bencher: Bencher) {
         .iter()
         .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
         .collect();
-    let expected = DiagnosticDigest::from_counts(0, 87, [("S108", 22), ("S109", 45), ("S111", 20)]);
+    // Canonical builtin identities intentionally eliminate the synthetic unknown/unloaded output.
+    let expected = DiagnosticDigest::from_counts(0, 20, [("S111", 20)]);
     assert_diagnostic_contract(&db, &files, &expected);
 
     bench_cached_diagnostics(bencher, db, files);

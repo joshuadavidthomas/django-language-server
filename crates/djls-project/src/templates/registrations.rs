@@ -593,32 +593,32 @@ fn template_library_source_analysis(
 
 /// Independently backdatable Tag analysis for one Template Library.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct TemplateLibraryTagFacts {
+pub struct TemplateLibraryTagFacts {
     tag_rules: TagRuleMap,
     block_specs: BlockSpecs,
 }
 
 impl TemplateLibraryTagFacts {
     #[must_use]
-    pub(crate) fn tag_rules(&self) -> &TagRuleMap {
+    pub fn tag_rules(&self) -> &TagRuleMap {
         &self.tag_rules
     }
 
     #[must_use]
-    pub(crate) fn block_specs(&self) -> &BlockSpecs {
+    pub fn block_specs(&self) -> &BlockSpecs {
         &self.block_specs
     }
 }
 
 /// Independently backdatable Filter analysis for one Template Library.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct TemplateLibraryFilterFacts {
+pub struct TemplateLibraryFilterFacts {
     filter_arities: FilterArityMap,
 }
 
 impl TemplateLibraryFilterFacts {
     #[must_use]
-    pub(crate) fn filter_arities(&self) -> &FilterArityMap {
+    pub fn filter_arities(&self) -> &FilterArityMap {
         &self.filter_arities
     }
 }
@@ -634,7 +634,7 @@ pub fn template_library_definition_facts(
 }
 
 #[salsa::tracked(returns(ref))]
-pub(crate) fn template_library_tag_facts(
+pub fn template_library_tag_facts(
     db: &dyn ProjectDb,
     key: TemplateLibraryKey,
 ) -> TemplateLibraryTagFacts {
@@ -646,7 +646,7 @@ pub(crate) fn template_library_tag_facts(
 }
 
 #[salsa::tracked(returns(ref))]
-pub(crate) fn template_library_filter_facts(
+pub fn template_library_filter_facts(
     db: &dyn ProjectDb,
     key: TemplateLibraryKey,
 ) -> TemplateLibraryFilterFacts {

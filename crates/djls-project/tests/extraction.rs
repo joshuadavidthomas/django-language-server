@@ -2,10 +2,9 @@ use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
-use djls_project::extract_block_specs;
-use djls_project::extract_filter_arities;
-use djls_project::extract_tag_rules;
 use djls_project::template_library_definition_facts;
+use djls_project::template_library_filter_facts;
+use djls_project::template_library_tag_facts;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::python_syntax_errors;
 use djls_source::ChangeEvent;
@@ -189,16 +188,19 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let module_name = PythonModuleName::parse("test.templatetags.known").unwrap();
 
     let key = djls_project::TemplateLibraryKey::new(&db, Some(file), module_name);
-    assert!(!extract_tag_rules(&db, key).is_empty());
+    assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
     let _ = event_log.take();
 
     db.add_file(path.as_str(), &format!("{source}# comment only\n"));
     SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
-    assert!(!extract_tag_rules(&db, key).is_empty());
+    assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
     let events = event_log.take();
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
-    assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 0);
+    assert_eq!(
+        execution_count(&db, &events, "template_library_tag_facts"),
+        0
+    );
 }
 
 #[test]
@@ -222,14 +224,19 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
             .symbol(djls_project::TemplateSymbolKind::Filter, "for")
             .is_none()
     );
-    let rules = extract_tag_rules(&db, tags_key);
-    let blocks = extract_block_specs(&db, tags_key);
+    let tag_facts = template_library_tag_facts(&db, tags_key);
     assert!(
-        rules.keys().any(
+        tag_facts.tag_rules().keys().any(
             |key| key.name == "for" && key.registration_module == "django.template.defaulttags"
         )
     );
-    assert!(blocks.as_map().keys().any(|key| key.name == "for"));
+    assert!(
+        tag_facts
+            .block_specs()
+            .as_map()
+            .keys()
+            .any(|key| key.name == "for")
+    );
 
     let events = event_log.take();
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
@@ -242,8 +249,10 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         execution_count(&db, &events, "template_library_definition_facts"),
         1
     );
-    assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 1);
-    assert_eq!(execution_count(&db, &events, "extract_block_specs"), 1);
+    assert_eq!(
+        execution_count(&db, &events, "template_library_tag_facts"),
+        1
+    );
 
     db.add_file("/test/defaultfilters.py", DEFAULTFILTERS_SOURCE);
     let filters_file = db.file(Utf8Path::new("/test/defaultfilters.py"));
@@ -252,10 +261,13 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         Some(filters_file),
         PythonModuleName::parse("django.template.defaultfilters").unwrap(),
     );
-    let filters = extract_filter_arities(&db, filters_key);
+    let filters = template_library_filter_facts(&db, filters_key);
     assert!(
-        filters.arities().keys().any(|key| key.name == "lower"
-            && key.registration_module == "django.template.defaultfilters")
+        filters
+            .filter_arities()
+            .keys()
+            .any(|key| key.name == "lower"
+                && key.registration_module == "django.template.defaultfilters")
     );
 
     let events = event_log.take();
@@ -264,11 +276,14 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         execution_count(&db, &events, "template_library_source_analysis"),
         1,
     );
-    assert_eq!(execution_count(&db, &events, "extract_filter_arities"), 1);
-
-    let _ = extract_filter_arities(&db, filters_key);
     assert_eq!(
-        execution_count(&db, &event_log.take(), "extract_filter_arities"),
+        execution_count(&db, &events, "template_library_filter_facts"),
+        1
+    );
+
+    let _ = template_library_filter_facts(&db, filters_key);
+    assert_eq!(
+        execution_count(&db, &event_log.take(), "template_library_filter_facts"),
         0,
         "same-revision extraction should be memoized",
     );

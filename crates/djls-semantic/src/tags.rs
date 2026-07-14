@@ -5,9 +5,8 @@ use djls_project::ContextualLibraryStep;
 use djls_project::Project;
 use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
-use djls_project::extract_block_specs;
-use djls_project::extract_tag_rules;
 use djls_project::template_environment;
+use djls_project::template_library_tag_facts;
 pub(crate) use rules::evaluate_tag_rules;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
@@ -61,13 +60,12 @@ pub fn library_tag_specs(
     let mut specs = builtin_tag_specs();
     specs.retain(|_, spec| spec.module() == key.module(db).as_str());
 
-    let rules = extract_tag_rules(db, key);
-    if !rules.is_empty() {
-        specs.merge_tag_rules(rules);
+    let facts = template_library_tag_facts(db, key);
+    if !facts.tag_rules().is_empty() {
+        specs.merge_tag_rules(facts.tag_rules());
     }
-    let blocks = extract_block_specs(db, key);
-    if !blocks.is_empty() {
-        specs.merge_block_specs(blocks);
+    if !facts.block_specs().is_empty() {
+        specs.merge_block_specs(facts.block_specs());
     }
 
     specs.merge_fallback(configured_library_tag_specs(db, project, key).clone());

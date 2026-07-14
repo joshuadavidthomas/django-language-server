@@ -1532,7 +1532,7 @@ impl TemplateLibraries {
 
     /// Whether discovery may have omitted definition names from the catalog index.
     #[must_use]
-    pub fn definition_names_are_open(&self) -> bool {
+    pub(crate) fn definition_names_are_open(&self) -> bool {
         self.configurations.has_omissions()
             || self.configurations.has_unknown_loadables()
             || self
@@ -1543,61 +1543,6 @@ impl TemplateLibraries {
                 .resolved_libraries()
                 .any(TemplateLibrary::symbol_inventory_is_open)
             || !self.issues.is_empty()
-    }
-
-    #[must_use]
-    pub fn installed_library_count(&self) -> usize {
-        self.builtin_libraries().count() + self.installed_libraries().count()
-    }
-
-    #[must_use]
-    pub fn completion_library_names(&self) -> Vec<LibraryName> {
-        Self::completion_library_names_in_view(AlternativeView::project_inventory(self))
-    }
-
-    #[must_use]
-    pub fn template_symbol_candidates(
-        &self,
-        kind: TemplateSymbolKind,
-    ) -> Vec<TemplateSymbolCandidate> {
-        let mut candidates = Vec::new();
-        let mut builtin_candidates = BTreeMap::new();
-
-        for library in self.builtin_libraries() {
-            for symbol in library.symbols() {
-                if symbol.kind != kind {
-                    continue;
-                }
-
-                builtin_candidates.insert(
-                    symbol.name.clone(),
-                    TemplateSymbolCandidate {
-                        symbol: symbol.clone(),
-                        availability: TemplateSymbolAvailability::Builtin {
-                            module: library.module_name().clone(),
-                        },
-                    },
-                );
-            }
-        }
-        candidates.extend(builtin_candidates.into_values());
-
-        for (name, library) in self.installed_libraries() {
-            for symbol in library.symbols() {
-                if symbol.kind != kind {
-                    continue;
-                }
-
-                candidates.push(TemplateSymbolCandidate {
-                    symbol: symbol.clone(),
-                    availability: TemplateSymbolAvailability::RequiresLoad {
-                        load_name: name.clone(),
-                    },
-                });
-            }
-        }
-
-        candidates
     }
 
     pub(crate) fn inventory_symbol_names(
@@ -1611,46 +1556,7 @@ impl TemplateLibraries {
             .map(String::as_str)
     }
 
-    #[must_use]
-    pub fn loadable_library(&self, name: &LibraryName) -> LoadableLibraryLookup<'_> {
-        self.loadable_library_in_view(AlternativeView::project_inventory(self), name)
-    }
-
-    #[must_use]
-    pub fn loadable_library_str(&self, name: &str) -> LoadableLibraryLookup<'_> {
-        match LibraryName::parse(name) {
-            Ok(name) => self.loadable_library(&name),
-            Err(_) => LoadableLibraryLookup::Absent,
-        }
-    }
-
-    /// Join symbol presence across feasible backends without collapsing library ambiguity.
-    /// Presence is definite only when every alternative contains the symbol; open or differing
-    /// alternatives remain inconclusive, and exhaustive absence is absent.
-    #[must_use]
-    pub fn environment_symbol_lookup(
-        &self,
-        name: &str,
-        kind: TemplateSymbolKind,
-    ) -> EnvironmentSymbolLookup {
-        self.environment_symbol_lookup_in_view(AlternativeView::project_inventory(self), name, kind)
-    }
-
-    #[must_use]
-    pub fn template_symbol_lookup(
-        &self,
-        name: &str,
-        kind: TemplateSymbolKind,
-    ) -> TemplateSymbolLookup {
-        self.template_symbol_lookup_in_view(AlternativeView::project_inventory(self), name, kind)
-    }
-
-    #[must_use]
-    pub fn missing_library_lookup(&self, name: &LibraryName) -> MissingLibraryLookup {
-        self.missing_library_lookup_in_view(AlternativeView::project_inventory(self), name)
-    }
-
-    pub fn resolved_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
+    fn resolved_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
         self.resolved_libraries_in_view(AlternativeView::project_inventory(self))
             .into_iter()
     }

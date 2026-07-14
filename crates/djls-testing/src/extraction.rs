@@ -32,11 +32,11 @@ pub fn extract_bundle(
     registration_module: PythonModuleName,
 ) -> ExtractionBundle {
     let key = djls_project::TemplateLibraryKey::new(db, Some(file), registration_module);
-    let tag_rules = djls_project::extract_tag_rules(db, key).to_owned();
-    let filter_arities = djls_project::extract_filter_arities(db, key)
-        .arities()
-        .to_owned();
-    let block_specs = djls_project::extract_block_specs(db, key).to_owned();
+    let tag_facts = djls_project::template_library_tag_facts(db, key);
+    let filter_facts = djls_project::template_library_filter_facts(db, key);
+    let tag_rules = tag_facts.tag_rules().to_owned();
+    let filter_arities = filter_facts.filter_arities().to_owned();
+    let block_specs = tag_facts.block_specs().to_owned();
 
     ExtractionBundle {
         tag_rules,

@@ -61,12 +61,15 @@ fn template_environment_correlates_libraries_with_resolving_backends() {
     assert_eq!(beta.module_name_str(), "beta_tags");
 
     let catalog = template_libraries(&db, project);
-    let catalog_alpha = catalog
+    let inventory = TemplateEnvironment::from_project_inventory(catalog);
+    let catalog_alpha = inventory
         .resolved_libraries()
+        .into_iter()
         .find(|library| library.module_name_str() == "alpha_tags")
         .expect("the shared catalog should contain backend A's library");
-    let catalog_beta = catalog
+    let catalog_beta = inventory
         .resolved_libraries()
+        .into_iter()
         .find(|library| library.module_name_str() == "beta_tags")
         .expect("the shared catalog should contain backend B's library");
     assert!(

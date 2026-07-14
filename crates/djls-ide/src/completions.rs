@@ -1082,10 +1082,11 @@ mod tests {
     }
 
     fn builtin_availability() -> TemplateSymbolAvailability {
-        tag_libraries()
-            .template_symbol_candidates(TemplateSymbolKind::Tag)
+        let libraries = tag_libraries();
+        TemplateEnvironment::from_project_inventory(&libraries)
+            .contextual_symbol_candidates("if", TemplateSymbolKind::Tag)
             .into_iter()
-            .find(|candidate| candidate.symbol.name() == "if")
+            .next()
             .expect("builtin if candidate should exist")
             .availability
     }

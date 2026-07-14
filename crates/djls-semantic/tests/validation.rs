@@ -391,26 +391,30 @@ fn source_less_default_builtins_keep_django_grammar_and_load_configured_library(
     db.set_project(project);
 
     let libraries = djls_project::template_libraries(&db, project);
+    let environment = djls_project::TemplateEnvironment::from_project_inventory(libraries);
     for module in [
         "django.template.defaulttags",
         "django.template.defaultfilters",
         "django.template.loader_tags",
     ] {
-        let library = libraries
+        let library = environment
             .resolved_libraries()
+            .into_iter()
             .find(|library| library.module_name_str() == module)
             .expect("canonical default builtin identity should remain present");
         assert!(library.source_file().is_none());
         assert!(library.symbol_inventory_is_open());
     }
-    let panel_library = libraries
+    let panel_library = environment
         .resolved_libraries()
+        .into_iter()
         .find(|library| library.module_name_str() == "missing.panel_tags")
         .expect("configured source-less library should remain present");
     assert!(panel_library.source_file().is_none());
 
-    let defaulttags = libraries
+    let defaulttags = environment
         .resolved_libraries()
+        .into_iter()
         .find(|library| library.module_name_str() == "django.template.defaulttags")
         .expect("defaulttags identity should remain present");
     let specs = library_tag_specs(&db, project, defaulttags.key(&db));
@@ -473,12 +477,15 @@ fn configured_same_name_specs_remain_keyed_by_library() {
         .install(&mut db);
 
     let libraries = djls_project::template_libraries(&db, project);
-    let alpha = libraries
+    let environment = djls_project::TemplateEnvironment::from_project_inventory(libraries);
+    let alpha = environment
         .resolved_libraries()
+        .into_iter()
         .find(|library| library.module_name_str() == "alpha_tags")
         .expect("alpha should resolve");
-    let beta = libraries
+    let beta = environment
         .resolved_libraries()
+        .into_iter()
         .find(|library| library.module_name_str() == "beta_tags")
         .expect("beta should resolve");
 
@@ -522,8 +529,9 @@ fn configured_dynamic_registration_is_available_through_its_library_catalog() {
         .install(&mut db);
 
     let libraries = djls_project::template_libraries(&db, project);
-    let dynamic = libraries
+    let dynamic = djls_project::TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .find(|library| library.module_name_str() == "dynamic_tags")
         .expect("configured dynamic library should resolve");
     let symbol = dynamic
@@ -1290,10 +1298,13 @@ fn extracted_block_db(source: &str) -> TestDatabase {
         )
         .install(&mut db);
 
-    let library = djls_project::template_libraries(&db, project)
-        .resolved_libraries()
-        .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
-        .expect("fixture library should be discovered");
+    let library = djls_project::TemplateEnvironment::from_project_inventory(
+        djls_project::template_libraries(&db, project),
+    )
+    .resolved_libraries()
+    .into_iter()
+    .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
+    .expect("fixture library should be discovered");
     let library_specs = library_tag_specs(&db, project, library.key(&db));
     let mut specs = djls_semantic::TagSpecs::default();
     if let Some(spec) = library_specs.get("mystery") {

@@ -200,6 +200,7 @@ mod invalidation_tests {
     use djls_project::Project;
     use djls_project::PythonModule;
     use djls_project::PythonModuleName;
+    use djls_project::TemplateEnvironment;
     use djls_project::template_libraries;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
@@ -625,8 +626,9 @@ mod invalidation_tests {
         event_log.take();
 
         let libraries = template_libraries(&db, project);
-        let modules: Vec<_> = libraries
+        let modules: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
+            .into_iter()
             .filter(|library| library.source_file().is_some())
             .map(djls_project::TemplateLibrary::module_name_str)
             .collect();
@@ -637,8 +639,9 @@ mod invalidation_tests {
         let events = event_log.take();
         assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
 
-        for library in libraries
+        for library in TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
+            .into_iter()
             .filter(|library| library.source_file().is_some())
         {
             let key = library.key(&db);
@@ -1056,8 +1059,9 @@ mod invalidation_tests {
             ..
         } = template_inheritance_fixture();
         let libraries = template_libraries(&db, project);
-        let library = libraries
+        let library = TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
+            .into_iter()
             .next()
             .expect("fixture should discover a builtin library");
         let key = library.key(&db);
@@ -1120,8 +1124,9 @@ mod invalidation_tests {
         db.project = Some(project);
 
         let libraries = template_libraries(&db, project);
-        let library = libraries
+        let library = TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
+            .into_iter()
             .find(|library| library.module_name_str() == "project_tags")
             .expect("configured builtin should resolve before settings change");
         assert!(
@@ -1141,8 +1146,9 @@ mod invalidation_tests {
             .apply(&mut db);
 
         assert!(
-            template_libraries(&db, project)
+            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
                 .resolved_libraries()
+                .into_iter()
                 .all(|library| library.module_name_str() != "project_tags"),
             "removed configured builtin should leave the active catalog"
         );
@@ -1748,13 +1754,15 @@ env_file = ".env.local"
             ..
         } = template_inheritance_fixture();
         let libraries = template_libraries(&db, project);
-        let defaulttags = libraries
+        let defaulttags = TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
+            .into_iter()
             .find(|library| library.module_name_str() == "django.template.defaulttags")
             .map(|library| library.key(&db))
             .expect("defaulttags should be active");
-        let loader_tags = libraries
+        let loader_tags = TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
+            .into_iter()
             .find(|library| library.module_name_str() == "django.template.loader_tags")
             .map(|library| library.key(&db))
             .expect("loader_tags should be active");
@@ -1879,8 +1887,9 @@ env_file = ".env.local"
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
         let libraries = template_libraries(&db, project);
-        let keys: Vec<_> = libraries
+        let keys: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
+            .into_iter()
             .filter(|library| matches!(library.module_name_str(), "alpha_tags" | "beta_tags"))
             .map(|library| library.key(&db))
             .collect();
@@ -1970,19 +1979,19 @@ env_file = ".env.local"
         );
 
         // First extraction
-        let _result1 = djls_project::extract_filter_arities(&db, library);
+        let _result1 = djls_project::template_library_filter_facts(&db, library);
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "extract_filter_arities"),
-            "extract_filter_arities should execute on first call"
+            was_executed(&db, &events, "template_library_filter_facts"),
+            "template_library_filter_facts should execute on first call"
         );
 
         // Second call — cached
-        let _result2 = djls_project::extract_filter_arities(&db, library);
+        let _result2 = djls_project::template_library_filter_facts(&db, library);
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "extract_filter_arities"),
-            "extract_filter_arities should NOT re-execute on second call (cached)"
+            !was_executed(&db, &events, "template_library_filter_facts"),
+            "template_library_filter_facts should NOT re-execute on second call (cached)"
         );
     }
 
@@ -1998,19 +2007,19 @@ env_file = ".env.local"
             Some(file),
             djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
-        let _result = djls_project::extract_filter_arities(&db, library);
+        let _result = djls_project::template_library_filter_facts(&db, library);
         event_log.take();
 
         // Bump the file revision — but the source is still empty (file not in FS)
         file.set_revision(&mut db).to(1);
 
         // Salsa's backdate optimization: file.try_source() returns the same empty text,
-        // so extract_filter_arities does NOT re-execute (correct behavior)
-        let _result = djls_project::extract_filter_arities(&db, library);
+        // so the per-library Filter facts do not re-execute.
+        let _result = djls_project::template_library_filter_facts(&db, library);
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "extract_filter_arities"),
-            "extract_filter_arities should NOT re-execute when source content is unchanged (backdate)"
+            !was_executed(&db, &events, "template_library_filter_facts"),
+            "template_library_filter_facts should NOT re-execute when source content is unchanged (backdate)"
         );
     }
 
@@ -2057,25 +2066,29 @@ def my_filter(value, arg):
             Some(file),
             djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
-        let result = djls_project::extract_filter_arities(&db, library);
+        let result = djls_project::template_library_filter_facts(&db, library);
 
         // Should extract the filter
         let key = djls_project::SymbolKey::filter("test.project.tags", "my_filter");
         assert!(
-            result.arities().contains_key(&key),
+            result.filter_arities().contains_key(&key),
             "should extract filter from file content"
         );
-        assert!(result.arities()[&key].expects_arg);
+        assert!(result.filter_arities()[&key].expects_arg);
 
         let other_library = djls_project::TemplateLibraryKey::new(
             &db,
             Some(file),
             djls_project::PythonModuleName::parse("other.project.tags").unwrap(),
         );
-        let other_module_result = djls_project::extract_filter_arities(&db, other_library);
+        let other_module_result = djls_project::template_library_filter_facts(&db, other_library);
         let other_key = djls_project::SymbolKey::filter("other.project.tags", "my_filter");
-        assert!(other_module_result.arities().contains_key(&other_key));
-        assert!(!other_module_result.arities().contains_key(&key));
+        assert!(
+            other_module_result
+                .filter_arities()
+                .contains_key(&other_key)
+        );
+        assert!(!other_module_result.filter_arities().contains_key(&key));
     }
 
     fn settings_with_custom_library(module_name: &str) -> String {
@@ -2091,7 +2104,9 @@ def my_filter(value, arg):
 
     fn assert_custom_library_module(db: &DjangoDatabase, module_name: &str) {
         let project = db.project().expect("test database should have a project");
-        match template_libraries(db, project).loadable_library_str("custom") {
+        match TemplateEnvironment::from_project_inventory(template_libraries(db, project))
+            .loadable_library_str("custom")
+        {
             djls_project::LoadableLibraryLookup::Found(custom) => {
                 assert_eq!(custom.module_name_str(), module_name);
             }
@@ -2221,7 +2236,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         assert!(
-            template_libraries(&db, project)
+            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
                 .loadable_library_str("custom")
                 .found()
                 .is_none()
@@ -2298,7 +2313,7 @@ def my_filter(value, arg):
         fs.lock().unwrap().remove_file(&base_settings_path);
         apply_project_discovery(&mut db);
         assert!(
-            template_libraries(&db, project)
+            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
                 .loadable_library_str("custom")
                 .found()
                 .is_none()
@@ -2440,7 +2455,8 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            template_libraries(&db, project).loadable_library_str("custom")
+            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+                .loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
         };
@@ -2499,7 +2515,8 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            template_libraries(&db, project).loadable_library_str("custom")
+            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+                .loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
         };
@@ -2520,7 +2537,8 @@ def my_filter(value, arg):
             .apply(&mut db);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            template_libraries(&db, project).loadable_library_str("custom")
+            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+                .loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
         };

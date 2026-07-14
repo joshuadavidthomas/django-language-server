@@ -351,11 +351,14 @@ fn configured_only_tag_survives_effective_candidates_and_completion() {
         .file("/test/project/templates/page.html", &source)
         .install(&mut db);
     let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
-    let configured_symbol = djls_project::template_libraries(&db, project)
-        .resolved_libraries()
-        .find(|library| library.module_name_str() == "dynamic_tags")
-        .and_then(|library| library.symbol(djls_project::TemplateSymbolKind::Tag, "dynamic_panel"))
-        .expect("configured-only tag should enter its Template Library catalog");
+    let configured_symbol = djls_project::TemplateEnvironment::from_project_inventory(
+        djls_project::template_libraries(&db, project),
+    )
+    .resolved_libraries()
+    .into_iter()
+    .find(|library| library.module_name_str() == "dynamic_tags")
+    .and_then(|library| library.symbol(djls_project::TemplateSymbolKind::Tag, "dynamic_panel"))
+    .expect("configured-only tag should enter its Template Library catalog");
     assert!(matches!(
         configured_symbol.definition,
         djls_project::SymbolDefinition::Unknown

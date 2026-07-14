@@ -105,12 +105,10 @@ fn fixtures(bencher: Bencher) {
             discovered_file_count: 6,
             synchronized_file_count: 6,
             total_bytes: 30_105,
-            diagnostics: DiagnosticDigest::from_counts(
-                0,
-                87,
-                [("S108", 22), ("S109", 45), ("S111", 20)],
-            ),
-            rendered_count: 87,
+            // Canonical builtins intentionally correct the old synthetic unknown/unloaded output;
+            // the six files and 30,105 input bytes are unchanged.
+            diagnostics: DiagnosticDigest::from_counts(0, 20, [("S111", 20)]),
+            rendered_count: 20,
         },
     );
 
@@ -246,12 +244,14 @@ fn corpus_django(bencher: Bencher) {
             discovered_file_count: 123,
             synchronized_file_count: 123,
             total_bytes: 134_038,
+            // Canonical builtins remove synthetic unloaded diagnostics while preserving all 123
+            // Django templates and 134,038 input bytes.
             diagnostics: DiagnosticDigest::from_counts(
                 0,
-                633,
-                [("S108", 257), ("S109", 309), ("S111", 67)],
+                104,
+                [("S108", 19), ("S111", 67), ("S120", 18)],
             ),
-            rendered_count: 633,
+            rendered_count: 104,
         },
     );
 }
@@ -267,17 +267,19 @@ fn corpus_all(bencher: Bencher) {
             discovered_file_count: 7_145,
             synchronized_file_count: 7_145,
             total_bytes: 11_783_514,
+            // Canonical builtin roles remove synthetic unloaded output and classify unresolved
+            // corpus libraries directly; corpus file and byte cardinality remain unchanged.
             diagnostics: DiagnosticDigest::from_counts(
                 0,
-                49_444,
+                19_327,
                 [
                     ("S101", 1),
-                    ("S108", 23_402),
-                    ("S109", 22_008),
+                    ("S108", 10_363),
                     ("S111", 4_033),
+                    ("S120", 4_930),
                 ],
             ),
-            rendered_count: 49_444,
+            rendered_count: 19_327,
         },
     );
 }

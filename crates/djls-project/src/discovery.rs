@@ -16,6 +16,7 @@ use crate::project::Project;
 use crate::python::SearchPaths;
 use crate::settings::DjangoSettingsSources;
 use crate::settings::settings_sources;
+use crate::templates::TemplateEnvironment;
 use crate::templates::TemplateLibrary;
 use crate::templates::discover_templatetag_candidate_paths;
 use crate::templates::template_libraries;
@@ -248,11 +249,15 @@ impl ProjectFactsPhase {
                 .iter()
                 .map(|module| module.path().to_path_buf())
                 .collect(),
-            Self::TemplateLibrarySources => template_libraries(db, project)
-                .resolved_libraries()
-                .filter_map(TemplateLibrary::source_file)
-                .map(|file| file.path(db).to_path_buf())
-                .collect(),
+            Self::TemplateLibrarySources => {
+                let libraries = template_libraries(db, project);
+                TemplateEnvironment::from_project_inventory(libraries)
+                    .resolved_libraries()
+                    .into_iter()
+                    .filter_map(TemplateLibrary::source_file)
+                    .map(|file| file.path(db).to_path_buf())
+                    .collect()
+            }
             Self::TemplateTagCandidates => discover_templatetag_candidate_paths(db, project),
         };
         ProjectFactsPart {

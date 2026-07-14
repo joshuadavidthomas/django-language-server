@@ -398,10 +398,10 @@ mod tests {
         let libraries =
             djls_testing::make_template_libraries(&db, &tags, &filters, &libraries, &builtins);
 
-        libraries
-            .template_symbol_candidates(kind)
+        TemplateEnvironment::from_project_inventory(&libraries)
+            .contextual_symbol_candidates(name, kind)
             .into_iter()
-            .find(|candidate| candidate.symbol.name() == name)
+            .next()
             .expect("candidate should exist")
     }
 

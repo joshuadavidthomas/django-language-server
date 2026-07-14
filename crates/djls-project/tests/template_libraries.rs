@@ -84,6 +84,10 @@ fn backend(loadable: Vec<(&str, &str)>, builtins: Vec<&str>) -> TemplateBackendL
     }
 }
 
+fn project_inventory(libraries: &TemplateLibraries) -> TemplateEnvironment<'_> {
+    TemplateEnvironment::from_project_inventory(libraries)
+}
+
 fn configured_libraries(
     open: bool,
     inputs: Vec<TemplateLibraryInput>,
@@ -100,12 +104,14 @@ fn configured_libraries(
 #[test]
 fn closed_and_open_misses_are_distinct() {
     let name = library_name("missing");
+    let closed = libraries(false, Vec::new());
     assert_eq!(
-        libraries(false, Vec::new()).loadable_library(&name),
+        project_inventory(&closed).loadable_library(&name),
         LoadableLibraryLookup::Absent
     );
+    let open = libraries(true, Vec::new());
     assert_eq!(
-        libraries(true, Vec::new()).loadable_library(&name),
+        project_inventory(&open).loadable_library(&name),
         LoadableLibraryLookup::Inconclusive(Vec::new())
     );
 }
@@ -122,7 +128,7 @@ fn configuration_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
         vec![vec![backend(vec![("shared", "project.alpha")], vec![])]],
     );
     assert!(matches!(
-        unanimous.loadable_library(&library_name("shared")),
+        project_inventory(&unanimous).loadable_library(&library_name("shared")),
         LoadableLibraryLookup::Found(library) if library.module_name_str() == "project.alpha"
     ));
 
@@ -135,7 +141,7 @@ fn configuration_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
         ]],
     );
     assert!(matches!(
-        disagreement.loadable_library(&library_name("shared")),
+        project_inventory(&disagreement).loadable_library(&library_name("shared")),
         LoadableLibraryLookup::Ambiguous(records) if records.len() == 2
     ));
 
@@ -148,7 +154,7 @@ fn configuration_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
         ]],
     );
     assert!(matches!(
-        present_absent.loadable_library(&library_name("shared")),
+        project_inventory(&present_absent).loadable_library(&library_name("shared")),
         LoadableLibraryLookup::Ambiguous(records) if records.len() == 1
     ));
 
@@ -158,7 +164,7 @@ fn configuration_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
         vec![vec![backend(vec![("shared", "project.alpha")], vec![])]],
     );
     assert!(matches!(
-        open.loadable_library(&library_name("shared")),
+        project_inventory(&open).loadable_library(&library_name("shared")),
         LoadableLibraryLookup::Inconclusive(records) if records.len() == 1
     ));
 }
@@ -195,19 +201,19 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
     );
 
     assert_eq!(
-        libraries.environment_symbol_lookup("all_tag", TemplateSymbolKind::Tag),
+        project_inventory(&libraries).symbol("all_tag", TemplateSymbolKind::Tag),
         EnvironmentSymbolLookup::RequiresLoad(vec![library_name("shared")])
     );
     assert_eq!(
-        libraries.environment_symbol_lookup("one_tag", TemplateSymbolKind::Tag),
+        project_inventory(&libraries).symbol("one_tag", TemplateSymbolKind::Tag),
         EnvironmentSymbolLookup::Inconclusive
     );
     assert_eq!(
-        libraries.environment_symbol_lookup("all_filter", TemplateSymbolKind::Filter),
+        project_inventory(&libraries).symbol("all_filter", TemplateSymbolKind::Filter),
         EnvironmentSymbolLookup::RequiresLoad(vec![library_name("shared")])
     );
     assert_eq!(
-        libraries.environment_symbol_lookup("one_filter", TemplateSymbolKind::Filter),
+        project_inventory(&libraries).symbol("one_filter", TemplateSymbolKind::Filter),
         EnvironmentSymbolLookup::Inconclusive
     );
 }
@@ -288,7 +294,9 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
         .build(&db);
 
     let libraries = template_libraries(&db, project);
-    let LoadableLibraryLookup::Found(library) = libraries.loadable_library_str("panels") else {
+    let LoadableLibraryLookup::Found(library) =
+        project_inventory(libraries).loadable_library_str("panels")
+    else {
         panic!("configured library should remain definitively loadable");
     };
     assert_eq!(library.module_name_str(), "missing.panel_tags");
@@ -319,29 +327,29 @@ fn source_less_alias_keeps_missing_same_named_available_app_symbols_inconclusive
         .build(&db);
 
     let libraries = template_libraries(&db, project);
-    let LoadableLibraryLookup::Found(library) = libraries.loadable_library_str("shared") else {
+    let environment = project_inventory(libraries);
+    let LoadableLibraryLookup::Found(library) = environment.loadable_library_str("shared") else {
         panic!("the configured source-less alias should be definitively loadable");
     };
     assert!(library.source_file().is_none());
     assert!(library.symbol_inventory_is_open());
     assert_eq!(
-        libraries.environment_symbol_lookup("shared_tag", TemplateSymbolKind::Tag),
+        environment.symbol("shared_tag", TemplateSymbolKind::Tag),
         EnvironmentSymbolLookup::Inconclusive
     );
     assert_eq!(
-        libraries.environment_symbol_lookup("shared_filter", TemplateSymbolKind::Filter),
+        environment.symbol("shared_filter", TemplateSymbolKind::Filter),
         EnvironmentSymbolLookup::Inconclusive
     );
     assert_eq!(
-        libraries.template_symbol_lookup("shared_tag", TemplateSymbolKind::Tag),
+        environment.available_app_symbol("shared_tag", TemplateSymbolKind::Tag),
         TemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
-        libraries.template_symbol_lookup("shared_filter", TemplateSymbolKind::Filter),
+        environment.available_app_symbol("shared_filter", TemplateSymbolKind::Filter),
         TemplateSymbolLookup::Inconclusive
     );
 
-    let environment = TemplateEnvironment::from_project_inventory(libraries);
     for kind in [TemplateSymbolKind::Tag, TemplateSymbolKind::Filter] {
         let name = match kind {
             TemplateSymbolKind::Tag => "shared_tag",
@@ -374,12 +382,12 @@ fn exact_alias_after_unknown_key_is_definitive_while_other_names_stay_open() {
 
     let libraries = template_libraries(&db, project);
     assert!(matches!(
-        libraries.loadable_library_str("shared"),
+        project_inventory(libraries).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "project_tags"
     ));
     assert_eq!(
-        libraries.loadable_library_str("other"),
+        project_inventory(libraries).loadable_library_str("other"),
         LoadableLibraryLookup::Inconclusive(Vec::new())
     );
 }
@@ -422,7 +430,8 @@ fn installed_duplicate_load_name_uses_last_record() {
             installed("custom", "project.templatetags.replacement", Vec::new()),
         ],
     );
-    let LoadableLibraryLookup::Found(library) = libraries.loadable_library(&library_name("custom"))
+    let LoadableLibraryLookup::Found(library) =
+        project_inventory(&libraries).loadable_library(&library_name("custom"))
     else {
         panic!("expected a definitive installed library");
     };
@@ -446,7 +455,7 @@ fn available_symbol_guidance_survives_open_remainder() {
         )],
     );
     assert_eq!(
-        libraries.template_symbol_lookup("extra", TemplateSymbolKind::Tag),
+        project_inventory(&libraries).available_app_symbol("extra", TemplateSymbolKind::Tag),
         TemplateSymbolLookup::FoundInApp { app, load_name }
     );
 }
@@ -467,7 +476,7 @@ fn available_library_guidance_is_sorted_and_deduplicated() {
         ],
     );
     let MissingLibraryLookup::FoundInApps(apps) =
-        libraries.missing_library_lookup(&library_name("shared"))
+        project_inventory(&libraries).missing_library(&library_name("shared"))
     else {
         panic!("shared should have available app candidates");
     };
@@ -503,11 +512,16 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
             ),
         ],
     );
-    let candidates = libraries.template_symbol_candidates(TemplateSymbolKind::Filter);
+    let environment = project_inventory(&libraries);
+    let candidates: Vec<_> = environment
+        .inventory_symbol_names(TemplateSymbolKind::Filter)
+        .flat_map(|name| environment.contextual_symbol_candidates(name, TemplateSymbolKind::Filter))
+        .collect();
     assert_eq!(candidates.len(), 2);
     assert_eq!(candidates[0].symbol.name(), "duplicate");
-    let duplicate_library = libraries
+    let duplicate_library = environment
         .resolved_libraries()
+        .into_iter()
         .find(|library| library.module_name_str() == "a_second")
         .expect("indexed builtin should be present");
     assert!(
@@ -543,8 +557,10 @@ fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
             builtin("django.template.defaulttags", Vec::new()),
         ],
     );
-    let modules: Vec<_> = libraries
+    let environment = project_inventory(&libraries);
+    let modules: Vec<_> = environment
         .resolved_libraries()
+        .into_iter()
         .map(djls_project::TemplateLibrary::module_name_str)
         .collect();
     assert_eq!(
@@ -552,8 +568,9 @@ fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
         vec!["django.template.defaulttags", "project.builtins"]
     );
     assert!(
-        libraries
+        environment
             .resolved_libraries()
+            .into_iter()
             .all(|library| library.source_file().is_none()),
         "configured test evidence must not invent source origins"
     );

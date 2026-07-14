@@ -475,8 +475,9 @@ fn template_library_sources_tolerate_unregistered_search_paths() {
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries
+    let active: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .filter(|library| library.source_file().is_some())
         .collect();
 
@@ -511,8 +512,9 @@ fn template_library_source_resolution_uses_project_venv_site_packages_root() {
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries
+    let active: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .filter(|library| library.source_file().is_some())
         .collect();
 
@@ -560,8 +562,9 @@ fn template_library_source_resolution_prefers_first_party_module_shadowing_depen
     );
 
     let libraries = template_libraries(&db, project);
-    let active: Vec<_> = libraries
+    let active: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .filter(|library| library.source_file().is_some())
         .collect();
 
@@ -602,8 +605,9 @@ fn active_template_library_sources_preserve_builtin_order_across_roots() {
     );
 
     let libraries = template_libraries(&db, project);
-    let module_names: Vec<_> = libraries
+    let module_names: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .filter(|library| library.source_file().is_some())
         .map(|library| library.module_name().as_str().to_string())
         .collect();
@@ -641,8 +645,9 @@ fn active_template_library_sources_yield_installed_before_builtins() {
     );
 
     let libraries = template_libraries(&db, project);
-    let module_names: Vec<_> = libraries
+    let module_names: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .filter(|library| library.source_file().is_some())
         .map(|library| library.module_name().as_str().to_string())
         .collect();
@@ -691,8 +696,9 @@ def duplicate(value, arg):
     );
 
     let libraries = template_libraries(&db, project);
-    let module_names: Vec<_> = libraries
+    let module_names: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .filter(|library| library.source_file().is_some())
         .map(|library| library.module_name().as_str().to_string())
         .collect();

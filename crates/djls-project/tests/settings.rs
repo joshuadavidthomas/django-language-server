@@ -56,8 +56,9 @@ fn library_name(name: &str) -> LibraryName {
 }
 
 fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
-    libraries
+    TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .filter(|&library| library.load_name().is_none())
         .map(|library| library.module_name().as_str().to_string())
         .collect()
@@ -1746,7 +1747,7 @@ fn missing_template_backend_does_not_enumerate_processor_evidence() {
     let processors = template_context_processors(&db, project);
     assert!(processors.processors().is_empty());
     assert!(
-        template_libraries(&db, project)
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
             .loadable_library_str("custom")
             .found()
             .is_none()
@@ -1781,7 +1782,7 @@ fn dynamic_template_backend_does_not_enumerate_processor_evidence() {
     let processors = template_context_processors(&db, project);
     assert!(processors.processors().is_empty());
     assert!(
-        template_libraries(&db, project)
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
             .loadable_library_str("custom")
             .found()
             .is_none()
@@ -2273,7 +2274,7 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
 
     let libraries = template_libraries(&db, project);
 
-    let custom = libraries
+    let custom = TemplateEnvironment::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("custom library should be discovered");
@@ -2319,7 +2320,8 @@ fn template_libraries_cross_product_divergent_installed_apps_with_templates() {
     );
 
     let LoadableLibraryLookup::Ambiguous(candidates) =
-        template_libraries(&db, project).loadable_library_str("shared")
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .loadable_library_str("shared")
     else {
         panic!("divergent app alternatives must retain both library outcomes");
     };
@@ -2354,7 +2356,8 @@ fn unset_templates_is_closed_absence_for_app_libraries() {
     );
 
     assert_eq!(
-        template_libraries(&db, project).loadable_library_str("custom"),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .loadable_library_str("custom"),
         LoadableLibraryLookup::Absent
     );
 }
@@ -2380,17 +2383,20 @@ fn dynamic_installed_apps_keep_guidance_open_without_template_backends() {
 
         let libraries = template_libraries(&db, project);
         assert_eq!(
-            libraries.template_symbol_lookup("crispy_tag", TemplateSymbolKind::Tag),
+            TemplateEnvironment::from_project_inventory(libraries)
+                .available_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
             TemplateSymbolLookup::Inconclusive,
             "dynamic apps with {templates:?} must not produce definitive tag guidance"
         );
         assert_eq!(
-            libraries.template_symbol_lookup("crispy_filter", TemplateSymbolKind::Filter),
+            TemplateEnvironment::from_project_inventory(libraries)
+                .available_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
             TemplateSymbolLookup::Inconclusive,
             "dynamic apps with {templates:?} must not produce definitive filter guidance"
         );
         assert_eq!(
-            libraries.missing_library_lookup(&library_name("crispy")),
+            TemplateEnvironment::from_project_inventory(libraries)
+                .missing_library(&library_name("crispy")),
             MissingLibraryLookup::Inconclusive,
             "dynamic apps with {templates:?} must not produce definitive library guidance"
         );
@@ -2428,8 +2434,8 @@ fn template_symbol_lookup_uses_later_definite_available_candidate() {
     );
 
     assert_eq!(
-        template_libraries(&db, project)
-            .template_symbol_lookup("shared_tag", TemplateSymbolKind::Tag),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .available_app_symbol("shared_tag", TemplateSymbolKind::Tag),
         TemplateSymbolLookup::FoundInApp {
             app: PythonModuleName::parse("zeta").unwrap(),
             load_name: library_name("zeta"),
@@ -2460,7 +2466,7 @@ fn template_libraries_discover_package_templatetags() {
 
     let libraries = template_libraries(&db, project);
 
-    let custom = libraries
+    let custom = TemplateEnvironment::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("package templatetag should be discovered");
@@ -2500,7 +2506,7 @@ fn template_libraries_discover_namespace_package_templatetags() {
 
     let libraries = template_libraries(&db, project);
 
-    let custom = libraries
+    let custom = TemplateEnvironment::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("namespace package templatetag should be discovered");
@@ -2547,7 +2553,10 @@ fn template_libraries_include_empty_registered_modules() {
 
     let libraries = template_libraries(&db, project);
 
-    let empty = libraries.loadable_library_str("empty").found().unwrap();
+    let empty = TemplateEnvironment::from_project_inventory(libraries)
+        .loadable_library_str("empty")
+        .found()
+        .unwrap();
     assert_eq!(empty.module_name_str(), "blog.templatetags.empty");
     assert!(empty.symbols().is_empty());
 }
@@ -2576,8 +2585,13 @@ fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
 
     let libraries = template_libraries(&db, project);
 
-    assert!(libraries.loadable_library_str("helpers").found().is_none());
-    let orphan = libraries
+    assert!(
+        TemplateEnvironment::from_project_inventory(libraries)
+            .loadable_library_str("helpers")
+            .found()
+            .is_none()
+    );
+    let orphan = TemplateEnvironment::from_project_inventory(libraries)
         .loadable_library_str("orphan")
         .found()
         .expect("symbol-bearing modules are template libraries even without register assignment");
@@ -2613,7 +2627,7 @@ fn template_libraries_preserve_installed_app_discovery_order_across_failures() {
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/first/templatetags")),
     );
     assert!(matches!(
-        template_libraries(&db, project).loadable_library_str("shared"),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "second.templatetags.shared"
     ));
@@ -2623,7 +2637,7 @@ fn template_libraries_preserve_installed_app_discovery_order_across_failures() {
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/second/templatetags")),
     );
     assert!(matches!(
-        template_libraries(&db, project).loadable_library_str("shared"),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Inconclusive(candidates)
             if candidates.iter().any(|library| {
                 library.module_name_str() == "first.templatetags.shared"
@@ -2650,7 +2664,8 @@ fn template_libraries_preserve_installed_app_order_across_source_analysis_failur
         FileSystemFailure::Read(Utf8PathBuf::from("/proj/second/templatetags/shared.py")),
     );
     let LoadableLibraryLookup::Inconclusive(candidates) =
-        template_libraries(&db, project).loadable_library_str("shared")
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .loadable_library_str("shared")
     else {
         panic!("the unreadable later candidate should leave the earlier library feasible");
     };
@@ -2673,7 +2688,7 @@ fn template_libraries_preserve_installed_app_order_across_source_analysis_failur
         FileSystemFailure::Read(Utf8PathBuf::from("/proj/second/templatetags/shared.py")),
     );
     assert!(matches!(
-        template_libraries(&db, project).loadable_library_str("shared"),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "first.templatetags.shared"
     ));
@@ -2704,7 +2719,9 @@ fn template_libraries_recovered_positive_candidate_remains_resolved() {
     );
 
     let libraries = template_libraries(&db, project);
-    let LoadableLibraryLookup::Found(library) = libraries.loadable_library_str("shared") else {
+    let LoadableLibraryLookup::Found(library) =
+        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("shared")
+    else {
         panic!("the recovered later candidate should remain a known library");
     };
     assert_eq!(library.module_name_str(), "second.templatetags.shared");
@@ -2715,7 +2732,8 @@ fn template_libraries_recovered_positive_candidate_remains_resolved() {
             .any(|symbol| symbol.name() == "known")
     );
     assert_eq!(
-        libraries.template_symbol_lookup("possibly_hidden", TemplateSymbolKind::Filter),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("possibly_hidden", TemplateSymbolKind::Filter),
         TemplateSymbolLookup::Inconclusive
     );
 }
@@ -2742,7 +2760,9 @@ fn template_libraries_retain_recovered_symbols_with_source_uncertainty() {
 
     let libraries = template_libraries(&db, project);
 
-    let LoadableLibraryLookup::Found(library) = libraries.loadable_library_str("broken") else {
+    let LoadableLibraryLookup::Found(library) =
+        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("broken")
+    else {
         panic!("the recovered module still identifies the same loadable library");
     };
     assert!(
@@ -2752,7 +2772,8 @@ fn template_libraries_retain_recovered_symbols_with_source_uncertainty() {
             .any(|symbol| symbol.name() == "known")
     );
     assert_eq!(
-        libraries.template_symbol_lookup("possibly_hidden", TemplateSymbolKind::Filter),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("possibly_hidden", TemplateSymbolKind::Filter),
         TemplateSymbolLookup::Inconclusive
     );
 }
@@ -2781,7 +2802,12 @@ fn template_libraries_accept_supported_python_newer_than_ruff_default_target() {
     let libraries = template_libraries(&db, project);
     let errors = python_syntax_errors(&db, db.file(path)).expect("file should be Python");
 
-    assert!(libraries.loadable_library_str("modern").found().is_some());
+    assert!(
+        TemplateEnvironment::from_project_inventory(libraries)
+            .loadable_library_str("modern")
+            .found()
+            .is_some()
+    );
     assert!(
         errors
             .iter()
@@ -2814,7 +2840,8 @@ fn invalid_available_identifier_makes_missing_library_inconclusive() {
 
     let libraries = template_libraries(&db, project);
     assert!(matches!(
-        libraries.missing_library_lookup(&library_name("missing")),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .missing_library(&library_name("missing")),
         MissingLibraryLookup::Inconclusive
     ));
 }
@@ -2856,7 +2883,8 @@ fn failed_available_candidate_walk_makes_missing_library_inconclusive() {
 
     let libraries = template_libraries(&db, project);
     assert!(matches!(
-        libraries.missing_library_lookup(&library_name("missing")),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .missing_library(&library_name("missing")),
         MissingLibraryLookup::Inconclusive
     ));
 }
@@ -2902,7 +2930,8 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
     let libraries = template_libraries(&db, project);
 
     let MissingLibraryLookup::FoundInApps(apps) =
-        libraries.missing_library_lookup(&library_name("crispy"))
+        TemplateEnvironment::from_project_inventory(libraries)
+            .missing_library(&library_name("crispy"))
     else {
         panic!("crispy should be reported as an available-app library candidate");
     };
@@ -2916,7 +2945,8 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
     );
 
     let TemplateSymbolLookup::FoundInApp { app, load_name } =
-        libraries.template_symbol_lookup("crispy_tag", TemplateSymbolKind::Tag)
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("crispy_tag", TemplateSymbolKind::Tag)
     else {
         panic!("crispy_tag should be reported as an available-app tag candidate");
     };
@@ -2924,7 +2954,8 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
     assert_eq!(load_name.as_str(), "crispy");
 
     let TemplateSymbolLookup::FoundInApp { app, load_name } =
-        libraries.template_symbol_lookup("crispy_filter", TemplateSymbolKind::Filter)
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("crispy_filter", TemplateSymbolKind::Filter)
     else {
         panic!("crispy_filter should be reported as an available-app filter candidate");
     };
@@ -2932,7 +2963,8 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
     assert_eq!(load_name.as_str(), "crispy");
 
     assert_eq!(
-        libraries.missing_library_lookup(&library_name("myapp_tags")),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .missing_library(&library_name("myapp_tags")),
         MissingLibraryLookup::Inconclusive,
         "installed app libraries must be subtracted from available candidates"
     );
@@ -2971,7 +3003,8 @@ fn template_libraries_available_candidates_rerun_after_search_root_revision_bump
     );
 
     assert_eq!(
-        template_libraries(&db, project).missing_library_lookup(&library_name("crispy")),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .missing_library(&library_name("crispy")),
         MissingLibraryLookup::Absent
     );
 
@@ -2989,7 +3022,8 @@ fn template_libraries_available_candidates_rerun_after_search_root_revision_bump
     let libraries = template_libraries(&db, project);
 
     assert!(matches!(
-        libraries.missing_library_lookup(&library_name("crispy")),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .missing_library(&library_name("crispy")),
         MissingLibraryLookup::FoundInApps(_)
     ));
 }
@@ -3033,7 +3067,8 @@ fn django_discovery_updates_available_template_library_symbols() {
     );
 
     assert_eq!(
-        template_libraries(&db, project).template_symbol_lookup("new_tag", TemplateSymbolKind::Tag),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .available_app_symbol("new_tag", TemplateSymbolKind::Tag),
         TemplateSymbolLookup::Absent
     );
 
@@ -3044,7 +3079,8 @@ fn django_discovery_updates_available_template_library_symbols() {
     apply_project_discovery(&mut db);
 
     assert!(matches!(
-        template_libraries(&db, project).template_symbol_lookup("new_tag", TemplateSymbolKind::Tag),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .available_app_symbol("new_tag", TemplateSymbolKind::Tag),
         TemplateSymbolLookup::FoundInApp { .. }
     ));
 }
@@ -3063,7 +3099,8 @@ fn template_libraries_demote_unresolved_app_to_partial() {
 
     let libraries = template_libraries(&db, project);
     assert!(matches!(
-        libraries.missing_library_lookup(&library_name("missing")),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .missing_library(&library_name("missing")),
         MissingLibraryLookup::Inconclusive
     ));
 }
@@ -3104,7 +3141,10 @@ fn template_libraries_include_options_libraries_and_builtins() {
 
     let libraries = template_libraries(&db, project);
 
-    let custom = libraries.loadable_library_str("custom").found().unwrap();
+    let custom = TemplateEnvironment::from_project_inventory(libraries)
+        .loadable_library_str("custom")
+        .found()
+        .unwrap();
     assert_eq!(custom.module_name_str(), "custom_tags");
     assert!(
         custom
@@ -3112,17 +3152,17 @@ fn template_libraries_include_options_libraries_and_builtins() {
             .iter()
             .any(|symbol| symbol.name() == "configured")
     );
+    let environment = TemplateEnvironment::from_project_inventory(libraries);
     assert!(
-        libraries
-            .template_symbol_candidates(TemplateSymbolKind::Filter)
+        environment
+            .contextual_symbol_candidates("configured_filter", TemplateSymbolKind::Filter)
             .iter()
             .any(|candidate| {
-                candidate.symbol.name() == "configured_filter"
-                    && matches!(
-                        &candidate.availability,
-                        TemplateSymbolAvailability::Builtin { module }
-                            if module.as_str() == "custom_builtin"
-                    )
+                matches!(
+                    &candidate.availability,
+                    TemplateSymbolAvailability::Builtin { module }
+                        if module.as_str() == "custom_builtin"
+                )
             })
     );
 }
@@ -3148,7 +3188,7 @@ fn partial_django_backend_keeps_alias_definitive_until_open_backend_selection() 
     let file = db.file(Utf8Path::new("/proj/templates/page.html"));
 
     assert!(matches!(
-        template_libraries(&db, project).loadable_library_str("custom"),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project)).loadable_library_str("custom"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "custom_tags"
     ));
@@ -3172,7 +3212,8 @@ fn partial_non_django_backend_contributes_open_library_alternative() {
     );
 
     assert_eq!(
-        template_libraries(&db, project).loadable_library_str("missing"),
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .loadable_library_str("missing"),
         LoadableLibraryLookup::Inconclusive(Vec::new())
     );
 }
@@ -3209,7 +3250,8 @@ fn template_libraries_keep_candidate_with_later_backend_uncertainty() {
 
     let libraries = template_libraries(&db, project);
 
-    let LoadableLibraryLookup::Inconclusive(candidates) = libraries.loadable_library_str("custom")
+    let LoadableLibraryLookup::Inconclusive(candidates) =
+        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("custom")
     else {
         panic!("the open backend alternative should keep lookup inconclusive");
     };
@@ -3264,7 +3306,10 @@ fn template_libraries_options_override_app_library_load_name() {
 
     let libraries = template_libraries(&db, project);
 
-    let custom = libraries.loadable_library_str("custom").found().unwrap();
+    let custom = TemplateEnvironment::from_project_inventory(libraries)
+        .loadable_library_str("custom")
+        .found()
+        .unwrap();
     assert_eq!(custom.module_name_str(), "project_tags");
     assert!(
         custom
@@ -3279,7 +3324,8 @@ fn template_libraries_options_override_app_library_load_name() {
             .any(|symbol| symbol.name() == "old_tag")
     );
     assert_eq!(
-        libraries.template_symbol_lookup("old_tag", TemplateSymbolKind::Tag),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("old_tag", TemplateSymbolKind::Tag),
         TemplateSymbolLookup::Absent,
         "a configured alias can shadow an installed app library without making that app available"
     );
@@ -3314,7 +3360,12 @@ fn failed_configured_library_is_inconclusive() {
 
     let libraries = template_libraries(&db, project);
 
-    assert!(libraries.loadable_library_str("broken").found().is_none());
+    assert!(
+        TemplateEnvironment::from_project_inventory(libraries)
+            .loadable_library_str("broken")
+            .found()
+            .is_none()
+    );
 }
 
 #[test]
@@ -3339,15 +3390,18 @@ fn unknown_configured_alias_keys_suppress_available_app_guidance() {
     let libraries = template_libraries(&db, project);
 
     assert_eq!(
-        libraries.template_symbol_lookup("crispy_tag", TemplateSymbolKind::Tag),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
         TemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
-        libraries.template_symbol_lookup("crispy_filter", TemplateSymbolKind::Filter),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
         TemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
-        libraries.missing_library_lookup(&library_name("shared")),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .missing_library(&library_name("shared")),
         MissingLibraryLookup::Inconclusive
     );
 }
@@ -3378,15 +3432,17 @@ fn exact_alias_after_unknown_keys_remains_authoritative() {
     let libraries = template_libraries(&db, project);
 
     assert_eq!(
-        libraries.template_symbol_lookup("crispy_tag", TemplateSymbolKind::Tag),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
         TemplateSymbolLookup::Absent
     );
     assert_eq!(
-        libraries.template_symbol_lookup("crispy_filter", TemplateSymbolKind::Filter),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .available_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
         TemplateSymbolLookup::Absent
     );
     assert!(matches!(
-        libraries.loadable_library_str("shared"),
+        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library) if library.module_name_str() == "project_tags"
     ));
 }
@@ -3414,7 +3470,8 @@ fn unresolved_configured_alias_shadows_available_app_guidance() {
     let libraries = template_libraries(&db, project);
 
     assert_eq!(
-        libraries.missing_library_lookup(&library_name("shared")),
+        TemplateEnvironment::from_project_inventory(libraries)
+            .missing_library(&library_name("shared")),
         MissingLibraryLookup::Inconclusive
     );
 }
@@ -3433,7 +3490,12 @@ fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
 
     let libraries = template_libraries(&db, project);
 
-    assert!(libraries.loadable_library_str("broken").found().is_none());
+    assert!(
+        TemplateEnvironment::from_project_inventory(libraries)
+            .loadable_library_str("broken")
+            .found()
+            .is_none()
+    );
 }
 
 #[test]
@@ -3451,7 +3513,7 @@ fn template_libraries_retain_missing_configured_alias_without_source() {
     let libraries = template_libraries(&db, project);
 
     assert!(matches!(
-        libraries.loadable_library_str("missing"),
+        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("missing"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "missing_tags" && library.source_file().is_none()
     ));
@@ -3486,7 +3548,12 @@ fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() 
 
     let libraries = template_libraries(&db, project);
 
-    assert!(libraries.loadable_library_str("custom").found().is_none());
+    assert!(
+        TemplateEnvironment::from_project_inventory(libraries)
+            .loadable_library_str("custom")
+            .found()
+            .is_none()
+    );
 }
 
 #[test]
@@ -3509,8 +3576,9 @@ fn template_libraries_include_resolved_and_configured_only_libraries() {
     );
 
     let libraries = template_libraries(&db, project);
-    let active_modules: Vec<_> = libraries
+    let active_modules: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .map(|library| library.module_name_str().to_string())
         .collect();
 
@@ -3525,16 +3593,21 @@ fn template_libraries_include_resolved_and_configured_only_libraries() {
         ]
     );
     assert!(matches!(
-        libraries.loadable_library_str("good"),
+        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("good"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "good_tags"
     ));
     assert!(matches!(
-        libraries.loadable_library_str("missing"),
+        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("missing"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "missing_tags" && library.source_file().is_none()
     ));
-    assert!(libraries.loadable_library_str("invalid").found().is_none());
+    assert!(
+        TemplateEnvironment::from_project_inventory(libraries)
+            .loadable_library_str("invalid")
+            .found()
+            .is_none()
+    );
 }
 
 fn django_facts_golden_fixture() -> (
@@ -3617,11 +3690,12 @@ fn django_facts_golden_template_libraries_match() {
     let actual_builtins = active_builtin_modules(libraries);
     assert_eq!(actual_builtins, golden.template_libraries.builtins);
 
-    let actual_libraries: BTreeMap<_, _> = libraries
+    let environment = TemplateEnvironment::from_project_inventory(libraries);
+    let actual_libraries: BTreeMap<_, _> = environment
         .completion_library_names()
         .into_iter()
         .filter_map(|name| {
-            let library = libraries.loadable_library(&name).found()?;
+            let library = environment.loadable_library(&name).found()?;
             Some((
                 name.as_str().to_string(),
                 library.module_name_str().to_string(),
@@ -3640,7 +3714,7 @@ fn django_facts_golden_template_libraries_match() {
 fn comparable_symbols(libraries: &TemplateLibraries) -> Vec<GoldenTemplateSymbol> {
     let mut symbols = Vec::new();
 
-    for library in libraries.resolved_libraries() {
+    for library in TemplateEnvironment::from_project_inventory(libraries).resolved_libraries() {
         let load_name = library.load_name().map(|name| name.as_str().to_string());
 
         for symbol in library.symbols() {

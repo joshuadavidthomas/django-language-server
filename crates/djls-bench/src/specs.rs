@@ -2,6 +2,8 @@ use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use djls_conf::TagSpecDef;
+#[cfg(test)]
+use djls_project::Db as ProjectDb;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::Interpreter;
@@ -115,10 +117,9 @@ fn realistic_specs() -> &'static RealisticSpecs {
 }
 
 fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
-    // Custom builtin module identities preserve this benchmark's extracted-only workload. Using
-    // Django's canonical module names would merge semantic's hardcoded builtin roles and change
-    // the pinned diagnostic contract from source extraction to fallback-spec behavior.
-    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}, 'builtins': ['bench.defaulttags', 'bench.defaultfilters', 'bench.loader_tags']}}]\n";
+    // Canonical builtin identities make extracted source facts fuse with semantic's hardcoded
+    // Django roles and fallback grammar, matching production project analysis.
+    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}}}]\n";
     const DEFAULTFILTERS: &str = concat!(
         "from django import template\nregister = template.Library()\n",
         "@register.filter\ndef title(value): pass\n",
@@ -149,9 +150,6 @@ fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
         ("/django/template/defaultfilters.py", DEFAULTFILTERS),
         ("/django/template/loader_tags.py", LOADER_TAGS),
         ("/django/templatetags/__init__.py", ""),
-        ("/bench/__init__.py", ""),
-        ("/bench/defaultfilters.py", DEFAULTFILTERS),
-        ("/bench/loader_tags.py", LOADER_TAGS),
         (
             "/django/templatetags/static.py",
             "from django import template\nregister = template.Library()\n@register.tag\ndef static(parser, token): pass\n",
@@ -163,7 +161,6 @@ fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
         "/django/template/defaulttags.py",
         specs.defaulttags_source.clone(),
     );
-    db.add_fixture_source("/bench/defaulttags.py", specs.defaulttags_source.clone());
     db.add_fixture_source("/django/templatetags/i18n.py", specs.i18n_source.clone());
 
     let root = Utf8Path::new("/");
@@ -215,4 +212,64 @@ pub fn primed_realistic_db() -> Db {
     djls_ide::prime_template_library_products(&db)
         .expect("realistic benchmark database should install a Project");
     db
+}
+
+#[cfg(test)]
+mod tests {
+    use djls_project::TemplateEnvironment;
+    use djls_semantic::SemanticOffsetContext;
+    use djls_semantic::TagRole;
+    use djls_source::Offset;
+
+    use super::*;
+
+    #[test]
+    fn realistic_project_fuses_canonical_builtins_and_converges_loads() {
+        let mut db = primed_realistic_db();
+        let project = db
+            .project()
+            .expect("realistic fixture should install a Project");
+        let environment = TemplateEnvironment::from_project_inventory(
+            djls_project::template_libraries(&db, project),
+        );
+        let builtin_modules: Vec<_> = environment
+            .resolved_libraries()
+            .into_iter()
+            .filter(|library| library.load_name().is_none())
+            .map(djls_project::TemplateLibrary::module_name_str)
+            .collect();
+        assert_eq!(
+            builtin_modules,
+            [
+                "django.template.defaulttags",
+                "django.template.defaultfilters",
+                "django.template.loader_tags",
+            ]
+        );
+
+        let source = "{% load i18n %}{% trans \"hello\" %}";
+        let file = db.file_with_contents("/templates/semantic-contract.html", source);
+        let nodelist = djls_templates::parse_template(&db, file)
+            .expect("semantic contract template should parse");
+        let load_position = u32::try_from(source.find("load").unwrap()).unwrap();
+        assert_eq!(
+            djls_semantic::tag_spec_at(&db, file, nodelist, load_position, "load")
+                .and_then(|spec| spec.role()),
+            Some(TagRole::TemplateLibraryLoader),
+        );
+
+        let trans_position = source.find("trans").unwrap();
+        assert!(matches!(
+            SemanticOffsetContext::from_offset(
+                &db,
+                file,
+                Offset::new(u32::try_from(trans_position).unwrap()),
+            ),
+            SemanticOffsetContext::Tag {
+                name,
+                loaded_libraries,
+                ..
+            } if name == "trans" && loaded_libraries == ["i18n"]
+        ));
+    }
 }

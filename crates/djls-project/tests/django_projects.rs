@@ -8,6 +8,7 @@ use djls_project::Project;
 use djls_project::PythonModule;
 use djls_project::PythonModuleName;
 use djls_project::SearchPath;
+use djls_project::TemplateEnvironment;
 use djls_project::compute_model_graph;
 use djls_project::file_to_module;
 use djls_project::file_to_module_resolution;
@@ -93,7 +94,7 @@ fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
     assert_eq!(models_module.name().as_str(), "blog.models");
 
     let libraries = template_libraries(&db, project);
-    let blog_tags = libraries
+    let blog_tags = TemplateEnvironment::from_project_inventory(libraries)
         .loadable_library_str("blog_tags")
         .found()
         .expect("blog_tags should be installed");
@@ -121,7 +122,7 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
     assert!(dirs.contains(&root.join("vendor/shoutbox/templates")));
 
     let libraries = template_libraries(&db, project);
-    let shout_tags = libraries
+    let shout_tags = TemplateEnvironment::from_project_inventory(libraries)
         .loadable_library_str("shout_tags")
         .found()
         .expect("shout_tags should be installed");
@@ -178,7 +179,7 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     assert!(dirs.contains(&root.join("weird/templates")));
 
     let libraries = template_libraries(&db, project);
-    let ns_tags = libraries
+    let ns_tags = TemplateEnvironment::from_project_inventory(libraries)
         .loadable_library_str("ns_tags")
         .found()
         .expect("ns_tags should be installed from namespace app");

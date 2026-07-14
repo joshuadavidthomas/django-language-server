@@ -250,23 +250,28 @@ mod tests {
 
     #[test]
     fn template_fixture_diagnostics_are_stable() {
+        // Canonical builtin identities intentionally remove unknown/unloaded output that the old
+        // synthetic module identities produced. Fixture count and bytes remain unchanged.
         assert_eq!(
             fixture_digest(template_fixtures()),
-            DiagnosticDigest::from_counts(0, 87, [("S108", 22), ("S109", 45), ("S111", 20)],)
+            DiagnosticDigest::from_counts(0, 20, [("S111", 20)])
         );
     }
 
     #[test]
     fn validation_error_fixture_diagnostics_are_stable() {
+        // Canonical loader and block roles intentionally expose the fixture's structural and `if`
+        // expression errors instead of misclassifying their tags. Input cardinality is unchanged.
         assert_eq!(
             fixture_digest(validation_error_fixtures()),
             DiagnosticDigest::from_counts(
                 0,
-                751,
+                873,
                 [
-                    ("S108", 253),
-                    ("S109", 1),
+                    ("S103", 127),
+                    ("S108", 126),
                     ("S111", 123),
+                    ("S114", 123),
                     ("S115", 128),
                     ("S116", 124),
                     ("S117", 122),

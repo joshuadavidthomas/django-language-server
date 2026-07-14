@@ -17,7 +17,6 @@ use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::python::RecoveredPythonModuleResult;
 use crate::python::recovered_python_module;
-use crate::templates::TemplateLibraryKey;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
 use crate::templates::tags::analysis::CallContext;
@@ -40,7 +39,6 @@ pub use crate::templates::tags::types::TagArgument;
 pub use crate::templates::tags::types::TagArgumentKind;
 pub use crate::templates::tags::types::TagRule;
 pub use crate::templates::tags::types::TagRuleMap;
-use crate::templates::template_library_tag_facts;
 
 /// Interned key for a helper function call.
 ///
@@ -132,18 +130,6 @@ fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctio
         }
     });
     found
-}
-
-/// Equality-bearing Tag Rule projection for one Template Library.
-#[salsa::tracked(returns(ref))]
-pub fn extract_tag_rules(db: &dyn crate::db::Db, key: TemplateLibraryKey) -> TagRuleMap {
-    template_library_tag_facts(db, key).tag_rules().clone()
-}
-
-/// Equality-bearing Block Spec projection for one Template Library.
-#[salsa::tracked(returns(ref))]
-pub fn extract_block_specs(db: &dyn crate::db::Db, key: TemplateLibraryKey) -> BlockSpecs {
-    template_library_tag_facts(db, key).block_specs().clone()
 }
 
 #[cfg(test)]

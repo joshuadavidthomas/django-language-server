@@ -4,22 +4,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::templates::SymbolKey;
-use crate::templates::TemplateLibraryKey;
-use crate::templates::template_library_filter_facts;
-
 pub type FilterArityMap = FxHashMap<SymbolKey, FilterArity>;
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct FilterArityExtraction {
-    arities: FilterArityMap,
-}
-
-impl FilterArityExtraction {
-    #[must_use]
-    pub fn arities(&self) -> &FilterArityMap {
-        &self.arities
-    }
-}
 
 /// Filter argument arity extracted from the filter function's signature.
 ///
@@ -31,22 +16,6 @@ pub struct FilterArity {
     pub expects_arg: bool,
     /// Whether the argument is optional (has a default value).
     pub arg_optional: bool,
-}
-
-/// Extract filter arities from a Python file, cached by Salsa.
-///
-/// This domain-specific query lets filter argument validation depend only on
-/// filter signature extraction.
-#[salsa::tracked(returns(ref))]
-pub fn extract_filter_arities(
-    db: &dyn crate::db::Db,
-    key: TemplateLibraryKey,
-) -> FilterArityExtraction {
-    FilterArityExtraction {
-        arities: template_library_filter_facts(db, key)
-            .filter_arities()
-            .clone(),
-    }
 }
 
 /// Extract filter argument arity from a filter function's signature.

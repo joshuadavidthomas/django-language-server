@@ -4,7 +4,7 @@ use djls_project::FilterArityMap;
 use djls_project::SymbolKey;
 use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
-use djls_project::extract_filter_arities;
+use djls_project::template_library_filter_facts;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
@@ -73,9 +73,9 @@ impl LibraryFilterSpecs {
 
 #[salsa::tracked(returns(ref))]
 pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryKey) -> LibraryFilterSpecs {
-    let extraction = extract_filter_arities(db, key);
+    let facts = template_library_filter_facts(db, key);
     let mut specs = FilterAritySpecs::new();
-    specs.merge_filter_arities(extraction.arities());
+    specs.merge_filter_arities(facts.filter_arities());
     LibraryFilterSpecs(specs)
 }
 

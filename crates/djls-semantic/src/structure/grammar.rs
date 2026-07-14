@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::Project;
+use djls_project::TemplateEnvironment;
 use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_environment;
@@ -65,11 +66,12 @@ impl SemanticGrammarVocabulary {
 #[salsa::tracked(returns(ref))]
 pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGrammarVocabulary {
     let libraries = template_libraries(db, project);
+    let environment = TemplateEnvironment::from_project_inventory(libraries);
     let mut vocabulary = SemanticGrammarVocabulary {
-        open: libraries.definition_names_are_open(),
+        open: environment.definition_names_are_open(),
         ..SemanticGrammarVocabulary::default()
     };
-    for library in libraries.resolved_libraries() {
+    for library in environment.resolved_libraries() {
         let specs = library_tag_specs(db, project, library.key(db));
         for (name, spec) in specs.iter() {
             if library.symbol(TemplateSymbolKind::Tag, name).is_none()

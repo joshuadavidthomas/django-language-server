@@ -67,10 +67,11 @@ impl PrimedTemplateLibraries {
 pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemplateLibraries> {
     let project = db.project()?;
     let libraries = template_libraries(db, project);
+    let environment = djls_project::TemplateEnvironment::from_project_inventory(libraries);
     let mut reprime_files = Vec::new();
     let mut library_count = 0;
 
-    for library in libraries.resolved_libraries() {
+    for library in environment.resolved_libraries() {
         library_count += 1;
         let key = library.key(db);
         let _ = template_library_definition_facts(db, key);
@@ -190,7 +191,10 @@ impl WarmCachePhase {
             }
             Self::IndexTemplateLibraries => {
                 let libraries = djls_project::template_libraries(db, project);
-                Some(libraries.installed_library_count())
+                Some(
+                    djls_project::TemplateEnvironment::from_project_inventory(libraries)
+                        .installed_library_count(),
+                )
             }
             Self::IndexTemplates => Some(template_resolution(db, project).origins(db).count()),
         }

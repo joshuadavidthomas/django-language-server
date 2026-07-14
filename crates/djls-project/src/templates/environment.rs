@@ -142,6 +142,18 @@ impl<'db> TemplateEnvironment<'db> {
         self.catalog.resolved_libraries_in_scope(self.scope)
     }
 
+    /// Whether discovery may have omitted definition names from the shared catalog.
+    #[must_use]
+    pub fn definition_names_are_open(self) -> bool {
+        self.catalog.definition_names_are_open()
+    }
+
+    /// Return the number of builtin and loadable libraries in this environment.
+    #[must_use]
+    pub fn installed_library_count(self) -> usize {
+        self.resolved_libraries().len()
+    }
+
     /// Borrow every indexed symbol name from the shared Project catalog.
     ///
     /// This is inventory enumeration, not contextual availability. Callers that need symbols

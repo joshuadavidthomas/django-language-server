@@ -103,7 +103,7 @@ pub enum CaseSensitivity {
 impl CaseSensitivity {
     /// Return whether the filesystem is known to be case-sensitive.
     #[must_use]
-    pub fn is_case_sensitive(&self) -> bool {
+    pub(crate) fn is_case_sensitive(self) -> bool {
         matches!(self, Self::CaseSensitive)
     }
 }
