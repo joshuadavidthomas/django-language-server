@@ -233,10 +233,43 @@ fn render_template_error(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use salsa::Database as _;
+
     use super::*;
     use crate::realistic_db;
+    use crate::specs::realistic_db_with_event_log;
     use crate::template_fixtures;
     use crate::validation_error_fixtures;
+
+    fn take_will_execute_names(
+        db: &crate::Db,
+        events: &Arc<Mutex<Vec<salsa::Event>>>,
+    ) -> Vec<String> {
+        std::mem::take(
+            &mut *events
+                .lock()
+                .expect("benchmark event log lock should not be poisoned"),
+        )
+        .into_iter()
+        .filter_map(|event| match event.kind {
+            salsa::EventKind::WillExecute { database_key } => Some(
+                db.ingredient_debug_name(database_key.ingredient_index())
+                    .to_string(),
+            ),
+            _ => None,
+        })
+        .collect()
+    }
+
+    fn execution_count(names: &[String], query: &str) -> usize {
+        names
+            .iter()
+            .filter(|name| name.rsplit("::").next() == Some(query))
+            .count()
+    }
 
     fn fixture_digest(fixtures: &[crate::Fixture]) -> DiagnosticDigest {
         let mut db = realistic_db();
@@ -246,6 +279,74 @@ mod tests {
             digest.merge(&check_file(&db, file).diagnostic_digest());
         }
         digest
+    }
+
+    #[test]
+    fn check_preparation_orders_shared_work_and_kernel_reuses_it() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut db = realistic_db_with_event_log(Arc::clone(&events));
+        let files = template_fixtures()
+            .iter()
+            .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
+            .collect::<Vec<_>>();
+
+        djls_ide::prepare_project_template_analysis(&db)
+            .expect("check benchmark database should install a Project");
+        let setup_names = take_will_execute_names(&db, &events);
+        let intrinsic_position = setup_names
+            .iter()
+            .position(|name| name.rsplit("::").next() == Some("semantic_grammar_vocabulary"))
+            .expect("intrinsic priming should evaluate the semantic grammar");
+        let template_index_position = setup_names
+            .iter()
+            .position(|name| name.rsplit("::").next() == Some("template_directory_index"))
+            .expect("Template indexing should evaluate the directory index");
+        assert!(
+            intrinsic_position < template_index_position,
+            "intrinsic products must be primed before Template indexing"
+        );
+        assert_eq!(execution_count(&setup_names, "template_directory_index"), 1);
+
+        djls_ide::prepare_project_template_analysis(&db)
+            .expect("check benchmark database should install a Project");
+        let repeated_setup_names = take_will_execute_names(&db, &events);
+        assert_eq!(
+            execution_count(&repeated_setup_names, "semantic_grammar_vocabulary"),
+            0,
+            "repeated preparation should reuse intrinsic products"
+        );
+        assert_eq!(
+            execution_count(&repeated_setup_names, "template_directory_index"),
+            0,
+            "repeated preparation should reuse the shared Template index"
+        );
+
+        let config = DiagnosticsConfig::default();
+        let renderer = DiagnosticRenderer::plain();
+        for file in &files {
+            let source = file
+                .try_source(&db)
+                .expect("benchmark file should be readable");
+            let path = file.path(&db).clone();
+            let check = check_file(&db, *file);
+            let result = FileCheckResult {
+                path,
+                source,
+                check,
+            };
+            let _ = result.render(&config, &renderer);
+        }
+
+        let kernel_names = take_will_execute_names(&db, &events);
+        assert_eq!(
+            execution_count(&kernel_names, "template_directory_index"),
+            0,
+            "Template discovery/indexing must remain outside the timed check kernel"
+        );
+        assert_eq!(
+            execution_count(&kernel_names, "validate_template_file"),
+            files.len()
+        );
     }
 
     #[test]

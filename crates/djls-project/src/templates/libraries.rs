@@ -552,6 +552,10 @@ struct TemplateBackendLibraries {
 
 impl TemplateBackendLibraries {
     fn load_name_is_open(&self, name: &LibraryName) -> bool {
+        self.load_name_is_open_str(name.as_str())
+    }
+
+    fn load_name_is_open_str(&self, name: &str) -> bool {
         if self.authoritative_names.contains(name) {
             return false;
         }
@@ -1242,27 +1246,49 @@ impl TemplateLibraries {
         kind: TemplateSymbolKind,
         loaded_names: &[&str],
     ) -> Vec<EffectiveDefinitionLibrary<'a>> {
-        self.effective_definition_libraries_in_view(
+        let mut definitions = Vec::new();
+        self.for_each_effective_definition_library_in_scope(
+            scope,
+            symbol_name,
+            kind,
+            loaded_names,
+            |definition| definitions.push(definition),
+        );
+        definitions
+    }
+
+    pub(crate) fn for_each_effective_definition_library_in_scope<'a>(
+        &'a self,
+        scope: &'a TemplateEnvironmentScope,
+        symbol_name: &str,
+        kind: TemplateSymbolKind,
+        loaded_names: &[&str],
+        visitor: impl FnMut(EffectiveDefinitionLibrary<'a>),
+    ) {
+        self.for_each_effective_definition_library_in_view(
             AlternativeView::new(self, scope),
             symbol_name,
             kind,
             loaded_names,
-        )
+            visitor,
+        );
     }
 
-    fn effective_definition_libraries_in_view<'a>(
+    fn for_each_effective_definition_library_in_view<'a>(
         &'a self,
         view: AlternativeView<'a>,
         symbol_name: &str,
         kind: TemplateSymbolKind,
         loaded_names: &[&str],
-    ) -> Vec<EffectiveDefinitionLibrary<'a>> {
+        mut visitor: impl FnMut(EffectiveDefinitionLibrary<'a>),
+    ) {
         let has_symbol = |library: &TemplateLibrary| library.symbol(kind, symbol_name).is_some();
-        let mut alternatives = Vec::new();
+        let mut visited = false;
 
         for alternative in view.alternatives() {
+            visited = true;
             let Some(backend) = alternative.backend() else {
-                alternatives.push(match alternative {
+                visitor(match alternative {
                     BackendAlternative::NoBackend { .. } => EffectiveDefinitionLibrary::Known(None),
                     BackendAlternative::Unknown => EffectiveDefinitionLibrary::Unknown,
                     BackendAlternative::Known { .. } => unreachable!(),
@@ -1271,7 +1297,7 @@ impl TemplateLibraries {
             };
             let scoped = alternative;
             if scoped.backend_is_open() {
-                alternatives.push(EffectiveDefinitionLibrary::Unknown);
+                visitor(EffectiveDefinitionLibrary::Unknown);
                 continue;
             }
 
@@ -1292,10 +1318,11 @@ impl TemplateLibraries {
             }
 
             for loaded_name in loaded_names {
-                let Ok(load_name) = LibraryName::parse(loaded_name) else {
+                let loaded_name = loaded_name.trim();
+                if loaded_name.is_empty() || loaded_name.chars().any(char::is_whitespace) {
                     continue;
-                };
-                match backend.loadable_by_name.get(&load_name) {
+                }
+                match backend.loadable_by_name.get(loaded_name) {
                     Some(TemplateLibraryReference::Resolved(index)) => {
                         if let Some(library) = self.libraries.get(*index) {
                             if has_symbol(library) {
@@ -1312,7 +1339,7 @@ impl TemplateLibraries {
                         unobserved = None;
                         unknown = true;
                     }
-                    None if backend.load_name_is_open(&load_name) => {
+                    None if backend.load_name_is_open_str(loaded_name) => {
                         unobserved = None;
                         unknown = true;
                     }
@@ -1320,7 +1347,7 @@ impl TemplateLibraries {
                 }
             }
 
-            alternatives.push(if unknown {
+            visitor(if unknown {
                 EffectiveDefinitionLibrary::Unknown
             } else if let Some(library) = unobserved {
                 EffectiveDefinitionLibrary::Unobserved(library)
@@ -1328,10 +1355,9 @@ impl TemplateLibraries {
                 EffectiveDefinitionLibrary::Known(effective)
             });
         }
-        if alternatives.is_empty() || view.has_omissions() {
-            alternatives.push(EffectiveDefinitionLibrary::Unknown);
+        if !visited || view.has_omissions() {
+            visitor(EffectiveDefinitionLibrary::Unknown);
         }
-        alternatives
     }
 
     pub(crate) fn contextual_library_chains_in_scope<'a>(
@@ -1339,62 +1365,96 @@ impl TemplateLibraries {
         scope: &'a TemplateEnvironmentScope,
         loaded_names: &[&str],
     ) -> Vec<ContextualLibraryChain<'a>> {
-        self.contextual_library_chains_in_view(AlternativeView::new(self, scope), loaded_names)
+        let mut chains = Vec::new();
+        self.fold_contextual_library_chains_in_scope(
+            scope,
+            loaded_names,
+            Vec::new,
+            Vec::push,
+            |steps| chains.push(ContextualLibraryChain(steps)),
+        );
+        chains
     }
 
-    fn contextual_library_chains_in_view<'a>(
+    pub(crate) fn fold_contextual_library_chains_in_scope<'a, State>(
+        &'a self,
+        scope: &'a TemplateEnvironmentScope,
+        loaded_names: &[&str],
+        initial: impl FnMut() -> State,
+        step: impl FnMut(&mut State, ContextualLibraryStep<'a>),
+        finish: impl FnMut(State),
+    ) {
+        self.fold_contextual_library_chains_in_view(
+            AlternativeView::new(self, scope),
+            loaded_names,
+            initial,
+            step,
+            finish,
+        );
+    }
+
+    fn fold_contextual_library_chains_in_view<'a, State>(
         &'a self,
         view: AlternativeView<'a>,
         loaded_names: &[&str],
-    ) -> Vec<ContextualLibraryChain<'a>> {
-        let mut chains = Vec::new();
+        mut initial: impl FnMut() -> State,
+        mut step: impl FnMut(&mut State, ContextualLibraryStep<'a>),
+        mut finish: impl FnMut(State),
+    ) {
+        let mut visited = false;
         for alternative in view.alternatives() {
+            visited = true;
+            let mut state = initial();
             let Some(backend) = alternative.backend() else {
-                chains.push(match alternative {
-                    BackendAlternative::NoBackend { .. } => ContextualLibraryChain(Vec::new()),
+                match alternative {
+                    BackendAlternative::NoBackend { .. } => {}
                     BackendAlternative::Unknown => {
-                        ContextualLibraryChain(vec![ContextualLibraryStep::Unknown])
+                        step(&mut state, ContextualLibraryStep::Unknown);
                     }
                     BackendAlternative::Known { .. } => unreachable!(),
-                });
+                }
+                finish(state);
                 continue;
             };
             let scoped = alternative;
-            let mut steps = if scoped.backend_is_open() || scoped.builtins_are_open() {
-                vec![ContextualLibraryStep::Unknown]
+            if scoped.backend_is_open() || scoped.builtins_are_open() {
+                step(&mut state, ContextualLibraryStep::Unknown);
             } else {
-                backend
+                for library in backend
                     .builtin_indices
                     .iter()
                     .filter_map(|index| self.libraries.get(*index))
-                    .map(ContextualLibraryStep::Library)
-                    .collect()
-            };
+                {
+                    step(&mut state, ContextualLibraryStep::Library(library));
+                }
+            }
             for loaded_name in loaded_names {
-                let Ok(load_name) = LibraryName::parse(loaded_name) else {
+                let loaded_name = loaded_name.trim();
+                if loaded_name.is_empty() || loaded_name.chars().any(char::is_whitespace) {
                     continue;
-                };
-                match backend.loadable_by_name.get(&load_name) {
+                }
+                match backend.loadable_by_name.get(loaded_name) {
                     Some(TemplateLibraryReference::Resolved(index)) => {
                         if let Some(library) = self.libraries.get(*index) {
-                            steps.push(ContextualLibraryStep::Library(library));
+                            step(&mut state, ContextualLibraryStep::Library(library));
                         }
                     }
                     Some(TemplateLibraryReference::Unresolved { .. }) => {
-                        steps.push(ContextualLibraryStep::Unknown);
+                        step(&mut state, ContextualLibraryStep::Unknown);
                     }
-                    None if backend.load_name_is_open(&load_name) => {
-                        steps.push(ContextualLibraryStep::Unknown);
+                    None if backend.load_name_is_open_str(loaded_name) => {
+                        step(&mut state, ContextualLibraryStep::Unknown);
                     }
                     None => {}
                 }
             }
-            chains.push(ContextualLibraryChain(steps));
+            finish(state);
         }
-        if chains.is_empty() || view.has_omissions() {
-            chains.push(ContextualLibraryChain(vec![ContextualLibraryStep::Unknown]));
+        if !visited || view.has_omissions() {
+            let mut state = initial();
+            step(&mut state, ContextualLibraryStep::Unknown);
+            finish(state);
         }
-        chains
     }
 
     #[must_use]

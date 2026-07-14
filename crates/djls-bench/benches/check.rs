@@ -1,10 +1,14 @@
 //! Benchmarks for the cold validation-and-render kernel used by `djls check`.
 //!
-//! Each iteration creates a fixture-backed Project, installs the selected
-//! Template sources, runs production Template Library priming, then validates
-//! and renders serially. The measured boundary intentionally excludes CLI
-//! argument/config loading, Django Environment and Project Facts discovery,
-//! filesystem template discovery, Rayon scheduling, sorting, and terminal I/O.
+//! Divan input setup creates the fixture-backed Project, synchronizes the selected Template
+//! sources, then runs production intrinsic priming and Template indexing outside the timed region.
+//! The measured kernel validates and renders the synchronized files serially. It intentionally
+//! excludes CLI argument/config loading, Django Environment and Project Facts discovery,
+//! filesystem Template discovery, Salsa input synchronization, intrinsic priming, Template
+//! indexing, Rayon scheduling, sorting, and terminal I/O.
+//!
+//! The semantic benchmark suite separately measures both a cold Project and a primed
+//! Project/cold-Template workload, so excluding setup here does not hide required Project work.
 //!
 //! Scales from the fixture batch to the full corpus to stress the kernel while
 //! keeping that narrower boundary explicit.
@@ -70,8 +74,8 @@ fn assert_check_workload_contract(
         .map(|(path, source)| db.file_with_contents(path.clone(), source))
         .collect();
     assert_eq!(synchronized.len(), expected.synchronized_file_count);
-    djls_ide::prime_template_library_products(&db)
-        .expect("check benchmark fixture should install a Project");
+    djls_ide::prepare_project_template_analysis(&db)
+        .expect("check benchmark database should install a Project");
 
     let config = djls_conf::DiagnosticsConfig::default();
     let fmt = DiagnosticRenderer::plain();
@@ -112,25 +116,30 @@ fn fixtures(bencher: Bencher) {
         },
     );
 
-    bencher.bench_local(move || {
-        let mut db = realistic_db();
-        let config = djls_conf::DiagnosticsConfig::default();
-        let fmt = DiagnosticRenderer::plain();
-
-        let files: Vec<_> = fixtures
-            .iter()
-            .map(|f| db.file_with_contents(f.path.clone(), &f.source))
-            .collect();
-        djls_ide::prime_template_library_products(&db)
-            .expect("check benchmark fixture should install a Project");
-
-        let mut total_errors = 0;
-        for &file in &files {
-            let result = run_check(&db, file);
-            total_errors += result.render(&config, &fmt).len();
-        }
-        divan::black_box(total_errors);
-    });
+    bencher
+        .with_inputs(move || {
+            let mut db = realistic_db();
+            let files: Vec<_> = fixtures
+                .iter()
+                .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
+                .collect();
+            djls_ide::prepare_project_template_analysis(&db)
+                .expect("check benchmark database should install a Project");
+            (
+                db,
+                files,
+                djls_conf::DiagnosticsConfig::default(),
+                DiagnosticRenderer::plain(),
+            )
+        })
+        .bench_local_refs(|(db, files, config, fmt)| {
+            let mut total_errors = 0;
+            for &file in files.iter() {
+                let result = run_check(db, file);
+                total_errors += result.render(config, fmt).len();
+            }
+            divan::black_box(total_errors);
+        });
 }
 
 // Corpus-scale: real Django templates and the full corpus.
@@ -209,24 +218,28 @@ fn bench_corpus_check(
 
     bencher
         .counter(divan::counter::ItemsCount::new(file_count))
-        .bench_local(move || {
+        .with_inputs(move || {
             let mut db = realistic_db();
-            let config = djls_conf::DiagnosticsConfig::default();
-            let fmt = DiagnosticRenderer::plain();
-
             let files: Vec<_> = corpus
                 .files
                 .iter()
                 .map(|(path, source)| db.file_with_contents(path.clone(), source))
                 .collect();
-            djls_ide::prime_template_library_products(&db)
-                .expect("check benchmark fixture should install a Project");
-
+            djls_ide::prepare_project_template_analysis(&db)
+                .expect("check benchmark database should install a Project");
+            (
+                db,
+                files,
+                djls_conf::DiagnosticsConfig::default(),
+                DiagnosticRenderer::plain(),
+            )
+        })
+        .bench_local_refs(|(db, files, config, fmt)| {
             let mut total_errors = 0;
-            for &file in &files {
-                let result = run_check(&db, file);
+            for &file in files.iter() {
+                let result = run_check(db, file);
                 if result.has_diagnostics() {
-                    total_errors += result.render(&config, &fmt).len();
+                    total_errors += result.render(config, fmt).len();
                 }
             }
             divan::black_box(total_errors);

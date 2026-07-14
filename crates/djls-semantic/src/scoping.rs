@@ -133,9 +133,10 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         .count()
         + 1;
 
+    let environment = crate::db::template_environment_for_file(db, scope_file);
     let mut loaded = LoadedLibraries::default();
     for _ in 0..fixed_point_limit {
-        let grammar = SparseTagGrammar::for_pass(db, source_file, scope_file, nodelist, &loaded);
+        let grammar = SparseTagGrammar::for_pass(db, source_file, nodelist, &loaded, environment);
         // Fixed-point passes are plain temporary values. No tracked Tree identity
         // or structural diagnostic is produced until this pass converges.
         let tree_data =
@@ -169,7 +170,6 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
             continue;
         }
 
-        let environment = crate::db::template_environment_for_file(db, scope_file);
         let mut tag_facts = BTreeMap::new();
         let mut filter_facts = BTreeMap::new();
         let mut load_cursor = loaded.cursor();
@@ -256,9 +256,9 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                             FilterOccurrenceKey::from_filter(filter),
                             ScopedFilterFact {
                                 availability,
-                                arity: crate::filters::effective_filter_arity_in_scope(
+                                arity: crate::filters::effective_filter_arity_in_environment(
                                     db,
-                                    scope_file,
+                                    environment,
                                     &filter.name,
                                     &load_state,
                                 ),

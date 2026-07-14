@@ -5,7 +5,6 @@ use djls_project::Project;
 use djls_project::TemplateEnvironment;
 use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
-use djls_project::template_environment;
 use djls_project::template_libraries;
 use djls_source::File;
 use djls_source::Span;
@@ -207,9 +206,9 @@ impl SparseTagGrammar {
     pub(crate) fn for_pass(
         db: &dyn Db,
         source_file: File,
-        scope_file: File,
         nodelist: NodeList<'_>,
         loaded: &LoadedLibraries,
+        environment: TemplateEnvironment<'_>,
     ) -> Self {
         let mut occurrences = BTreeMap::new();
         let mut load_cursor = loaded.cursor();
@@ -225,17 +224,20 @@ impl SparseTagGrammar {
             };
             let load_state = load_cursor.advance_to(span.start());
             let spec = match db.project() {
-                Some(project) => crate::tags::effective_tag_spec_in_project_for_scope(
-                    db,
-                    project,
-                    scope_file,
-                    name,
-                    &load_state,
-                ),
+                Some(project) => {
+                    let loaded_names = load_state.libraries_loading_symbol(name);
+                    crate::tags::effective_tag_spec_from_environment(
+                        db,
+                        project,
+                        environment,
+                        name,
+                        &loaded_names,
+                    )
+                }
                 None => crate::tags::effective_tag_spec(db, source_file, name, &load_state),
             };
             let classification = spec.as_ref().map_or_else(
-                || classify_orphan(db, source_file, scope_file, name, &load_state),
+                || classify_orphan(db, source_file, name, &load_state, environment),
                 |spec| {
                     OpeningContract::from_spec(spec)
                         .map_or(TagClassification::Standalone, TagClassification::Opener)
@@ -262,15 +264,14 @@ impl SparseTagGrammar {
 fn classify_orphan(
     db: &dyn Db,
     source_file: File,
-    scope_file: File,
     spelling: &str,
     load_state: &crate::scoping::LoadState<'_>,
+    environment: TemplateEnvironment<'_>,
 ) -> TagClassification {
     let Some(project) = db.project() else {
         return classify_projectless_orphan(db, source_file, spelling);
     };
     let vocabulary = semantic_grammar_vocabulary(db, project);
-    let environment = template_environment(db, project, scope_file);
 
     let (closers, closer_uncertain) = resolve_orphan_candidates(
         db,
@@ -329,32 +330,32 @@ fn resolve_orphan_candidates(
     let mut uncertain = false;
     for candidate in candidates {
         let loaded = load_state.libraries_loading_symbol(candidate.name());
-        let definitions = environment.effective_definition_libraries(
+        let mut alternatives = 0;
+        let mut matching = 0;
+        let mut unknown = false;
+        environment.for_each_effective_definition_library(
             candidate.name(),
             TemplateSymbolKind::Tag,
             &loaded,
-        );
-        let matching = definitions
-            .iter()
-            .filter(|definition| {
-                matches!(
-                    definition,
+            |definition| {
+                alternatives += 1;
+                match definition {
                     EffectiveDefinitionLibrary::Known(Some(library))
-                        if library.key(db) == *candidate.library()
-                )
-            })
-            .count();
-        let unknown = definitions.iter().any(|definition| {
-            matches!(
-                definition,
-                EffectiveDefinitionLibrary::Unknown | EffectiveDefinitionLibrary::Unobserved(_)
-            )
-        });
-        if unknown || (matching > 0 && matching != definitions.len()) {
+                        if library.key(db) == *candidate.library() =>
+                    {
+                        matching += 1;
+                    }
+                    EffectiveDefinitionLibrary::Known(_) => {}
+                    EffectiveDefinitionLibrary::Unknown
+                    | EffectiveDefinitionLibrary::Unobserved(_) => unknown = true,
+                }
+            },
+        );
+        if unknown || (matching > 0 && matching != alternatives) {
             uncertain = true;
             continue;
         }
-        if matching == definitions.len()
+        if matching == alternatives
             && matching > 0
             && library_tag_specs(db, project, *candidate.library())
                 .get(candidate.name())

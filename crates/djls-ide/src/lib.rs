@@ -28,5 +28,6 @@ pub use warmup::PrimedTemplateLibraries;
 pub use warmup::WarmCachePart;
 pub use warmup::WarmCachePhase;
 pub use warmup::WarmCacheProgress;
+pub use warmup::prepare_project_template_analysis;
 pub use warmup::prime_template_library_products;
 pub use warmup::warm_cache_phases;

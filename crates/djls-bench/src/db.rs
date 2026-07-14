@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::io;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -135,6 +137,20 @@ pub struct Db {
 impl Db {
     #[must_use]
     pub fn new() -> Self {
+        Self::with_storage(salsa::Storage::default())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_event_log(events: Arc<Mutex<Vec<salsa::Event>>>) -> Self {
+        Self::with_storage(salsa::Storage::new(Some(Box::new(move |event| {
+            events
+                .lock()
+                .expect("benchmark event log lock should not be poisoned")
+                .push(event);
+        }))))
+    }
+
+    fn with_storage(storage: salsa::Storage<Self>) -> Self {
         Self {
             fs: SourceMapFileSystem {
                 sources: Arc::new(FxDashMap::default()),
@@ -143,7 +159,7 @@ impl Db {
             projectless_tag_specs: Arc::new(TagSpecs::default()),
             projectless_filter_arity_specs: Arc::new(FilterAritySpecs::new()),
             project: None,
-            storage: salsa::Storage::default(),
+            storage,
         }
     }
 

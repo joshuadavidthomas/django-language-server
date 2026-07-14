@@ -1,3 +1,7 @@
+#[cfg(test)]
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 use std::sync::OnceLock;
 
 use camino::Utf8Path;
@@ -193,12 +197,21 @@ pub fn structure_db() -> Db {
 /// source files.
 #[must_use]
 pub fn realistic_db() -> Db {
+    configure_realistic_db(Db::new())
+}
+
+fn configure_realistic_db(db: Db) -> Db {
     let specs = realistic_specs();
-    let mut db = Db::new()
+    let mut db = db
         .with_projectless_tag_specs(specs.tag_specs.clone())
         .with_projectless_filter_arity_specs(specs.filter_arity_specs.clone());
     install_template_environment(&mut db, specs);
     db
+}
+
+#[cfg(test)]
+pub(crate) fn realistic_db_with_event_log(events: Arc<Mutex<Vec<salsa::Event>>>) -> Db {
+    configure_realistic_db(Db::with_event_log(events))
 }
 
 /// Create the realistic database with production intrinsic priming complete.

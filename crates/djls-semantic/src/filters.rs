@@ -80,9 +80,9 @@ pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryKey) -> LibraryFilt
 }
 
 /// Return the effective filter arity at one occurrence when every feasible backend agrees.
-pub(crate) fn effective_filter_arity_in_scope(
+pub(crate) fn effective_filter_arity_in_environment(
     db: &dyn Db,
-    scope_file: djls_source::File,
+    environment: djls_project::TemplateEnvironment<'_>,
     filter_name: &str,
     load_state: &crate::scoping::LoadState<'_>,
 ) -> Option<FilterArity> {
@@ -93,29 +93,39 @@ pub(crate) fn effective_filter_arity_in_scope(
             .cloned();
     }
     let loaded = load_state.libraries_loading_symbol(filter_name);
-    let alternatives = crate::db::template_environment_for_file(db, scope_file)
-        .effective_definition_libraries(filter_name, TemplateSymbolKind::Filter, &loaded);
-    let definitions: Option<Vec<Option<FilterArity>>> = alternatives
-        .into_iter()
-        .map(|alternative| match alternative {
-            EffectiveDefinitionLibrary::Known(library) => Some(library.and_then(|library| {
-                library_filter_specs(db, library.key(db))
-                    .get(filter_name)
-                    .cloned()
-            })),
-            EffectiveDefinitionLibrary::Unobserved(library) => {
-                library_filter_specs(db, library.key(db))
-                    .get(filter_name)
-                    .cloned()
-                    .map(Some)
+    let mut agreed = None;
+    let mut alternatives_agree = true;
+    environment.for_each_effective_definition_library(
+        filter_name,
+        TemplateSymbolKind::Filter,
+        &loaded,
+        |alternative| {
+            let definition = match alternative {
+                EffectiveDefinitionLibrary::Known(library) => library
+                    .and_then(|library| library_filter_specs(db, library.key(db)).get(filter_name)),
+                EffectiveDefinitionLibrary::Unobserved(library) => {
+                    let Some(arity) = library_filter_specs(db, library.key(db)).get(filter_name)
+                    else {
+                        alternatives_agree = false;
+                        return;
+                    };
+                    Some(arity)
+                }
+                EffectiveDefinitionLibrary::Unknown => {
+                    alternatives_agree = false;
+                    return;
+                }
+            };
+            match agreed {
+                None => agreed = Some(definition),
+                Some(existing) if existing == definition => {}
+                Some(_) => alternatives_agree = false,
             }
-            EffectiveDefinitionLibrary::Unknown => None,
-        })
-        .collect();
-    let definitions = definitions?;
-    let first = definitions.first()?.as_ref()?;
-    definitions
-        .iter()
-        .all(|definition| definition.as_ref() == Some(first))
-        .then(|| first.clone())
+        },
+    );
+
+    alternatives_agree
+        .then_some(agreed.flatten())
+        .flatten()
+        .cloned()
 }

@@ -174,8 +174,8 @@ impl Command for Check {
             return Ok(Exit::success());
         }
 
-        djls_ide::prime_template_library_products(&db)
-            .context("Failed to prime Template Library products")?;
+        djls_ide::prepare_project_template_analysis(&db)
+            .context("Failed to prepare project Template analysis")?;
 
         let mut raw_results = check_files_parallel(db, files, true)?;
         raw_results.sort_by(|left, right| left.path.cmp(&right.path));
@@ -242,8 +242,8 @@ fn check_stdin(
     let mut db = DjangoDatabase::new(fs, settings, Some(project_root));
     db.apply_project_settings(settings.clone());
     discover_project(&mut db)?;
-    djls_ide::prime_template_library_products(&db)
-        .context("Failed to prime Template Library products")?;
+    djls_ide::prepare_project_template_analysis(&db)
+        .context("Failed to prepare project Template analysis")?;
 
     let mut results = check_files_parallel(db, vec![stdin_path], false)?;
     let result = results.pop().expect("stdin validation produces one result");

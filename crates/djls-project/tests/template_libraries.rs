@@ -256,6 +256,14 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
         EffectiveDefinitionLibrary::Known(Some(library)),
         EffectiveDefinitionLibrary::Known(None),
     ] if library.module_name_str() == "django.template.defaulttags"));
+    let mut streamed_unloaded = Vec::new();
+    environment.for_each_effective_definition_library(
+        "if",
+        TemplateSymbolKind::Tag,
+        &[],
+        |definition| streamed_unloaded.push(definition),
+    );
+    assert_eq!(streamed_unloaded, unloaded);
 
     let loaded =
         environment.effective_definition_libraries("if", TemplateSymbolKind::Tag, &["alpha"]);
@@ -264,6 +272,18 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
         EffectiveDefinitionLibrary::Known(Some(library))
             if library.module_name_str() == "project.alpha"
     )));
+    let materialized_chains = environment.contextual_library_chains(&["alpha"]);
+    let mut folded_chains = Vec::new();
+    environment.fold_contextual_library_chains(&["alpha"], Vec::new, Vec::push, |chain| {
+        folded_chains.push(chain);
+    });
+    assert_eq!(
+        folded_chains,
+        materialized_chains
+            .iter()
+            .map(|chain| chain.steps().to_vec())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

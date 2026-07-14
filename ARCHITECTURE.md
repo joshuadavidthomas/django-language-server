@@ -39,7 +39,7 @@ Throughout the code map you'll see **Architecture Invariant** callouts. These ar
 
 ### `crates/djls`
 
-The CLI binary. It parses command-line arguments, starts the LSP server for `djls serve`, and runs the black-box template validation flow for `djls check`. For project-backed checks, the CLI applies settings and Project Facts, discovers the input Templates, primes intrinsic Template Library products synchronously, and only then clones the database into parallel validation workers. The stdin path follows the same ordering when a Project exists. This is also the only crate that carries the release version; internal library crates use `0.0.0`.
+The CLI binary. It parses command-line arguments, starts the LSP server for `djls serve`, and runs the black-box template validation flow for `djls check`. For project-backed checks, the CLI applies settings and Project Facts, discovers the input Templates, calls the `djls-ide` one-shot preparation seam, and only then clones the database into parallel validation workers. That preparation primes intrinsic Template Library products before building the shared Template index; the stdin path uses the same seam. This is also the only crate that carries the release version; internal library crates use `0.0.0`.
 
 ### `crates/djls-server`
 
@@ -106,7 +106,7 @@ Project configuration, Python environment discovery, module resolution, and sour
 
 ### `crates/djls-ide`
 
-IDE features: completions, diagnostics, folding ranges, snippets, goto definition, find references, and cache warm-up for responsive startup. This crate owns the synchronous production priming seam: it walks active Template Library identities, evaluates per-library Project and Semantic products plus the grammar vocabulary, and returns the exact Python source coverage used by server readiness. Priming performs no per-Template parsing, projection, or validation. The crate also translates internal domain knowledge into LSP-shaped output that editors can consume.
+IDE features: completions, diagnostics, folding ranges, snippets, goto definition, find references, and cache warm-up for responsive startup. This crate owns two synchronous production preparation seams. Intrinsic priming walks active Template Library identities, evaluates per-library Project and Semantic products plus the grammar vocabulary, and returns the exact Python source coverage used by server readiness; it performs no per-Template parsing, projection, or validation. One-shot project Template analysis composes that intrinsic priming with shared Template indexing and reports whether a Project was available; callers need no preparation internals. The crate also translates internal domain knowledge into LSP-shaped output that editors can consume.
 
 **Architecture Invariant:** `djls-ide` is the translation layer. Everything below it — `djls-semantic`, `djls-templates`, `djls-source` — is LSP-unaware. `djls-server` should call `djls-ide` for IDE behavior and reach into lower crates only for runtime seams such as project reload and Django Discovery orchestration.
 
@@ -120,7 +120,7 @@ Settings and diagnostics configuration. Merges configuration from multiple sourc
 
 ### `crates/djls-bench`
 
-Benchmarks using [divan](https://github.com/nvzqz/divan). Its database supports both explicit projectless structural fixtures and realistic project-backed inputs. Project-backed warm-semantic workloads call the production priming seam; cold-Project and primed-Project/cold-Template workloads keep those costs distinct. The crate benchmarks parsing, sparse Template analysis, validation, extraction, diagnostics, and the validation/render kernels used by `djls check`. Check benchmarks exclude CLI and configuration loading, Django Discovery, filesystem Template discovery, Rayon scheduling, sorting, and terminal I/O; they are not full-pipeline benchmarks. `just dev profile <bench> [filter]` generates flamegraphs.
+Benchmarks using [divan](https://github.com/nvzqz/divan). Its database supports both explicit projectless structural fixtures and realistic project-backed inputs. Project-backed warm-semantic workloads call the production priming seam; cold-Project and primed-Project/cold-Template workloads keep those costs distinct. The crate benchmarks parsing, sparse Template analysis, validation, extraction, diagnostics, and the documented validation/render kernels used by `djls check`. Check benchmark Divan inputs create the database, synchronize all Template sources, and call the same `djls-ide` one-shot preparation function as the CLI outside the timed region; only per-file validation and rendering are timed. They also exclude CLI and configuration loading, Django Discovery, filesystem Template discovery, Rayon scheduling, sorting, and terminal I/O, so they are not full-pipeline benchmarks. The separate semantic cold-Project and primed-Project/cold-Template benchmarks keep setup and Project costs visible. `just dev profile <bench> [filter]` generates flamegraphs.
 
 ### `crates/djls-testing`
 

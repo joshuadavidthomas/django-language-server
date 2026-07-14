@@ -524,11 +524,18 @@ mod invalidation_tests {
             exact_execution_count(&db, &first_request, "validate_template_file"),
             1
         );
+        assert_eq!(
+            exact_execution_count(&db, &first_request, "template_environment_scope"),
+            1,
+            "one borrowed Template Environment should be computed for the whole file",
+        );
         for intrinsic in [
             "template_library_definition_facts",
             "library_tag_specs",
             "library_filter_specs",
             "semantic_grammar_vocabulary",
+            "tag_specs_for_file",
+            "tag_specs_at",
         ] {
             assert_eq!(exact_execution_count(&db, &first_request, intrinsic), 0);
         }

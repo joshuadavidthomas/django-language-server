@@ -1,7 +1,23 @@
 use camino::Utf8Path;
 use djls_project::*;
+use djls_source::ChangeEvent;
+use djls_source::SourceChanges;
 use djls_testing::ProjectFixture;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use salsa::Database as _;
+
+fn will_execute_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
+    events
+        .iter()
+        .filter(|event| match &event.kind {
+            salsa::EventKind::WillExecute { database_key } => db
+                .ingredient_debug_name(database_key.ingredient_index())
+                .contains(query_name),
+            _ => false,
+        })
+        .count()
+}
 
 fn project_with_templates(
     db: &mut TestDatabase,
@@ -62,6 +78,10 @@ fn template_environment_correlates_libraries_with_resolving_backends() {
 
     let catalog = template_libraries(&db, project);
     let inventory = TemplateEnvironment::from_project_inventory(catalog);
+    assert!(matches!(
+        inventory.loadable_library_str("shared"),
+        LoadableLibraryLookup::Ambiguous(libraries) if libraries.len() == 2
+    ));
     let catalog_alpha = inventory
         .resolved_libraries()
         .into_iter()
@@ -79,6 +99,56 @@ fn template_environment_correlates_libraries_with_resolving_backends() {
     assert!(
         std::ptr::eq(beta, catalog_beta),
         "a file environment must borrow backend B's library from the shared catalog"
+    );
+}
+
+#[test]
+fn template_environment_file_backend_index_invalidates_with_settings_evidence() {
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    let settings_path = "/test/project/testproject/settings.py";
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(settings_path, settings)
+        .file(
+            "/test/project/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file(
+            "/test/project/beta_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/test/project/templates/page.html", "{% load shared %}")
+        .build(&db);
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+
+    let initial = template_environment(&db, project, file)
+        .loadable_library_str("shared")
+        .found()
+        .expect("initial direct file scope should select alpha");
+    assert_eq!(initial.module_name_str(), "alpha_tags");
+    let _ = events.take();
+
+    db.add_file(
+        settings_path,
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/other-templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n",
+    );
+    SourceChanges::new([ChangeEvent::ContentChanged(settings_path.into())]).apply(&mut db);
+
+    let updated = template_environment(&db, project, file)
+        .loadable_library_str("shared")
+        .found()
+        .expect("invalidated direct file scope should select beta");
+    assert_eq!(updated.module_name_str(), "beta_tags");
+    let executed = events.take();
+    assert_eq!(
+        will_execute_count(&db, &executed, "template_directory_index"),
+        1
+    );
+    assert_eq!(
+        will_execute_count(&db, &executed, "template_environment_scope"),
+        1
     );
 }
 
@@ -1109,10 +1179,34 @@ fn scoped_resolution_joins_duplicate_backend_memberships() {
         .build(&db);
     let resolution = template_resolution(&db, project);
     let child = db.file(Utf8Path::new("/test/project/shared/child.html"));
+    let child_name = TemplateName::new(&db, "child.html".to_string());
+    let child_origin = resolution
+        .origins_for_name(&db, child_name)
+        .iter()
+        .copied()
+        .find(|origin| origin.file(&db) == child)
+        .expect("the shared child should have a concrete origin");
     let parent = TemplateName::new(&db, "parent.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) = resolution.resolve_for_file(&db, parent, child)
-    else {
+    let indexed = resolution.resolve_for_file(&db, parent, child);
+    let scanned_scope = resolution.backend_scope_for_origin(&db, child_origin);
+    let scanned = resolution
+        .resolve_reference_from_origin_in_scope(
+            &db,
+            child_origin,
+            parent,
+            &[],
+            true,
+            &scanned_scope,
+        )
+        .expect("an absolute parent name should normalize")
+        .result;
+    assert_eq!(
+        indexed, scanned,
+        "the direct file index must preserve origin-scan scope"
+    );
+
+    let FindTemplateResult::Inconclusive(search) = indexed else {
         panic!("different engine-local parents must be inconclusive");
     };
     let paths = search

@@ -104,23 +104,6 @@ pub(crate) fn effective_tag_spec(
     effective_tag_spec_in_project(db, project, file, name, load_state)
 }
 
-pub(crate) fn effective_tag_spec_in_project_for_scope(
-    db: &dyn Db,
-    project: Project,
-    scope_file: djls_source::File,
-    name: &str,
-    load_state: &LoadState<'_>,
-) -> Option<TagSpec> {
-    let loaded = load_state.libraries_loading_symbol(name);
-    effective_tag_spec_from_environment(
-        db,
-        project,
-        template_environment(db, project, scope_file),
-        name,
-        &loaded,
-    )
-}
-
 fn effective_tag_spec_in_project(
     db: &dyn Db,
     project: Project,
@@ -138,45 +121,58 @@ fn effective_tag_spec_in_project(
     )
 }
 
-fn effective_tag_spec_from_environment(
+pub(crate) fn effective_tag_spec_from_environment(
     db: &dyn Db,
     project: Project,
     environment: djls_project::TemplateEnvironment<'_>,
     name: &str,
     loaded: &[&str],
 ) -> Option<TagSpec> {
-    let definitions: Option<Vec<Option<TagSpec>>> = environment
-        .contextual_library_chains(loaded)
-        .into_iter()
-        .map(|chain| {
-            let mut effective = None;
-            let mut unknown = false;
-            for step in chain.steps() {
-                let ContextualLibraryStep::Library(library) = step else {
-                    unknown = true;
-                    continue;
-                };
-                if let Some(spec) = library_tag_specs(db, project, library.key(db)).get(name) {
-                    effective = Some(spec.clone());
-                    unknown = false;
-                } else if library.symbol(TemplateSymbolKind::Tag, name).is_some() {
-                    effective = None;
-                    unknown = false;
-                } else if library.symbol_inventory_is_open()
-                    && !hardcoded_tag_inventory_is_complete(library.module_name_str())
-                {
-                    unknown = true;
-                }
+    #[derive(Default)]
+    struct Alternative<'a> {
+        effective: Option<&'a TagSpec>,
+        unknown: bool,
+    }
+
+    let mut agreed = None;
+    let mut alternatives_agree = true;
+    environment.fold_contextual_library_chains(
+        loaded,
+        Alternative::default,
+        |alternative, step| {
+            let ContextualLibraryStep::Library(library) = step else {
+                alternative.unknown = true;
+                return;
+            };
+            if let Some(spec) = library_tag_specs(db, project, library.key(db)).get(name) {
+                alternative.effective = Some(spec);
+                alternative.unknown = false;
+            } else if library.symbol(TemplateSymbolKind::Tag, name).is_some() {
+                alternative.effective = None;
+                alternative.unknown = false;
+            } else if library.symbol_inventory_is_open()
+                && !hardcoded_tag_inventory_is_complete(library.module_name_str())
+            {
+                alternative.unknown = true;
             }
-            (!unknown).then_some(effective)
-        })
-        .collect();
-    let definitions = definitions?;
-    let first = definitions.first()?.as_ref()?;
-    definitions
-        .iter()
-        .all(|definition| definition.as_ref() == Some(first))
-        .then(|| first.clone())
+        },
+        |alternative| {
+            if alternative.unknown {
+                alternatives_agree = false;
+                return;
+            }
+            match agreed {
+                None => agreed = Some(alternative.effective),
+                Some(definition) if definition == alternative.effective => {}
+                Some(_) => alternatives_agree = false,
+            }
+        },
+    );
+
+    alternatives_agree
+        .then_some(agreed.flatten())
+        .flatten()
+        .cloned()
 }
 
 /// Specs effective before any file-local `{% load %}` statement.

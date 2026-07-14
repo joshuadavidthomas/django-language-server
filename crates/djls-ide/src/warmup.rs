@@ -116,6 +116,18 @@ pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemp
     })
 }
 
+/// Prepare all shared products used by one-shot project Template analysis.
+///
+/// Intrinsic Template Library products are always primed before the shared
+/// Template index. Server readiness should use [`prime_template_library_products`]
+/// directly because it deliberately excludes per-Template discovery.
+#[must_use]
+pub fn prepare_project_template_analysis(db: &dyn SemanticDb) -> Option<()> {
+    prime_template_library_products(db)?;
+    WarmCachePhase::IndexTemplates.run(db).count()?;
+    Some(())
+}
+
 /// Noun pair used when reporting a count for an IDE cache warm-up phase.
 ///
 /// This intentionally mirrors `djls_project::CountLabel`; each crate keeps a
@@ -233,6 +245,8 @@ pub const fn warm_cache_phases() -> &'static [WarmCachePhase] {
 
 #[cfg(test)]
 mod tests {
+    use djls_project::Db as _;
+    use djls_project::template_resolution;
     use djls_testing::ProjectFixture;
     use djls_testing::SalsaEventLog;
     use djls_testing::TestDatabase;
@@ -246,10 +260,7 @@ mod tests {
             .count()
     }
 
-    #[test]
-    fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
-        let events = SalsaEventLog::default();
-        let mut db = TestDatabase::with_event_log(events.clone());
+    fn install_project_fixture(db: &mut TestDatabase) {
         ProjectFixture::new("/project")
             .django_settings_module("settings")
             .file(
@@ -261,7 +272,14 @@ mod tests {
                 "from django import template\nregister = template.Library()\n@register.simple_tag\ndef hello(): pass\n@register.filter\ndef shout(value): pass\n",
             )
             .file("/project/templates/page.html", "{% hello %}{{ value|shout }}")
-            .install(&mut db);
+            .install(db);
+    }
+
+    #[test]
+    fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
+        let events = SalsaEventLog::default();
+        let mut db = TestDatabase::with_event_log(events.clone());
+        install_project_fixture(&mut db);
         let _ = events.take();
 
         let primed = prime_template_library_products(&db).expect("fixture has a Project");
@@ -315,6 +333,39 @@ mod tests {
                 execution_count(&names, intrinsic),
                 0,
                 "repeated prime ran {intrinsic}"
+            );
+        }
+    }
+
+    #[test]
+    fn project_template_preparation_orders_and_reuses_shared_products() {
+        let events = SalsaEventLog::default();
+        let mut db = TestDatabase::with_event_log(events.clone());
+        install_project_fixture(&mut db);
+        let _ = events.take();
+
+        prepare_project_template_analysis(&db).expect("fixture has a Project");
+        let project = db.project().expect("fixture has a Project");
+        assert_eq!(template_resolution(&db, project).origins(&db).count(), 1);
+
+        let names = events.take_will_execute_names(&db);
+        let intrinsic_position = names
+            .iter()
+            .position(|name| name.rsplit("::").next() == Some("semantic_grammar_vocabulary"))
+            .expect("preparation primes intrinsic products");
+        let index_position = names
+            .iter()
+            .position(|name| name.rsplit("::").next() == Some("template_directory_index"))
+            .expect("preparation builds the shared Template index");
+        assert!(intrinsic_position < index_position);
+
+        assert_eq!(prepare_project_template_analysis(&db), Some(()));
+        let repeated_names = events.take_will_execute_names(&db);
+        for shared_query in ["semantic_grammar_vocabulary", "template_directory_index"] {
+            assert_eq!(
+                execution_count(&repeated_names, shared_query),
+                0,
+                "repeated preparation ran {shared_query}"
             );
         }
     }

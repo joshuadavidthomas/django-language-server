@@ -103,6 +103,44 @@ impl<'db> TemplateEnvironment<'db> {
             .contextual_library_chains_in_scope(self.scope, loaded_names)
     }
 
+    /// Fold each feasible backend's ordered builtin and load updates without materializing chains.
+    ///
+    /// `initial` creates one consumer state per backend alternative, `step` receives that
+    /// alternative's updates in Django precedence order, and `finish` receives the completed
+    /// state. Open or omitted alternatives are represented by an explicit `Unknown` step.
+    pub fn fold_contextual_library_chains<State>(
+        self,
+        loaded_names: &[&str],
+        initial: impl FnMut() -> State,
+        step: impl FnMut(&mut State, crate::templates::ContextualLibraryStep<'db>),
+        finish: impl FnMut(State),
+    ) {
+        self.catalog.fold_contextual_library_chains_in_scope(
+            self.scope,
+            loaded_names,
+            initial,
+            step,
+            finish,
+        );
+    }
+
+    /// Visit the definition effective in each feasible backend without allocating alternatives.
+    pub fn for_each_effective_definition_library(
+        self,
+        symbol_name: &str,
+        kind: TemplateSymbolKind,
+        loaded_names: &[&str],
+        visitor: impl FnMut(EffectiveDefinitionLibrary<'db>),
+    ) {
+        self.catalog.for_each_effective_definition_library_in_scope(
+            self.scope,
+            symbol_name,
+            kind,
+            loaded_names,
+            visitor,
+        );
+    }
+
     /// Resolve a load name within the backends that can render this file.
     #[must_use]
     pub fn loadable_library(self, name: &LibraryName) -> LoadableLibraryLookup<'db> {
@@ -209,7 +247,7 @@ fn template_environment_scope(
     file: File,
 ) -> TemplateEnvironmentScope {
     let selections = template_resolution(db, project).backend_selections_for_file(db, file);
-    TemplateEnvironmentScope::from_backend_selections(selections)
+    TemplateEnvironmentScope::from_backend_selections(selections.to_vec())
 }
 
 #[cfg(test)]
