@@ -33,6 +33,7 @@ use djls_project::project_facts_phases;
 use djls_source::path_to_file;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
+use tokio::task::JoinError;
 use tokio::task::JoinSet;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
@@ -170,6 +171,7 @@ enum ProgressEnd {
     Skipped,
     Retrying,
     Cancelled,
+    Failed,
     Partial,
 }
 
@@ -180,6 +182,7 @@ impl ProgressEnd {
             Self::Skipped => "skipped",
             Self::Retrying => "retrying",
             Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
             Self::Partial => "partial",
         }
     }
@@ -349,9 +352,12 @@ async fn load_and_apply_project_settings(
     session: &Arc<Mutex<Session>>,
     progress: &mut Option<ProgressItem>,
 ) -> bool {
-    let Some(settings) = load_project_settings(session).await else {
-        finish_progress(progress, ProgressEnd::Skipped).await;
-        return false;
+    let settings = match load_project_settings(session).await {
+        StageOutcome::Complete(settings) => settings,
+        StageOutcome::Cancelled | StageOutcome::Failed => {
+            finish_progress(progress, ProgressEnd::Failed).await;
+            return false;
+        }
     };
 
     if let Some(progress) = progress.as_ref() {
@@ -410,7 +416,7 @@ async fn snapshot_session(
     Some((session_lock.snapshot(), session_lock.open_documents()))
 }
 
-async fn load_project_settings(session: &Arc<Mutex<Session>>) -> Option<Settings> {
+async fn load_project_settings(session: &Arc<Mutex<Session>>) -> StageOutcome<Settings> {
     let Some((project_root, config_overrides)) = ({
         let session_lock = session.lock().await;
         let db = session_lock.db();
@@ -422,19 +428,25 @@ async fn load_project_settings(session: &Arc<Mutex<Session>>) -> Option<Settings
         })
     }) else {
         tracing::info!("Task: No project configured, skipping settings load.");
-        return None;
+        return StageOutcome::Failed;
     };
 
-    let settings =
+    let joined =
         tokio::task::spawn_blocking(move || Settings::new(&project_root, Some(config_overrides)))
-            .await
-            .expect("project settings load task must not panic");
+            .await;
+    let settings = match classify_child_task_join(joined) {
+        ChildTaskJoin::Complete(settings) => settings,
+        ChildTaskJoin::Failed(error) => {
+            tracing::error!(?error, "Project settings load task failed");
+            return StageOutcome::Failed;
+        }
+    };
 
     match settings {
-        Ok(settings) => Some(settings),
-        Err(err) => {
-            tracing::error!("Error loading settings: {}", err);
-            None
+        Ok(settings) => StageOutcome::Complete(settings),
+        Err(error) => {
+            tracing::error!(%error, "Error loading project settings");
+            StageOutcome::Failed
         }
     }
 }
@@ -447,6 +459,19 @@ enum StageOutcome<T> {
     Complete(T),
     Cancelled,
     Failed,
+}
+
+#[derive(Debug)]
+enum ChildTaskJoin<T> {
+    Complete(T),
+    Failed(JoinError),
+}
+
+fn classify_child_task_join<T>(joined: Result<T, JoinError>) -> ChildTaskJoin<T> {
+    match joined {
+        Ok(value) => ChildTaskJoin::Complete(value),
+        Err(error) => ChildTaskJoin::Failed(error),
+    }
 }
 
 async fn compute_environment(
@@ -471,23 +496,25 @@ async fn compute_environment(
 
         let result = collect_environment_jobs(jobs, progress.as_ref()).await;
         match result {
-            Ok(environment) => return StageOutcome::Complete(environment),
-            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+            StageOutcome::Complete(environment) => return StageOutcome::Complete(environment),
+            StageOutcome::Cancelled if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 finish_progress(progress, ProgressEnd::Retrying).await;
                 tracing::debug!(
-                    ?cancelled,
                     attempt = attempt + 1,
                     "Environment compute cancelled; retrying with fresh database clone"
                 );
             }
-            Err(cancelled) => {
+            StageOutcome::Cancelled => {
                 finish_progress(progress, ProgressEnd::Cancelled).await;
                 tracing::warn!(
-                    ?cancelled,
                     retries = SNAPSHOT_CANCEL_RETRIES,
                     "Environment compute cancelled repeatedly; project reload cancelled"
                 );
                 return StageOutcome::Cancelled;
+            }
+            StageOutcome::Failed => {
+                finish_progress(progress, ProgressEnd::Failed).await;
+                return StageOutcome::Failed;
             }
         }
     }
@@ -497,15 +524,16 @@ async fn compute_environment(
 async fn collect_environment_jobs(
     mut jobs: JoinSet<EnvironmentJobResult>,
     progress: Option<&ProgressItem>,
-) -> Result<DjangoEnvironmentData, salsa::Cancelled> {
+) -> StageOutcome<DjangoEnvironmentData> {
     let mut cancellation = None;
+    let mut failed = false;
     let mut parts = Vec::new();
     let mut done = 0;
     let total = environment_phases().count();
 
     while let Some(joined) = jobs.join_next().await {
-        match joined.expect("Environment phase must not panic") {
-            Ok(part) => {
+        match classify_child_task_join(joined) {
+            ChildTaskJoin::Complete(Ok(part)) => {
                 done += 1;
                 let phase_progress = part.phase().progress();
                 report_count(
@@ -518,10 +546,22 @@ async fn collect_environment_jobs(
                 .await;
                 parts.push(part);
             }
-            Err(cancelled) => remember_cancellation(&mut cancellation, cancelled),
+            ChildTaskJoin::Complete(Err(cancelled)) => {
+                remember_cancellation(&mut cancellation, cancelled);
+            }
+            ChildTaskJoin::Failed(error) => {
+                failed = true;
+                tracing::error!(?error, "Django Environment phase task failed");
+            }
         }
     }
-    cancellation.map_or_else(|| Ok(DjangoEnvironmentData::assemble(parts)), Err)
+    if failed {
+        StageOutcome::Failed
+    } else if cancellation.is_some() {
+        StageOutcome::Cancelled
+    } else {
+        StageOutcome::Complete(DjangoEnvironmentData::assemble(parts))
+    }
 }
 
 async fn compute_project_facts_data(
@@ -548,23 +588,25 @@ async fn compute_project_facts_data(
 
         let result = collect_project_facts_jobs(jobs, progress.as_ref()).await;
         match result {
-            Ok(facts) => return StageOutcome::Complete(facts),
-            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+            StageOutcome::Complete(facts) => return StageOutcome::Complete(facts),
+            StageOutcome::Cancelled if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 finish_progress(progress, ProgressEnd::Retrying).await;
                 tracing::debug!(
-                    ?cancelled,
                     attempt = attempt + 1,
                     "Project Facts compute cancelled; retrying with fresh database clone"
                 );
             }
-            Err(cancelled) => {
+            StageOutcome::Cancelled => {
                 finish_progress(progress, ProgressEnd::Cancelled).await;
                 tracing::warn!(
-                    ?cancelled,
                     retries = SNAPSHOT_CANCEL_RETRIES,
                     "Project Facts compute cancelled repeatedly; project reload cancelled"
                 );
                 return StageOutcome::Cancelled;
+            }
+            StageOutcome::Failed => {
+                finish_progress(progress, ProgressEnd::Failed).await;
+                return StageOutcome::Failed;
             }
         }
     }
@@ -574,14 +616,15 @@ async fn compute_project_facts_data(
 async fn collect_project_facts_jobs(
     mut jobs: JoinSet<ProjectFactsJobResult>,
     progress: Option<&ProgressItem>,
-) -> Result<ProjectFactsData, salsa::Cancelled> {
+) -> StageOutcome<ProjectFactsData> {
     let mut cancellation = None;
+    let mut failed = false;
     let mut counts = Vec::new();
     let mut parts = Vec::new();
 
     while let Some(joined) = jobs.join_next().await {
-        match joined.expect("Project Facts phase must not panic") {
-            Ok(part) => {
+        match classify_child_task_join(joined) {
+            ChildTaskJoin::Complete(Ok(part)) => {
                 let phase = part.phase();
                 counts.push(DiscoveryJobCount {
                     label: phase.progress().count_label.into(),
@@ -589,11 +632,20 @@ async fn collect_project_facts_jobs(
                 });
                 parts.push(part);
             }
-            Err(cancelled) => remember_cancellation(&mut cancellation, cancelled),
+            ChildTaskJoin::Complete(Err(cancelled)) => {
+                remember_cancellation(&mut cancellation, cancelled);
+            }
+            ChildTaskJoin::Failed(error) => {
+                failed = true;
+                tracing::error!(?error, "Project Facts phase task failed");
+            }
         }
     }
-    if let Some(cancelled) = cancellation {
-        return Err(cancelled);
+    if failed {
+        return StageOutcome::Failed;
+    }
+    if cancellation.is_some() {
+        return StageOutcome::Cancelled;
     }
 
     let facts = ProjectFactsData::assemble(parts);
@@ -609,7 +661,7 @@ async fn collect_project_facts_jobs(
         ProjectFactsData::discovered_file_count_label().into(),
     )
     .await;
-    Ok(facts)
+    StageOutcome::Complete(facts)
 }
 
 async fn capture_discovery_db(session: &Arc<Mutex<Session>>) -> Option<(DjangoDatabase, Project)> {
@@ -709,14 +761,20 @@ async fn prime_snapshot(snapshot: SessionSnapshot) -> StageOutcome<PrimedTemplat
     })
     .await;
 
-    match joined {
-        Ok(Ok(Some(primed))) => StageOutcome::Complete(primed),
-        Ok(Ok(None)) => StageOutcome::Failed,
-        Ok(Err(cancelled)) => {
+    classify_prime_task_join(joined)
+}
+
+fn classify_prime_task_join(
+    joined: Result<Result<Option<PrimedTemplateLibraries>, salsa::Cancelled>, JoinError>,
+) -> StageOutcome<PrimedTemplateLibraries> {
+    match classify_child_task_join(joined) {
+        ChildTaskJoin::Complete(Ok(Some(primed))) => StageOutcome::Complete(primed),
+        ChildTaskJoin::Complete(Ok(None)) => StageOutcome::Failed,
+        ChildTaskJoin::Complete(Err(cancelled)) => {
             tracing::debug!(?cancelled, "Template Library priming cancelled");
             StageOutcome::Cancelled
         }
-        Err(error) => {
+        ChildTaskJoin::Failed(error) => {
             tracing::error!(?error, "Template Library priming task failed");
             StageOutcome::Failed
         }
@@ -744,10 +802,51 @@ fn spawn_warm_cache_job(phase: WarmCachePhase, snapshot: SessionSnapshot) -> War
     })
 }
 
-async fn join_warm_cache_job(phase: WarmCachePhase, handle: WarmJobHandle) -> WarmJobResult {
-    handle.await.unwrap_or_else(|error| {
-        panic!("IDE cache warm-up {phase:?} task must not panic: {error}");
-    })
+async fn join_warm_cache_job(
+    phase: WarmCachePhase,
+    handle: WarmJobHandle,
+) -> StageOutcome<WarmCachePart> {
+    match classify_child_task_join(handle.await) {
+        ChildTaskJoin::Complete(Ok(part)) => StageOutcome::Complete(part),
+        ChildTaskJoin::Complete(Err(cancelled)) => {
+            tracing::debug!(
+                ?cancelled,
+                ?phase,
+                "IDE cache warm-up cancelled; newer inputs will re-warm queries"
+            );
+            StageOutcome::Cancelled
+        }
+        ChildTaskJoin::Failed(error) => {
+            tracing::error!(?error, ?phase, "IDE cache warm-up task failed");
+            StageOutcome::Failed
+        }
+    }
+}
+
+struct WarmBatchOutcome {
+    status: WarmOutcome,
+    summaries: Vec<(usize, WarmCachePhase, usize)>,
+}
+
+async fn collect_warm_cache_jobs(
+    handles: Vec<(usize, WarmCachePhase, WarmJobHandle)>,
+) -> WarmBatchOutcome {
+    let mut summaries = Vec::new();
+    let mut status = WarmOutcome::Complete;
+    for (done, phase, handle) in handles {
+        match join_warm_cache_job(phase, handle).await {
+            StageOutcome::Complete(part) => {
+                if let Some(count) = part.count() {
+                    summaries.push((done, part.phase(), count));
+                }
+            }
+            StageOutcome::Cancelled | StageOutcome::Failed => {
+                status = WarmOutcome::Partial;
+            }
+        }
+    }
+
+    WarmBatchOutcome { status, summaries }
 }
 
 async fn warm_cache_queries(snapshot: SessionSnapshot, progress: &ProgressItem) -> WarmOutcome {
@@ -761,33 +860,14 @@ async fn warm_cache_queries(snapshot: SessionSnapshot, progress: &ProgressItem) 
         progress.report(phase.progress().message).await;
     }
 
-    let mut summaries = Vec::new();
-    let mut outcome = WarmOutcome::Complete;
-    for (done, phase, handle) in handles {
-        match join_warm_cache_job(phase, handle).await {
-            Ok(part) => {
-                if let Some(count) = part.count() {
-                    summaries.push((done, part.phase(), count));
-                }
-            }
-            Err(cancelled) => {
-                outcome = WarmOutcome::Partial;
-                tracing::debug!(
-                    ?cancelled,
-                    ?phase,
-                    "IDE cache warm-up cancelled; newer inputs will re-warm queries"
-                );
-            }
-        }
-    }
-
-    if outcome == WarmOutcome::Complete {
-        for (done, phase, count) in summaries {
+    let batch = collect_warm_cache_jobs(handles).await;
+    if batch.status == WarmOutcome::Complete {
+        for (done, phase, count) in batch.summaries {
             report_warm_summary(progress, done, phase, count).await;
         }
     }
 
-    outcome
+    batch.status
 }
 
 async fn report_warm_summary(
@@ -863,6 +943,23 @@ async fn refresh_or_republish_diagnostics(
     }
 }
 
+type DiagnosticsJobResult = Result<Option<Vec<ls_types::Diagnostic>>, salsa::Cancelled>;
+
+fn classify_diagnostics_task_join(
+    joined: Result<DiagnosticsJobResult, JoinError>,
+) -> DiagnosticsJobResult {
+    match classify_child_task_join(joined) {
+        ChildTaskJoin::Complete(result) => result,
+        ChildTaskJoin::Failed(error) => {
+            tracing::error!(
+                ?error,
+                "Diagnostics snapshot task failed; skipping republish"
+            );
+            Ok(None)
+        }
+    }
+}
+
 async fn collect_snapshot_diagnostics(
     snapshot: SessionSnapshot,
     path: Utf8PathBuf,
@@ -870,16 +967,15 @@ async fn collect_snapshot_diagnostics(
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
         let snapshot = snapshot.clone();
         let path = path.clone();
-        let result = tokio::task::spawn_blocking(move || {
+        let joined = tokio::task::spawn_blocking(move || {
             salsa::Cancelled::catch(AssertUnwindSafe(|| {
                 let file = path_to_file(snapshot.db(), &path).ok()?;
                 djls_ide::collect_diagnostics(snapshot.db(), file)
             }))
         })
-        .await
-        .expect("diagnostics snapshot task must not panic");
+        .await;
 
-        match result {
+        match classify_diagnostics_task_join(joined) {
             Ok(diagnostics) => return diagnostics,
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 tracing::debug!(
@@ -988,6 +1084,169 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(run_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn panicking_critical_child_fails_generation_without_killing_reload_worker() {
+        let session = Arc::new(Mutex::new(Session::default()));
+        let mut readiness = session.lock().await.readiness_receiver();
+        let run_count = Arc::new(AtomicUsize::new(0));
+        let (completed_tx, mut completed_rx) = mpsc::unbounded_channel();
+        let reload = ProjectReload::spawn({
+            let session = Arc::clone(&session);
+            let run_count = Arc::clone(&run_count);
+            move |_| {
+                let session = Arc::clone(&session);
+                let run_count = Arc::clone(&run_count);
+                let completed_tx = completed_tx.clone();
+                async move {
+                    let run = run_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if run == 1 {
+                        let joined = tokio::spawn(async {
+                            panic!("synthetic critical child panic");
+                            #[allow(unreachable_code)]
+                            Ok::<Option<PrimedTemplateLibraries>, salsa::Cancelled>(None)
+                        })
+                        .await;
+                        assert!(matches!(
+                            classify_prime_task_join(joined),
+                            StageOutcome::Failed
+                        ));
+                        fail_generation(&session, 0).await;
+                    }
+                    completed_tx.send(run).unwrap();
+                    // Critical child failures complete the run after publishing
+                    // Failed; only Salsa cancellation is automatically retried.
+                    ReloadRunOutcome::Complete
+                }
+            }
+        });
+
+        reload.request();
+        assert_eq!(
+            timeout(Duration::from_secs(1), completed_rx.recv())
+                .await
+                .unwrap(),
+            Some(1)
+        );
+        readiness.changed().await.unwrap();
+        assert_eq!(
+            *readiness.borrow_and_update(),
+            IntrinsicReadinessState::Failed(0)
+        );
+
+        reload.request();
+        assert_eq!(
+            timeout(Duration::from_secs(1), completed_rx.recv())
+                .await
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(run_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn project_settings_task_panic_is_classified_as_failure() {
+        let joined: Result<(), JoinError> = tokio::spawn(async {
+            panic!("synthetic settings panic");
+        })
+        .await;
+
+        assert!(matches!(
+            classify_child_task_join(joined),
+            ChildTaskJoin::Failed(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn environment_phase_panic_is_classified_as_failure() {
+        let mut jobs = JoinSet::new();
+        jobs.spawn(async {
+            panic!("synthetic Environment panic");
+        });
+
+        assert!(matches!(
+            collect_environment_jobs(jobs, None).await,
+            StageOutcome::Failed
+        ));
+    }
+
+    #[tokio::test]
+    async fn project_facts_phase_panic_is_classified_as_failure() {
+        let mut jobs = JoinSet::new();
+        jobs.spawn(async {
+            panic!("synthetic Project Facts panic");
+        });
+
+        assert!(matches!(
+            collect_project_facts_jobs(jobs, None).await,
+            StageOutcome::Failed
+        ));
+    }
+
+    #[tokio::test]
+    async fn intrinsic_priming_task_panic_is_classified_as_failure() {
+        let joined = tokio::spawn(async {
+            panic!("synthetic intrinsic priming panic");
+            #[allow(unreachable_code)]
+            Ok::<Option<PrimedTemplateLibraries>, salsa::Cancelled>(None)
+        })
+        .await;
+
+        assert!(matches!(
+            classify_prime_task_join(joined),
+            StageOutcome::Failed
+        ));
+    }
+
+    #[tokio::test]
+    async fn intrinsic_priming_salsa_cancellation_is_not_classified_as_failure() {
+        let joined = tokio::spawn(async {
+            Err::<Option<PrimedTemplateLibraries>, _>(salsa::Cancelled::Local)
+        })
+        .await;
+
+        assert!(matches!(
+            classify_prime_task_join(joined),
+            StageOutcome::Cancelled
+        ));
+    }
+
+    #[tokio::test]
+    async fn warm_cache_panic_in_mixed_batch_is_partial_and_retains_successful_sibling() {
+        let failed: WarmJobHandle = tokio::task::spawn_blocking(|| {
+            panic!("synthetic warm-cache panic");
+        });
+        let successful_phase = WarmCachePhase::ResolveTemplateDirs;
+        let successful = spawn_warm_cache_job(successful_phase, Session::default().snapshot());
+
+        let batch = collect_warm_cache_jobs(vec![
+            (1, WarmCachePhase::BuildModelGraph, failed),
+            (2, successful_phase, successful),
+        ])
+        .await;
+
+        assert_eq!(batch.status, WarmOutcome::Partial);
+        assert!(
+            batch
+                .summaries
+                .iter()
+                .any(|(_, phase, _)| *phase == successful_phase)
+        );
+    }
+
+    #[tokio::test]
+    async fn diagnostics_snapshot_task_panic_produces_no_publish_payload() {
+        let joined = tokio::task::spawn_blocking(|| {
+            panic!("synthetic diagnostics panic");
+            #[allow(unreachable_code)]
+            Ok::<Option<Vec<ls_types::Diagnostic>>, salsa::Cancelled>(None)
+        })
+        .await;
+
+        let publish_payload = classify_diagnostics_task_join(joined)
+            .expect("child panic is an infrastructure failure, not Salsa cancellation");
+        assert!(publish_payload.is_none());
     }
 
     #[tokio::test]
@@ -1230,9 +1489,9 @@ mod tests {
             ..Default::default()
         };
         let session = Arc::new(Mutex::new(Session::new(&params)));
-        let settings = load_project_settings(&session)
-            .await
-            .expect("project settings should load");
+        let StageOutcome::Complete(settings) = load_project_settings(&session).await else {
+            panic!("project settings should load");
+        };
         assert!(apply_project_settings(&session, settings).await);
 
         let (pre_environment_db, project) = capture_discovery_db(&session)
@@ -1286,6 +1545,6 @@ mod tests {
 
         let outcome = load_project_settings(&session).await;
 
-        assert!(outcome.is_none());
+        assert!(matches!(outcome, StageOutcome::Failed));
     }
 }

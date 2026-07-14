@@ -81,6 +81,7 @@ struct IntrinsicReadiness {
     state: IntrinsicReadinessState,
     reprime_files: Option<Arc<[File]>>,
     full_reload_files: Option<Arc<[File]>>,
+    failed_reprime_revisions: Option<Arc<[(File, u64)]>>,
 }
 
 impl IntrinsicReadiness {
@@ -94,6 +95,7 @@ impl IntrinsicReadiness {
             },
             reprime_files: None,
             full_reload_files: None,
+            failed_reprime_revisions: None,
         }
     }
 }
@@ -193,6 +195,7 @@ impl Session {
             self.intrinsic_readiness.state = IntrinsicReadinessState::ReadyWithoutProject;
             self.intrinsic_readiness.reprime_files = None;
             self.intrinsic_readiness.full_reload_files = None;
+            self.intrinsic_readiness.failed_reprime_revisions = None;
             self.publish_readiness();
             return self.intrinsic_readiness.generation;
         }
@@ -202,6 +205,7 @@ impl Session {
             IntrinsicReadinessState::Unready(self.intrinsic_readiness.generation);
         self.intrinsic_readiness.reprime_files = None;
         self.intrinsic_readiness.full_reload_files = None;
+        self.intrinsic_readiness.failed_reprime_revisions = None;
         self.publish_readiness();
         self.intrinsic_readiness.generation
     }
@@ -222,6 +226,7 @@ impl Session {
 
         self.intrinsic_readiness.reprime_files = Some(primed.reprime_files().into());
         self.intrinsic_readiness.full_reload_files = Some(primed.full_reload_files().into());
+        self.intrinsic_readiness.failed_reprime_revisions = None;
         self.intrinsic_readiness.state = IntrinsicReadinessState::Ready(generation);
         self.publish_readiness();
         true
@@ -237,6 +242,16 @@ impl Session {
             return false;
         }
 
+        self.intrinsic_readiness.failed_reprime_revisions = Some(
+            self.intrinsic_readiness
+                .reprime_files
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|file| (*file, file.revision(&self.db)))
+                .collect::<Vec<_>>()
+                .into(),
+        );
         self.intrinsic_readiness.state = IntrinsicReadinessState::Failed(generation);
         self.publish_readiness();
         true
@@ -287,6 +302,12 @@ impl Session {
             ChangeEvent::BecameVisible(_) | ChangeEvent::Deleted(_)
         );
 
+        let reprime_file = self
+            .intrinsic_readiness
+            .reprime_files
+            .as_deref()
+            .and_then(|files| files.iter().find(|file| file.path(&self.db) == path))
+            .copied();
         let work = if changed_membership
             || self
                 .intrinsic_readiness
@@ -295,12 +316,7 @@ impl Session {
                 .is_some_and(|files| files.iter().any(|file| file.path(&self.db) == path))
         {
             ProjectWork::FullReload
-        } else if self
-            .intrinsic_readiness
-            .reprime_files
-            .as_deref()
-            .is_some_and(|files| files.iter().any(|file| file.path(&self.db) == path))
-        {
+        } else if reprime_file.is_some() {
             ProjectWork::Reprime
         } else if self.intrinsic_readiness.full_reload_files.is_none()
             || self.intrinsic_readiness.reprime_files.is_none()
@@ -313,14 +329,22 @@ impl Session {
             return None;
         };
 
-        // Intrinsic-only failures are terminal. A full reload has broader
-        // evidence or was explicitly classified and is allowed to recover.
-        if matches!(
-            self.intrinsic_readiness.state,
-            IntrinsicReadinessState::Failed(_)
-        ) && work == ProjectWork::Reprime
+        if work == ProjectWork::Reprime
+            && matches!(
+                self.intrinsic_readiness.state,
+                IntrinsicReadinessState::Failed(_) | IntrinsicReadinessState::Unready(_)
+            )
+            && let Some(revisions) = self.intrinsic_readiness.failed_reprime_revisions.as_mut()
         {
-            return None;
+            let reprime_file = reprime_file?;
+            let current_revision = reprime_file.revision(&self.db);
+            let (_, admitted_revision) = Arc::make_mut(revisions)
+                .iter_mut()
+                .find(|(file, _)| *file == reprime_file)?;
+            if current_revision == *admitted_revision {
+                return None;
+            }
+            *admitted_revision = current_revision;
         }
 
         self.intrinsic_readiness.generation += 1;
@@ -329,6 +353,7 @@ impl Session {
         if work == ProjectWork::FullReload {
             self.intrinsic_readiness.reprime_files = None;
             self.intrinsic_readiness.full_reload_files = None;
+            self.intrinsic_readiness.failed_reprime_revisions = None;
         }
         self.publish_readiness();
         Some(work)
@@ -825,44 +850,168 @@ mod tests {
     }
 
     #[test]
-    fn intrinsic_failure_is_terminal_until_a_full_reload_is_classified() {
+    fn failed_intrinsic_generation_records_covered_source_revisions() {
         let mut session = Session::default();
-        let intrinsic_path = Utf8Path::new("/tmp/templatetags/current.py");
+        let path = Utf8Path::new("/tmp/templatetags/failed.py");
         let _ = session
             .open_document(&ls_types::TextDocumentItem {
-                uri: ls_types::Uri::from_file_path(intrinsic_path.as_std_path()).unwrap(),
+                uri: ls_types::Uri::from_file_path(path.as_std_path()).unwrap(),
                 language_id: "python".to_string(),
                 version: 1,
-                text: String::new(),
+                text: "failed source".to_string(),
             })
             .into_parts();
-        let intrinsic_file = path_to_file(session.db(), intrinsic_path).unwrap();
+        let file = path_to_file(session.db(), path).unwrap();
         session.intrinsic_readiness.generation = 0;
-        session.intrinsic_readiness.reprime_files = Some(vec![intrinsic_file].into());
+        session.intrinsic_readiness.reprime_files = Some(vec![file].into());
+        session.intrinsic_readiness.state = IntrinsicReadinessState::Unready(0);
+
+        let revision = file.revision(session.db());
+        assert!(session.fail_intrinsic_readiness(0));
+        assert_eq!(
+            session
+                .intrinsic_readiness
+                .failed_reprime_revisions
+                .as_deref(),
+            Some([(file, revision)].as_slice())
+        );
+    }
+
+    #[test]
+    fn failed_intrinsic_generation_retries_for_a_changed_source_revision() {
+        let mut session = Session::default();
+        let path = Utf8Path::new("/tmp/templatetags/current.py");
+        let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
+        let _ = session
+            .open_document(&ls_types::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "python".to_string(),
+                version: 1,
+                text: "initial".to_string(),
+            })
+            .into_parts();
+        let file = path_to_file(session.db(), path).unwrap();
+        session.intrinsic_readiness.generation = 0;
+        session.intrinsic_readiness.reprime_files = Some(vec![file].into());
         session.intrinsic_readiness.full_reload_files = Some(Vec::new().into());
         session.intrinsic_readiness.state = IntrinsicReadinessState::Unready(0);
-        assert!(session.fail_intrinsic_readiness(0));
 
-        let intrinsic_work = session.mark_intrinsic_change(
-            &ChangeEvent::ContentChanged(intrinsic_path.to_path_buf()),
-            FileKind::Python,
-        );
+        let failed_revision = file.revision(session.db());
+        assert!(session.fail_intrinsic_readiness(0));
+        let (_, identical_work) = session
+            .update_document(
+                &ls_types::VersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version: 2,
+                },
+                vec![ls_types::TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "initial".to_string(),
+                }],
+            )
+            .into_parts();
+        assert_eq!(file.revision(session.db()), failed_revision);
+        assert_eq!(identical_work, None);
         assert_eq!(
             session.readiness_state(),
             IntrinsicReadinessState::Failed(0)
         );
-        assert_eq!(intrinsic_work, None);
 
-        let settings_work = session.mark_intrinsic_change(
-            &ChangeEvent::BecameVisible("/tmp/new_settings.py".into()),
-            FileKind::Python,
+        let (_, changed_work) = session
+            .update_document(
+                &ls_types::VersionedTextDocumentIdentifier { uri, version: 3 },
+                vec![ls_types::TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "changed".to_string(),
+                }],
+            )
+            .into_parts();
+        let changed_revision = file.revision(session.db());
+        assert!(changed_revision > failed_revision);
+        assert_eq!(changed_work, Some(ProjectWork::Reprime));
+        assert_eq!(
+            session
+                .intrinsic_readiness
+                .failed_reprime_revisions
+                .as_deref(),
+            Some([(file, changed_revision)].as_slice())
         );
         assert_eq!(
             session.readiness_state(),
             IntrinsicReadinessState::Unready(1)
         );
-        assert_eq!(settings_work, Some(ProjectWork::FullReload));
-        assert_eq!(session.snapshot().intrinsic_generation(), None);
+    }
+
+    #[test]
+    fn failed_intrinsic_generation_recovery_suppresses_unchanged_save_and_newer_source_supersedes()
+    {
+        let mut session = Session::default();
+        let path = Utf8Path::new("/tmp/templatetags/recovery.py");
+        let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
+        let _ = session
+            .open_document(&ls_types::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "python".to_string(),
+                version: 1,
+                text: "failed".to_string(),
+            })
+            .into_parts();
+        let file = path_to_file(session.db(), path).unwrap();
+        session.intrinsic_readiness.generation = 0;
+        session.intrinsic_readiness.reprime_files = Some(vec![file].into());
+        session.intrinsic_readiness.full_reload_files = Some(Vec::new().into());
+        session.intrinsic_readiness.state = IntrinsicReadinessState::Unready(0);
+        assert!(session.fail_intrinsic_readiness(0));
+
+        let (_, changed_work) = session
+            .update_document(
+                &ls_types::VersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version: 2,
+                },
+                vec![ls_types::TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "changed".to_string(),
+                }],
+            )
+            .into_parts();
+        let changed_revision = file.revision(session.db());
+        assert_eq!(changed_work, Some(ProjectWork::Reprime));
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(1)
+        );
+
+        let (_, unchanged_save_work) = session
+            .save_document(&ls_types::TextDocumentIdentifier { uri: uri.clone() })
+            .into_parts();
+        assert_eq!(file.revision(session.db()), changed_revision);
+        assert_eq!(unchanged_save_work, None);
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(1)
+        );
+
+        let (_, newer_work) = session
+            .update_document(
+                &ls_types::VersionedTextDocumentIdentifier { uri, version: 3 },
+                vec![ls_types::TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "newer".to_string(),
+                }],
+            )
+            .into_parts();
+        assert!(file.revision(session.db()) > changed_revision);
+        assert_eq!(newer_work, Some(ProjectWork::Reprime));
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(2)
+        );
+        assert!(!session.fail_intrinsic_readiness(1));
     }
 
     #[test]
