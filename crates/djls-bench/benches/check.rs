@@ -1,11 +1,13 @@
-//! Benchmarks for the `djls check` pipeline.
+//! Benchmarks for the cold validation-and-render kernel used by `djls check`.
 //!
-//! `djls check` is a one-shot CLI command: fresh database, process every
-//! file, render diagnostics, exit. There is no warm Salsa cache to
-//! benefit from — every benchmark here measures the cold path.
+//! Each iteration creates a fixture-backed Project, installs the selected
+//! Template sources, runs production Template Library priming, then validates
+//! and renders serially. The measured boundary intentionally excludes CLI
+//! argument/config loading, Django Environment and Project Facts discovery,
+//! filesystem template discovery, Rayon scheduling, sorting, and terminal I/O.
 //!
-//! Scales from a single file up to the full corpus (~6 000 real-world
-//! templates) to stress-test the pipeline end to end.
+//! Scales from the fixture batch to the full corpus to stress the kernel while
+//! keeping that narrower boundary explicit.
 //!
 //! Corpus benchmarks require a synced corpus (`just corpus sync`) and
 //! skip gracefully when unavailable.
@@ -68,6 +70,8 @@ fn assert_check_workload_contract(
         .map(|(path, source)| db.file_with_contents(path.clone(), source))
         .collect();
     assert_eq!(synchronized.len(), expected.synchronized_file_count);
+    djls_ide::prime_template_library_products(&db)
+        .expect("check benchmark fixture should install a Project");
 
     let config = djls_conf::DiagnosticsConfig::default();
     let fmt = DiagnosticRenderer::plain();
@@ -119,6 +123,8 @@ fn fixtures(bencher: Bencher) {
             .iter()
             .map(|f| db.file_with_contents(f.path.clone(), &f.source))
             .collect();
+        djls_ide::prime_template_library_products(&db)
+            .expect("check benchmark fixture should install a Project");
 
         let mut total_errors = 0;
         for &file in &files {
@@ -215,6 +221,8 @@ fn bench_corpus_check(
                 .iter()
                 .map(|(path, source)| db.file_with_contents(path.clone(), source))
                 .collect();
+            djls_ide::prime_template_library_products(&db)
+                .expect("check benchmark fixture should install a Project");
 
             let mut total_errors = 0;
             for &file in &files {

@@ -203,3 +203,16 @@ pub fn realistic_db() -> Db {
     install_template_environment(&mut db, specs);
     db
 }
+
+/// Create the realistic database with production intrinsic priming complete.
+///
+/// # Panics
+///
+/// Panics if the realistic fixture stops installing a Project.
+#[must_use]
+pub fn primed_realistic_db() -> Db {
+    let db = realistic_db();
+    djls_ide::prime_template_library_products(&db)
+        .expect("realistic benchmark database should install a Project");
+    db
+}

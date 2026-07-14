@@ -473,8 +473,148 @@ mod invalidation_tests {
     }
 
     #[test]
+    fn final_state_matrix_shared_prime_precedes_validation_and_warm_requests_are_intrinsic_free() {
+        let TemplateInheritanceFixture {
+            db,
+            event_log,
+            child_file,
+            ..
+        } = template_inheritance_fixture();
+        event_log.take();
+
+        let primed = djls_ide::prime_template_library_products(&db)
+            .expect("matrix fixture should install a Project");
+        assert_eq!(primed.library_count(), 3);
+        assert_eq!(primed.reprime_files().len(), 2);
+        assert_eq!(primed.full_reload_files().len(), 1);
+        assert!(primed.covered_files().all(|file| {
+            file.path(&db)
+                .extension()
+                .is_some_and(|extension| extension == "py")
+        }));
+        let prime_events = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &prime_events, "library_tag_specs"),
+            3
+        );
+        assert_eq!(
+            exact_execution_count(&db, &prime_events, "library_filter_specs"),
+            3
+        );
+        assert_eq!(
+            exact_execution_count(&db, &prime_events, "semantic_grammar_vocabulary"),
+            1
+        );
+        for forbidden in [
+            "parse_template",
+            "template_analysis_projection_for_file_in_scope",
+            "validate_template_file",
+        ] {
+            assert_eq!(exact_execution_count(&db, &prime_events, forbidden), 0);
+        }
+
+        djls_semantic::validate_template_file(&db, child_file);
+        let errors = djls_semantic::validate_template_file::accumulated::<
+            djls_semantic::ValidationErrorAccumulator,
+        >(&db, child_file);
+        assert!(errors.is_empty());
+        let first_request = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &first_request, "validate_template_file"),
+            1
+        );
+        for intrinsic in [
+            "template_library_definition_facts",
+            "library_tag_specs",
+            "library_filter_specs",
+            "semantic_grammar_vocabulary",
+        ] {
+            assert_eq!(exact_execution_count(&db, &first_request, intrinsic), 0);
+        }
+
+        djls_semantic::validate_template_file(&db, child_file);
+        let repeated = event_log.take();
+        for cached in [
+            "parse_template",
+            "template_analysis_projection_for_file_in_scope",
+            "validate_template_file",
+            "template_library_definition_facts",
+            "library_tag_specs",
+            "library_filter_specs",
+        ] {
+            assert_eq!(exact_execution_count(&db, &repeated, cached), 0);
+        }
+    }
+
+    #[test]
+    fn final_state_matrix_02_cli_style_parallel_validation_starts_after_prime() {
+        let TemplateInheritanceFixture {
+            db,
+            event_log,
+            child_file,
+            other_file,
+            ..
+        } = template_inheritance_fixture();
+        let primed = djls_ide::prime_template_library_products(&db)
+            .expect("matrix fixture should install a Project");
+        assert_eq!(primed.reprime_files().len(), 2);
+        assert_eq!(primed.full_reload_files().len(), 1);
+        let prime_events = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &prime_events, "semantic_grammar_vocabulary"),
+            1
+        );
+        assert_eq!(
+            exact_execution_count(&db, &prime_events, "validate_template_file"),
+            0
+        );
+
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let handles: Vec<_> = [child_file, other_file]
+            .into_iter()
+            .map(|file| {
+                let validation_db = db.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    djls_semantic::validate_template_file(&validation_db, file);
+                    djls_semantic::validate_template_file::accumulated::<
+                        djls_semantic::ValidationErrorAccumulator,
+                    >(&validation_db, file)
+                    .len()
+                })
+            })
+            .collect();
+        barrier.wait();
+        for handle in handles {
+            assert_eq!(
+                handle.join().expect("parallel validation must not panic"),
+                0
+            );
+        }
+
+        let validation_events = event_log.take();
+        assert_eq!(
+            exact_execution_count(&db, &validation_events, "validate_template_file"),
+            2
+        );
+        for intrinsic in [
+            "template_library_definition_facts",
+            "library_tag_specs",
+            "library_filter_specs",
+            "semantic_grammar_vocabulary",
+        ] {
+            assert_eq!(
+                exact_execution_count(&db, &validation_events, intrinsic),
+                0,
+                "parallel validation lazily executed {intrinsic}"
+            );
+        }
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)]
-    fn current_template_analysis_pipeline_execution_baseline() {
+    fn final_state_matrix_05_same_revision_validation_is_fully_memoized() {
         let TemplateInheritanceFixture {
             db,
             event_log,
@@ -583,7 +723,128 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn template_analysis_projection_is_cached_and_invalidated_by_its_source_only() {
+    fn final_state_matrix_07_load_block_and_filter_edits_rerun_only_sparse_template_work() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            fs,
+            child_file,
+            child_path,
+            ..
+        } = template_inheritance_fixture();
+        djls_ide::prime_template_library_products(&db).unwrap();
+        djls_semantic::validate_template_file(&db, child_file);
+        event_log.take();
+
+        let cases = [
+            (
+                "{% load missing %}\n{% block content %}{{ one }}{% endblock %}",
+                Some("S120"),
+            ),
+            (
+                "{% extends \"base.html\" %}\n{% block sidebar %}{{ one }}{% endblock %}",
+                None,
+            ),
+            (
+                "{% extends \"base.html\" %}\n{% block content %}{{ one|missing }}{% endblock %}",
+                None,
+            ),
+        ];
+
+        for (source, expected_code) in cases {
+            fs.lock()
+                .unwrap()
+                .add_file(child_path.clone(), source.to_string());
+            SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
+                .apply(&mut db);
+            djls_semantic::validate_template_file(&db, child_file);
+            let errors = djls_semantic::validate_template_file::accumulated::<
+                djls_semantic::ValidationErrorAccumulator,
+            >(&db, child_file);
+            let codes: Vec<_> = errors.iter().map(|error| error.0.code()).collect();
+            match expected_code {
+                Some(code) => assert!(codes.contains(&code), "expected {code}, got {codes:?}"),
+                None => assert!(errors.is_empty(), "expected no errors, got {codes:?}"),
+            }
+
+            let events = event_log.take();
+            assert_eq!(exact_execution_count(&db, &events, "parse_template"), 1);
+            assert_eq!(
+                exact_execution_count(
+                    &db,
+                    &events,
+                    "template_analysis_projection_for_file_in_scope"
+                ),
+                1
+            );
+            assert_eq!(
+                exact_execution_count(&db, &events, "validate_template_file"),
+                1
+            );
+            for intrinsic in [
+                "template_library_definition_facts",
+                "library_tag_specs",
+                "library_filter_specs",
+            ] {
+                assert_eq!(exact_execution_count(&db, &events, intrinsic), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn final_state_matrix_06_whitespace_template_edit_is_local_and_backdated() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            fs,
+            child_file,
+            other_file,
+            child_path,
+            ..
+        } = template_inheritance_fixture();
+        djls_ide::prime_template_library_products(&db).unwrap();
+        djls_semantic::validate_template_file(&db, child_file);
+        djls_semantic::validate_template_file(&db, other_file);
+        event_log.take();
+
+        fs.lock().unwrap().add_file(
+            child_path,
+            "{% extends \"base.html\" %}\n{% block content %}{{ one }}{% endblock %} ".to_string(),
+        );
+        SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
+            .apply(&mut db);
+        djls_semantic::validate_template_file(&db, child_file);
+        djls_semantic::validate_template_file(&db, other_file);
+        let errors = djls_semantic::validate_template_file::accumulated::<
+            djls_semantic::ValidationErrorAccumulator,
+        >(&db, child_file);
+        assert!(errors.is_empty());
+        let events = event_log.take();
+        assert_eq!(exact_execution_count(&db, &events, "parse_template"), 1);
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "template_analysis_projection_for_file_in_scope"
+            ),
+            1
+        );
+        assert_eq!(
+            exact_execution_count(&db, &events, "validate_template_file"),
+            1
+        );
+        for intrinsic in [
+            "template_library_definition_facts",
+            "library_tag_specs",
+            "library_filter_specs",
+        ] {
+            assert_eq!(exact_execution_count(&db, &events, intrinsic), 0);
+        }
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn final_state_matrix_07_08_meaningful_and_unrelated_edits_are_local() {
         let TemplateInheritanceFixture {
             mut db,
             event_log,
@@ -627,6 +888,38 @@ mod invalidation_tests {
             ),
             0,
             "an unrelated Template edit must not rerun this file's projection",
+        );
+
+        let unrelated_python_path = project.root(&db).join("unrelated.py");
+        fs.lock()
+            .unwrap()
+            .add_file(unrelated_python_path.clone(), "VALUE = 1\n".to_string());
+        let unrelated_python =
+            path_to_file(&db, &unrelated_python_path).expect("unrelated Python file should exist");
+        event_log.take();
+        fs.lock()
+            .unwrap()
+            .add_file(unrelated_python_path, "VALUE = 2\n".to_string());
+        SourceChanges::new([ChangeEvent::ContentChanged(
+            unrelated_python.path(&db).clone(),
+        )])
+        .apply(&mut db);
+        let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
+        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "template_analysis_projection_for_file_in_scope",
+            ),
+            0,
+            "an unrelated Python edit must not rerun this file's projection",
+        );
+        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
+        assert_eq!(
+            exact_execution_count(&db, &events, "library_filter_specs"),
+            0
         );
 
         fs.lock().unwrap().add_file(
@@ -713,7 +1006,7 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn catalog_changes_do_not_invalidate_unchanged_template_environment_scope() {
+    fn final_state_matrix_12_catalog_validation_backdates_unchanged_environment_scope() {
         let TemplateInheritanceFixture {
             mut db,
             event_log,
@@ -1541,7 +1834,7 @@ env_file = ".env.local"
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn library_tag_and_filter_products_backdate_independently_and_locally() {
+    fn final_state_matrix_10_reprime_is_independent_and_local() {
         let event_log = EventLog::default();
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
@@ -1592,10 +1885,9 @@ env_file = ".env.local"
             .map(|library| library.key(&db))
             .collect();
         assert_eq!(keys.len(), 2);
-        for key in &keys {
-            let _ = djls_semantic::library_tag_specs(&db, project, *key);
-            let _ = djls_semantic::library_filter_specs(&db, *key);
-        }
+        let primed = djls_ide::prime_template_library_products(&db).unwrap();
+        assert_eq!(primed.reprime_files().len(), 2);
+        assert_eq!(primed.full_reload_files().len(), 1);
         event_log.take();
 
         let alpha_key = *keys
@@ -1606,7 +1898,9 @@ env_file = ".env.local"
             .unwrap()
             .add_file(alpha_path.clone(), alpha_source("", ", arg"));
         SourceChanges::new([ChangeEvent::ContentChanged(alpha_path.clone())]).apply(&mut db);
-        let _ = template_libraries(&db, project);
+        let reprime = djls_ide::prime_template_library_products(&db).unwrap();
+        assert_eq!(reprime.reprime_files().len(), 2);
+        assert_eq!(reprime.full_reload_files().len(), 1);
         let alpha_tags = djls_semantic::library_tag_specs(&db, project, alpha_key);
         let alpha_filters = djls_semantic::library_filter_specs(&db, alpha_key);
         assert_eq!(alpha_tags.get("alpha_tag").unwrap().arguments().len(), 1);
@@ -1634,7 +1928,9 @@ env_file = ".env.local"
             .unwrap()
             .add_file(alpha_path.clone(), alpha_source(", extra", ", arg"));
         SourceChanges::new([ChangeEvent::ContentChanged(alpha_path)]).apply(&mut db);
-        let _ = template_libraries(&db, project);
+        let reprime = djls_ide::prime_template_library_products(&db).unwrap();
+        assert_eq!(reprime.reprime_files().len(), 2);
+        assert_eq!(reprime.full_reload_files().len(), 1);
         let alpha_tags = djls_semantic::library_tag_specs(&db, project, alpha_key);
         let alpha_filters = djls_semantic::library_filter_specs(&db, alpha_key);
         assert_eq!(alpha_tags.get("alpha_tag").unwrap().arguments().len(), 2);

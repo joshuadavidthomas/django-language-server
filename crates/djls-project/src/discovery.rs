@@ -278,6 +278,11 @@ impl ProjectFactsPart {
     pub fn count(&self) -> usize {
         self.file_paths.len()
     }
+
+    #[must_use]
+    pub fn file_paths(&self) -> &[Utf8PathBuf] {
+        &self.file_paths
+    }
 }
 
 pub fn project_facts_phases() -> impl Iterator<Item = ProjectFactsPhase> {
@@ -339,4 +344,22 @@ impl ProjectFactsData {
 #[must_use]
 pub fn compute_project_facts(db: &dyn ProjectDb, project: Project) -> ProjectFactsData {
     ProjectFactsData::assemble(project_facts_phases().map(|phase| phase.run(db, project)))
+}
+
+/// Synchronize every source reached by Project Facts discovery with the
+/// authoritative filesystem view.
+///
+/// Environment application performs the broad root invalidation before facts
+/// are computed. This narrower application step records any content changes
+/// observed while discovery was running without causing a second root-wide
+/// invalidation wave.
+pub fn apply_project_facts(db: &mut dyn ProjectDb, facts: &ProjectFactsData) {
+    SourceChanges::new(
+        facts
+            .file_paths()
+            .iter()
+            .cloned()
+            .map(ChangeEvent::ContentChanged),
+    )
+    .apply(db);
 }

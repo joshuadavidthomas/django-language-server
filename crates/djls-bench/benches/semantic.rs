@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use divan::Bencher;
 use djls_bench::BATCH_INNER_ITERS;
 use djls_bench::Db;
+use djls_bench::primed_realistic_db;
 use djls_bench::realistic_db;
 use djls_bench::structure_db;
 use djls_bench::template_fixture_digest;
@@ -64,7 +65,7 @@ fn template_tree_cold(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn validate_cold(bencher: Bencher) {
+fn validate_cold_project(bencher: Bencher) {
     assert_semantic_fixture_contract();
 
     bencher.bench_local(move || {
@@ -78,6 +79,26 @@ fn validate_cold(bencher: Bencher) {
         }
         divan::black_box(validated);
     });
+}
+
+#[divan::bench]
+fn validate_primed_project_cold_templates(bencher: Bencher) {
+    assert_semantic_fixture_contract();
+
+    bencher
+        .with_inputs(|| {
+            let mut db = primed_realistic_db();
+            let files = template_files(&mut db);
+            (db, files)
+        })
+        .bench_local_values(|(db, files)| {
+            let mut validated = 0;
+            for file in files {
+                djls_semantic::validate_template_file(&db, file);
+                validated += 1;
+            }
+            divan::black_box(validated);
+        });
 }
 
 struct IncrementalTemplate {

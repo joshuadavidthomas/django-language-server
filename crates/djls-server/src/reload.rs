@@ -8,12 +8,15 @@
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
+use djls_ide::PrimedTemplateLibraries;
 use djls_ide::WarmCachePart;
 use djls_ide::WarmCachePhase;
+use djls_ide::prime_template_library_products;
 use djls_ide::warm_cache_phases;
 use djls_project::Db as ProjectDb;
 use djls_project::DjangoEnvironmentData;
@@ -24,6 +27,7 @@ use djls_project::ProjectFactsData;
 use djls_project::ProjectFactsPart;
 use djls_project::ProjectFactsPhase;
 use djls_project::apply_django_environment;
+use djls_project::apply_project_facts;
 use djls_project::environment_phases;
 use djls_project::project_facts_phases;
 use djls_source::path_to_file;
@@ -38,52 +42,124 @@ use crate::document::TextDocument;
 use crate::ext::UriExt;
 use crate::progress::ProgressItem;
 use crate::progress::ProgressReporter;
+use crate::session::IntrinsicReadinessState;
+use crate::session::ProjectWork;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
 
-/// Drives project reloads off the LSP handler path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReloadRunOutcome {
+    Complete,
+    Cancelled,
+}
+
+/// Drives full Project reloads and intrinsic-only re-primes off the request path.
 ///
-/// A capacity-1 channel serializes reloads and leaves room for at most one
-/// pending follow-up request while a reload is running. Dropping the sender
-/// lets the worker exit after it drains any current or queued request.
+/// The channel is only a wake-up edge. Pending work lives under a synchronous
+/// mutex, so a full reload can atomically dominate a queued re-prime and no
+/// wake-up can be lost while the single worker is running.
 pub(crate) struct ProjectReload {
     tx: mpsc::Sender<()>,
+    pending: Arc<StdMutex<Option<ProjectWork>>>,
+    session: Option<Arc<Mutex<Session>>>,
 }
 
 impl ProjectReload {
     pub(crate) fn new(session: Arc<Mutex<Session>>, client: Client) -> Self {
-        Self::spawn(move || {
-            let session = Arc::clone(&session);
+        let worker_session = Arc::clone(&session);
+        let reload = Self::spawn(move |job| {
+            let session = Arc::clone(&worker_session);
             let client = client.clone();
             async move {
                 let client_info = { session.lock().await.client_info().clone() };
-                reload_project(session, client, client_info).await;
+                match job {
+                    ProjectWork::FullReload => {
+                        reload_project(Arc::clone(&session), client, client_info).await
+                    }
+                    ProjectWork::Reprime => reprime_project(Arc::clone(&session), client).await,
+                }
             }
-        })
+        });
+        Self {
+            session: Some(session),
+            ..reload
+        }
     }
 
     fn spawn<F, Fut>(runner: F) -> Self
     where
-        F: Fn() -> Fut + Send + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        F: Fn(ProjectWork) -> Fut + Send + 'static,
+        Fut: Future<Output = ReloadRunOutcome> + Send + 'static,
     {
         let (tx, mut rx) = mpsc::channel(1);
+        let pending = Arc::new(StdMutex::new(None));
+        let worker_pending = Arc::clone(&pending);
+        let worker_tx = tx.clone();
         tokio::spawn(async move {
             while rx.recv().await.is_some() {
-                runner().await;
+                let Some(job) = worker_pending.lock().unwrap().take() else {
+                    continue;
+                };
+                if runner(job).await == ReloadRunOutcome::Cancelled {
+                    enqueue_project_work(&worker_pending, &worker_tx, job);
+                }
             }
         });
 
-        Self { tx }
+        Self {
+            tx,
+            pending,
+            session: None,
+        }
     }
 
-    pub(crate) fn request(&self) {
-        match self.tx.try_send(()) {
-            Ok(()) | Err(mpsc::error::TrySendError::Full(())) => {}
-            Err(mpsc::error::TrySendError::Closed(())) => {
-                tracing::error!("project reload worker is gone");
+    pub(crate) async fn request_full_reload(&self) {
+        if let Some(session) = &self.session {
+            let mut session = session.lock().await;
+            session.mark_project_changed();
+            if matches!(
+                session.readiness_state(),
+                IntrinsicReadinessState::ReadyWithoutProject
+            ) {
+                return;
             }
+        }
+        self.enqueue(ProjectWork::FullReload);
+    }
+
+    /// Enqueue work after the session mutation has already advanced the
+    /// readiness generation.
+    pub(crate) fn request_current(&self, work: ProjectWork) {
+        self.enqueue(work);
+    }
+
+    #[cfg(test)]
+    fn request(&self) {
+        self.request_current(ProjectWork::Reprime);
+    }
+
+    fn enqueue(&self, work: ProjectWork) {
+        enqueue_project_work(&self.pending, &self.tx, work);
+    }
+}
+
+fn enqueue_project_work(
+    pending: &StdMutex<Option<ProjectWork>>,
+    tx: &mpsc::Sender<()>,
+    requested: ProjectWork,
+) {
+    let mut pending = pending.lock().unwrap();
+    *pending = Some(match (*pending, requested) {
+        (Some(ProjectWork::FullReload), _) | (_, ProjectWork::FullReload) => {
+            ProjectWork::FullReload
+        }
+        (Some(ProjectWork::Reprime) | None, ProjectWork::Reprime) => ProjectWork::Reprime,
+    });
+    match tx.try_send(()) {
+        Ok(()) | Err(mpsc::error::TrySendError::Full(())) => {}
+        Err(mpsc::error::TrySendError::Closed(())) => {
+            tracing::error!("project reload worker is gone");
         }
     }
 }
@@ -142,7 +218,12 @@ const RESOLVE_ENVIRONMENT_TITLE: &str = "Resolving Django environment";
 const DISCOVER_PROJECT_FACTS_TITLE: &str = "Discovering Django project facts";
 const WARM_CACHES_TITLE: &str = "Warming Django caches";
 
-async fn reload_project(session: Arc<Mutex<Session>>, client: Client, client_info: ClientInfo) {
+async fn reload_project(
+    session: Arc<Mutex<Session>>,
+    client: Client,
+    client_info: ClientInfo,
+) -> ReloadRunOutcome {
+    let generation = { session.lock().await.desired_generation() };
     let start = std::time::Instant::now();
     let progress = ProgressReporter::new(client.clone(), client_info);
 
@@ -155,36 +236,105 @@ async fn reload_project(session: Arc<Mutex<Session>>, client: Client, client_inf
     }
 
     if !load_and_apply_project_settings(&session, &mut environment_progress).await {
-        return;
+        fail_generation(&session, generation).await;
+        return ReloadRunOutcome::Complete;
     }
 
-    let Some(environment) =
-        compute_environment(&session, &progress, &mut environment_progress).await
-    else {
-        return;
-    };
+    let environment =
+        match compute_environment(&session, &progress, &mut environment_progress).await {
+            StageOutcome::Complete(environment) => environment,
+            StageOutcome::Cancelled => return ReloadRunOutcome::Cancelled,
+            StageOutcome::Failed => {
+                fail_generation(&session, generation).await;
+                return ReloadRunOutcome::Complete;
+            }
+        };
     if !apply_environment(&session, environment).await {
         finish_progress(&mut environment_progress, ProgressEnd::Skipped).await;
-        return;
+        fail_generation(&session, generation).await;
+        return ReloadRunOutcome::Complete;
     }
     finish_progress(&mut environment_progress, ProgressEnd::Complete).await;
 
     let mut facts_progress = None;
-    let Some(_facts) = compute_project_facts_data(&session, &progress, &mut facts_progress).await
-    else {
-        return;
+    let facts = match compute_project_facts_data(&session, &progress, &mut facts_progress).await {
+        StageOutcome::Complete(facts) => facts,
+        StageOutcome::Cancelled => return ReloadRunOutcome::Cancelled,
+        StageOutcome::Failed => {
+            fail_generation(&session, generation).await;
+            return ReloadRunOutcome::Complete;
+        }
     };
-
-    let Some((snapshot, documents)) = snapshot_session(&session).await else {
+    if !apply_facts(&session, &facts).await {
         finish_progress(&mut facts_progress, ProgressEnd::Skipped).await;
-        return;
-    };
+        fail_generation(&session, generation).await;
+        return ReloadRunOutcome::Complete;
+    }
     finish_progress(&mut facts_progress, ProgressEnd::Complete).await;
 
-    warm_snapshot_queries(&progress, snapshot.clone()).await;
-    republish_snapshot_diagnostics(client, snapshot, documents).await;
+    let Some((intrinsic_snapshot, _)) = snapshot_session(&session).await else {
+        fail_generation(&session, generation).await;
+        return ReloadRunOutcome::Complete;
+    };
+    let primed = match prime_snapshot(intrinsic_snapshot).await {
+        StageOutcome::Complete(primed) => primed,
+        StageOutcome::Cancelled => return ReloadRunOutcome::Cancelled,
+        StageOutcome::Failed => {
+            fail_generation(&session, generation).await;
+            return ReloadRunOutcome::Complete;
+        }
+    };
+    if !session
+        .lock()
+        .await
+        .publish_intrinsic_readiness(generation, &primed)
+    {
+        return ReloadRunOutcome::Complete;
+    }
+
+    // Readiness is observable as soon as the required intrinsic products are
+    // current. The remaining IDE cache warm-up is optional and must not hold
+    // project-aware requests behind unrelated work.
+    let Some((snapshot, documents)) = snapshot_session(&session).await else {
+        return ReloadRunOutcome::Complete;
+    };
+    refresh_or_republish_diagnostics(client, snapshot.clone(), documents).await;
+    warm_snapshot_queries(&progress, snapshot).await;
 
     tracing::info!("Project reload completed in {:?}", start.elapsed());
+    ReloadRunOutcome::Complete
+}
+
+async fn reprime_project(session: Arc<Mutex<Session>>, client: Client) -> ReloadRunOutcome {
+    let (generation, snapshot) = {
+        let session = session.lock().await;
+        (session.desired_generation(), session.snapshot())
+    };
+    match prime_snapshot(snapshot).await {
+        StageOutcome::Complete(primed) => {
+            if !session
+                .lock()
+                .await
+                .publish_intrinsic_readiness(generation, &primed)
+            {
+                return ReloadRunOutcome::Complete;
+            }
+            let Some((snapshot, documents)) = snapshot_session(&session).await else {
+                return ReloadRunOutcome::Complete;
+            };
+            refresh_or_republish_diagnostics(client, snapshot, documents).await;
+            ReloadRunOutcome::Complete
+        }
+        StageOutcome::Cancelled => ReloadRunOutcome::Cancelled,
+        StageOutcome::Failed => {
+            fail_generation(&session, generation).await;
+            ReloadRunOutcome::Complete
+        }
+    }
+}
+
+async fn fail_generation(session: &Arc<Mutex<Session>>, generation: u64) {
+    session.lock().await.fail_intrinsic_readiness(generation);
 }
 
 async fn warm_snapshot_queries(progress: &ProgressReporter, snapshot: SessionSnapshot) {
@@ -241,6 +391,17 @@ async fn apply_environment(
     true
 }
 
+async fn apply_facts(session: &Arc<Mutex<Session>>, facts: &ProjectFactsData) -> bool {
+    let mut session_lock = session.lock().await;
+    let db = session_lock.db_mut();
+    if db.project().is_none() {
+        return false;
+    }
+
+    apply_project_facts(db, facts);
+    true
+}
+
 async fn snapshot_session(
     session: &Arc<Mutex<Session>>,
 ) -> Option<(SessionSnapshot, Vec<TextDocument>)> {
@@ -281,15 +442,22 @@ async fn load_project_settings(session: &Arc<Mutex<Session>>) -> Option<Settings
 type EnvironmentJobResult = Result<EnvironmentPart, salsa::Cancelled>;
 type ProjectFactsJobResult = Result<ProjectFactsPart, salsa::Cancelled>;
 
+#[derive(Debug)]
+enum StageOutcome<T> {
+    Complete(T),
+    Cancelled,
+    Failed,
+}
+
 async fn compute_environment(
     session: &Arc<Mutex<Session>>,
     reporter: &ProgressReporter,
     progress: &mut Option<ProgressItem>,
-) -> Option<DjangoEnvironmentData> {
+) -> StageOutcome<DjangoEnvironmentData> {
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
         let Some((compute_db, project)) = capture_discovery_db(session).await else {
             finish_progress(progress, ProgressEnd::Skipped).await;
-            return None;
+            return StageOutcome::Failed;
         };
 
         let mut jobs: JoinSet<EnvironmentJobResult> = JoinSet::new();
@@ -303,7 +471,7 @@ async fn compute_environment(
 
         let result = collect_environment_jobs(jobs, progress.as_ref()).await;
         match result {
-            Ok(environment) => return Some(environment),
+            Ok(environment) => return StageOutcome::Complete(environment),
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 finish_progress(progress, ProgressEnd::Retrying).await;
                 tracing::debug!(
@@ -319,7 +487,7 @@ async fn compute_environment(
                     retries = SNAPSHOT_CANCEL_RETRIES,
                     "Environment compute cancelled repeatedly; project reload cancelled"
                 );
-                return None;
+                return StageOutcome::Cancelled;
             }
         }
     }
@@ -360,13 +528,13 @@ async fn compute_project_facts_data(
     session: &Arc<Mutex<Session>>,
     reporter: &ProgressReporter,
     progress: &mut Option<ProgressItem>,
-) -> Option<ProjectFactsData> {
+) -> StageOutcome<ProjectFactsData> {
     // Capture happens after Environment application, so every attempt observes
     // registered, rescanned roots and overlay-authoritative file contents.
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
         let Some((compute_db, project)) = capture_discovery_db(session).await else {
             finish_progress(progress, ProgressEnd::Skipped).await;
-            return None;
+            return StageOutcome::Failed;
         };
 
         let mut jobs: JoinSet<ProjectFactsJobResult> = JoinSet::new();
@@ -380,7 +548,7 @@ async fn compute_project_facts_data(
 
         let result = collect_project_facts_jobs(jobs, progress.as_ref()).await;
         match result {
-            Ok(facts) => return Some(facts),
+            Ok(facts) => return StageOutcome::Complete(facts),
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 finish_progress(progress, ProgressEnd::Retrying).await;
                 tracing::debug!(
@@ -394,9 +562,9 @@ async fn compute_project_facts_data(
                 tracing::warn!(
                     ?cancelled,
                     retries = SNAPSHOT_CANCEL_RETRIES,
-                    "Project Facts compute cancelled repeatedly; project facts may be stale until the next reload"
+                    "Project Facts compute cancelled repeatedly; project reload cancelled"
                 );
-                return None;
+                return StageOutcome::Cancelled;
             }
         }
     }
@@ -533,6 +701,28 @@ async fn finish_progress(progress: &mut Option<ProgressItem>, end: ProgressEnd) 
 type WarmJobResult = Result<WarmCachePart, salsa::Cancelled>;
 type WarmJobHandle = tokio::task::JoinHandle<WarmJobResult>;
 
+async fn prime_snapshot(snapshot: SessionSnapshot) -> StageOutcome<PrimedTemplateLibraries> {
+    let joined = tokio::task::spawn_blocking(move || {
+        salsa::Cancelled::catch(AssertUnwindSafe(|| {
+            prime_template_library_products(snapshot.db())
+        }))
+    })
+    .await;
+
+    match joined {
+        Ok(Ok(Some(primed))) => StageOutcome::Complete(primed),
+        Ok(Ok(None)) => StageOutcome::Failed,
+        Ok(Err(cancelled)) => {
+            tracing::debug!(?cancelled, "Template Library priming cancelled");
+            StageOutcome::Cancelled
+        }
+        Err(error) => {
+            tracing::error!(?error, "Template Library priming task failed");
+            StageOutcome::Failed
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum WarmOutcome {
     Complete,
@@ -620,13 +810,32 @@ async fn report_warm_summary(
     .await;
 }
 
-async fn republish_snapshot_diagnostics(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DiagnosticsDelivery {
+    WorkspaceRefresh,
+    PublishOpenDocuments,
+}
+
+fn diagnostics_delivery(client_info: &ClientInfo) -> DiagnosticsDelivery {
+    if client_info.supports_pull_diagnostics()
+        && client_info.supports_workspace_diagnostic_refresh()
+    {
+        DiagnosticsDelivery::WorkspaceRefresh
+    } else {
+        DiagnosticsDelivery::PublishOpenDocuments
+    }
+}
+
+async fn refresh_or_republish_diagnostics(
     client: Client,
     snapshot: SessionSnapshot,
     documents: Vec<TextDocument>,
 ) {
-    if snapshot.client_info().supports_pull_diagnostics() {
-        tracing::debug!("Client supports pull diagnostics, skipping diagnostics push");
+    if diagnostics_delivery(snapshot.client_info()) == DiagnosticsDelivery::WorkspaceRefresh {
+        match client.workspace_diagnostic_refresh().await {
+            Ok(()) => tracing::debug!("Requested workspace diagnostics refresh"),
+            Err(error) => tracing::debug!(?error, "Client rejected workspace diagnostics refresh"),
+        }
         return;
     }
 
@@ -710,6 +919,51 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn ready_diagnostics_use_the_delivery_supported_by_the_client() {
+        let push_session = Session::default();
+        assert_eq!(
+            diagnostics_delivery(push_session.client_info()),
+            DiagnosticsDelivery::PublishOpenDocuments
+        );
+
+        let pull_without_refresh = Session::new(&ls_types::InitializeParams {
+            capabilities: ls_types::ClientCapabilities {
+                text_document: Some(ls_types::TextDocumentClientCapabilities {
+                    diagnostic: Some(ls_types::DiagnosticClientCapabilities::default()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert_eq!(
+            diagnostics_delivery(pull_without_refresh.client_info()),
+            DiagnosticsDelivery::PublishOpenDocuments
+        );
+
+        let pull_with_refresh = Session::new(&ls_types::InitializeParams {
+            capabilities: ls_types::ClientCapabilities {
+                workspace: Some(ls_types::WorkspaceClientCapabilities {
+                    diagnostics: Some(ls_types::DiagnosticWorkspaceClientCapabilities {
+                        refresh_support: Some(true),
+                    }),
+                    ..Default::default()
+                }),
+                text_document: Some(ls_types::TextDocumentClientCapabilities {
+                    diagnostic: Some(ls_types::DiagnosticClientCapabilities::default()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert_eq!(
+            diagnostics_delivery(pull_with_refresh.client_info()),
+            DiagnosticsDelivery::WorkspaceRefresh
+        );
+    }
+
     #[tokio::test]
     async fn request_runs_one_reload() {
         let run_count = Arc::new(AtomicUsize::new(0));
@@ -717,12 +971,13 @@ mod tests {
         let reload = ProjectReload::spawn({
             let run_count = Arc::clone(&run_count);
             let completed = Arc::clone(&completed);
-            move || {
+            move |_| {
                 let run_count = Arc::clone(&run_count);
                 let completed = Arc::clone(&completed);
                 async move {
                     run_count.fetch_add(1, Ordering::SeqCst);
                     completed.notify_one();
+                    ReloadRunOutcome::Complete
                 }
             }
         });
@@ -747,7 +1002,7 @@ mod tests {
             let first_started = Arc::clone(&first_started);
             let followup_completed = Arc::clone(&followup_completed);
             let release_rx = Arc::clone(&release_rx);
-            move || {
+            move |_| {
                 let run_count = Arc::clone(&run_count);
                 let first_started = Arc::clone(&first_started);
                 let followup_completed = Arc::clone(&followup_completed);
@@ -765,6 +1020,7 @@ mod tests {
                     } else {
                         followup_completed.notify_one();
                     }
+                    ReloadRunOutcome::Complete
                 }
             }
         });
@@ -788,6 +1044,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelled_full_reload_retries_the_same_dominant_job() {
+        let jobs = Arc::new(StdMutex::new(Vec::new()));
+        let replacement_completed = Arc::new(Notify::new());
+        let reload = ProjectReload::spawn({
+            let jobs = Arc::clone(&jobs);
+            let replacement_completed = Arc::clone(&replacement_completed);
+            move |job| {
+                let jobs = Arc::clone(&jobs);
+                let replacement_completed = Arc::clone(&replacement_completed);
+                async move {
+                    let run = {
+                        let mut jobs = jobs.lock().unwrap();
+                        jobs.push(job);
+                        jobs.len()
+                    };
+                    if run == 2 {
+                        replacement_completed.notify_one();
+                        ReloadRunOutcome::Complete
+                    } else {
+                        ReloadRunOutcome::Cancelled
+                    }
+                }
+            }
+        });
+
+        reload.request_current(ProjectWork::FullReload);
+        timeout(Duration::from_secs(1), replacement_completed.notified())
+            .await
+            .unwrap();
+        sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            *jobs.lock().unwrap(),
+            [ProjectWork::FullReload, ProjectWork::FullReload]
+        );
+    }
+
+    #[tokio::test]
     async fn reloads_never_overlap() {
         let active_count = Arc::new(AtomicUsize::new(0));
         let overlap_detected = Arc::new(AtomicBool::new(false));
@@ -803,7 +1096,7 @@ mod tests {
             let first_started = Arc::clone(&first_started);
             let second_completed = Arc::clone(&second_completed);
             let release_rx = Arc::clone(&release_rx);
-            move || {
+            move |_| {
                 let active_count = Arc::clone(&active_count);
                 let overlap_detected = Arc::clone(&overlap_detected);
                 let run_count = Arc::clone(&run_count);
@@ -830,6 +1123,7 @@ mod tests {
                     if run == 2 {
                         second_completed.notify_one();
                     }
+                    ReloadRunOutcome::Complete
                 }
             }
         });
@@ -851,6 +1145,63 @@ mod tests {
 
         assert_eq!(run_count.load(Ordering::SeqCst), 2);
         assert!(!overlap_detected.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn queued_full_reload_dominates_cancelled_reprime_without_overlap() {
+        let jobs = Arc::new(StdMutex::new(Vec::new()));
+        let first_started = Arc::new(Notify::new());
+        let second_completed = Arc::new(Notify::new());
+        let (release_tx, release_rx) = oneshot::channel();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        let reload = ProjectReload::spawn({
+            let jobs = Arc::clone(&jobs);
+            let first_started = Arc::clone(&first_started);
+            let second_completed = Arc::clone(&second_completed);
+            let release_rx = Arc::clone(&release_rx);
+            move |job| {
+                let jobs = Arc::clone(&jobs);
+                let first_started = Arc::clone(&first_started);
+                let second_completed = Arc::clone(&second_completed);
+                let release_rx = Arc::clone(&release_rx);
+                async move {
+                    let run = {
+                        let mut jobs = jobs.lock().unwrap();
+                        jobs.push(job);
+                        jobs.len()
+                    };
+                    if run == 1 {
+                        first_started.notify_one();
+                        let release = release_rx
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .expect("first job owns release");
+                        release.await.ok();
+                        ReloadRunOutcome::Cancelled
+                    } else {
+                        second_completed.notify_one();
+                        ReloadRunOutcome::Complete
+                    }
+                }
+            }
+        });
+
+        reload.request_current(ProjectWork::Reprime);
+        timeout(Duration::from_secs(1), first_started.notified())
+            .await
+            .unwrap();
+        reload.request_current(ProjectWork::Reprime);
+        reload.request_full_reload().await;
+        release_tx.send(()).unwrap();
+        timeout(Duration::from_secs(1), second_completed.notified())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *jobs.lock().unwrap(),
+            [ProjectWork::Reprime, ProjectWork::FullReload]
+        );
     }
 
     #[tokio::test]

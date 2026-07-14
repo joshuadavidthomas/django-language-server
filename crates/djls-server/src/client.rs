@@ -75,6 +75,11 @@ impl ClientInfo {
     }
 
     #[must_use]
+    pub(crate) fn supports_workspace_diagnostic_refresh(&self) -> bool {
+        self.capabilities.workspace_diagnostic_refresh
+    }
+
+    #[must_use]
     pub(crate) fn supports_work_done_progress(&self) -> bool {
         self.capabilities.work_done_progress
     }
@@ -109,6 +114,7 @@ pub(crate) enum Client {
 )]
 pub(crate) struct ClientCapabilities {
     pull_diagnostics: bool,
+    workspace_diagnostic_refresh: bool,
     snippets: bool,
     location_links: bool,
     work_done_progress: bool,
@@ -122,6 +128,13 @@ impl ClientCapabilities {
             .as_ref()
             .and_then(|text_doc| text_doc.diagnostic.as_ref())
             .is_some();
+
+        let workspace_diagnostic_refresh = capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.diagnostics.as_ref())
+            .and_then(|diagnostics| diagnostics.refresh_support)
+            .unwrap_or(false);
 
         let snippets = capabilities
             .text_document
@@ -146,6 +159,7 @@ impl ClientCapabilities {
 
         Self {
             pull_diagnostics,
+            workspace_diagnostic_refresh,
             snippets,
             location_links,
             work_done_progress,

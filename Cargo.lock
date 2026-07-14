@@ -815,6 +815,7 @@ dependencies = [
  "clap",
  "djls-conf",
  "djls-db",
+ "djls-ide",
  "djls-project",
  "djls-semantic",
  "djls-server",
@@ -864,6 +865,7 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
+ "djls-ide",
  "djls-project",
  "djls-semantic",
  "djls-source",

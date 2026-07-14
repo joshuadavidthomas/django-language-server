@@ -134,6 +134,53 @@ fn check_without_django_source_keeps_builtin_grammar_and_source_less_loads() {
 }
 
 #[test]
+fn check_pythonpath_custom_tag_is_discovered_before_parallel_validation() {
+    let dir = tempfile::tempdir().unwrap();
+    let vendor = dir.path().join("vendor");
+    let package = vendor.join("extras");
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::write(package.join("__init__.py"), "").unwrap();
+    std::fs::write(
+        package.join("tags.py"),
+        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom_tag(): pass\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("settings.py"),
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'extras.tags'}}}]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("djls.toml"),
+        format!(
+            "django_settings_module = \"settings\"\npythonpath = [\"{}\"]\n",
+            vendor.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        templates.join("custom.html"),
+        "{% load custom %}{% custom_tag %}\n",
+    )
+    .unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["check", "templates/custom.html"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "pythonpath Template Library must be primed before validation\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn check_broken_template_exits_one() {
     let dir = tempfile::tempdir().unwrap();
     setup_project(dir.path());

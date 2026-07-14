@@ -17,8 +17,8 @@ pub use fixtures::python_fixtures;
 pub use fixtures::template_fixture_digest;
 pub use fixtures::template_fixtures;
 pub use fixtures::template_path;
-pub use fixtures::validation_error_fixture_digest;
 pub use fixtures::validation_error_fixtures;
+pub use specs::primed_realistic_db;
 pub use specs::realistic_db;
 pub use specs::structure_db;
 

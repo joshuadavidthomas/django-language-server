@@ -9,14 +9,16 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use djls_db::DjangoDatabase;
+use djls_project::Db as ProjectDb;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
+use djls_source::CaseSensitivity;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
 use djls_source::FileSystem;
-use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
+use djls_source::RootWalk;
 use djls_source::Severity;
 use djls_source::SourceText;
 use djls_source::Span;
@@ -156,6 +158,7 @@ impl Command for Check {
         let fs: Arc<dyn FileSystem> = Arc::new(OsFileSystem::default());
         let mut db = DjangoDatabase::new(fs, &settings, Some(&project_root));
         db.apply_project_settings(settings);
+        discover_project(&mut db)?;
 
         let walk_options = WalkOptions {
             hidden: self.hidden,
@@ -171,32 +174,10 @@ impl Command for Check {
             return Ok(Exit::success());
         }
 
-        // DjangoDatabase is Send + !Sync (salsa::Storage has RefCell).
-        // Clone the db per rayon task (each clone gets its own Salsa cache).
-        // Collect raw diagnostic data in parallel, render on the main thread
-        // after — the renderer is not Send and doesn't need to be.
-        let mut raw_results: Vec<FileCheckResult> = {
-            let db = db;
-            let (tx, rx) = std::sync::mpsc::channel();
+        djls_ide::prime_template_library_products(&db)
+            .context("Failed to prime Template Library products")?;
 
-            rayon::scope(move |scope| {
-                for path in files {
-                    let db = db.clone();
-                    let tx = tx.clone();
-                    scope.spawn(move |_| match check_file_with_source(&db, &path) {
-                        Ok(result) if result.check.has_diagnostics() => {
-                            let _ = tx.send(Ok(result));
-                        }
-                        Ok(_) => {}
-                        Err(error) => {
-                            let _ = tx.send(Err(error));
-                        }
-                    });
-                }
-            });
-
-            rx.into_iter().collect::<Result<Vec<_>>>()?
-        };
+        let mut raw_results = check_files_parallel(db, files, true)?;
         raw_results.sort_by(|left, right| left.path.cmp(&right.path));
 
         let mut error_count: usize = 0;
@@ -252,14 +233,20 @@ fn check_stdin(
         .read_to_string(&mut source)
         .context("Failed to read stdin")?;
 
-    let mut mem_fs = InMemoryFileSystem::new();
     let stdin_path = Utf8PathBuf::from("<stdin>.html");
-    mem_fs.add_file(stdin_path.clone(), source);
-    let fs: Arc<dyn FileSystem> = Arc::new(mem_fs);
+    let fs: Arc<dyn FileSystem> = Arc::new(SingleFileOverlay::new(
+        stdin_path.clone(),
+        source,
+        OsFileSystem::default(),
+    ));
     let mut db = DjangoDatabase::new(fs, settings, Some(project_root));
     db.apply_project_settings(settings.clone());
+    discover_project(&mut db)?;
+    djls_ide::prime_template_library_products(&db)
+        .context("Failed to prime Template Library products")?;
 
-    let result = check_file_with_source(&db, &stdin_path)?;
+    let mut results = check_files_parallel(db, vec![stdin_path], false)?;
+    let result = results.pop().expect("stdin validation produces one result");
     if quiet {
         return if result.renderable_diagnostic_count(config) > 0 {
             Ok(Exit::error())
@@ -279,6 +266,95 @@ fn check_stdin(
         let count = rendered.len();
         let word = if count == 1 { "error" } else { "errors" };
         Ok(Exit::error().with_message(format!("Found {count} {word}.")))
+    }
+}
+
+fn discover_project(db: &mut DjangoDatabase) -> Result<()> {
+    let project = db.project().context("No Project configured for check")?;
+    let environment = djls_project::compute_django_environment(db, project);
+    djls_project::apply_django_environment(db, environment);
+
+    let facts = djls_project::compute_project_facts(db, project);
+    djls_project::apply_project_facts(db, &facts);
+    Ok(())
+}
+
+/// Validate paths with the same per-clone Rayon execution used by the batch CLI.
+fn check_files_parallel(
+    db: DjangoDatabase,
+    files: Vec<Utf8PathBuf>,
+    diagnostics_only: bool,
+) -> Result<Vec<FileCheckResult>> {
+    // DjangoDatabase is Send + !Sync (salsa::Storage has RefCell). Clone the
+    // already-primed database per task so validation cannot lazily become the
+    // owner of shared intrinsic work.
+    let (tx, rx) = std::sync::mpsc::channel();
+    rayon::scope(move |scope| {
+        for path in files {
+            let db = db.clone();
+            let tx = tx.clone();
+            scope.spawn(move |_| match check_file_with_source(&db, &path) {
+                Ok(result) if !diagnostics_only || result.check.has_diagnostics() => {
+                    let _ = tx.send(Ok(result));
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    let _ = tx.send(Err(error));
+                }
+            });
+        }
+    });
+
+    rx.into_iter().collect()
+}
+
+struct SingleFileOverlay {
+    path: Utf8PathBuf,
+    contents: String,
+    disk: OsFileSystem,
+}
+
+impl SingleFileOverlay {
+    fn new(path: Utf8PathBuf, contents: String, disk: OsFileSystem) -> Self {
+        Self {
+            path,
+            contents,
+            disk,
+        }
+    }
+}
+
+impl FileSystem for SingleFileOverlay {
+    fn read_to_string(&self, path: &Utf8Path) -> std::io::Result<String> {
+        if path == self.path {
+            Ok(self.contents.clone())
+        } else {
+            self.disk.read_to_string(path)
+        }
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        path == self.path || self.disk.exists(path)
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        path == self.path || self.disk.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        self.disk.is_dir(path)
+    }
+
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        self.disk.case_sensitivity()
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        path == self.path || self.disk.path_exists_case_sensitive(path, prefix)
+    }
+
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        self.disk.walk_root(root, options)
     }
 }
 

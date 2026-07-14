@@ -5,7 +5,7 @@ use djls_bench::DiagnosticDigest;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::ValidationErrorFixture;
 use djls_bench::prime;
-use djls_bench::realistic_db;
+use djls_bench::primed_realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::validation_error_fixtures;
 use djls_source::Diagnostic;
@@ -128,7 +128,7 @@ fn bench_cached_diagnostics(bencher: Bencher, db: djls_bench::Db, files: Vec<djl
 fn collect_cached_empty(bencher: Bencher) {
     const EMPTY_FILE_COUNT: usize = 6;
 
-    let mut db = realistic_db();
+    let mut db = primed_realistic_db();
     let files: Vec<_> = (0..EMPTY_FILE_COUNT)
         .map(|index| db.file_with_contents(format!("/templates/empty/{index}.html"), ""))
         .collect();
@@ -140,7 +140,7 @@ fn collect_cached_empty(bencher: Bencher) {
 
 #[divan::bench]
 fn collect_cached_errors(bencher: Bencher) {
-    let mut db = realistic_db();
+    let mut db = primed_realistic_db();
     let files: Vec<_> = validation_error_fixtures()
         .iter()
         .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
@@ -165,7 +165,7 @@ fn collect_cached_errors(bencher: Bencher) {
 /// Preserve the previous realistic fixture aggregate as an explicitly mixed-output workload.
 #[divan::bench]
 fn collect_cached_realistic_end_to_end(bencher: Bencher) {
-    let mut db = realistic_db();
+    let mut db = primed_realistic_db();
     let files: Vec<_> = template_fixtures()
         .iter()
         .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
@@ -186,7 +186,7 @@ struct IncrementalTemplate {
 #[divan::bench]
 fn collect_incremental(bencher: Bencher) {
     let fixtures = template_fixtures();
-    let mut db = realistic_db();
+    let mut db = primed_realistic_db();
 
     let mut templates: Vec<_> = fixtures
         .iter()
@@ -243,7 +243,7 @@ struct ValidationRenderFixture<'a> {
 }
 
 fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRenderFixture<'_> {
-    let mut db = realistic_db();
+    let mut db = primed_realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
     let check = djls_bench::check_file(&db, file);
     assert!(
@@ -290,7 +290,7 @@ fn render_validation_output(bencher: Bencher) {
 
 #[divan::bench]
 fn render_validation_synthetic_output(bencher: Bencher) {
-    let mut db = realistic_db();
+    let mut db = primed_realistic_db();
     let file = db.file_with_contents("/templates/bench.html", MANY_ERRORS_SOURCE);
 
     let check = djls_bench::check_file(&db, file);

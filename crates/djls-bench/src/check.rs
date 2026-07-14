@@ -21,9 +21,9 @@ pub struct CheckResult {
 /// Stable semantic output contract for a checked set of templates.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DiagnosticDigest {
-    pub parser_count: usize,
-    pub validation_count: usize,
-    pub codes: BTreeMap<&'static str, usize>,
+    parser_count: usize,
+    validation_count: usize,
+    codes: BTreeMap<&'static str, usize>,
 }
 
 impl DiagnosticDigest {

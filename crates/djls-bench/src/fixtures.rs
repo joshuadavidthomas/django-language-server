@@ -25,12 +25,12 @@ pub struct Fixture {
 pub struct FixtureDigest {
     pub file_count: usize,
     pub total_bytes: usize,
-    pub sorted_paths: Vec<Utf8PathBuf>,
+    sorted_paths: Vec<Utf8PathBuf>,
 }
 
 impl FixtureDigest {
     #[must_use]
-    pub fn from_fixtures(fixtures: &[Fixture]) -> Self {
+    fn from_fixtures(fixtures: &[Fixture]) -> Self {
         let mut sorted_paths: Vec<_> = fixtures
             .iter()
             .map(|fixture| fixture.path.clone())
@@ -86,8 +86,9 @@ pub fn template_fixture_digest() -> FixtureDigest {
     FixtureDigest::from_fixtures(template_fixtures())
 }
 
+#[cfg(test)]
 #[must_use]
-pub fn validation_error_fixture_digest() -> FixtureDigest {
+fn validation_error_fixture_digest() -> FixtureDigest {
     FixtureDigest::from_fixtures(validation_error_fixtures())
 }
 

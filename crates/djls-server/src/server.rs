@@ -14,6 +14,8 @@ use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
 use crate::reload::ProjectReload;
+use crate::session::DocumentMutation;
+use crate::session::IntrinsicReadinessState;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
@@ -55,15 +57,23 @@ impl DjangoLanguageServer {
         f(&mut session)
     }
 
-    /// Capture a snapshot under a brief lock, then compute on the blocking
-    /// pool so the single-threaded event loop stays responsive.
+    /// Wait for current-generation intrinsic products, atomically verify and
+    /// capture that generation, then compute off the event loop.
+    async fn with_ready_snapshot<F, R>(&self, f: F) -> R
+    where
+        F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
+        R: Default + Send + 'static,
+    {
+        with_ready_session_snapshot(&self.session, Arc::new(f)).await
+    }
+
+    /// Syntax-only requests may bypass project intrinsic readiness.
     async fn with_snapshot<F, R>(&self, f: F) -> R
     where
         F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
         R: Default + Send + 'static,
     {
         let f = Arc::new(f);
-
         for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
             let snapshot = { self.session.lock().await.snapshot() };
             let f = Arc::clone(&f);
@@ -72,28 +82,26 @@ impl DjangoLanguageServer {
             })
             .await
             .expect("snapshot task must not panic");
-
             match result {
                 Ok(result) => return result,
                 Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                    tracing::debug!(
-                        ?cancelled,
-                        attempt = attempt + 1,
-                        "Snapshot request cancelled; retrying with fresh snapshot"
-                    );
+                    tracing::debug!(?cancelled, "Syntax snapshot cancelled; retrying");
                 }
                 Err(cancelled) => {
-                    tracing::debug!(
-                        ?cancelled,
-                        retries = SNAPSHOT_CANCEL_RETRIES,
-                        "Snapshot request cancelled; returning fallback"
-                    );
+                    tracing::debug!(?cancelled, "Syntax snapshot cancelled; returning fallback");
                     return R::default();
                 }
             }
         }
-
         unreachable!("snapshot retry loop must return")
+    }
+
+    fn schedule_document_mutation(&self, mutation: DocumentMutation) -> Option<TextDocument> {
+        let (document, project_work) = mutation.into_parts();
+        if let Some(project_work) = project_work {
+            self.reload.request_current(project_work);
+        }
+        document
     }
 
     async fn maybe_push_diagnostics(&self, document: &TextDocument) {
@@ -107,7 +115,7 @@ impl DjangoLanguageServer {
 
         let path = document.path().to_path_buf();
         let Some(diagnostics) = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let file = path_to_file(snapshot.db(), &path).ok()?;
                 djls_ide::collect_diagnostics(snapshot.db(), file)
             })
@@ -131,6 +139,84 @@ impl DjangoLanguageServer {
             diagnostic_count,
             lsp_uri_text
         );
+    }
+}
+
+async fn with_ready_session_snapshot<F, R>(session: &Arc<Mutex<Session>>, f: Arc<F>) -> R
+where
+    F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
+    R: Default + Send + 'static,
+{
+    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+        let Some(snapshot) = await_ready_session_snapshot(session).await else {
+            return R::default();
+        };
+        let f = Arc::clone(&f);
+        let result = tokio::task::spawn_blocking(move || {
+            salsa::Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))
+        })
+        .await
+        .expect("snapshot task must not panic");
+
+        match result {
+            Ok(result) => return result,
+            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+                tracing::debug!(
+                    ?cancelled,
+                    attempt = attempt + 1,
+                    "Snapshot request cancelled; retrying from intrinsic readiness"
+                );
+            }
+            Err(cancelled) => {
+                tracing::debug!(
+                    ?cancelled,
+                    retries = SNAPSHOT_CANCEL_RETRIES,
+                    "Snapshot request cancelled; returning fallback"
+                );
+                return R::default();
+            }
+        }
+    }
+
+    unreachable!("snapshot retry loop must return")
+}
+
+async fn await_ready_session_snapshot(session: &Arc<Mutex<Session>>) -> Option<SessionSnapshot> {
+    let mut readiness = { session.lock().await.readiness_receiver() };
+    loop {
+        let observed = *readiness.borrow_and_update();
+        match observed {
+            IntrinsicReadinessState::Unready(_) => {
+                if readiness.changed().await.is_err() {
+                    return None;
+                }
+            }
+            IntrinsicReadinessState::Failed(generation) => {
+                let session = session.lock().await;
+                if session.readiness_state() == IntrinsicReadinessState::Failed(generation) {
+                    return None;
+                }
+            }
+            IntrinsicReadinessState::ReadyWithoutProject | IntrinsicReadinessState::Ready(_) => {
+                let session = session.lock().await;
+                if session.readiness_state() != observed {
+                    continue;
+                }
+                let snapshot = session.snapshot();
+                debug_assert!(match observed {
+                    IntrinsicReadinessState::ReadyWithoutProject => {
+                        snapshot.intrinsic_generation().is_none()
+                    }
+                    IntrinsicReadinessState::Ready(generation) => {
+                        snapshot.intrinsic_generation() == Some(generation)
+                    }
+                    IntrinsicReadinessState::Unready(_) | IntrinsicReadinessState::Failed(_) => {
+                        false
+                    }
+                });
+                return Some(snapshot);
+            }
+        }
     }
 }
 
@@ -219,7 +305,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        self.reload.request();
+        self.reload.request_full_reload().await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -228,40 +314,42 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: ls_types::DidOpenTextDocumentParams) {
-        let document = self
+        let mutation = self
             .with_session_mut(|session| session.open_document(&params.text_document))
             .await;
 
-        if let Some(document) = document {
+        if let Some(document) = self.schedule_document_mutation(mutation) {
             self.maybe_push_diagnostics(&document).await;
         }
     }
 
     async fn did_save(&self, params: ls_types::DidSaveTextDocumentParams) {
-        let document = self
+        let mutation = self
             .with_session_mut(|session| session.save_document(&params.text_document))
             .await;
 
-        if let Some(document) = document {
+        if let Some(document) = self.schedule_document_mutation(mutation) {
             self.maybe_push_diagnostics(&document).await;
         }
     }
 
     async fn did_change(&self, params: ls_types::DidChangeTextDocumentParams) {
-        let document = self
+        let mutation = self
             .with_session_mut(|session| {
                 session.update_document(&params.text_document, params.content_changes)
             })
             .await;
 
-        if let Some(document) = document {
+        if let Some(document) = self.schedule_document_mutation(mutation) {
             self.maybe_push_diagnostics(&document).await;
         }
     }
 
     async fn did_close(&self, params: ls_types::DidCloseTextDocumentParams) {
-        self.with_session_mut(|session| session.close_document(&params.text_document))
+        let mutation = self
+            .with_session_mut(|session| session.close_document(&params.text_document))
             .await;
+        let _ = self.schedule_document_mutation(mutation);
     }
 
     async fn code_action(
@@ -277,7 +365,7 @@ impl LanguageServer for DjangoLanguageServer {
         }
 
         let response = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let (file, range) = snapshot.range_for_document_request(
                     &params.text_document,
                     params.range,
@@ -302,7 +390,7 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::CompletionParams,
     ) -> LspResult<Option<ls_types::CompletionResponse>> {
         let response = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
@@ -330,7 +418,7 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn hover(&self, params: ls_types::HoverParams) -> LspResult<Option<ls_types::Hover>> {
         let response = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
@@ -360,7 +448,7 @@ impl LanguageServer for DjangoLanguageServer {
         );
 
         let diagnostics = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let Some(file) =
                     snapshot.file_for_document_request(&params.text_document, "diagnostic")
                 else {
@@ -389,7 +477,7 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::FoldingRangeParams,
     ) -> LspResult<Option<Vec<ls_types::FoldingRange>>> {
         let ranges = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let Some(file) =
                     snapshot.file_for_document_request(&params.text_document, "folding")
                 else {
@@ -414,7 +502,7 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::DocumentSymbolParams,
     ) -> LspResult<Option<ls_types::DocumentSymbolResponse>> {
         let symbols = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let Some(file) =
                     snapshot.file_for_document_request(&params.text_document, "document symbol")
                 else {
@@ -439,7 +527,7 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::DocumentLinkParams,
     ) -> LspResult<Option<Vec<ls_types::DocumentLink>>> {
         let links = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let Some(file) =
                     snapshot.file_for_document_request(&params.text_document, "document link")
                 else {
@@ -464,7 +552,7 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::GotoDefinitionParams,
     ) -> LspResult<Option<ls_types::GotoDefinitionResponse>> {
         let response = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
@@ -494,7 +582,7 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::ReferenceParams,
     ) -> LspResult<Option<Vec<ls_types::Location>>> {
         let response = self
-            .with_snapshot(move |snapshot| {
+            .with_ready_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
@@ -554,6 +642,196 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Requesting project reload...");
-        self.reload.request();
+        self.reload.request_full_reload().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::time::timeout;
+
+    use super::*;
+    use crate::session::ProjectWork;
+
+    #[tokio::test]
+    async fn cancellation_restarts_at_barrier_and_waits_for_reprime() {
+        use std::sync::Mutex as StdMutex;
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering;
+
+        let session = Arc::new(Mutex::new(Session::default()));
+        let path = camino::Utf8PathBuf::from("/tmp/retry.py");
+        let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
+        let generation = {
+            let mut session = session.lock().await;
+            let _ = session
+                .open_document(&ls_types::TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "python".to_string(),
+                    version: 1,
+                    text: "initial".to_string(),
+                })
+                .into_parts();
+            let file = path_to_file(session.db(), &path).unwrap();
+            let generation = session.desired_generation();
+            let primed = djls_ide::prime_template_library_products(session.db()).unwrap();
+            assert!(session.publish_intrinsic_readiness(generation, &primed));
+            session.set_reprime_files_for_test(vec![file]);
+            session.set_full_reload_files_for_test(Vec::new());
+            generation
+        };
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Arc::new(StdMutex::new(release_rx));
+        let mut request = tokio::spawn({
+            let session = Arc::clone(&session);
+            let attempts = Arc::clone(&attempts);
+            let release_rx = Arc::clone(&release_rx);
+            let path = path.clone();
+            async move {
+                with_ready_session_snapshot(
+                    &session,
+                    Arc::new(move |snapshot: &SessionSnapshot| {
+                        let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+                        if attempt == 1 {
+                            started_tx.send(()).unwrap();
+                            release_rx.lock().unwrap().recv().unwrap();
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        path_to_file(snapshot.db(), &path)
+                            .unwrap()
+                            .try_source(snapshot.db())
+                            .unwrap()
+                            .as_str()
+                            .to_string()
+                    }),
+                )
+                .await
+            }
+        });
+        tokio::task::spawn_blocking(move || started_rx.recv().unwrap())
+            .await
+            .unwrap();
+
+        release_tx.send(()).unwrap();
+        let replacement_generation = {
+            let mut session = session.lock().await;
+            let (_, project_work) = session
+                .update_document(
+                    &ls_types::VersionedTextDocumentIdentifier { uri, version: 2 },
+                    vec![ls_types::TextDocumentContentChangeEvent {
+                        range: None,
+                        range_length: None,
+                        text: "updated".to_string(),
+                    }],
+                )
+                .into_parts();
+            assert_eq!(project_work, Some(ProjectWork::Reprime));
+            session.desired_generation()
+        };
+        assert_eq!(replacement_generation, generation + 1);
+        assert!(
+            timeout(Duration::from_millis(20), &mut request)
+                .await
+                .is_err(),
+            "cancelled request must wait at the new generation barrier"
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+
+        let current_prime = {
+            let session = session.lock().await;
+            djls_ide::prime_template_library_products(session.db()).unwrap()
+        };
+        assert!(
+            session
+                .lock()
+                .await
+                .publish_intrinsic_readiness(replacement_generation, &current_prime)
+        );
+        assert_eq!(
+            timeout(Duration::from_secs(1), request)
+                .await
+                .unwrap()
+                .unwrap(),
+            "updated"
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn final_state_matrix_03_project_requests_wait_for_current_generation() {
+        let session = Arc::new(Mutex::new(Session::default()));
+        let mut initial_waiter = tokio::spawn({
+            let session = Arc::clone(&session);
+            async move { await_ready_session_snapshot(&session).await }
+        });
+        assert!(
+            timeout(Duration::from_millis(20), &mut initial_waiter)
+                .await
+                .is_err(),
+            "an unready generation must block project-aware requests"
+        );
+
+        let initial_prime = {
+            let session = session.lock().await;
+            djls_ide::prime_template_library_products(session.db()).unwrap()
+        };
+        assert!(
+            session
+                .lock()
+                .await
+                .publish_intrinsic_readiness(0, &initial_prime)
+        );
+        assert_eq!(
+            timeout(Duration::from_secs(1), initial_waiter)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .intrinsic_generation(),
+            Some(0)
+        );
+
+        let generation = session.lock().await.mark_project_changed();
+        let mut replacement_waiter = tokio::spawn({
+            let session = Arc::clone(&session);
+            async move { await_ready_session_snapshot(&session).await }
+        });
+        assert!(
+            timeout(Duration::from_millis(20), &mut replacement_waiter)
+                .await
+                .is_err()
+        );
+        assert!(
+            !session
+                .lock()
+                .await
+                .publish_intrinsic_readiness(0, &initial_prime),
+            "stale completion must not publish readiness"
+        );
+
+        let current_prime = {
+            let session = session.lock().await;
+            djls_ide::prime_template_library_products(session.db()).unwrap()
+        };
+        assert!(
+            session
+                .lock()
+                .await
+                .publish_intrinsic_readiness(generation, &current_prime)
+        );
+        assert_eq!(
+            timeout(Duration::from_secs(1), replacement_waiter)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .intrinsic_generation(),
+            Some(generation)
+        );
     }
 }
