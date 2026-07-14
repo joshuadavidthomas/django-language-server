@@ -3,9 +3,14 @@ use std::fmt::Write;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::ArgumentCountConstraint;
+use djls_project::TagRule;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::TagRole;
+use djls_semantic::TagSpec;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
+use djls_semantic::builtin_tag_specs;
 use djls_semantic::library_tag_specs;
 use djls_semantic::validate_template_file;
 use djls_testing::ProjectFixture;
@@ -841,6 +846,129 @@ fn later_load_does_not_change_an_open_block_contract() {
 }
 
 #[test]
+fn opening_contract_keeps_later_intermediate_valid_after_shadowing() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/proj/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='if')\ndef custom_if(value): pass\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% if first %}{% load custom %}{% elif second %}second{% endif %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownTag { tag, .. }
+                | ValidationError::UnloadedTag { tag, .. }
+                | ValidationError::OrphanedTag { tag, .. }
+                if tag == "elif"
+        )),
+        "the opener's converged tree acceptance must govern its later elif: {errors:?}"
+    );
+}
+
+#[test]
+fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
+    let mut specs = builtin_tag_specs();
+    specs.insert(
+        "endif".to_string(),
+        TagSpec::new(
+            "test.tags".into(),
+            None,
+            std::borrow::Cow::Borrowed(&[]),
+            false,
+        ),
+    );
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+
+    let captured_source = "{% if condition %}{% endif collision %}";
+    db.add_file("/captured.html", captured_source);
+    let captured_file = db.file(Utf8Path::new("/captured.html"));
+    let captured_nodelist = djls_templates::parse_template(&db, captured_file)
+        .expect("captured closer fixture should parse");
+    let captured_position = u32::try_from(captured_source.find("collision").unwrap()).unwrap();
+    assert_eq!(
+        djls_semantic::tag_spec_at(
+            &db,
+            captured_file,
+            captured_nodelist,
+            captured_position,
+            "endif",
+        ),
+        None,
+        "a closer consumed by the open if contract must not retain the standalone endif spec"
+    );
+
+    let standalone_source = "{% endif collision %}";
+    db.add_file("/standalone.html", standalone_source);
+    let standalone_file = db.file(Utf8Path::new("/standalone.html"));
+    let standalone_nodelist = djls_templates::parse_template(&db, standalone_file)
+        .expect("standalone fixture should parse");
+    let standalone_position = u32::try_from(standalone_source.find("collision").unwrap()).unwrap();
+    assert!(
+        djls_semantic::tag_spec_at(
+            &db,
+            standalone_file,
+            standalone_nodelist,
+            standalone_position,
+            "endif",
+        )
+        .is_some(),
+        "the standalone endif occurrence should retain its own definition"
+    );
+}
+
+#[test]
+fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
+    let mut specs = builtin_tag_specs();
+    specs.insert(
+        "else".to_string(),
+        TagSpec::new(
+            "test.loader".into(),
+            None,
+            std::borrow::Cow::Borrowed(&[]),
+            false,
+        )
+        .with_role(TagRole::TemplateLibraryLoader)
+        .with_extracted_rules(
+            TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
+                ..TagRule::default()
+            }
+            .into(),
+        ),
+    );
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+
+    let standalone_errors = collect_all_errors(&db, "{% else one %}");
+    assert!(standalone_errors.iter().any(|error| matches!(
+        error,
+        ValidationError::ExtractedRuleViolation { tag, .. } if tag == "else"
+    )));
+
+    let captured_errors = collect_all_errors(&db, "{% if condition %}{% else one %}{% endif %}");
+    assert!(
+        !captured_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. }
+                | ValidationError::UnknownLibrary { name: tag, .. }
+                if tag == "else" || tag == "one"
+        )),
+        "captured else must use only the open if contract: {captured_errors:?}"
+    );
+}
+
+#[test]
 fn load_discovery_rebuilds_structure_until_later_load_is_visible() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
@@ -876,6 +1004,79 @@ fn load_discovery_rebuilds_structure_until_later_load_is_visible() {
                 if tag == "revealed"
         )),
         "the load revealed after rebuilding structure must activate its library: {errors:?}"
+    );
+}
+
+#[test]
+fn newly_revealed_opaque_grammar_discards_hidden_loads_and_pass_diagnostics() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'gates': 'gate_tags', 'hidden': 'hidden_tags'}}}]\n",
+        )
+        .file(
+            "/proj/gate_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef gate(parser, token):\n    parser.skip_past('endgate')\n    return Node()\n",
+        )
+        .file(
+            "/proj/hidden_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='if')\ndef custom_if(value): pass\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load gates %}{% gate %}{% load hidden %}{% endif %}{% endgate %}{% if value %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::OrphanedClosingTag { tag, .. } if tag == "endif"
+        )),
+        "diagnostics from the discarded pre-opaque pass must not accumulate: {errors:?}"
+    );
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnclosedTag { tag, .. } if tag == "if"
+        )),
+        "a load hidden by newly revealed opaque grammar must stop shadowing builtin grammar: {errors:?}"
+    );
+}
+
+#[test]
+fn structural_diagnostics_accumulate_once_after_load_fixed_point_converges() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/proj/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef customblock(parser, token):\n    parser.parse(('endcustomblock',))\n    return Node()\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load custom %}{% customblock %}",
+        )
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| matches!(
+                error,
+                ValidationError::UnclosedTag { tag, .. } if tag == "customblock"
+            ))
+            .count(),
+        1,
+        "only the converged pass may accumulate structural diagnostics: {errors:?}"
     );
 }
 

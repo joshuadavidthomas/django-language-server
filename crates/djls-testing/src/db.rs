@@ -17,6 +17,7 @@ use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
 use djls_source::SourceFiles;
 use djls_source::path_to_file;
+use salsa::Database;
 
 #[derive(Clone, Default)]
 pub struct SalsaEventLog {
@@ -44,6 +45,21 @@ impl SalsaEventLog {
             .lock()
             .expect("salsa event log lock should not be poisoned")
             .push(event);
+    }
+
+    /// Drain captured events and return the tracked functions that executed.
+    #[must_use]
+    pub fn take_will_execute_names(&self, db: &TestDatabase) -> Vec<String> {
+        self.take()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                salsa::EventKind::WillExecute { database_key } => Some(
+                    db.ingredient_debug_name(database_key.ingredient_index())
+                        .to_string(),
+                ),
+                _ => None,
+            })
+            .collect()
     }
 }
 

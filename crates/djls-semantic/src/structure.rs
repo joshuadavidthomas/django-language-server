@@ -24,14 +24,15 @@ use crate::db::Db;
 pub(crate) use crate::structure::active::ActiveTemplateNode;
 pub(crate) use crate::structure::active::ActiveTemplateTag;
 pub(crate) use crate::structure::active::ActiveTemplateVariable;
+pub(crate) use crate::structure::active::CapturedClosingTag;
+pub(crate) use crate::structure::active::StructuralOccurrenceMeaning;
 pub(crate) use crate::structure::active::active_template_nodes;
 pub(crate) use crate::structure::active::active_template_tags;
 pub(crate) use crate::structure::builder::TemplateTreeBuilder;
 pub use crate::structure::folding::TemplateFold;
 pub use crate::structure::folding::TemplateFoldKind;
 pub use crate::structure::folding::build_template_folds;
-pub(crate) use crate::structure::grammar::compute_preliminary_tag_index_for_file;
-pub(crate) use crate::structure::grammar::compute_tag_index_for_file;
+pub(crate) use crate::structure::grammar::TagClassification;
 pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
 pub use crate::structure::outline::OutlineItem;
@@ -45,27 +46,13 @@ pub use crate::structure::tree::TemplateRegion;
 pub use crate::structure::tree::TemplateTree;
 
 #[salsa::tracked]
-pub(crate) fn build_preliminary_template_tree_for_file<'db>(
-    db: &'db dyn Db,
-    file: djls_source::File,
-    nodelist: djls_templates::NodeList<'db>,
-    scope_file: djls_source::File,
-) -> TemplateTree<'db> {
-    let builder = TemplateTreeBuilder::new(
-        db,
-        compute_preliminary_tag_index_for_file(db, file, scope_file),
-    );
-    builder.without_diagnostics().model(db, nodelist)
-}
-
-#[salsa::tracked]
 pub(crate) fn build_template_tree_for_file_in_scope<'db>(
     db: &'db dyn Db,
     file: djls_source::File,
     nodelist: djls_templates::NodeList<'db>,
     scope_file: djls_source::File,
 ) -> TemplateTree<'db> {
-    crate::scoping::compute_structural_projection_for_file_in_scope(db, file, nodelist, scope_file)
+    crate::scoping::template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file)
         .tree(db)
 }
 
@@ -75,6 +62,5 @@ pub fn build_template_tree_for_file<'db>(
     file: djls_source::File,
     nodelist: djls_templates::NodeList<'db>,
 ) -> TemplateTree<'db> {
-    crate::scoping::compute_structural_projection_for_file_in_scope(db, file, nodelist, file)
-        .tree(db)
+    crate::scoping::template_analysis_projection_for_file(db, file, nodelist).tree(db)
 }

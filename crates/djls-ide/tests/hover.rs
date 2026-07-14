@@ -66,6 +66,40 @@ fn tag_hover_follows_definition_collisions_at_each_load_position() {
 }
 
 #[test]
+fn captured_if_else_does_not_hover_a_colliding_custom_definition() {
+    let mut db = TestDatabase::new();
+    let source = "{% load custom %}{% if condition %}{% else %}{% endif %}{% else %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n\n@register.simple_tag(name='else')\ndef custom_else():\n    \"\"\"Custom else definition.\"\"\"\n    return ''\n",
+        )
+        .file("/test/project/templates/page.html", source)
+        .install(&mut db);
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+    let offsets = source
+        .match_indices("else")
+        .map(|(offset, _)| Offset::new(u32::try_from(offset).unwrap()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(hover(&db, file, offsets[0]), None);
+
+    let standalone = hover_markdown(
+        hover(&db, file, offsets[1]).expect("standalone custom else definition hover"),
+    );
+    assert!(standalone.contains("(tag) else"), "{standalone}");
+    assert!(
+        standalone.contains("Defined in `custom_tags`."),
+        "{standalone}"
+    );
+}
+
+#[test]
 fn filter_hover_follows_definition_collisions_at_each_load_position() {
     let source = "{{ value|shared_filter }}{% load alpha %}{{ value|shared_filter }}{% load beta %}{{ value|shared_filter }}";
     let (db, file) = collision_fixture(source);

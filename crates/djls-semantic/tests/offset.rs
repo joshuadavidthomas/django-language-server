@@ -162,6 +162,16 @@ fn identifies_tag_name_context() {
 }
 
 #[test]
+fn captured_intermediate_has_no_tag_definition_context() {
+    let db = TestDatabase::new();
+    let source = "{% if user %}{% else %}{% endif %}";
+
+    let context = context_for_source(&db, source, offset_of(source, "else"));
+
+    assert_eq!(context, SemanticOffsetContext::None);
+}
+
+#[test]
 fn identifies_opaque_opener_tag_context() {
     let db = TestDatabase::new();
     let source = r#"{% verbatim %}{% include "partial.html" %}{% endverbatim %}"#;

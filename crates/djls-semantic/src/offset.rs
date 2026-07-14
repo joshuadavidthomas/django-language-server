@@ -11,6 +11,7 @@ use crate::scoping::LoadKind;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
+use crate::structure::StructuralOccurrenceMeaning;
 use crate::structure::active_template_nodes;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,13 +53,15 @@ impl<'db> SemanticOffsetContext<'db> {
             return Self::None;
         };
 
-        let tree = crate::structure::build_template_tree_for_file(db, file, nodelist);
-        let loaded = crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist);
+        let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+        let tree = projection.tree(db);
+        let loaded = projection.loaded_libraries(db);
+        let tag_facts = projection.scoped_tag_facts(db);
 
         for node in active_template_nodes(tree.regions(db), tree.root(db)) {
             let context = match node {
                 ActiveTemplateNode::Tag(tag) if tag.full_span.contains(offset) => {
-                    Self::from_tag(db, file, loaded, tag, offset)
+                    Self::from_tag(db, loaded, tag_facts, tag, offset)
                 }
                 ActiveTemplateNode::Variable(variable) if variable.span.contains(offset) => {
                     Self::from_variable(loaded, variable, offset)
@@ -108,31 +111,36 @@ impl<'db> SemanticOffsetContext<'db> {
 
     fn from_tag(
         db: &'db dyn SemanticDb,
-        file: File,
         loaded: &crate::scoping::LoadedLibraries,
+        tag_facts: &crate::scoping::ScopedTagFacts,
         tag: ActiveTemplateTag<'_>,
         offset: Offset,
     ) -> Self {
         let load_state = loaded.available_at(tag.span.start());
         if tag.name_span.contains(offset) {
-            let loaded_libraries = load_state
-                .libraries_loading_symbol(tag.tag)
-                .into_iter()
-                .map(str::to_string)
-                .collect();
-            return Self::Tag {
-                name: tag.tag.to_string(),
-                loaded_libraries,
-                span: tag.name_span,
+            return match tag.structural_meaning {
+                StructuralOccurrenceMeaning::Definition => {
+                    let loaded_libraries = load_state
+                        .libraries_loading_symbol(tag.tag)
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect();
+                    Self::Tag {
+                        name: tag.tag.to_string(),
+                        loaded_libraries,
+                        span: tag.name_span,
+                    }
+                }
+                StructuralOccurrenceMeaning::CapturedIntermediate
+                | StructuralOccurrenceMeaning::CapturedCloser => Self::None,
             };
         }
 
-        let spec = crate::tags::effective_tag_spec(db, file, tag.tag, &load_state);
+        let spec = tag_facts.for_tag(tag).and_then(|facts| facts.spec.as_ref());
 
-        if spec.as_ref().and_then(crate::TagSpec::role)
-            == Some(crate::tags::TagRole::TemplateLibraryLoader)
+        if spec.and_then(crate::TagSpec::role) == Some(crate::tags::TagRole::TemplateLibraryLoader)
         {
-            let Some(load_kind) = LoadKind::from_tag(tag.tag, tag.bits) else {
+            let Some(load_kind) = LoadKind::from_loader_bits(tag.bits) else {
                 return Self::None;
             };
 
@@ -163,8 +171,7 @@ impl<'db> SemanticOffsetContext<'db> {
                 }
             }
         } else {
-            spec.as_ref()
-                .and_then(|spec| LiteralTemplateReference::from_spec(spec, tag.bits))
+            spec.and_then(|spec| LiteralTemplateReference::from_spec(spec, tag.bits))
                 .filter(|reference| reference.bit_span.contains(offset))
                 .map_or(Self::None, |reference| Self::TemplateReference {
                     name: TemplateName::new(db, reference.template_name.to_string()),

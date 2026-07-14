@@ -494,50 +494,56 @@ pub fn completion(
         return None;
     };
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
-    let environment = djls_semantic::template_environment_for_file(db, file);
-    let nodelist = match djls_templates::parse_template(db, file) {
-        djls_templates::TemplateParseResult::Parsed(nodelist) => Some(nodelist),
-        djls_templates::TemplateParseResult::NotTemplate
-        | djls_templates::TemplateParseResult::Unreadable(_) => None,
-    };
-    let tag_specs = nodelist.map_or_else(
-        || djls_semantic::tag_specs_for_file(db, file),
-        |nodelist| djls_semantic::tag_specs_at(db, file, nodelist, offset.get()),
-    );
 
+    // Dispatch on the syntax-only cursor context before requesting semantic products. Most
+    // completion contexts need either no tag meaning or one occurrence lookup; only tag-name
+    // completion enumerates the complete tag inventory.
     let mut candidates = match &context {
         CompletionOffsetContext::Template(TemplateCompletionContext::TagName {
             prefix,
             needs_leading_space,
             close,
-        }) => generate_tag_name_candidates(
-            db,
-            file,
-            nodelist,
-            offset,
-            environment,
-            TagNameCandidateInput {
-                prefix,
-                needs_leading_space: *needs_leading_space,
-                close: *close,
-                tag_specs,
-                supports_snippets,
-            },
-        ),
+        }) => {
+            let environment = djls_semantic::template_environment_for_file(db, file);
+            let nodelist = parsed_nodelist(db, file);
+            let tag_specs = nodelist.map_or_else(
+                || djls_semantic::tag_specs_for_file(db, file),
+                |nodelist| djls_semantic::tag_specs_at(db, file, nodelist, offset.get()),
+            );
+            generate_tag_name_candidates(
+                db,
+                file,
+                nodelist,
+                offset,
+                environment,
+                TagNameCandidateInput {
+                    prefix,
+                    needs_leading_space: *needs_leading_space,
+                    close: *close,
+                    tag_specs,
+                    supports_snippets,
+                },
+            )
+        }
         CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
             tag,
             position,
             prefix,
             close,
             ..
-        }) => generate_tag_argument_candidates(
-            tag,
-            *position,
-            prefix,
-            *close,
-            tag_specs,
-            supports_snippets,
-        ),
+        }) => {
+            let spec = parsed_nodelist(db, file).and_then(|nodelist| {
+                djls_semantic::tag_spec_at(db, file, nodelist, offset.get(), tag)
+            });
+            generate_tag_argument_candidates(
+                tag,
+                *position,
+                prefix,
+                *close,
+                spec.as_ref(),
+                supports_snippets,
+            )
+        }
         CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
             tag,
             position,
@@ -546,39 +552,71 @@ pub fn completion(
             suffix,
             closed,
             close,
-        }) => generate_template_name_candidates(
-            db,
-            Some(file),
-            TemplateNameCandidateInput {
-                tag,
-                position: *position,
-                quote: *quote,
-                prefix,
-                suffix,
-                closed: *closed,
-                close: *close,
-            },
-            tag_specs,
-        ),
+        }) => {
+            let spec = parsed_nodelist(db, file).and_then(|nodelist| {
+                djls_semantic::tag_spec_at(db, file, nodelist, offset.get(), tag)
+            });
+            generate_template_name_candidates(
+                db,
+                Some(file),
+                TemplateNameCandidateInput {
+                    position: *position,
+                    quote: *quote,
+                    prefix,
+                    suffix,
+                    closed: *closed,
+                    close: *close,
+                },
+                spec.as_ref(),
+            )
+        }
         CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
             prefix,
             suffix,
             close,
-        }) => generate_library_name_candidates(environment, prefix, suffix, *close),
+        }) => {
+            if effective_tag_role_at(db, file, offset, "load")
+                == Some(TagRole::TemplateLibraryLoader)
+            {
+                generate_library_name_candidates(
+                    djls_semantic::template_environment_for_file(db, file),
+                    prefix,
+                    suffix,
+                    *close,
+                )
+            } else {
+                Vec::new()
+            }
+        }
         CompletionOffsetContext::Template(TemplateCompletionContext::LoadSymbol {
             prefix,
             suffix,
             library,
             needs_trailing_space,
-        }) => generate_load_symbol_candidates(
-            prefix,
-            suffix,
-            *library,
-            *needs_trailing_space,
-            environment,
-        ),
+        }) => {
+            if effective_tag_role_at(db, file, offset, "load")
+                == Some(TagRole::TemplateLibraryLoader)
+            {
+                generate_load_symbol_candidates(
+                    prefix,
+                    suffix,
+                    *library,
+                    *needs_trailing_space,
+                    djls_semantic::template_environment_for_file(db, file),
+                )
+            } else {
+                Vec::new()
+            }
+        }
         CompletionOffsetContext::Template(TemplateCompletionContext::Filter { prefix }) => {
-            generate_filter_candidates(db, file, nodelist, offset, environment, prefix)
+            generate_filter_candidates(
+                db,
+                file,
+                parsed_nodelist(db, file),
+                offset,
+                djls_semantic::template_environment_for_file(db, file),
+                prefix,
+            )
         }
         CompletionOffsetContext::Template(TemplateCompletionContext::Text)
         | CompletionOffsetContext::None => Vec::new(),
@@ -595,6 +633,26 @@ pub fn completion(
         .collect::<Vec<_>>();
 
     Some(ls_types::CompletionResponse::Array(items))
+}
+
+fn parsed_nodelist(db: &dyn djls_semantic::Db, file: File) -> Option<djls_templates::NodeList<'_>> {
+    match djls_templates::parse_template(db, file) {
+        djls_templates::TemplateParseResult::Parsed(nodelist) => Some(nodelist),
+        djls_templates::TemplateParseResult::NotTemplate
+        | djls_templates::TemplateParseResult::Unreadable(_) => None,
+    }
+}
+
+fn effective_tag_role_at(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    offset: Offset,
+    tag: &str,
+) -> Option<TagRole> {
+    let nodelist = parsed_nodelist(db, file)?;
+    djls_semantic::tag_spec_at(db, file, nodelist, offset.get(), tag)
+        .as_ref()
+        .and_then(djls_semantic::TagSpec::role)
 }
 
 #[derive(Clone, Copy)]
@@ -730,10 +788,10 @@ fn generate_tag_argument_candidates(
     position: usize,
     prefix: &OffsetPrefix<'_>,
     close: TagClose,
-    tag_specs: &TagSpecs,
+    spec: Option<&djls_semantic::TagSpec>,
     supports_snippets: bool,
 ) -> Vec<CompletionCandidate> {
-    let Some(spec) = tag_specs.get(tag) else {
+    let Some(spec) = spec else {
         return Vec::new();
     };
 
@@ -787,7 +845,6 @@ fn generate_tag_argument_candidates(
 
 #[derive(Clone, Copy)]
 struct TemplateNameCandidateInput<'context, 'source> {
-    tag: &'source str,
     position: usize,
     quote: char,
     prefix: &'context OffsetPrefix<'source>,
@@ -800,9 +857,9 @@ fn generate_template_name_candidates(
     db: &dyn djls_semantic::Db,
     file: Option<File>,
     input: TemplateNameCandidateInput<'_, '_>,
-    tag_specs: &TagSpecs,
+    spec: Option<&djls_semantic::TagSpec>,
 ) -> Vec<CompletionCandidate> {
-    let Some(spec) = tag_specs.get(input.tag) else {
+    let Some(spec) = spec else {
         return Vec::new();
     };
     if !matches!(spec.role(), Some(TagRole::TemplateReference(_))) || input.position != 0 {
@@ -1160,12 +1217,13 @@ mod tests {
 
     #[test]
     fn generates_tag_argument_choice_candidates() {
+        let specs = choice_tag_specs();
         let candidates = generate_tag_argument_candidates(
             "cache",
             0,
             &prefix("si"),
             full_close(),
-            &choice_tag_specs(),
+            specs.get("cache"),
             false,
         );
 
@@ -1185,12 +1243,13 @@ mod tests {
 
     #[test]
     fn generates_remaining_argument_snippet_candidates() {
+        let specs = choice_tag_specs();
         let candidates = generate_tag_argument_candidates(
             "cache",
             0,
             &prefix(""),
             full_close(),
-            &choice_tag_specs(),
+            specs.get("cache"),
             true,
         );
 
@@ -1285,7 +1344,6 @@ mod tests {
                 &db,
                 None,
                 TemplateNameCandidateInput {
-                    tag: "cache",
                     position: 0,
                     quote: '"',
                     prefix: &prefix,
@@ -1293,7 +1351,7 @@ mod tests {
                     closed: false,
                     close: TagClose::None,
                 },
-                &tag_specs,
+                tag_specs.get("cache"),
             )
             .is_empty()
         );
@@ -1302,7 +1360,6 @@ mod tests {
                 &db,
                 None,
                 TemplateNameCandidateInput {
-                    tag: "extends",
                     position: 1,
                     quote: '"',
                     prefix: &prefix,
@@ -1310,7 +1367,7 @@ mod tests {
                     closed: false,
                     close: TagClose::None,
                 },
-                &tag_specs,
+                tag_specs.get("extends"),
             )
             .is_empty()
         );

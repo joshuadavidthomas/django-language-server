@@ -84,8 +84,8 @@ fn assert_check_workload_contract(
 }
 
 // Batch: all fixture templates through one fresh database.
-// The first file pays for TagIndex construction; subsequent files
-// reuse it — matching real `djls check` behaviour within a single run.
+// Per-library semantic products are shared while each Template builds its own
+// sparse occurrence projection, matching real `djls check` behaviour.
 
 #[divan::bench]
 fn fixtures(bencher: Bencher) {

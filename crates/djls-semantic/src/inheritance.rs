@@ -23,7 +23,6 @@ use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
-use crate::structure::build_template_tree_for_file_in_scope;
 use crate::tags::TagRole;
 
 // The loop is one state transition over a correlated parent chain; extracting its few remaining
@@ -372,15 +371,13 @@ fn template_symbols_in_scope<'db>(
     nodelist: NodeList<'db>,
     scope_file: File,
 ) -> TemplateSymbols {
-    let tree = build_template_tree_for_file_in_scope(db, file, nodelist, scope_file);
+    let projection = crate::scoping::template_analysis_projection_for_file_in_scope(
+        db, file, nodelist, scope_file,
+    );
+    let tree = projection.tree(db);
     let regions = tree.regions(db);
     let mut builder = SymbolBuilder {
-        db,
-        file,
-        scope_file,
-        loaded_libraries: crate::scoping::compute_loaded_libraries_for_file_in_scope(
-            db, file, nodelist, scope_file,
-        ),
+        tag_facts: projection.scoped_tag_facts(db),
         regions,
         blocks: Vec::new(),
         partials: Vec::new(),
@@ -436,10 +433,7 @@ pub enum ExtendsTarget {
 }
 
 struct SymbolBuilder<'a> {
-    db: &'a dyn Db,
-    file: File,
-    scope_file: File,
-    loaded_libraries: &'a crate::scoping::LoadedLibraries,
+    tag_facts: &'a crate::scoping::ScopedTagFacts,
     regions: &'a Regions,
     blocks: Vec<BlockDef>,
     partials: Vec<PartialDef>,
@@ -465,19 +459,14 @@ impl SymbolBuilder<'_> {
         match node {
             TemplateNode::Block {
                 tag,
+                name_span,
                 bits,
                 full_span,
                 body,
                 role: BlockRole::Opener,
-                ..
             } => {
-                self.collect_definition(
-                    tag,
-                    bits,
-                    *self.regions.get(*body).span(),
-                    full_span.start(),
-                );
-                self.collect_extends(tag, bits, *full_span);
+                self.collect_definition(tag, *name_span, bits, *self.regions.get(*body).span());
+                self.collect_extends(tag, *name_span, bits, *full_span);
                 self.collect_region(*body);
             }
             TemplateNode::Block {
@@ -489,11 +478,11 @@ impl SymbolBuilder<'_> {
             }
             TemplateNode::StandaloneTag {
                 tag,
+                name_span,
                 bits,
                 full_span,
-                ..
             } => {
-                self.collect_extends(tag, bits, *full_span);
+                self.collect_extends(tag, *name_span, bits, *full_span);
             }
             TemplateNode::Opaque { .. }
             | TemplateNode::Variable { .. }
@@ -503,8 +492,8 @@ impl SymbolBuilder<'_> {
         }
     }
 
-    fn collect_definition(&mut self, tag: &str, bits: &[TagBit], full_span: Span, position: u32) {
-        let Some(role) = self.tag_role(tag, position) else {
+    fn collect_definition(&mut self, tag: &str, name_span: Span, bits: &[TagBit], full_span: Span) {
+        let Some(role) = self.tag_role(tag, name_span) else {
             return;
         };
         let Some(bit) = bits.first() else {
@@ -531,12 +520,12 @@ impl SymbolBuilder<'_> {
         }
     }
 
-    fn collect_extends(&mut self, tag: &str, bits: &[TagBit], full_span: Span) {
+    fn collect_extends(&mut self, tag: &str, name_span: Span, bits: &[TagBit], full_span: Span) {
         if self.extends.is_some() {
             return;
         }
         if !matches!(
-            self.tag_role(tag, full_span.start()),
+            self.tag_role(tag, name_span),
             Some(TagRole::TemplateReference(TemplateReferenceKind::Extends))
         ) {
             return;
@@ -554,18 +543,10 @@ impl SymbolBuilder<'_> {
         });
     }
 
-    fn tag_role(&self, tag: &str, position: u32) -> Option<TagRole> {
-        let load_state = self.loaded_libraries.available_at(position);
-        let spec = match self.db.project() {
-            Some(project) => crate::tags::effective_tag_spec_in_project_for_scope(
-                self.db,
-                project,
-                self.scope_file,
-                tag,
-                &load_state,
-            ),
-            None => crate::tags::effective_tag_spec(self.db, self.file, tag, &load_state),
-        };
-        spec.and_then(|spec| spec.role())
+    fn tag_role(&self, _tag: &str, name_span: Span) -> Option<TagRole> {
+        self.tag_facts
+            .for_name_span(name_span)
+            .and_then(|facts| facts.spec.as_ref())
+            .and_then(crate::TagSpec::role)
     }
 }

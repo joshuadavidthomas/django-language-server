@@ -1,7 +1,13 @@
+use std::borrow::Cow;
+
 use camino::Utf8Path;
 use djls_project::Project;
 use djls_project::TemplateName;
+use djls_semantic::TagRole;
+use djls_semantic::TagSpec;
+use djls_semantic::TagSpecs;
 use djls_semantic::TemplateReferenceKind;
+use djls_semantic::builtin_tag_specs;
 use djls_semantic::references_to_template_name;
 use djls_semantic::template_library_references_in_file;
 use djls_source::ChangeEvent;
@@ -9,6 +15,7 @@ use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
+use rustc_hash::FxHashMap;
 
 fn project_with_templates(
     db: &mut TestDatabase,
@@ -383,6 +390,34 @@ fn shadowed_load_does_not_bootstrap_loaded_opaque_grammar() {
     let partial = TemplateName::new(&db, "partial.html".to_string());
 
     assert_eq!(references_to_template_name(&db, project, partial).len(), 1);
+}
+
+#[test]
+fn captured_else_does_not_retain_a_colliding_loader_role() {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
+        "else".to_string(),
+        TagSpec::new(
+            Cow::Borrowed("test.loader"),
+            None,
+            Cow::Borrowed(&[]),
+            false,
+        )
+        .with_role(TagRole::TemplateLibraryLoader),
+    )])));
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    let source = "{% else outside %}{% if condition %}{% else captured %}{% endif %}";
+    db.add_file("test.html", source);
+    let file = db.file(Utf8Path::new("test.html"));
+
+    let references = template_library_references_in_file(&db, file).as_slice(&db);
+
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].load_name().as_str(), "outside");
+    assert_eq!(
+        references[0].span().start_usize(),
+        source.find("outside").unwrap()
+    );
 }
 
 #[test]

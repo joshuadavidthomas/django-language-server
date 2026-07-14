@@ -1,8 +1,15 @@
+use std::borrow::Cow;
+
 use camino::Utf8Path;
 use djls_ide::completion;
+use djls_semantic::TagArgument;
+use djls_semantic::TagArgumentKind;
+use djls_semantic::TagSpec;
+use djls_semantic::builtin_tag_specs;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
@@ -28,6 +35,145 @@ fn install_template_completion_project(db: &mut TestDatabase, child_path: &str, 
         .file("/test/project/app/templates/account/detail.html", "detail")
         .file("/test/project/app/templates/shared.html", "shadow")
         .install(db);
+}
+
+#[test]
+fn completion_dispatches_before_requesting_semantic_inventory() {
+    let cases = [
+        ("text", "plain §text", false, false),
+        ("library", "{% load § %}", false, true),
+        ("load-symbol", "{% load § from i18n %}", false, true),
+        ("filter", "{{ value|§ }}", false, false),
+        ("argument", "{% if § %}", false, true),
+        ("tag-name", "{% § %}", true, true),
+    ];
+
+    for (name, marked_source, enumerates_tags, builds_projection) in cases {
+        let event_log = SalsaEventLog::default();
+        let db = TestDatabase::with_event_log(event_log.clone());
+        let (source, offset) = source_and_offset(marked_source);
+        let path = format!("/{name}.html");
+        db.add_file(&path, &source);
+        let file = db.file(Utf8Path::new(&path));
+        let _ = event_log.take();
+
+        let response = completion(&db, file, offset, PositionEncoding::Utf16, false);
+        let executed = event_log.take_will_execute_names(&db);
+        let executed_query = |query: &str| executed.iter().any(|name| name.ends_with(query));
+
+        assert_eq!(
+            executed_query("tag_specs_at"),
+            enumerates_tags,
+            "{name} completion ran unexpected tracked functions: {executed:?}"
+        );
+        assert_eq!(
+            executed_query("template_analysis_projection_for_file_in_scope"),
+            builds_projection,
+            "{name} completion ran unexpected tracked functions: {executed:?}"
+        );
+        assert!(
+            !executed_query("tag_specs_for_file"),
+            "parsed completion contexts must not request the fallback tag inventory: {executed:?}"
+        );
+        if name == "text" {
+            assert!(response.is_none());
+            assert!(
+                !executed_query("parse_template"),
+                "text completion must stop before semantic parsing: {executed:?}"
+            );
+        }
+        if name == "tag-name" {
+            assert!(response.is_some());
+        }
+    }
+}
+
+#[test]
+fn captured_closer_does_not_offer_colliding_standalone_arguments() {
+    let mut specs = builtin_tag_specs();
+    specs.insert(
+        "endif".to_string(),
+        TagSpec::new("test.tags".into(), None, Cow::Borrowed(&[]), false).with_arguments(vec![
+            TagArgument {
+                name: "collision".to_string(),
+                kind: TagArgumentKind::Choice(vec!["standalone-choice".to_string()]),
+                required: true,
+                position: 0,
+            },
+        ]),
+    );
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+
+    let (captured_source, captured_offset) = source_and_offset("{% if condition %}{% endif § %}");
+    db.add_file("/captured.html", &captured_source);
+    assert!(
+        completion(
+            &db,
+            db.file(Utf8Path::new("/captured.html")),
+            captured_offset,
+            PositionEncoding::Utf16,
+            false,
+        )
+        .is_none(),
+        "a captured endif must not offer arguments from the colliding standalone definition"
+    );
+
+    let (standalone_source, standalone_offset) = source_and_offset("{% endif § %}");
+    db.add_file("/standalone.html", &standalone_source);
+    let response = completion(
+        &db,
+        db.file(Utf8Path::new("/standalone.html")),
+        standalone_offset,
+        PositionEncoding::Utf16,
+        false,
+    )
+    .expect("the standalone endif definition should offer its argument");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    assert!(items.iter().any(|item| item.label == "standalone-choice"));
+}
+
+#[test]
+fn shadowed_normal_tag_named_load_gets_no_library_completion() {
+    let mut db = TestDatabase::new();
+    let (library_source, library_offset) = source_and_offset("{% load § %}");
+    let (symbol_source, symbol_offset) = source_and_offset("{% load custom_§ from custom %}");
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['custom_load'], 'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/custom_load.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='load')\ndef custom_load(value): pass\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom_tag(): pass\n",
+        )
+        .file("/test/project/templates/library.html", &library_source)
+        .file("/test/project/templates/symbol.html", &symbol_source)
+        .install(&mut db);
+
+    for (path, offset) in [
+        ("/test/project/templates/library.html", library_offset),
+        ("/test/project/templates/symbol.html", symbol_offset),
+    ] {
+        assert!(
+            completion(
+                &db,
+                db.file(Utf8Path::new(path)),
+                offset,
+                PositionEncoding::Utf16,
+                false,
+            )
+            .is_none(),
+            "a syntax-only load context must not bypass the point-resolved TagRole in {path}"
+        );
+    }
 }
 
 #[test]

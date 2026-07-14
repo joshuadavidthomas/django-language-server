@@ -3,24 +3,14 @@ mod filters;
 mod if_expressions;
 mod scoping;
 
-use djls_project::TemplateEnvironment;
-
 use crate::db::Db;
-use crate::scoping::LoadedLibraries;
-use crate::scoping::SymbolIndex;
+use crate::scoping::TemplateAnalysisProjection;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
-use crate::structure::compute_tag_index_for_file;
-use crate::structure::grammar::ScopedTagIndex;
-use crate::structure::grammar::TagClass;
 use crate::tags::TagRole;
 
 /// Tracks the validation state for `{% extends %}` positioning rules.
-///
-/// Ensures:
-/// 1. `{% extends %}` must be the first non-text node (S122)
-/// 2. Only one `{% extends %}` allowed per template (S123)
 #[derive(Debug, Clone, Copy, Default)]
 enum ExtendsPosition {
     #[default]
@@ -38,48 +28,30 @@ impl ExtendsPosition {
     }
 }
 
-/// Combined validator for active template semantic facts.
+/// Validator over one converged [`TemplateAnalysisProjection`].
 ///
-/// The validator consumes the `TemplateTree`-derived active view rather than the
-/// raw parser `NodeList`, so opaque body content cannot affect semantic rules.
-pub(crate) struct TemplateValidator<'a> {
-    db: &'a dyn Db,
-    file: djls_source::File,
-    tag_index: &'a ScopedTagIndex,
-    symbol_index: SymbolIndex,
-    loaded_libraries: &'a LoadedLibraries,
-    environment: TemplateEnvironment<'a>,
-
-    // Tracking state for positional checks (e.g. {% extends %})
+/// Construction performs no grammar, load, symbol, or Filter reconstruction.
+pub(crate) struct TemplateValidator<'db> {
+    db: &'db dyn Db,
+    projection: TemplateAnalysisProjection<'db>,
     extends_position: ExtendsPosition,
 }
 
-impl<'a> TemplateValidator<'a> {
+impl<'db> TemplateValidator<'db> {
     #[must_use]
-    pub(crate) fn new(
-        db: &'a dyn Db,
-        file: djls_source::File,
-        nodelist: djls_templates::NodeList<'_>,
-        environment: TemplateEnvironment<'a>,
-    ) -> Self {
-        let tag_index = compute_tag_index_for_file(db, file, nodelist);
-        let loaded_libraries =
-            crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist);
-        let symbol_index = SymbolIndex::build_environment(loaded_libraries, environment);
-
+    pub(crate) fn new(db: &'db dyn Db, projection: TemplateAnalysisProjection<'db>) -> Self {
         Self {
             db,
-            file,
-            tag_index,
-            symbol_index,
-            loaded_libraries,
-            environment,
+            projection,
             extends_position: ExtendsPosition::default(),
         }
     }
 
-    pub(crate) fn validate(mut self, nodes: &[ActiveTemplateNode<'_>]) {
-        for node in nodes {
+    pub(crate) fn validate(mut self) {
+        let tree = self.projection.tree(self.db);
+        let nodes =
+            crate::structure::active_template_nodes(tree.regions(self.db), tree.root(self.db));
+        for node in &nodes {
             match node {
                 ActiveTemplateNode::Tag(tag) => self.validate_tag(*tag),
                 ActiveTemplateNode::Variable(variable) => self.validate_variable(*variable),
@@ -91,11 +63,12 @@ impl<'a> TemplateValidator<'a> {
         let name = tag.tag;
         let bits = tag.bits;
         let span = tag.span;
-
-        let effective_spec = self.tag_index.at(span.start()).spec(name);
+        let Some(facts) = self.projection.scoped_tag_facts(self.db).for_tag(tag) else {
+            return;
+        };
+        let effective_spec = facts.spec.as_ref();
         let effective_role = effective_spec.and_then(crate::TagSpec::role);
 
-        // 1. Extends validation
         if matches!(
             effective_role,
             Some(TagRole::TemplateReference(
@@ -122,51 +95,31 @@ impl<'a> TemplateValidator<'a> {
                     .accumulate(self.db);
                 }
             }
-
             self.extends_position = ExtendsPosition::AfterExtends;
         }
 
-        // 2. Scoping validation (skip structural tags and the effective library loader).
-        // Structural interpretation requires one effective grammar across all feasible backends.
-        // UnknownTag suppression is weaker: a closer/intermediate spelling is valid when at least
-        // one feasible backend loads the opening definition. An unloaded candidate is insufficient.
-        let grammar_spelling_is_valid = matches!(
-            self.tag_index.at(span.start()).classify(name),
-            TagClass::Closer { .. } | TagClass::Intermediate { .. }
-        ) || self
-            .grammar_spelling_is_valid_in_any_backend(name, span.start());
-        if effective_role != Some(TagRole::TemplateLibraryLoader) && !grammar_spelling_is_valid {
-            let symbols = self.symbol_index.symbols_at(span.start());
-            let unknown_load_can_supply_tag = self
-                .loaded_libraries
-                .has_unknown_load_that_can_shadow_symbol_before(
-                    span.start(),
-                    name,
-                    self.environment,
-                );
+        if effective_role != Some(TagRole::TemplateLibraryLoader)
+            && !facts.structure_accepts_spelling
+        {
             scoping::check_tag_scoping_rule(
                 self.db,
                 name,
                 span,
-                symbols,
-                self.environment,
-                unknown_load_can_supply_tag,
+                &facts.availability,
+                facts.unknown_load_can_shadow,
             );
         }
 
-        // 3. Argument validation
         if let Some(spec) = effective_spec
             && let Some(rules) = spec.extracted_rules()
         {
             arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
         }
 
-        // 4. Load library validation
         if effective_role == Some(TagRole::TemplateLibraryLoader) {
-            scoping::check_load_libraries_rule(self.db, name, bits, self.environment);
+            scoping::check_load_libraries_rule(self.db, &facts.loader_arguments);
         }
 
-        // 5. If expression validation
         if effective_role == Some(TagRole::ControlTag) && (name == "if" || name == "elif") {
             if_expressions::check_if_expression_rule(self.db, name, bits, span);
         }
@@ -174,67 +127,25 @@ impl<'a> TemplateValidator<'a> {
         self.extends_position = self.extends_position.record_non_text();
     }
 
-    fn grammar_spelling_is_valid_in_any_backend(&self, name: &str, position: u32) -> bool {
-        let Some(project) = self.db.project() else {
-            return false;
-        };
-        let vocabulary = crate::semantic_grammar_vocabulary(self.db, project);
-        let load_state = self.loaded_libraries.available_at(position);
-        vocabulary
-            .closer_candidates(name)
-            .iter()
-            .chain(vocabulary.intermediate_candidates(name))
-            .any(|candidate| {
-                let loaded = load_state.libraries_loading_symbol(candidate.name());
-                let definitions = self.environment.effective_definition_libraries(
-                    candidate.name(),
-                    djls_project::TemplateSymbolKind::Tag,
-                    &loaded,
-                );
-                definitions.iter().any(|definition| match definition {
-                    djls_project::EffectiveDefinitionLibrary::Known(Some(library))
-                    | djls_project::EffectiveDefinitionLibrary::Unobserved(library) => {
-                        library.key(self.db) == *candidate.library()
-                    }
-                    djls_project::EffectiveDefinitionLibrary::Known(None)
-                    | djls_project::EffectiveDefinitionLibrary::Unknown => false,
-                })
-            })
-    }
-
     fn validate_variable(&mut self, variable: ActiveTemplateVariable<'_>) {
-        if !variable.filters.is_empty() {
-            let symbols = self.symbol_index.symbols_at(variable.span.start());
-
-            for filter in variable.filters {
-                let unknown_load_can_shadow_filter = self
-                    .loaded_libraries
-                    .has_unknown_load_that_can_shadow_symbol_before(
-                        variable.span.start(),
-                        &filter.name,
-                        self.environment,
-                    );
-
-                // 1. Filter Scoping
-                scoping::check_filter_scoping_rule(
-                    self.db,
-                    filter,
-                    symbols,
-                    self.environment,
-                    unknown_load_can_shadow_filter,
-                );
-
-                // 2. Filter Arity
-                if !unknown_load_can_shadow_filter
-                    && let Some(arity) = crate::filters::effective_filter_arity(
-                        self.db,
-                        self.file,
-                        &filter.name,
-                        &self.loaded_libraries.available_at(variable.span.start()),
-                    )
-                {
-                    filters::check_filter_arity_rule(self.db, filter, &arity);
-                }
+        for filter in variable.filters {
+            let Some(facts) = self
+                .projection
+                .scoped_filter_facts(self.db)
+                .for_filter(filter)
+            else {
+                continue;
+            };
+            scoping::check_filter_scoping_rule(
+                self.db,
+                filter,
+                &facts.availability,
+                facts.unknown_load_can_shadow,
+            );
+            if !facts.unknown_load_can_shadow
+                && let Some(arity) = facts.arity.as_ref()
+            {
+                filters::check_filter_arity_rule(self.db, filter, arity);
             }
         }
 

@@ -46,6 +46,11 @@ impl FilterAritySpecs {
         self.specs.get(filter_name).map(|(_, arity)| arity)
     }
 
+    #[must_use]
+    pub(crate) fn contains(&self, filter_name: &str) -> bool {
+        self.specs.contains_key(filter_name)
+    }
+
     /// Merge extracted filter arities into this map.
     /// Later entries overwrite earlier ones (last-wins).
     pub fn merge_filter_arities(&mut self, filter_arities: &FilterArityMap) {
@@ -75,9 +80,9 @@ pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryKey) -> LibraryFilt
 }
 
 /// Return the effective filter arity at one occurrence when every feasible backend agrees.
-pub(crate) fn effective_filter_arity(
+pub(crate) fn effective_filter_arity_in_scope(
     db: &dyn Db,
-    file: djls_source::File,
+    scope_file: djls_source::File,
     filter_name: &str,
     load_state: &crate::scoping::LoadState<'_>,
 ) -> Option<FilterArity> {
@@ -88,7 +93,7 @@ pub(crate) fn effective_filter_arity(
             .cloned();
     }
     let loaded = load_state.libraries_loading_symbol(filter_name);
-    let alternatives = crate::db::template_environment_for_file(db, file)
+    let alternatives = crate::db::template_environment_for_file(db, scope_file)
         .effective_definition_libraries(filter_name, TemplateSymbolKind::Filter, &loaded);
     let definitions: Option<Vec<Option<FilterArity>>> = alternatives
         .into_iter()

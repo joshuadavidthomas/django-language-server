@@ -58,30 +58,24 @@ pub fn build_template_outline_for_file(
     file: djls_source::File,
     nodelist: djls_templates::NodeList<'_>,
 ) -> Vec<OutlineItem> {
-    let tree = crate::structure::build_template_tree_for_file(db, file, nodelist);
+    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    let tree = projection.tree(db);
     let roles = OutlineTagRoles {
-        db,
-        file,
-        loaded: crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist),
+        facts: projection.scoped_tag_facts(db),
     };
     outline_items_for_region(tree.regions(db), &roles, tree.root(db))
 }
 
 struct OutlineTagRoles<'a> {
-    db: &'a dyn Db,
-    file: djls_source::File,
-    loaded: &'a crate::scoping::LoadedLibraries,
+    facts: &'a crate::scoping::ScopedTagFacts,
 }
 
 impl OutlineTagRoles<'_> {
-    fn role(&self, tag: &str, position: u32) -> Option<TagRole> {
-        crate::tags::effective_tag_spec(
-            self.db,
-            self.file,
-            tag,
-            &self.loaded.available_at(position),
-        )
-        .and_then(|spec| spec.role())
+    fn role(&self, name_span: Span) -> Option<TagRole> {
+        self.facts
+            .for_name_span(name_span)
+            .and_then(|fact| fact.spec.as_ref())
+            .and_then(crate::TagSpec::role)
     }
 }
 
@@ -125,7 +119,7 @@ fn outline_items_for_tag(
             };
             vec![item]
         }
-        TagRole::TemplateLibraryLoader => match LoadKind::from_tag(tag, bits) {
+        TagRole::TemplateLibraryLoader => match LoadKind::from_loader_bits(bits) {
             Some(LoadKind::FullLoad { libraries }) => libraries
                 .into_iter()
                 .map(|library| OutlineItem {
@@ -189,6 +183,7 @@ fn outline_items_for_region(
         .collect()
 }
 
+#[allow(clippy::too_many_lines)]
 fn outline_items_for_node(
     regions: &Regions,
     roles: &OutlineTagRoles<'_>,
@@ -199,13 +194,11 @@ fn outline_items_for_node(
             tag,
             name_span,
             bits,
+            full_span: _,
             body,
             role: BlockRole::Opener,
-            ..
         } => {
-            let role = roles
-                .role(tag, name_span.start())
-                .unwrap_or(TagRole::ControlTag);
+            let role = roles.role(*name_span).unwrap_or(TagRole::ControlTag);
             let children = regions
                 .get(*body)
                 .nodes()
@@ -257,11 +250,9 @@ fn outline_items_for_node(
             bits,
             full_span,
             ..
-        } => roles
-            .role(tag, name_span.start())
-            .map_or_else(Vec::new, |role| {
-                outline_items_for_tag(role, tag, *name_span, bits, *full_span, Vec::new())
-            }),
+        } => roles.role(*name_span).map_or_else(Vec::new, |role| {
+            outline_items_for_tag(role, tag, *name_span, bits, *full_span, Vec::new())
+        }),
         TemplateNode::Variable {
             var,
             var_span,

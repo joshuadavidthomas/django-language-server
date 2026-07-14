@@ -1637,33 +1637,6 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn definite_symbol_candidates(
-        &self,
-        kind: TemplateSymbolKind,
-    ) -> Vec<(String, EnvironmentSymbolLookup)> {
-        let mut names = self
-            .resolved_libraries()
-            .flat_map(TemplateLibrary::symbols)
-            .filter(|symbol| symbol.kind == kind)
-            .map(|symbol| symbol.name.clone())
-            .collect::<BTreeSet<_>>();
-        // Available-app symbols are not part of the active environment.
-        names.retain(|name| {
-            !matches!(
-                self.environment_symbol_lookup(name.as_str(), kind),
-                EnvironmentSymbolLookup::Absent | EnvironmentSymbolLookup::Inconclusive
-            )
-        });
-        names
-            .into_iter()
-            .map(|name| {
-                let lookup = self.environment_symbol_lookup(name.as_str(), kind);
-                (name.as_str().to_string(), lookup)
-            })
-            .collect()
-    }
-
-    #[must_use]
     pub fn template_symbol_lookup(
         &self,
         name: &str,

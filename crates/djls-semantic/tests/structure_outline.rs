@@ -97,6 +97,28 @@ fn outline_roles_follow_load_position() {
 }
 
 #[test]
+fn loader_role_outline_does_not_depend_on_load_spelling() {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
+        "use_library".to_string(),
+        TagSpec::new(
+            Cow::Borrowed("test.loader"),
+            None,
+            Cow::Borrowed(&[]),
+            false,
+        )
+        .with_role(TagRole::TemplateLibraryLoader),
+    )])));
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+
+    let outline = outline_for_source(&db, "{% use_library custom_tags %}");
+
+    assert_eq!(labels(outline), vec!["custom_tags"]);
+    assert_eq!(outline[0].kind, OutlineKind::TemplateLibrary);
+    assert_eq!(outline[0].detail.as_deref(), Some("use_library"));
+}
+
+#[test]
 fn selective_load_uses_library_as_outline_item_with_imported_symbols() {
     let db = TestDatabase::new();
     let outline = outline_for_source(&db, "{% load trans blocktrans from i18n %}");

@@ -68,10 +68,10 @@ pub use tags::TagSpec;
 pub use tags::TagSpecs;
 pub use tags::builtin_tag_specs;
 pub use tags::library_tag_specs;
+pub use tags::tag_spec_at;
 pub use tags::tag_specs_at;
 pub use tags::tag_specs_for_file;
 
-use crate::structure::active_template_nodes;
 use crate::validation::TemplateValidator;
 
 /// Validate a Django template file.
@@ -87,11 +87,6 @@ pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
         return;
     };
 
-    let environment = template_environment_for_file(db, file);
-
-    // Structural analysis and validation share the same file-scoped semantic environment.
-    let template_tree = build_template_tree_for_file(db, file, nodelist);
-    let active_nodes = active_template_nodes(template_tree.regions(db), template_tree.root(db));
-    let validator = TemplateValidator::new(db, file, nodelist, environment);
-    validator.validate(&active_nodes);
+    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    TemplateValidator::new(db, projection).validate();
 }

@@ -544,7 +544,7 @@ mod invalidation_tests {
             exact_execution_count(
                 &db,
                 &events,
-                "compute_structural_projection_for_file_in_scope",
+                "template_analysis_projection_for_file_in_scope",
             ),
             1
         );
@@ -567,10 +567,10 @@ mod invalidation_tests {
             exact_execution_count(
                 &db,
                 &events,
-                "compute_structural_projection_for_file_in_scope",
+                "template_analysis_projection_for_file_in_scope",
             ),
             0,
-            "validation should reuse the structural projection built above",
+            "validation should reuse the correlated analysis projection built above",
         );
 
         djls_semantic::validate_template_file(&db, child_file);
@@ -579,6 +579,136 @@ mod invalidation_tests {
             exact_execution_count(&db, &events, "validate_template_file"),
             0,
             "same-revision validation should be memoized",
+        );
+    }
+
+    #[test]
+    fn template_analysis_projection_is_cached_and_invalidated_by_its_source_only() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            fs,
+            project,
+            child_file,
+            other_file,
+            child_path,
+            ..
+        } = template_inheritance_fixture();
+
+        let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
+        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        event_log.take();
+
+        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "template_analysis_projection_for_file_in_scope",
+            ),
+            0,
+            "same-revision structure should reuse the correlated projection",
+        );
+
+        fs.lock()
+            .unwrap()
+            .add_file(other_file.path(&db).clone(), "unrelated edit".to_string());
+        SourceChanges::new([ChangeEvent::ContentChanged(other_file.path(&db).clone())])
+            .apply(&mut db);
+        let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
+        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "template_analysis_projection_for_file_in_scope",
+            ),
+            0,
+            "an unrelated Template edit must not rerun this file's projection",
+        );
+
+        fs.lock().unwrap().add_file(
+            child_path,
+            "{% extends \"base.html\" %}\n{% block content %}{{ two }}{% endblock %}".to_string(),
+        );
+        SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
+            .apply(&mut db);
+        let nodelist = parse_template(&db, child_file).expect("edited child should parse");
+        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "template_analysis_projection_for_file_in_scope",
+            ),
+            1,
+            "a meaningful owning-source edit must rerun the sparse projection",
+        );
+
+        let loader_tags_path = project.root(&db).join("django/template/loader_tags.py");
+        fs.lock().unwrap().add_file(
+            loader_tags_path.clone(),
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef block(value): pass\n@register.tag\ndef extends(parser, token): pass\n"
+                .to_string(),
+        );
+        SourceChanges::new([ChangeEvent::ContentChanged(loader_tags_path)]).apply(&mut db);
+        let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
+        let _ = djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "template_analysis_projection_for_file_in_scope",
+            ),
+            1,
+            "a relevant Template Library spec edit must invalidate the correlated projection",
+        );
+    }
+
+    #[test]
+    fn same_meaning_text_edit_backdates_before_template_analysis_projection() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            fs,
+            parent_file,
+            parent_path,
+            ..
+        } = template_inheritance_fixture();
+
+        let nodelist = parse_template(&db, parent_file).expect("parent fixture should parse");
+        djls_semantic::build_template_tree_for_file(&db, parent_file, nodelist);
+        event_log.take();
+
+        // Template text nodes carry source positions, not their presentation text.
+        // Keeping the same byte length therefore produces the same parsed NodeList.
+        fs.lock().unwrap().add_file(
+            parent_path,
+            "{% block content %}Next{% endblock %}".to_string(),
+        );
+        SourceChanges::new([ChangeEvent::ContentChanged(parent_file.path(&db).clone())])
+            .apply(&mut db);
+        let nodelist = parse_template(&db, parent_file).expect("edited parent should parse");
+        djls_semantic::build_template_tree_for_file(&db, parent_file, nodelist);
+        let events = event_log.take();
+
+        assert_eq!(
+            exact_execution_count(&db, &events, "parse_template"),
+            1,
+            "the file revision should execute parsing exactly once",
+        );
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "template_analysis_projection_for_file_in_scope",
+            ),
+            0,
+            "a backdated NodeList must stop same-meaning text edits before semantic projection",
         );
     }
 
@@ -1321,6 +1451,7 @@ env_file = ".env.local"
             mut db,
             event_log,
             project,
+            child_file,
             ..
         } = template_inheritance_fixture();
         let libraries = template_libraries(&db, project);
@@ -1338,6 +1469,10 @@ env_file = ".env.local"
         let loader_tags_identity = (loader_tags.file(&db), loader_tags.module(&db).clone());
         let _ = djls_semantic::library_tag_specs(&db, project, defaulttags);
         let _ = djls_semantic::library_tag_specs(&db, project, loader_tags);
+        {
+            let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
+            let _ = djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        }
         event_log.take();
 
         let new_tagspecs = djls_conf::TagSpecDef {
@@ -1388,6 +1523,19 @@ env_file = ".env.local"
         assert_eq!(
             exact_execution_count(&db, &events, "library_filter_specs"),
             0
+        );
+
+        let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
+        let _ = djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let events = event_log.take();
+        assert_eq!(
+            exact_execution_count(
+                &db,
+                &events,
+                "template_analysis_projection_for_file_in_scope",
+            ),
+            1,
+            "a relevant Tag Spec edit must invalidate the correlated template projection",
         );
     }
 

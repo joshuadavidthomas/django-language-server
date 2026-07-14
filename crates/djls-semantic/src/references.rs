@@ -258,26 +258,21 @@ impl TemplateLibraryReferenceInFile {
 #[salsa::tracked]
 pub fn template_references_in_file(
     db: &dyn SemanticDb,
-    project: Project,
+    _project: Project,
     file: File,
 ) -> TemplateReferencesInFile<'_> {
     let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateReferencesInFile::new(db, Vec::new());
     };
-    let tree = crate::structure::build_template_tree_for_file(db, file, nodelist);
-    let loaded = crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist);
+    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    let tree = projection.tree(db);
+    let tag_facts = projection.scoped_tag_facts(db);
 
     let references = active_template_tags(tree.regions(db), tree.root(db))
         .into_iter()
         .filter_map(|tag| {
-            let spec = crate::tags::effective_tag_spec_in_project(
-                db,
-                project,
-                file,
-                tag.tag,
-                &loaded.available_at(tag.span.start()),
-            )?;
-            let reference = LiteralTemplateReference::from_spec(&spec, tag.bits)?;
+            let spec = tag_facts.for_tag(tag)?.spec.as_ref()?;
+            let reference = LiteralTemplateReference::from_spec(spec, tag.bits)?;
             Some(TemplateReferenceInFile {
                 target_template_name: TemplateName::new(db, reference.template_name.to_string()),
                 kind: reference.kind,
@@ -297,32 +292,27 @@ pub fn template_library_references_in_file(
     let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateLibraryReferencesInFile::new(db, Vec::new());
     };
-    let tree = crate::structure::build_template_tree_for_file(db, file, nodelist);
-    let loaded = crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist);
+    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    let tree = projection.tree(db);
+    let tag_facts = projection.scoped_tag_facts(db);
 
     let references = active_template_tags(tree.regions(db), tree.root(db))
         .into_iter()
         .filter(|tag| {
-            crate::tags::effective_tag_spec(
-                db,
-                file,
-                tag.tag,
-                &loaded.available_at(tag.span.start()),
-            )
-            .and_then(|spec| spec.role())
+            tag_facts
+                .for_tag(*tag)
+                .and_then(|facts| facts.spec.as_ref())
+                .and_then(crate::TagSpec::role)
                 == Some(TagRole::TemplateLibraryLoader)
         })
-        .flat_map(|tag| literal_load_references_from_tag(tag.tag, tag.bits))
+        .flat_map(|tag| literal_load_references_from_tag(tag.bits))
         .collect();
 
     TemplateLibraryReferencesInFile::new(db, references)
 }
 
-fn literal_load_references_from_tag(
-    name: &str,
-    bits: &[TagBit],
-) -> Vec<TemplateLibraryReferenceInFile> {
-    let Some(kind) = LoadKind::from_tag(name, bits) else {
+fn literal_load_references_from_tag(bits: &[TagBit]) -> Vec<TemplateLibraryReferenceInFile> {
+    let Some(kind) = LoadKind::from_loader_bits(bits) else {
         return Vec::new();
     };
 

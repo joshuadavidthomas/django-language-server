@@ -123,7 +123,7 @@ pub(crate) fn effective_tag_spec_in_project_for_scope(
     )
 }
 
-pub(crate) fn effective_tag_spec_in_project(
+fn effective_tag_spec_in_project(
     db: &dyn Db,
     project: Project,
     file: djls_source::File,
@@ -185,7 +185,55 @@ fn effective_tag_spec_from_environment(
 #[salsa::tracked(returns(ref))]
 pub fn tag_specs_for_file(db: &dyn Db, file: djls_source::File) -> TagSpecs {
     let empty = crate::scoping::LoadedLibraries::default();
-    effective_tag_specs_for_load_state(db, file, &empty.available_at(0))
+    completion_tag_specs_for_load_state(db, file, &empty.available_at(0))
+}
+
+/// Return the converged spec for the active tag occurrence at `position`.
+///
+/// This is occurrence meaning, not a name lookup: a spelling captured as an
+/// intermediate or closer by an open block does not retain a colliding standalone spec.
+#[must_use]
+pub fn tag_spec_at(
+    db: &dyn Db,
+    file: djls_source::File,
+    nodelist: djls_templates::NodeList<'_>,
+    position: u32,
+    name: &str,
+) -> Option<TagSpec> {
+    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    let offset = djls_source::Offset::new(position);
+    if let Some(closer) = projection
+        .captured_closers(db)
+        .iter()
+        .map(crate::structure::CapturedClosingTag::as_active)
+        .find(|closer| closer.tag == name && closer.full_span.contains(offset))
+    {
+        return projection
+            .scoped_tag_facts(db)
+            .for_tag(closer)
+            .and_then(|facts| facts.spec.clone());
+    }
+
+    let tree = projection.tree(db);
+    if let Some(tag) = crate::structure::active_template_tags(tree.regions(db), tree.root(db))
+        .into_iter()
+        .find(|tag| tag.tag == name && tag.full_span.contains(offset))
+    {
+        return projection
+            .scoped_tag_facts(db)
+            .for_tag(tag)
+            .and_then(|facts| facts.spec.clone());
+    }
+
+    // Error recovery can leave a syntactically recognizable completion context
+    // without a structural occurrence. Resolve its name against the converged
+    // load prefix, but never use this fallback for a captured structural tag.
+    effective_tag_spec(
+        db,
+        file,
+        name,
+        &projection.loaded_libraries(db).available_at(position),
+    )
 }
 
 #[salsa::tracked(returns(ref))]
@@ -195,37 +243,21 @@ pub fn tag_specs_at(
     nodelist: djls_templates::NodeList<'_>,
     position: u32,
 ) -> TagSpecs {
-    let loaded = crate::scoping::compute_loaded_libraries_for_file(db, file, nodelist);
-    effective_tag_specs_for_load_state(db, file, &loaded.available_at(position))
+    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    completion_tag_specs_for_load_state(
+        db,
+        file,
+        &projection.loaded_libraries(db).available_at(position),
+    )
 }
 
-pub(crate) fn effective_tag_specs_for_load_state_in_project_scope(
-    db: &dyn Db,
-    project: Project,
-    scope_file: djls_source::File,
-    load_state: &LoadState<'_>,
-) -> TagSpecs {
-    let environment = template_environment(db, project, scope_file);
-    let names = semantic_tag_candidate_names(db, project, environment);
-
-    let mut specs = TagSpecs::default();
-    for name in names {
-        if let Some(spec) =
-            effective_tag_spec_in_project_for_scope(db, project, scope_file, &name, load_state)
-        {
-            specs.insert(name, spec);
-        }
-    }
-    specs
-}
-
-pub(crate) fn effective_tag_specs_for_load_state(
+fn completion_tag_specs_for_load_state(
     db: &dyn Db,
     file: djls_source::File,
     load_state: &LoadState<'_>,
 ) -> TagSpecs {
     let names = if let Some(project) = db.project() {
-        semantic_tag_candidate_names(db, project, template_environment(db, project, file))
+        completion_tag_candidate_names(db, project, template_environment(db, project, file))
     } else {
         db.projectless_tag_specs().keys().cloned().collect()
     };
@@ -248,7 +280,7 @@ fn hardcoded_tag_inventory_is_complete(module: &str) -> bool {
     )
 }
 
-fn semantic_tag_candidate_names(
+fn completion_tag_candidate_names(
     db: &dyn Db,
     project: Project,
     environment: djls_project::TemplateEnvironment<'_>,
