@@ -1,0 +1,8 @@
+---
+source: crates/djls-bench/src/check.rs
+expression: "ValidationRenderSnapshot\n{\n    validation_error_count, rendered_count, rendered_bytes,\n    rendered_output_sha256: hasher.finish(),\n}"
+---
+validation_error_count: 873
+rendered_count: 873
+rendered_bytes: 188418
+rendered_output_sha256: 4a14a068643335e5d7e55257e2eae85c1ac05c457adb1f5c562f389242f7bf13

@@ -16,6 +16,13 @@ djls-testing = { workspace = true }
 camino = { workspace = true }
 divan = { workspace = true }
 salsa = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+tower-lsp-server = { workspace = true }
 
 [[bench]]
 name = "parser"

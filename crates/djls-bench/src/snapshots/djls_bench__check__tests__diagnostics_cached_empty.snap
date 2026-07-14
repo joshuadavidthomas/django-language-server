@@ -1,0 +1,41 @@
+---
+source: crates/djls-bench/src/check.rs
+expression: "checked_workload_snapshot(&db, &files, WorkloadDetail::Small, false)"
+---
+check_parser_count: 0
+check_validation_count: 0
+check_code_counts: {}
+per_file_checks:
+  - path: /templates/empty/0.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/empty/1.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/empty/2.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/empty/3.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/empty/4.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/empty/5.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+per_file_checks_sha256: 938621498e96d5ce20192f716a6c2f726a7935f4089e8d6af3bed1d684c68b6b
+ide_eligible_file_count: 6
+ide_diagnostic_count: 0
+ide_code_counts: {}
+normalized_ide_diagnostics: []
+normalized_ide_diagnostics_sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+files_with_diagnostics: 0
+diagnostic_bearing_paths: []
+diagnostic_bearing_paths_sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

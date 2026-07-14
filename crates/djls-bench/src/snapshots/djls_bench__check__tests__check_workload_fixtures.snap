@@ -1,0 +1,211 @@
+---
+source: crates/djls-bench/src/check.rs
+expression: "checked_workload_snapshot(&db, &files, WorkloadDetail::Small, true)"
+---
+check_parser_count: 0
+check_validation_count: 20
+check_code_counts:
+  S111: 20
+per_file_checks:
+  - path: /templates/large/stress_test.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/large/views_technical_500.html
+    parser_count: 0
+    validation_count: 19
+    codes:
+      S111: 19
+  - path: /templates/medium/admin_login.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/medium/nested_blocks.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/small/dense_tags.html
+    parser_count: 0
+    validation_count: 0
+    codes: {}
+  - path: /templates/small/forms_widgets_input.html
+    parser_count: 0
+    validation_count: 1
+    codes:
+      S111: 1
+per_file_checks_sha256: c8d32f3e5e6a083d222454ae5dd08179ff91f064c5b8d388286cb6051bef8712
+ide_eligible_file_count: 6
+ide_diagnostic_count: 20
+ide_code_counts:
+  S111: 20
+normalized_ide_diagnostics:
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 104
+    start_character: 74
+    end_line: 104
+    end_character: 86
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 129
+    start_character: 34
+    end_line: 129
+    end_character: 46
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 154
+    start_character: 33
+    end_line: 154
+    end_character: 39
+    message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 196
+    start_character: 32
+    end_line: 196
+    end_character: 44
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 223
+    start_character: 52
+    end_line: 223
+    end_character: 64
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 225
+    start_character: 71
+    end_line: 225
+    end_character: 83
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 251
+    start_character: 43
+    end_line: 251
+    end_character: 50
+    message: "Unknown filter 'add'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 309
+    start_character: 27
+    end_line: 309
+    end_character: 33
+    message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 311
+    start_character: 23
+    end_line: 311
+    end_character: 29
+    message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 324
+    start_character: 28
+    end_line: 324
+    end_character: 40
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 329
+    start_character: 40
+    end_line: 329
+    end_character: 52
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 331
+    start_character: 59
+    end_line: 331
+    end_character: 71
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 336
+    start_character: 36
+    end_line: 336
+    end_character: 48
+    message: "Unknown filter 'force_escape'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 368
+    start_character: 39
+    end_line: 368
+    end_character: 45
+    message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 390
+    start_character: 39
+    end_line: 390
+    end_character: 45
+    message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 412
+    start_character: 39
+    end_line: 412
+    end_character: 45
+    message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 434
+    start_character: 39
+    end_line: 434
+    end_character: 45
+    message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 455
+    start_character: 37
+    end_line: 455
+    end_character: 43
+    message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 477
+    start_character: 37
+    end_line: 477
+    end_character: 43
+    message: "Unknown filter 'pprint'"
+  - path: /templates/small/forms_widgets_input.html
+    code: S111
+    severity: error
+    start_line: 0
+    start_character: 109
+    end_line: 0
+    end_character: 125
+    message: "Unknown filter 'stringformat'"
+normalized_ide_diagnostics_sha256: 8ffb9efc5200b128227ed9e6fb24472d4f96bfe355c5c61b4de9e4e192eb46ae
+files_with_diagnostics: 2
+diagnostic_bearing_paths:
+  - /templates/large/views_technical_500.html
+  - /templates/small/forms_widgets_input.html
+diagnostic_bearing_paths_sha256: bd7b47cce11fa40e4cca119ec72e044eedbbed0bcf6ffe55beb8a7e1dd0a0aa0
+rendered:
+  item_count: 20
+  total_bytes: 4916
+  output_sha256: a82e6d6ff2d0579cc32479be4c9d2e839e68da0862f1d891ad8c2bd72e6ffca9

@@ -1,0 +1,16 @@
+---
+source: crates/djls-bench/src/fixtures.rs
+expression: fixture_set_snapshot(model_fixtures())
+---
+file_count: 3
+total_bytes: 175441
+files:
+  - path: large_inventree_part.py
+    bytes: 152373
+    source_sha256: f617e6ad88b429830a9f0eab41f9673a52c2ac498c04fddafd85f041c45be853
+  - path: medium_auth.py
+    bytes: 21304
+    source_sha256: d4455e35a5610dbac8e0619cb0a48fa8029cd638d4faf0cb351250c8a14b0b11
+  - path: small_flatpages.py
+    bytes: 1764
+    source_sha256: dee81146c0f00790b7187396bed3b38c997ecb4caaaa361905238cb76e1062ec

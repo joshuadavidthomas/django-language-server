@@ -16,16 +16,15 @@
 //! Corpus benchmarks require a synced corpus (`just corpus sync`) and
 //! skip gracefully when unavailable.
 
-use std::sync::OnceLock;
-
-use camino::Utf8PathBuf;
 use divan::Bencher;
+use djls_bench::CorpusLoadError;
+use djls_bench::CorpusTemplates;
 use djls_bench::Db;
-use djls_bench::DiagnosticDigest;
 use djls_bench::FileCheckResult;
+use djls_bench::django_corpus_templates;
+use djls_bench::full_corpus_templates;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
-use djls_bench::template_path;
 use djls_source::DiagnosticRenderer;
 
 fn main() {
@@ -47,50 +46,6 @@ fn run_check(db: &Db, file: djls_source::File) -> FileCheckResult {
     }
 }
 
-#[derive(Debug)]
-struct CheckWorkloadContract {
-    discovered_file_count: usize,
-    synchronized_file_count: usize,
-    total_bytes: usize,
-    diagnostics: DiagnosticDigest,
-    rendered_count: usize,
-}
-
-fn assert_check_workload_contract(
-    discovered_file_count: usize,
-    files: &[(Utf8PathBuf, String)],
-    expected: &CheckWorkloadContract,
-) {
-    assert_eq!(discovered_file_count, expected.discovered_file_count);
-    assert_eq!(files.len(), expected.synchronized_file_count);
-    assert_eq!(
-        files.iter().map(|(_, source)| source.len()).sum::<usize>(),
-        expected.total_bytes,
-    );
-
-    let mut db = realistic_db();
-    let synchronized: Vec<_> = files
-        .iter()
-        .map(|(path, source)| db.file_with_contents(path.clone(), source))
-        .collect();
-    assert_eq!(synchronized.len(), expected.synchronized_file_count);
-    djls_ide::prepare_project_template_analysis(&db)
-        .expect("check benchmark database should install a Project");
-
-    let config = djls_conf::DiagnosticsConfig::default();
-    let fmt = DiagnosticRenderer::plain();
-    let mut diagnostics = DiagnosticDigest::default();
-    let mut rendered_count = 0;
-    for file in synchronized {
-        let result = run_check(&db, file);
-        diagnostics.merge(&result.diagnostic_digest());
-        rendered_count += result.render(&config, &fmt).len();
-    }
-
-    assert_eq!(diagnostics, expected.diagnostics);
-    assert_eq!(rendered_count, expected.rendered_count);
-}
-
 // Batch: all fixture templates through one fresh database.
 // Per-library semantic products are shared while each Template builds its own
 // sparse occurrence projection, matching real `djls check` behaviour.
@@ -98,24 +53,6 @@ fn assert_check_workload_contract(
 #[divan::bench]
 fn fixtures(bencher: Bencher) {
     let fixtures = template_fixtures();
-    let workload: Vec<_> = fixtures
-        .iter()
-        .map(|fixture| (fixture.path.clone(), fixture.source.clone()))
-        .collect();
-    assert_check_workload_contract(
-        workload.len(),
-        &workload,
-        &CheckWorkloadContract {
-            discovered_file_count: 6,
-            synchronized_file_count: 6,
-            total_bytes: 30_105,
-            // Canonical builtins intentionally correct the old synthetic unknown/unloaded output;
-            // the six files and 30,105 input bytes are unchanged.
-            diagnostics: DiagnosticDigest::from_counts(0, 20, [("S111", 20)]),
-            rendered_count: 20,
-        },
-    );
-
     bencher
         .with_inputs(move || {
             let mut db = realistic_db();
@@ -144,76 +81,20 @@ fn fixtures(bencher: Bencher) {
 
 // Corpus-scale: real Django templates and the full corpus.
 
-struct CorpusTemplates {
-    discovered_file_count: usize,
-    files: Vec<(Utf8PathBuf, String)>,
-}
-
-fn load_corpus_inner(
-    get_paths: impl FnOnce(&djls_testing::Corpus) -> Option<Vec<Utf8PathBuf>>,
-) -> Option<CorpusTemplates> {
-    if !djls_testing::Corpus::is_available() {
-        return None;
-    }
-
-    let corpus = djls_testing::Corpus::require();
-    let mut template_paths = get_paths(&corpus)?;
-    template_paths.sort();
-
-    let discovered_file_count = template_paths.len();
-    let files: Vec<(Utf8PathBuf, String)> = template_paths
-        .into_iter()
-        .filter_map(|path| {
-            let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-            let relative = path.strip_prefix(corpus.root()).ok()?;
-            Some((template_path(relative), source))
-        })
-        .collect();
-
-    if files.is_empty() {
-        return None;
-    }
-
-    Some(CorpusTemplates {
-        discovered_file_count,
-        files,
-    })
-}
-
-fn load_corpus_templates() -> Option<&'static CorpusTemplates> {
-    static CORPUS: OnceLock<Option<CorpusTemplates>> = OnceLock::new();
-    CORPUS
-        .get_or_init(|| {
-            load_corpus_inner(|corpus| {
-                let django_dir = corpus.latest_package("django")?;
-                Some(corpus.templates_in(&django_dir))
-            })
-        })
-        .as_ref()
-}
-
-fn load_full_corpus_templates() -> Option<&'static CorpusTemplates> {
-    static CORPUS: OnceLock<Option<CorpusTemplates>> = OnceLock::new();
-    CORPUS
-        .get_or_init(|| load_corpus_inner(|corpus| Some(corpus.templates_in(corpus.root()))))
-        .as_ref()
-}
-
 fn bench_corpus_check(
     bencher: Bencher,
-    corpus: Option<&'static CorpusTemplates>,
-    expected: &CheckWorkloadContract,
+    corpus: Result<Option<&'static CorpusTemplates>, CorpusLoadError>,
 ) {
+    let corpus = corpus.unwrap_or_else(|error| panic!("failed to load benchmark corpus: {error}"));
     let Some(corpus) = corpus else {
         assert!(
-            std::env::var_os("CI").is_none(),
+            std::env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_none(),
             "corpus not synced; run `just corpus sync` before benchmarks",
         );
         eprintln!("corpus not synced, skipping");
         return;
     };
 
-    assert_check_workload_contract(corpus.discovered_file_count, &corpus.files, expected);
     let file_count = corpus.files.len();
 
     bencher
@@ -250,49 +131,12 @@ fn bench_corpus_check(
 
 #[divan::bench]
 fn corpus_django(bencher: Bencher) {
-    bench_corpus_check(
-        bencher,
-        load_corpus_templates(),
-        &CheckWorkloadContract {
-            discovered_file_count: 123,
-            synchronized_file_count: 123,
-            total_bytes: 134_038,
-            // Canonical builtins remove synthetic unloaded diagnostics while preserving all 123
-            // Django templates and 134,038 input bytes.
-            diagnostics: DiagnosticDigest::from_counts(
-                0,
-                104,
-                [("S108", 19), ("S111", 67), ("S120", 18)],
-            ),
-            rendered_count: 104,
-        },
-    );
+    bench_corpus_check(bencher, django_corpus_templates());
 }
 
 // Full corpus (~6 000 templates from 36 packages). Fresh db each iteration.
 
 #[divan::bench]
 fn corpus_all(bencher: Bencher) {
-    bench_corpus_check(
-        bencher,
-        load_full_corpus_templates(),
-        &CheckWorkloadContract {
-            discovered_file_count: 7_145,
-            synchronized_file_count: 7_145,
-            total_bytes: 11_783_514,
-            // Canonical builtin roles remove synthetic unloaded output and classify unresolved
-            // corpus libraries directly; corpus file and byte cardinality remain unchanged.
-            diagnostics: DiagnosticDigest::from_counts(
-                0,
-                19_327,
-                [
-                    ("S101", 1),
-                    ("S108", 10_363),
-                    ("S111", 4_033),
-                    ("S120", 4_930),
-                ],
-            ),
-            rendered_count: 19_327,
-        },
-    );
+    bench_corpus_check(bencher, full_corpus_templates());
 }

@@ -41,6 +41,9 @@ jobs:
       - name: Sync corpus
         run: cargo run -q -p djls-testing --bin corpus -- sync
 
+      - name: Verify benchmark workload snapshots
+        run: DJLS_REQUIRE_BENCH_CORPUS=1 cargo test -p djls-bench
+
       - run: cargo install cargo-codspeed --locked
 
       - name: Build the benchmark target(s)

@@ -840,7 +840,12 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "djls-testing",
+ "insta",
  "salsa",
+ "serde",
+ "sha2",
+ "thiserror 2.0.18",
+ "tower-lsp-server",
 ]
 
 [[package]]

@@ -1,0 +1,25 @@
+---
+source: crates/djls-bench/src/fixtures.rs
+expression: fixture_set_snapshot(template_fixtures())
+---
+file_count: 6
+total_bytes: 30105
+files:
+  - path: large/stress_test.html
+    bytes: 8615
+    source_sha256: 27e122c89ff840bc129952dd50319381ab3c1d33004ebe581c85fdcce2042f7d
+  - path: large/views_technical_500.html
+    bytes: 18138
+    source_sha256: a479b12ed13014d030e33b7793deedcb976f62af6ad04d29d67145d694587692
+  - path: medium/admin_login.html
+    bytes: 2001
+    source_sha256: 15903e7771c42125e4192c899719dc6d5bb725f7fbfb3c3027c2a4c253760073
+  - path: medium/nested_blocks.html
+    bytes: 1075
+    source_sha256: f9db1ac510ddfd9bd3b881d731ffabf0dafd6622e89280bbc3e841e12b943af8
+  - path: small/dense_tags.html
+    bytes: 87
+    source_sha256: 10d3a61d55943fe29083c4e5d28d1b9b63680a0e36534ce8a358681a98dbd7ca
+  - path: small/forms_widgets_input.html
+    bytes: 189
+    source_sha256: 770cf3acba1c18b65021a19efbf5fc93bcfcee357a005b67dbc2e2967527507d

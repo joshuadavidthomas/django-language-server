@@ -1,0 +1,31 @@
+---
+source: crates/djls-bench/src/fixtures.rs
+expression: fixture_set_snapshot(validation_error_fixtures())
+---
+file_count: 8
+total_bytes: 80053
+files:
+  - path: large/dense_validation_errors.html
+    bytes: 47264
+    source_sha256: 1e0c47c289a7f415225bf93271e74fa0b1099da1ed12372554586fc76364d7e8
+  - path: large/sparse_validation_errors.html
+    bytes: 31847
+    source_sha256: d56e0589fb188482e5be700e5ec8d0930e8f78f185bcb31130d08fcad622fef8
+  - path: medium/mixed_validation_errors.html
+    bytes: 364
+    source_sha256: fb79287027956381aa94481af536a5bd28d53b566eee0b65f1bc030a9b2e9e10
+  - path: medium/nested_block_errors.html
+    bytes: 348
+    source_sha256: 0384c08b899e2b36157975cbecdea60d8ae860a8ea66b20d9c912a4ea28c4a5f
+  - path: small/invalid_filter_arity.html
+    bytes: 50
+    source_sha256: d09593fe0b6d45dd0d68741b638e29d3576e19cd87c89bef1598531073d31c9b
+  - path: small/invalid_tag_args.html
+    bytes: 70
+    source_sha256: da2deb53f7588e5d1e1cbb124bb8f8983e0a75294dd5e498215137791c03e9f2
+  - path: small/mismatched_block.html
+    bytes: 56
+    source_sha256: 322cbf25978e83bf476227de563f712b6c5d792484203110b0aa22fbf053b303
+  - path: small/unknown_symbols.html
+    bytes: 54
+    source_sha256: e8d001ed7d021c48a23aa80ba79cdc273af41d07ade06ae808feace54ba04e19

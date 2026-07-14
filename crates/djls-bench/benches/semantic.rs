@@ -1,12 +1,9 @@
-use std::sync::OnceLock;
-
 use divan::Bencher;
 use djls_bench::BATCH_INNER_ITERS;
 use djls_bench::Db;
 use djls_bench::primed_realistic_db;
 use djls_bench::realistic_db;
 use djls_bench::structure_db;
-use djls_bench::template_fixture_digest;
 use djls_bench::template_fixtures;
 
 fn main() {
@@ -20,35 +17,8 @@ fn template_files(db: &mut Db) -> Vec<djls_source::File> {
         .collect()
 }
 
-fn assert_semantic_fixture_contract() {
-    static ASSERTED: OnceLock<()> = OnceLock::new();
-    ASSERTED.get_or_init(|| {
-        let fixture_digest = template_fixture_digest();
-        assert_eq!(fixture_digest.file_count, 6);
-        assert_eq!(fixture_digest.total_bytes, 30_105);
-
-        let mut db = structure_db();
-        let files = template_files(&mut db);
-        let mut total_regions = 0;
-        let mut opaque_files = 0;
-        for file in files {
-            let nodelist =
-                djls_templates::parse_template(&db, file).expect("benchmark template should parse");
-            let tree = djls_semantic::build_template_tree_for_file(&db, file, nodelist);
-            total_regions += tree.regions(&db).iter().count();
-            opaque_files +=
-                usize::from(!djls_semantic::compute_opaque_regions(&db, file, nodelist).is_empty());
-        }
-
-        assert_eq!(total_regions, 279);
-        assert_eq!(opaque_files, 1);
-    });
-}
-
 #[divan::bench]
 fn template_tree_cold(bencher: Bencher) {
-    assert_semantic_fixture_contract();
-
     bencher.bench_local(move || {
         let mut db = structure_db();
         let files = template_files(&mut db);
@@ -66,8 +36,6 @@ fn template_tree_cold(bencher: Bencher) {
 
 #[divan::bench]
 fn validate_cold_project(bencher: Bencher) {
-    assert_semantic_fixture_contract();
-
     bencher.bench_local(move || {
         let mut db = realistic_db();
         let files = template_files(&mut db);
@@ -83,8 +51,6 @@ fn validate_cold_project(bencher: Bencher) {
 
 #[divan::bench]
 fn validate_primed_project_cold_templates(bencher: Bencher) {
-    assert_semantic_fixture_contract();
-
     bencher
         .with_inputs(|| {
             let mut db = primed_realistic_db();
@@ -110,8 +76,6 @@ struct IncrementalTemplate {
 
 #[divan::bench]
 fn validate_incremental(bencher: Bencher) {
-    assert_semantic_fixture_contract();
-
     let fixtures = template_fixtures();
     let mut db = realistic_db();
     let files = template_files(&mut db);
@@ -163,8 +127,6 @@ fn validate_incremental(bencher: Bencher) {
 
 #[divan::bench]
 fn opaque_regions_cold(bencher: Bencher) {
-    assert_semantic_fixture_contract();
-
     bencher.bench_local(move || {
         let mut db = structure_db();
         let files = template_files(&mut db);

@@ -1,0 +1,98 @@
+---
+source: crates/djls-bench/src/check.rs
+expression: "checked_workload_snapshot(&db, &files, WorkloadDetail::Dense, false)"
+---
+check_parser_count: 0
+check_validation_count: 873
+check_code_counts:
+  S103: 127
+  S108: 126
+  S111: 123
+  S114: 123
+  S115: 128
+  S116: 124
+  S117: 122
+per_file_checks:
+  - path: /templates/large/dense_validation_errors.html
+    parser_count: 0
+    validation_count: 845
+    codes:
+      S103: 121
+      S108: 121
+      S111: 121
+      S114: 120
+      S115: 121
+      S116: 121
+      S117: 120
+  - path: /templates/large/sparse_validation_errors.html
+    parser_count: 0
+    validation_count: 8
+    codes:
+      S103: 1
+      S108: 3
+      S115: 4
+  - path: /templates/medium/mixed_validation_errors.html
+    parser_count: 0
+    validation_count: 7
+    codes:
+      S103: 1
+      S108: 1
+      S111: 1
+      S114: 1
+      S115: 1
+      S116: 1
+      S117: 1
+  - path: /templates/medium/nested_block_errors.html
+    parser_count: 0
+    validation_count: 6
+    codes:
+      S103: 3
+      S114: 1
+      S115: 1
+      S116: 1
+  - path: /templates/small/invalid_filter_arity.html
+    parser_count: 0
+    validation_count: 2
+    codes:
+      S115: 1
+      S116: 1
+  - path: /templates/small/invalid_tag_args.html
+    parser_count: 0
+    validation_count: 2
+    codes:
+      S114: 1
+      S117: 1
+  - path: /templates/small/mismatched_block.html
+    parser_count: 0
+    validation_count: 1
+    codes:
+      S103: 1
+  - path: /templates/small/unknown_symbols.html
+    parser_count: 0
+    validation_count: 2
+    codes:
+      S108: 1
+      S111: 1
+per_file_checks_sha256: 0eb24431086d3bbffc85c6251128552f081acbd0137f67cd283c2383b13e4885
+ide_eligible_file_count: 8
+ide_diagnostic_count: 873
+ide_code_counts:
+  S103: 127
+  S108: 126
+  S111: 123
+  S114: 123
+  S115: 128
+  S116: 124
+  S117: 122
+normalized_ide_diagnostics_sha256: 1e46f900c97403e59534931dd227750266e9ded13755b6d39f59aea0cf47d34b
+files_with_diagnostics: 8
+diagnostic_bearing_paths:
+  - /templates/large/dense_validation_errors.html
+  - /templates/large/sparse_validation_errors.html
+  - /templates/medium/mixed_validation_errors.html
+  - /templates/medium/nested_block_errors.html
+  - /templates/small/invalid_filter_arity.html
+  - /templates/small/invalid_tag_args.html
+  - /templates/small/mismatched_block.html
+  - /templates/small/unknown_symbols.html
+diagnostic_bearing_paths_sha256: dcb2bbb90f7f59fa1d03783b624608e5f00bb12edef9c906f2aa41ecfb3dc89f
