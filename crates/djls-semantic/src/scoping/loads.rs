@@ -292,7 +292,7 @@ impl<'a> LoadState<'a> {
 
             let event = *selective.next().expect("a selective event was selected");
             let library = self.selective_event_library(event);
-            if !self.library_was_fully_loaded_before(library, event.statement) {
+            if libraries.last().copied() != Some(library) {
                 libraries.push(library);
             }
         }
@@ -312,13 +312,6 @@ impl<'a> LoadState<'a> {
             unreachable!("the selective-load index must address a selective import")
         };
         library.as_str()
-    }
-
-    fn library_was_fully_loaded_before(self, library: &str, statement: usize) -> bool {
-        has_statement_before(
-            self.loaded.index.full_statements_by_library.get(library),
-            statement,
-        )
     }
 
     fn statements(self) -> &'a [LoadStatement] {
@@ -590,9 +583,11 @@ mod tests {
             ),
         ]);
 
-        // After both, the full load keeps every symbol available.
+        // After both, the full load keeps every symbol available and the
+        // adjacent selective load does not duplicate its candidate.
         let state = libs.available_at(80);
         assert!(state.is_symbol_available("i18n", "blocktrans"));
+        assert_eq!(state.libraries_loading_symbol("trans"), ["i18n"]);
     }
 
     #[test]
@@ -617,6 +612,36 @@ mod tests {
         let state = libs.available_at(100);
         assert!(state.is_symbol_available("i18n", "trans"));
         assert!(state.is_symbol_available("i18n", "blocktrans"));
+    }
+
+    #[test]
+    fn indexed_symbol_libraries_preserve_selective_reload_order() {
+        let libs = LoadedLibraries::new(vec![
+            make_load(
+                (0, 5),
+                LoadKind::FullLoad {
+                    libraries: vec!["alpha".into()],
+                },
+            ),
+            make_load(
+                (10, 5),
+                LoadKind::FullLoad {
+                    libraries: vec!["beta".into()],
+                },
+            ),
+            make_load(
+                (20, 5),
+                LoadKind::SelectiveImport {
+                    symbols: vec!["shared".into()],
+                    library: "alpha".into(),
+                },
+            ),
+        ]);
+
+        assert_eq!(
+            libs.available_at(30).libraries_loading_symbol("shared"),
+            ["alpha", "beta", "alpha"]
+        );
     }
 
     #[test]
