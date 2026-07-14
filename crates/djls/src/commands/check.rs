@@ -9,7 +9,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use djls_db::DjangoDatabase;
-use djls_project::Db as ProjectDb;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_source::CaseSensitivity;
@@ -49,6 +48,88 @@ struct FileCheckResult {
     path: Utf8PathBuf,
     source: SourceText,
     check: CheckResult,
+}
+
+enum CheckInput {
+    Files {
+        file_system: Arc<dyn FileSystem>,
+    },
+    Stdin {
+        file_system: Arc<dyn FileSystem>,
+        path: Utf8PathBuf,
+    },
+}
+
+impl CheckInput {
+    fn collect(paths: &[Utf8PathBuf]) -> Result<Self> {
+        let mut reads_stdin = false;
+        let mut has_file_paths = false;
+
+        for path in paths {
+            if path.as_str() == "-" {
+                reads_stdin = true;
+            } else {
+                has_file_paths = true;
+            }
+
+            if reads_stdin && has_file_paths {
+                bail!("Cannot mix `-` (stdin) with file or directory paths");
+            }
+        }
+
+        if !reads_stdin {
+            return Ok(Self::Files {
+                file_system: Arc::new(OsFileSystem::default()),
+            });
+        }
+
+        let mut source = String::new();
+        std::io::stdin()
+            .read_to_string(&mut source)
+            .context("Failed to read stdin")?;
+
+        let path = Utf8PathBuf::from("<stdin>.html");
+        Ok(Self::Stdin {
+            file_system: Arc::new(SingleFileOverlay::new(
+                path.clone(),
+                source,
+                OsFileSystem::default(),
+            )),
+            path,
+        })
+    }
+
+    fn file_system(&self) -> Arc<dyn FileSystem> {
+        match self {
+            Self::Files { file_system } | Self::Stdin { file_system, .. } => file_system.clone(),
+        }
+    }
+
+    fn files(
+        &self,
+        requested_paths: &[Utf8PathBuf],
+        db: &DjangoDatabase,
+        project_root: &Utf8Path,
+        walk_options: &WalkOptions,
+    ) -> Vec<Utf8PathBuf> {
+        match self {
+            Self::Files { .. } => discover_files(requested_paths, db, project_root, walk_options),
+            Self::Stdin { path, .. } => vec![path.clone()],
+        }
+    }
+
+    const fn summary(&self) -> SummaryStyle {
+        match self {
+            Self::Files { .. } => SummaryStyle::Files,
+            Self::Stdin { .. } => SummaryStyle::Stdin,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SummaryStyle {
+    Files,
+    Stdin,
 }
 
 impl FileCheckResult {
@@ -95,8 +176,10 @@ impl FileCheckResult {
 
 #[derive(Debug, Parser)]
 pub(crate) struct Check {
-    /// Files or directories to check. Pass `-` to read from stdin. If
-    /// omitted, discovers template directories from the Django project.
+    /// Template files or directories to check. Pass `-` to read stdin; stdin is
+    /// analyzed as a generic Template in the current Project; stdin cannot be
+    /// combined with paths. If omitted, discovers Template directories from the
+    /// Django project.
     paths: Vec<Utf8PathBuf>,
 
     /// Select specific diagnostic codes to enable (e.g. S100,S101).
@@ -139,26 +222,15 @@ impl Command for Check {
         let project_root = resolve_project_root()?;
         let settings =
             djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
+        let input = CheckInput::collect(&self.paths)?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
         let fmt = pick_renderer(self.color);
         let quiet = args.quiet;
 
-        let reading_stdin = self.paths.iter().any(|path| path.as_str() == "-");
-        let has_non_stdin_path = self.paths.iter().any(|path| path.as_str() != "-");
-
-        if reading_stdin && has_non_stdin_path {
-            bail!("Cannot mix `-` (stdin) with file or directory paths");
-        }
-
-        if reading_stdin {
-            return check_stdin(&project_root, &settings, &config, &fmt, quiet);
-        }
-
-        let fs: Arc<dyn FileSystem> = Arc::new(OsFileSystem::default());
-        let mut db = DjangoDatabase::new(fs, &settings, Some(&project_root));
+        let mut db = DjangoDatabase::new(input.file_system(), &settings, Some(&project_root));
         db.apply_project_settings(settings);
-        discover_project(&mut db)?;
+        djls_project::run_django_discovery(&mut db).context("No Project configured for check")?;
 
         let walk_options = WalkOptions {
             hidden: self.hidden,
@@ -167,123 +239,79 @@ impl Command for Check {
             follow_links: self.follow,
             max_depth: self.max_depth,
         };
-
-        let files = discover_files(&self.paths, &db, &project_root, &walk_options);
-
+        let files = input.files(&self.paths, &db, &project_root, &walk_options);
         if files.is_empty() {
             return Ok(Exit::success());
         }
 
+        // Prime shared intrinsic and Template-index work before the database is
+        // cloned into Rayon workers.
         djls_ide::prepare_project_template_analysis(&db)
             .context("Failed to prepare project Template analysis")?;
 
-        let mut raw_results = check_files_parallel(db, files, true)?;
-        raw_results.sort_by(|left, right| left.path.cmp(&right.path));
-
-        let mut error_count: usize = 0;
-        let mut file_count: usize = 0;
-
-        if quiet {
-            for result in &raw_results {
-                let count = result.renderable_diagnostic_count(&config);
-                if count > 0 {
-                    file_count += 1;
-                    error_count += count;
-                }
-            }
-        } else {
-            let mut stdout = std::io::stdout().lock();
-            for result in &raw_results {
-                let rendered = result.render(&config, &fmt);
-                if !rendered.is_empty() {
-                    file_count += 1;
-                    for output in &rendered {
-                        writeln!(stdout, "{output}\n")?;
-                    }
-                    error_count += rendered.len();
-                }
-            }
-        }
-
-        if error_count > 0 {
-            if quiet {
-                Ok(Exit::error())
-            } else {
-                let file_word = if file_count == 1 { "file" } else { "files" };
-                let error_word = if error_count == 1 { "error" } else { "errors" };
-                Ok(Exit::error().with_message(format!(
-                    "Found {error_count} {error_word} in {file_count} {file_word}."
-                )))
-            }
-        } else {
-            Ok(Exit::success())
-        }
+        let results = check_files_parallel(db, files)?;
+        report_results(results, &config, &fmt, quiet, input.summary())
     }
 }
 
-fn check_stdin(
-    project_root: &Utf8Path,
-    settings: &djls_conf::Settings,
+fn report_results(
+    mut results: Vec<FileCheckResult>,
     config: &djls_conf::DiagnosticsConfig,
     fmt: &DiagnosticRenderer,
     quiet: bool,
+    summary_style: SummaryStyle,
 ) -> Result<Exit> {
-    let mut source = String::new();
-    std::io::stdin()
-        .read_to_string(&mut source)
-        .context("Failed to read stdin")?;
+    results.sort_by(|left, right| left.path.cmp(&right.path));
 
-    let stdin_path = Utf8PathBuf::from("<stdin>.html");
-    let fs: Arc<dyn FileSystem> = Arc::new(SingleFileOverlay::new(
-        stdin_path.clone(),
-        source,
-        OsFileSystem::default(),
-    ));
-    let mut db = DjangoDatabase::new(fs, settings, Some(project_root));
-    db.apply_project_settings(settings.clone());
-    discover_project(&mut db)?;
-    djls_ide::prepare_project_template_analysis(&db)
-        .context("Failed to prepare project Template analysis")?;
+    let mut error_count = 0;
+    let mut file_count = 0;
+    let stdout = std::io::stdout();
+    let mut stdout = stdout.lock();
 
-    let mut results = check_files_parallel(db, vec![stdin_path], false)?;
-    let result = results.pop().expect("stdin validation produces one result");
-    if quiet {
-        return if result.renderable_diagnostic_count(config) > 0 {
-            Ok(Exit::error())
-        } else {
-            Ok(Exit::success())
-        };
-    }
+    for result in results {
+        if quiet {
+            let count = result.renderable_diagnostic_count(config);
+            if count > 0 {
+                file_count += 1;
+                error_count += count;
+            }
+            continue;
+        }
 
-    let rendered = result.render(config, fmt);
-    if rendered.is_empty() {
-        Ok(Exit::success())
-    } else {
-        let mut stdout = std::io::stdout().lock();
-        for output in &rendered {
+        let rendered = result.render(config, fmt);
+        if rendered.is_empty() {
+            continue;
+        }
+
+        file_count += 1;
+        error_count += rendered.len();
+        for output in rendered {
             writeln!(stdout, "{output}\n")?;
         }
-        let count = rendered.len();
-        let word = if count == 1 { "error" } else { "errors" };
-        Ok(Exit::error().with_message(format!("Found {count} {word}.")))
     }
-}
 
-fn discover_project(db: &mut DjangoDatabase) -> Result<()> {
-    let project = db.project().context("No Project configured for check")?;
-    let environment = djls_project::compute_django_environment(db, project);
-    djls_project::apply_django_environment(db, environment);
+    if error_count == 0 {
+        return Ok(Exit::success());
+    }
+    if quiet {
+        return Ok(Exit::error());
+    }
 
-    let facts = djls_project::compute_project_facts(db, project);
-    djls_project::apply_project_facts(db, &facts);
-    Ok(())
+    let error_word = if error_count == 1 { "error" } else { "errors" };
+    let message = match summary_style {
+        SummaryStyle::Files => {
+            let file_word = if file_count == 1 { "file" } else { "files" };
+            format!("Found {error_count} {error_word} in {file_count} {file_word}.")
+        }
+        SummaryStyle::Stdin => format!("Found {error_count} {error_word}."),
+    };
+    Ok(Exit::error().with_message(message))
 }
 
 /// Validate paths with the same per-clone Rayon execution used by the batch CLI.
 fn check_files_parallel(
     db: DjangoDatabase,
     files: Vec<Utf8PathBuf>,
-    diagnostics_only: bool,
 ) -> Result<Vec<FileCheckResult>> {
     // DjangoDatabase is Send + !Sync (salsa::Storage has RefCell). Clone the
     // already-primed database per task so validation cannot lazily become the
@@ -294,7 +322,7 @@ fn check_files_parallel(
             let db = db.clone();
             let tx = tx.clone();
             scope.spawn(move |_| match check_file_with_source(&db, &path) {
-                Ok(result) if !diagnostics_only || result.check.has_diagnostics() => {
+                Ok(result) if result.check.has_diagnostics() => {
                     let _ = tx.send(Ok(result));
                 }
                 Ok(_) => {}

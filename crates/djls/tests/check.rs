@@ -65,6 +65,37 @@ fn configure_template_directories(dir: &Path, directories: &[&Path]) {
     .unwrap();
 }
 
+fn setup_multi_backend_project(dir: &Path) {
+    let alpha_templates = dir.join("alpha-templates");
+    let beta_templates = dir.join("beta-templates");
+    std::fs::create_dir_all(&alpha_templates).unwrap();
+    std::fs::create_dir_all(&beta_templates).unwrap();
+    std::fs::write(
+        dir.join("djls.toml"),
+        "django_settings_module = \"settings\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("settings.py"),
+        format!(
+            "INSTALLED_APPS = []\nTEMPLATES = [\n    {{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'alpha_tags'}}}}}},\n    {{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'beta_tags'}}}}}},\n]\n",
+            alpha_templates.display(),
+            beta_templates.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("alpha_tags.py"),
+        "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha_tag(value): pass\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("beta_tags.py"),
+        "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef beta_tag(): pass\n",
+    )
+    .unwrap();
+}
+
 #[test]
 fn check_clean_template_exits_zero() {
     let dir = tempfile::tempdir().unwrap();
@@ -91,6 +122,32 @@ fn check_clean_template_exits_zero() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn check_quiet_clean_template_exits_zero_without_output() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::write(
+        templates.join("good.html"),
+        "{% block content %}<p>Hello</p>{% endblock %}\n",
+    )
+    .unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["check", "--quiet", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
 }
 
 #[test]
@@ -209,6 +266,87 @@ fn check_broken_template_exits_one() {
         stdout.contains("Unclosed 'block' tag"),
         "Expected unclosed block tag message in output:\n{stdout}"
     );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "Found 1 error in 1 file.\n"
+    );
+}
+
+#[test]
+fn check_plural_path_summary_reports_errors_and_files_exactly() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::write(templates.join("first.html"), "{% block first %}\n").unwrap();
+    std::fs::write(templates.join("second.html"), "{% block second %}\n").unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["check", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "Found 2 errors in 2 files.\n"
+    );
+}
+
+#[test]
+fn check_plural_errors_with_singular_file_summary_exactly() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::write(
+        templates.join("broken.html"),
+        "{% first_unknown %}\n{% second_unknown %}\n",
+    )
+    .unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["check", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "Found 2 errors in 1 file.\n"
+    );
+}
+
+#[test]
+fn check_quiet_counts_enabled_diagnostics_without_rendering() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::write(templates.join("broken.html"), "{% block content %}\n").unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["check", "--quiet", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        output.stdout.is_empty(),
+        "quiet check must not render diagnostics or a summary: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "quiet check must not write stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -232,9 +370,20 @@ fn check_ignore_suppresses_errors() {
 
     assert!(
         output.status.success(),
-        "Expected exit 0 with --ignore S100, got {:?}\nstdout: {}",
+        "Expected exit 0 with --ignore S100, got {:?}\nstdout: {}\nstderr: {}",
         output.status.code(),
         String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "disabled diagnostics must not be rendered: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "disabled diagnostics must not be summarized: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
@@ -267,6 +416,107 @@ fn check_stdin_detects_errors() {
         stdout.contains("S100"),
         "Expected S100 in stdin output:\n{stdout}"
     );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "Found 1 error.\n");
+}
+
+#[test]
+fn check_plural_stdin_summary_reports_errors_exactly() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let mut child = Command::new(djls_binary())
+        .args(["check", "-"])
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"{% first_unknown %}\n{% second_unknown %}\n")
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "Found 2 errors.\n");
+}
+
+#[test]
+fn check_multi_backend_stdin_uses_inventory_while_concrete_path_uses_backend() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_multi_backend_project(dir.path());
+    let alpha_template = dir.path().join("alpha-templates/page.html");
+    let source = "{% load shared %}{% shared_tag %}\n";
+    std::fs::write(&alpha_template, source).unwrap();
+
+    let concrete = Command::new(djls_binary())
+        .args(["check", "alpha-templates/page.html"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        concrete.status.code(),
+        Some(1),
+        "a concrete file must use only its resolving backend\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&concrete.stdout),
+        String::from_utf8_lossy(&concrete.stderr)
+    );
+    let concrete_stdout = String::from_utf8_lossy(&concrete.stdout);
+    assert!(concrete_stdout.contains("error[S117]"), "{concrete_stdout}");
+    assert!(
+        concrete_stdout.contains("Tag 'shared_tag' requires at least 1 argument"),
+        "{concrete_stdout}"
+    );
+
+    let mut child = Command::new(djls_binary())
+        .args(["check", "-"])
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(source.as_bytes())
+        .unwrap();
+    let stdin = child.wait_with_output().unwrap();
+
+    assert!(
+        stdin.status.success(),
+        "synthetic stdin must use the outside-root Project Inventory\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&stdin.stdout),
+        String::from_utf8_lossy(&stdin.stderr)
+    );
+    assert!(stdin.stdout.is_empty());
+    assert!(stdin.stderr.is_empty());
+}
+
+#[test]
+fn check_help_describes_generic_stdin_template() {
+    let output = Command::new(djls_binary())
+        .args(["check", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let normalized = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized.contains("stdin is analyzed as a generic Template in the current Project"),
+        "{stdout}"
+    );
+    assert!(
+        normalized.contains("stdin cannot be combined with paths"),
+        "{stdout}"
+    );
 }
 
 #[test]
@@ -285,6 +535,29 @@ fn check_rejects_mixed_stdin_and_paths() {
     assert!(
         stderr.contains("Cannot mix `-` (stdin) with file or directory paths"),
         "Expected mixed-stdin error message, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn check_invalid_settings_error_precedes_mixed_stdin_and_paths_error() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("djls.toml"), "debug = not_a_boolean\n").unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["check", "-", "template.html"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Failed to load settings"),
+        "Expected settings error to win, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("Cannot mix `-` (stdin) with file or directory paths"),
+        "Mixed-input classification must happen after settings loading:\n{stderr}"
     );
 }
 

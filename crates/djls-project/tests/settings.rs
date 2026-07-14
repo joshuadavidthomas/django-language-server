@@ -921,10 +921,148 @@ fn complete_template_dirs(db: &dyn djls_project::Db, project: Project) -> Vec<Ut
 }
 
 fn apply_project_discovery(db: &mut TestDatabase) {
-    let project = db.project().expect("project should be configured");
-    let environment = compute_django_environment(db, project);
-    apply_django_environment(db, environment);
-    let _facts = compute_project_facts(db, project);
+    let _facts = run_django_discovery(db).expect("project should be configured");
+}
+
+fn project_requiring_environment_application(db: &mut TestDatabase) -> Project {
+    db.add_file(
+        "/proj/settings.py",
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'extras.tags'}}}]\n",
+    );
+    db.add_file("/vendor/extras/__init__.py", "");
+    db.add_file(
+        "/vendor/extras/tags.py",
+        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(): pass\n",
+    );
+
+    let project = Project::new(
+        db,
+        Utf8PathBuf::from("/proj"),
+        SearchPaths::default(),
+        Interpreter::Auto,
+        Some(PythonModuleName::parse("settings").unwrap()),
+        vec![Utf8PathBuf::from("/vendor")],
+        Vec::new(),
+        djls_conf::Settings::default().tagspecs().clone(),
+    );
+    db.set_project(project);
+    project
+}
+
+#[test]
+fn django_discovery_run_matches_explicit_phase_sequence() {
+    let library_path = Utf8Path::new("/vendor/extras/tags.py");
+    let original_source = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(): pass\n";
+    let updated_source = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(value): pass\n";
+
+    let mut sequenced = TestDatabase::new();
+    let sequenced_project = project_requiring_environment_application(&mut sequenced);
+    let sequenced_library = sequenced.file(library_path);
+    assert_eq!(
+        sequenced_library.try_source(&sequenced).unwrap().as_str(),
+        original_source
+    );
+    let sequenced_revision_before = sequenced_library.revision(&sequenced);
+    sequenced.add_file(library_path.as_str(), updated_source);
+
+    let environment = compute_django_environment(&sequenced, sequenced_project);
+    apply_django_environment(&mut sequenced, environment);
+    let expected = compute_project_facts(&sequenced, sequenced_project);
+    apply_project_facts(&mut sequenced, &expected);
+
+    assert_eq!(
+        sequenced_library.try_source(&sequenced).unwrap().as_str(),
+        updated_source
+    );
+    assert_eq!(
+        sequenced_library.revision(&sequenced),
+        sequenced_revision_before + 1
+    );
+
+    let mut synchronous = TestDatabase::new();
+    let synchronous_project = project_requiring_environment_application(&mut synchronous);
+    let synchronous_library = synchronous.file(library_path);
+    assert_eq!(
+        synchronous_library
+            .try_source(&synchronous)
+            .unwrap()
+            .as_str(),
+        original_source
+    );
+    let synchronous_revision_before = synchronous_library.revision(&synchronous);
+    synchronous.add_file(library_path.as_str(), updated_source);
+
+    let actual = run_django_discovery(&mut synchronous).expect("project should be configured");
+
+    assert_eq!(
+        synchronous_library
+            .try_source(&synchronous)
+            .unwrap()
+            .as_str(),
+        updated_source
+    );
+    assert_eq!(
+        synchronous_library.revision(&synchronous),
+        synchronous_revision_before + 1
+    );
+    assert_eq!(actual, expected);
+    assert_eq!(actual.file_paths(), expected.file_paths());
+    assert_eq!(
+        synchronous_project.search_paths(&synchronous),
+        sequenced_project.search_paths(&sequenced)
+    );
+    for path in actual.file_paths() {
+        assert_eq!(
+            synchronous.file(path).try_source(&synchronous),
+            sequenced.file(path).try_source(&sequenced),
+            "synchronized source outcome differs for {path}"
+        );
+    }
+}
+
+#[test]
+fn django_discovery_run_applies_environment_before_computing_facts() {
+    let mut db = TestDatabase::new();
+    let project = project_requiring_environment_application(&mut db);
+
+    assert!(project.search_paths(&db).iter().next().is_none());
+
+    let facts = run_django_discovery(&mut db).expect("project should be configured");
+
+    assert_eq!(
+        project
+            .search_paths(&db)
+            .iter()
+            .map(djls_project::SearchPath::path)
+            .collect::<Vec<_>>(),
+        [Utf8Path::new("/proj"), Utf8Path::new("/vendor")]
+    );
+    assert!(
+        facts
+            .file_paths()
+            .contains(&Utf8PathBuf::from("/proj/settings.py"))
+    );
+    assert!(
+        facts
+            .file_paths()
+            .contains(&Utf8PathBuf::from("/vendor/extras/tags.py"))
+    );
+}
+
+#[test]
+fn django_discovery_run_without_project_returns_none_without_mutating_sources() {
+    let mut db = TestDatabase::new();
+    let path = Utf8Path::new("/proj/preexisting.py");
+    db.add_file(path.as_str(), "before\n");
+    let file = db.file(path);
+    let source_before = file.try_source(&db);
+    let revision_before = file.revision(&db);
+
+    db.add_file(path.as_str(), "after\n");
+
+    assert_eq!(run_django_discovery(&mut db), None);
+    assert_eq!(file.revision(&db), revision_before);
+    assert_eq!(file.try_source(&db), source_before);
 }
 
 #[test]

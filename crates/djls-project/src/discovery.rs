@@ -368,3 +368,21 @@ pub fn apply_project_facts(db: &mut dyn ProjectDb, facts: &ProjectFactsData) {
     )
     .apply(db);
 }
+
+/// Run synchronous Django Discovery for the currently configured Project.
+///
+/// Environment application intentionally precedes Project Facts computation:
+/// it activates the resolved search paths and synchronizes their source roots
+/// before any Project Facts query reads from them.
+#[must_use]
+pub fn run_django_discovery(db: &mut dyn ProjectDb) -> Option<ProjectFactsData> {
+    let project = db.project()?;
+
+    let environment = compute_django_environment(db, project);
+    apply_django_environment(db, environment);
+
+    let facts = compute_project_facts(db, project);
+    apply_project_facts(db, &facts);
+
+    Some(facts)
+}

@@ -60,10 +60,12 @@ fn template_environment_correlates_libraries_with_resolving_backends() {
         )
         .file("/test/project/a/alpha.html", "{% load shared %}")
         .file("/test/project/b/beta.html", "{% load shared %}")
+        .file("/test/project/outside.html", "{% load shared %}")
         .build(&db);
 
     let alpha_file = db.file(Utf8Path::new("/test/project/a/alpha.html"));
     let beta_file = db.file(Utf8Path::new("/test/project/b/beta.html"));
+    let outside_file = db.file(Utf8Path::new("/test/project/outside.html"));
     let alpha = template_environment(&db, project, alpha_file)
         .loadable_library_str("shared")
         .found()
@@ -78,9 +80,16 @@ fn template_environment_correlates_libraries_with_resolving_backends() {
 
     let catalog = template_libraries(&db, project);
     let inventory = TemplateEnvironment::from_project_inventory(catalog);
+    let outside = template_environment(&db, project, outside_file);
     assert!(matches!(
         inventory.loadable_library_str("shared"),
         LoadableLibraryLookup::Ambiguous(libraries) if libraries.len() == 2
+    ));
+    assert!(matches!(
+        outside.loadable_library_str("shared"),
+        LoadableLibraryLookup::Ambiguous(libraries)
+            if libraries.iter().any(|library| library.module_name_str() == "alpha_tags")
+                && libraries.iter().any(|library| library.module_name_str() == "beta_tags")
     ));
     let catalog_alpha = inventory
         .resolved_libraries()
