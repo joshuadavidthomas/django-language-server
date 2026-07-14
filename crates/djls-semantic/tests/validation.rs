@@ -78,6 +78,87 @@ fn collect_file_errors(db: &TestDatabase, path: &str) -> Vec<ValidationError> {
 }
 
 #[test]
+fn repeated_project_symbols_keep_occurrence_diagnostics_across_load_prefixes() {
+    let mut db = TestDatabase::new();
+    let source = concat!(
+        "{% load extras %}\n",
+        "{% custom %}\n",
+        "{% custom %}\n",
+        "{{ first|needs_arg }}\n",
+        "{{ second|needs_arg }}\n",
+        "{% load extras %}\n",
+        "{% custom %}\n",
+        "{% custom %}\n",
+        "{{ third|needs_arg }}\n",
+        "{{ fourth|needs_arg }}\n",
+    );
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .tag_specs(configured_tag_specs(&[(
+            "custom_tags",
+            "custom",
+            djls_conf::TagTypeDef::Standalone,
+        )]))
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'extras': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/proj/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(value):\n    pass\n@register.filter\ndef needs_arg(value, arg):\n    return value\n",
+        )
+        .file("/proj/templates/page.html", source)
+        .install(&mut db);
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html");
+    let expected_tag_starts = source
+        .match_indices("{% custom")
+        .map(|(start, _)| u32::try_from(start).expect("fixture offset should fit in u32"))
+        .collect::<Vec<_>>();
+    let expected_filter_starts = source
+        .match_indices("needs_arg")
+        .map(|(start, _)| u32::try_from(start).expect("fixture offset should fit in u32"))
+        .collect::<Vec<_>>();
+    let tag_argument_starts = errors
+        .iter()
+        .filter_map(|error| match error {
+            ValidationError::ExtractedRuleViolation { tag, span, .. } if tag == "custom" => {
+                Some(span.start())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let filter_arity_starts = errors
+        .iter()
+        .filter_map(|error| match error {
+            ValidationError::FilterMissingArgument { filter, span } if filter == "needs_arg" => {
+                Some(span.start())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        tag_argument_starts, expected_tag_starts,
+        "repeated tags should retain their own argument diagnostics: {errors:?}"
+    );
+    assert_eq!(
+        filter_arity_starts, expected_filter_starts,
+        "repeated filters should retain their own arity diagnostics: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownTag { .. }
+                | ValidationError::UnloadedTag { .. }
+                | ValidationError::UnknownFilter { .. }
+                | ValidationError::UnloadedFilter { .. }
+        )),
+        "both repeated load prefixes should make the symbols available: {errors:?}"
+    );
+}
+
+#[test]
 fn open_backend_after_concrete_membership_keeps_validation_inconclusive() {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}},\n    UNKNOWN,\n]\n";

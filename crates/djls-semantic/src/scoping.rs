@@ -51,6 +51,55 @@ impl FilterOccurrenceKey {
     }
 }
 
+/// Deduplicates contextual resolution without leaking cache identity into load scoping.
+/// A visible statement count fully identifies the semantic load prefix within one Template.
+#[derive(Debug)]
+struct ContextualFactCache<T> {
+    by_load_prefix: BTreeMap<usize, BTreeMap<String, T>>,
+}
+
+impl<T> Default for ContextualFactCache<T> {
+    fn default() -> Self {
+        Self {
+            by_load_prefix: BTreeMap::new(),
+        }
+    }
+}
+
+impl<T: Clone> ContextualFactCache<T> {
+    fn resolve(
+        &mut self,
+        load_state: LoadState<'_>,
+        symbol_name: &str,
+        resolve: impl FnOnce() -> T,
+    ) -> T {
+        let facts_by_name = self
+            .by_load_prefix
+            .entry(load_state.visible_statement_count())
+            .or_default();
+        if let Some(fact) = facts_by_name.get(symbol_name) {
+            return fact.clone();
+        }
+
+        let fact = resolve();
+        facts_by_name.insert(symbol_name.to_string(), fact.clone());
+        fact
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ContextualTagFact {
+    availability: SymbolAvailability,
+    unknown_load_can_shadow: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ContextualFilterFact {
+    availability: SymbolAvailability,
+    arity: Option<FilterArity>,
+    unknown_load_can_shadow: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LoaderArgumentFact {
     pub(crate) argument: crate::scoping::loads::LoadArgument,
@@ -176,6 +225,8 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
 
         let mut tag_facts = BTreeMap::new();
         let mut filter_facts = BTreeMap::new();
+        let mut tag_context_cache = ContextualFactCache::default();
+        let mut filter_context_cache = ContextualFactCache::default();
         let mut load_cursor = loaded.cursor();
         for node in &active_nodes {
             match node {
@@ -185,20 +236,25 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                     };
                     let spec = occurrence_spec(&grammar, *tag);
                     let load_state = load_cursor.advance_to(tag.span.start());
-                    let availability = if project.is_none() {
-                        if grammar_fact.spec.is_some() {
-                            SymbolAvailability::Available
-                        } else {
-                            SymbolAvailability::Unknown
-                        }
-                    } else {
-                        resolve_occurrence_availability(
-                            environment,
-                            &load_state,
-                            tag.tag,
-                            TemplateSymbolKind::Tag,
-                        )
-                    };
+                    let contextual_fact =
+                        tag_context_cache.resolve(load_state, tag.tag, || ContextualTagFact {
+                            availability: if project.is_none() {
+                                if grammar_fact.spec.is_some() {
+                                    SymbolAvailability::Available
+                                } else {
+                                    SymbolAvailability::Unknown
+                                }
+                            } else {
+                                resolve_occurrence_availability(
+                                    environment,
+                                    &load_state,
+                                    tag.tag,
+                                    TemplateSymbolKind::Tag,
+                                )
+                            },
+                            unknown_load_can_shadow: load_state
+                                .unknown_load_can_shadow_symbol(tag.tag, environment),
+                        });
                     let loader_arguments =
                         if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
                             LoadKind::from_loader_bits(tag.bits).map_or_else(Vec::new, |kind| {
@@ -220,7 +276,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                         TagOccurrenceKey::from_name_span(tag.name_span),
                         ScopedTagFact {
                             spec: spec.cloned(),
-                            availability,
+                            availability: contextual_fact.availability,
                             structure_accepts_spelling: matches!(
                                 tag.structural_meaning,
                                 StructuralOccurrenceMeaning::CapturedIntermediate
@@ -229,12 +285,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                 grammar_fact.classification,
                                 TagClassification::Inconclusive
                             ),
-                            unknown_load_can_shadow: loaded
-                                .has_unknown_load_that_can_shadow_symbol_before(
-                                    tag.span.start(),
-                                    tag.tag,
-                                    environment,
-                                ),
+                            unknown_load_can_shadow: contextual_fact.unknown_load_can_shadow,
                             loader_arguments,
                         },
                     );
@@ -242,44 +293,48 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                 ActiveTemplateNode::Variable(variable) => {
                     let load_state = load_cursor.advance_to(variable.span.start());
                     for filter in variable.filters {
-                        let (availability, arity) = if project.is_none() {
-                            let arity = db
-                                .projectless_filter_arity_specs()
-                                .get(&filter.name)
-                                .cloned();
-                            let availability = if arity.is_some() {
-                                SymbolAvailability::Available
-                            } else {
-                                SymbolAvailability::Unknown
-                            };
-                            (availability, arity)
-                        } else {
-                            (
-                                resolve_occurrence_availability(
-                                    environment,
-                                    &load_state,
-                                    &filter.name,
-                                    TemplateSymbolKind::Filter,
-                                ),
-                                crate::filters::effective_filter_arity_in_environment(
-                                    db,
-                                    environment,
-                                    &filter.name,
-                                    &load_state,
-                                ),
-                            )
-                        };
+                        let contextual_fact =
+                            filter_context_cache.resolve(load_state, &filter.name, || {
+                                let (availability, arity) = if project.is_none() {
+                                    let arity = db
+                                        .projectless_filter_arity_specs()
+                                        .get(&filter.name)
+                                        .cloned();
+                                    let availability = if arity.is_some() {
+                                        SymbolAvailability::Available
+                                    } else {
+                                        SymbolAvailability::Unknown
+                                    };
+                                    (availability, arity)
+                                } else {
+                                    (
+                                        resolve_occurrence_availability(
+                                            environment,
+                                            &load_state,
+                                            &filter.name,
+                                            TemplateSymbolKind::Filter,
+                                        ),
+                                        crate::filters::effective_filter_arity_in_environment(
+                                            db,
+                                            environment,
+                                            &filter.name,
+                                            &load_state,
+                                        ),
+                                    )
+                                };
+                                ContextualFilterFact {
+                                    availability,
+                                    arity,
+                                    unknown_load_can_shadow: load_state
+                                        .unknown_load_can_shadow_symbol(&filter.name, environment),
+                                }
+                            });
                         filter_facts.insert(
                             FilterOccurrenceKey::from_filter(filter),
                             ScopedFilterFact {
-                                availability,
-                                arity,
-                                unknown_load_can_shadow: loaded
-                                    .has_unknown_load_that_can_shadow_symbol_before(
-                                        variable.span.start(),
-                                        &filter.name,
-                                        environment,
-                                    ),
+                                availability: contextual_fact.availability,
+                                arity: contextual_fact.arity,
+                                unknown_load_can_shadow: contextual_fact.unknown_load_can_shadow,
                             },
                         );
                     }
@@ -425,4 +480,55 @@ fn effective_definitions_agree(
         || (left.0 == right.0
             && matches!(left.1.symbol.definition, SymbolDefinition::Unknown)
             && matches!(right.1.symbol.definition, SymbolDefinition::Unknown))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use djls_source::Span;
+
+    use super::ContextualFactCache;
+    use super::LoadKind;
+    use super::LoadStatement;
+    use super::LoadedLibraries;
+    use crate::scoping::loads::LoadArgument;
+
+    #[test]
+    fn contextual_fact_cache_resolves_once_per_visible_prefix_and_symbol() {
+        let loaded = LoadedLibraries::new(vec![LoadStatement::new(
+            Span::new(10, 10),
+            LoadKind::FullLoad {
+                libraries: vec![LoadArgument::from("extras")],
+            },
+        )]);
+        let resolutions = Cell::new(0);
+        let mut cache = ContextualFactCache::default();
+        let mut resolve = || {
+            resolutions.set(resolutions.get() + 1);
+            resolutions.get()
+        };
+
+        assert_eq!(
+            cache.resolve(loaded.available_at(0), "shared", &mut resolve),
+            1
+        );
+        assert_eq!(
+            cache.resolve(loaded.available_at(5), "shared", &mut resolve),
+            1
+        );
+        assert_eq!(
+            cache.resolve(loaded.available_at(5), "other", &mut resolve),
+            2
+        );
+        assert_eq!(
+            cache.resolve(loaded.available_at(30), "shared", &mut resolve),
+            3
+        );
+        assert_eq!(
+            cache.resolve(loaded.available_at(40), "shared", &mut resolve),
+            3
+        );
+        assert_eq!(resolutions.get(), 3);
+    }
 }

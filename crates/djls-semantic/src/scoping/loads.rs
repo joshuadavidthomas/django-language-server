@@ -228,6 +228,30 @@ impl<'a> LoadState<'a> {
     }
 
     #[must_use]
+    pub(crate) fn unknown_load_can_shadow_symbol(
+        self,
+        symbol: &str,
+        environment: djls_project::TemplateEnvironment<'_>,
+    ) -> bool {
+        self.statements()
+            .iter()
+            .any(|statement| match &statement.kind {
+                LoadKind::FullLoad { libraries } => libraries.iter().any(|library| {
+                    matches!(
+                        environment.loadable_library_str(library.as_str()),
+                        LoadableLibraryLookup::Inconclusive(_)
+                    )
+                }),
+                LoadKind::SelectiveImport { symbols, library } => {
+                    matches!(
+                        environment.loadable_library_str(library.as_str()),
+                        LoadableLibraryLookup::Inconclusive(_)
+                    ) && symbols.iter().any(|loaded| loaded.as_str() == symbol)
+                }
+            })
+    }
+
+    #[must_use]
     pub(crate) fn libraries_loading_symbol(&self, symbol: &str) -> Vec<&'a str> {
         let mut libraries = Vec::new();
         self.write_libraries_loading_symbol(symbol, &mut libraries);
@@ -358,32 +382,6 @@ impl LoadedLibraries {
         );
         let index = LoadIndex::build(&statements);
         Self { statements, index }
-    }
-
-    #[must_use]
-    pub(crate) fn has_unknown_load_that_can_shadow_symbol_before(
-        &self,
-        position: u32,
-        symbol: &str,
-        environment: djls_project::TemplateEnvironment<'_>,
-    ) -> bool {
-        self.available_at(position)
-            .statements()
-            .iter()
-            .any(|stmt| match &stmt.kind {
-                LoadKind::FullLoad { libraries } => libraries.iter().any(|library| {
-                    matches!(
-                        environment.loadable_library_str(library.as_str()),
-                        LoadableLibraryLookup::Inconclusive(_)
-                    )
-                }),
-                LoadKind::SelectiveImport { symbols, library } => {
-                    matches!(
-                        environment.loadable_library_str(library.as_str()),
-                        LoadableLibraryLookup::Inconclusive(_)
-                    ) && symbols.iter().any(|loaded| loaded.as_str() == symbol)
-                }
-            })
     }
 
     /// Borrow the ordered load-statement prefix visible at `position`.
