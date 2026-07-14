@@ -73,7 +73,7 @@ pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemp
 
     for library in environment.resolved_libraries() {
         library_count += 1;
-        let key = library.key(db);
+        let key = library.key();
         let _ = template_library_definition_facts(db, key);
         let _ = library_tag_specs(db, project, key);
         let _ = library_filter_specs(db, key);

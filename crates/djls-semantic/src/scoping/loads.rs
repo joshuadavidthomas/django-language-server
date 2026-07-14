@@ -223,7 +223,23 @@ impl<'a> LoadState<'a> {
     }
 
     #[must_use]
+    pub(crate) fn visible_statement_count(self) -> usize {
+        self.statement_end
+    }
+
+    #[must_use]
     pub(crate) fn libraries_loading_symbol(&self, symbol: &str) -> Vec<&'a str> {
+        let mut libraries = Vec::new();
+        self.write_libraries_loading_symbol(symbol, &mut libraries);
+        libraries
+    }
+
+    pub(crate) fn write_libraries_loading_symbol(
+        &self,
+        symbol: &str,
+        libraries: &mut Vec<&'a str>,
+    ) {
+        libraries.clear();
         let full_end = self
             .loaded
             .index
@@ -238,7 +254,7 @@ impl<'a> LoadState<'a> {
         let selective_end = selective.partition_point(|event| event.statement < self.statement_end);
         let mut full = self.loaded.index.full_events[..full_end].iter().peekable();
         let mut selective = selective[..selective_end].iter().peekable();
-        let mut libraries = Vec::with_capacity(full_end + selective_end);
+        libraries.reserve(full_end + selective_end);
 
         while full.peek().is_some() || selective.peek().is_some() {
             if selective.peek().is_none_or(|selective_event| {
@@ -256,7 +272,6 @@ impl<'a> LoadState<'a> {
                 libraries.push(library);
             }
         }
-        libraries
     }
 
     fn full_event_library(self, event: IndexedLoadEvent) -> &'a str {
@@ -284,11 +299,6 @@ impl<'a> LoadState<'a> {
 
     fn statements(self) -> &'a [LoadStatement] {
         &self.loaded.statements[..self.statement_end]
-    }
-
-    #[cfg(test)]
-    fn statement_count(self) -> usize {
-        self.statement_end
     }
 }
 
@@ -489,7 +499,7 @@ mod tests {
     fn available_at_no_loads() {
         let libs = LoadedLibraries::new(vec![]);
         let state = libs.available_at(100);
-        assert_eq!(state.statement_count(), 0);
+        assert_eq!(state.visible_statement_count(), 0);
     }
 
     #[test]
@@ -681,7 +691,7 @@ mod tests {
 
         for index in 0..1_000 {
             let state = cursor.advance_to(index * 10 + 5);
-            assert_eq!(state.statement_count(), index as usize + 1);
+            assert_eq!(state.visible_statement_count(), index as usize + 1);
             assert!(state.is_symbol_available(&format!("library_{index}"), "anything"));
         }
     }

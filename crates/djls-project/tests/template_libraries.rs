@@ -326,7 +326,7 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
             .symbol(TemplateSymbolKind::Tag, "panel")
             .is_some_and(|symbol| matches!(symbol.definition, SymbolDefinition::Unknown))
     );
-    assert_eq!(library.key(&db).file(&db), None);
+    assert_eq!(library.key().file(&db), None);
 }
 
 #[test]
@@ -380,7 +380,7 @@ fn source_less_alias_keeps_missing_same_named_available_app_symbols_inconclusive
                 .effective_definition_libraries(name, kind, &["shared"])
                 .as_slice(),
             [EffectiveDefinitionLibrary::Unobserved(candidate)]
-                if candidate.key(&db) == library.key(&db)
+                if candidate.key() == library.key()
         ));
     }
 }

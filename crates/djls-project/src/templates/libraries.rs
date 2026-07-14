@@ -87,6 +87,7 @@ impl TemplateLibraryModule {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibrary {
+    key: TemplateLibraryKey,
     module: TemplateLibraryModule,
     kind: TemplateLibraryKind,
     symbol_inventory: SymbolInventory,
@@ -97,6 +98,7 @@ pub struct TemplateLibrary {
 
 impl TemplateLibrary {
     fn new(
+        key: TemplateLibraryKey,
         module: TemplateLibraryModule,
         kind: TemplateLibraryKind,
         symbol_inventory: SymbolInventory,
@@ -116,6 +118,7 @@ impl TemplateLibrary {
             }
         }
         Self {
+            key,
             module,
             kind,
             symbol_inventory,
@@ -126,8 +129,13 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    fn builtin(module: PythonModule, symbols: Vec<TemplateSymbol>) -> Self {
+    fn builtin(
+        key: TemplateLibraryKey,
+        module: PythonModule,
+        symbols: Vec<TemplateSymbol>,
+    ) -> Self {
         Self::new(
+            key,
             TemplateLibraryModule::Source(module),
             TemplateLibraryKind::Builtin,
             SymbolInventory::Observed,
@@ -137,10 +145,12 @@ impl TemplateLibrary {
 
     #[must_use]
     pub(crate) fn configured_builtin(
+        key: TemplateLibraryKey,
         module: PythonModuleName,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
+            key,
             TemplateLibraryModule::Configured(module),
             TemplateLibraryKind::Builtin,
             SymbolInventory::Observed,
@@ -149,8 +159,9 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    fn source_less_builtin(module: PythonModuleName) -> Self {
+    fn source_less_builtin(key: TemplateLibraryKey, module: PythonModuleName) -> Self {
         Self::new(
+            key,
             TemplateLibraryModule::Configured(module),
             TemplateLibraryKind::Builtin,
             SymbolInventory::Unobserved,
@@ -160,11 +171,13 @@ impl TemplateLibrary {
 
     #[must_use]
     fn installed(
+        key: TemplateLibraryKey,
         load_name: LibraryName,
         module: PythonModule,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
+            key,
             TemplateLibraryModule::Source(module),
             TemplateLibraryKind::Installed { load_name },
             SymbolInventory::Observed,
@@ -174,11 +187,13 @@ impl TemplateLibrary {
 
     #[must_use]
     pub(crate) fn configured_installed(
+        key: TemplateLibraryKey,
         load_name: LibraryName,
         module: PythonModuleName,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
+            key,
             TemplateLibraryModule::Configured(module),
             TemplateLibraryKind::Installed { load_name },
             SymbolInventory::Observed,
@@ -187,8 +202,13 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    fn source_less_installed(load_name: LibraryName, module: PythonModuleName) -> Self {
+    fn source_less_installed(
+        key: TemplateLibraryKey,
+        load_name: LibraryName,
+        module: PythonModuleName,
+    ) -> Self {
         Self::new(
+            key,
             TemplateLibraryModule::Configured(module),
             TemplateLibraryKind::Installed { load_name },
             SymbolInventory::Unobserved,
@@ -198,12 +218,14 @@ impl TemplateLibrary {
 
     #[must_use]
     pub(crate) fn configured_available(
+        key: TemplateLibraryKey,
         load_name: LibraryName,
         app: PythonModuleName,
         module: PythonModuleName,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
+            key,
             TemplateLibraryModule::Configured(module),
             TemplateLibraryKind::Available { load_name, app },
             SymbolInventory::Observed,
@@ -213,12 +235,14 @@ impl TemplateLibrary {
 
     #[must_use]
     fn available(
+        key: TemplateLibraryKey,
         load_name: LibraryName,
         app: PythonModuleName,
         module: PythonModule,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
+            key,
             TemplateLibraryModule::Source(module),
             TemplateLibraryKind::Available { load_name, app },
             SymbolInventory::Observed,
@@ -252,8 +276,8 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn key(&self, db: &dyn ProjectDb) -> TemplateLibraryKey {
-        TemplateLibraryKey::new(db, self.source_file(), self.module_name().clone())
+    pub fn key(&self) -> TemplateLibraryKey {
+        self.key
     }
 
     #[must_use]
@@ -567,15 +591,24 @@ impl TemplateBackendLibraries {
 }
 
 type TestingBackendConfiguration = (Vec<(LibraryName, PythonModuleName)>, Vec<PythonModuleName>);
-type DiscoveredLibrary = (LibraryName, PythonModule, Vec<TemplateSymbol>);
+type DiscoveredLibrary = (
+    LibraryName,
+    TemplateLibraryKey,
+    PythonModule,
+    Vec<TemplateSymbol>,
+);
 
 enum ConfiguredLibraryModule {
     Source {
+        key: TemplateLibraryKey,
         module: PythonModule,
         symbols: Vec<TemplateSymbol>,
         recovered: bool,
     },
-    SourceLess(PythonModuleName),
+    SourceLess {
+        key: TemplateLibraryKey,
+        module: PythonModuleName,
+    },
     NotLibrary,
 }
 
@@ -1791,14 +1824,12 @@ impl TemplateLibraries {
                 continue;
             }
 
-            let facts = template_library_definition_facts(
+            let key = TemplateLibraryKey::new(
                 db,
-                TemplateLibraryKey::new(
-                    db,
-                    Some(candidate.module.file()),
-                    candidate.module.name().clone(),
-                ),
+                Some(candidate.module.file()),
+                candidate.module.name().clone(),
             );
+            let facts = template_library_definition_facts(db, key);
             if facts.source_failed() {
                 self.issues
                     .push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
@@ -1811,6 +1842,7 @@ impl TemplateLibraries {
             if facts.is_library() {
                 let symbols = facts.symbols().cloned().collect();
                 self.insert_library(TemplateLibrary::available(
+                    key,
                     candidate.name.clone(),
                     candidate.app.clone(),
                     candidate.into_python_module(),
@@ -1914,7 +1946,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             let (discovered, issues) = templatetag_package_libraries(db, project, &package_module);
             let discovered_names = discovered
                 .iter()
-                .map(|(load_name, _, _)| load_name)
+                .map(|(load_name, _, _, _)| load_name)
                 .collect::<BTreeSet<_>>();
             for load_name in &discovered_names {
                 unresolved_app_names.remove(*load_name);
@@ -1935,7 +1967,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
                 app_names_after_remainder.clear();
             } else if app_remainder || discovery_remainder {
                 app_names_after_remainder
-                    .extend(discovered.iter().map(|(name, _, _)| name.clone()));
+                    .extend(discovered.iter().map(|(name, _, _, _)| name.clone()));
             }
             libraries.issues.extend(
                 issues
@@ -2142,6 +2174,7 @@ fn insert_backend_library_values(
         result.authoritative_names.insert(load_name.clone());
         let library = match library_from_module_name(db, project, module_name.value.clone()) {
             ConfiguredLibraryModule::Source {
+                key,
                 module,
                 symbols,
                 recovered,
@@ -2151,10 +2184,10 @@ fn insert_backend_library_values(
                         .issues
                         .push(TemplateLibraryIssue::NamedSource(load_name.clone()));
                 }
-                TemplateLibrary::installed(load_name.clone(), module, symbols)
+                TemplateLibrary::installed(key, load_name.clone(), module, symbols)
             }
-            ConfiguredLibraryModule::SourceLess(module) => {
-                TemplateLibrary::source_less_installed(load_name.clone(), module)
+            ConfiguredLibraryModule::SourceLess { key, module } => {
+                TemplateLibrary::source_less_installed(key, load_name.clone(), module)
             }
             ConfiguredLibraryModule::NotLibrary => {
                 result.loadable_by_name.insert(
@@ -2179,6 +2212,7 @@ fn insert_backend_library_values(
     for module_name in builtins {
         let library = match library_from_module_name(db, project, module_name) {
             ConfiguredLibraryModule::Source {
+                key,
                 module,
                 symbols,
                 recovered,
@@ -2186,10 +2220,10 @@ fn insert_backend_library_values(
                 if recovered {
                     libraries.issues.push(TemplateLibraryIssue::BuiltinSource);
                 }
-                TemplateLibrary::builtin(module, symbols)
+                TemplateLibrary::builtin(key, module, symbols)
             }
-            ConfiguredLibraryModule::SourceLess(module) => {
-                TemplateLibrary::source_less_builtin(module)
+            ConfiguredLibraryModule::SourceLess { key, module } => {
+                TemplateLibrary::source_less_builtin(key, module)
             }
             ConfiguredLibraryModule::NotLibrary => {
                 libraries.issues.push(TemplateLibraryIssue::BuiltinSource);
@@ -2207,11 +2241,12 @@ fn insert_installed_libraries(
     libraries: &mut TemplateLibraries,
     installed_modules: &mut BTreeSet<PythonModuleName>,
     configuration: &mut BTreeMap<LibraryName, usize>,
-    discovered: Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>,
+    discovered: Vec<DiscoveredLibrary>,
 ) {
-    for (load_name, module, symbols) in discovered {
+    for (load_name, key, module, symbols) in discovered {
         installed_modules.insert(module.name().clone());
         let index = libraries.insert_library(TemplateLibrary::installed(
+            key,
             load_name.clone(),
             module,
             symbols,
@@ -2234,14 +2269,12 @@ fn templatetag_package_libraries(
     let mut libraries = Vec::new();
 
     for candidate in candidates {
-        let facts = template_library_definition_facts(
+        let key = TemplateLibraryKey::new(
             db,
-            TemplateLibraryKey::new(
-                db,
-                Some(candidate.module.file()),
-                candidate.module.name().clone(),
-            ),
+            Some(candidate.module.file()),
+            candidate.module.name().clone(),
         );
+        let facts = template_library_definition_facts(db, key);
         if facts.source_failed() {
             issues.push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
             continue;
@@ -2252,6 +2285,7 @@ fn templatetag_package_libraries(
         if facts.is_library() {
             libraries.push((
                 candidate.name.clone(),
+                key,
                 candidate.into_python_module(),
                 facts.symbols().cloned().collect(),
             ));
@@ -2267,14 +2301,16 @@ fn library_from_module_name(
     module_name: PythonModuleName,
 ) -> ConfiguredLibraryModule {
     let Some(module) = PythonModule::resolve(db, project, module_name.clone()) else {
-        return ConfiguredLibraryModule::SourceLess(module_name);
+        return ConfiguredLibraryModule::SourceLess {
+            key: TemplateLibraryKey::new(db, None, module_name.clone()),
+            module: module_name,
+        };
     };
-    let facts = template_library_definition_facts(
-        db,
-        TemplateLibraryKey::new(db, Some(module.file()), module.name().clone()),
-    );
+    let key = TemplateLibraryKey::new(db, Some(module.file()), module.name().clone());
+    let facts = template_library_definition_facts(db, key);
     if facts.is_library() {
         ConfiguredLibraryModule::Source {
+            key,
             module,
             symbols: facts.symbols().cloned().collect(),
             recovered: facts.is_recovered(),

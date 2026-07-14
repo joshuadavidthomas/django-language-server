@@ -13,10 +13,13 @@ use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::build_template_tree_for_file;
 use djls_semantic::builtin_tag_specs;
+use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
 use djls_templates::Node;
 use djls_templates::TagBit;
 use djls_templates::parse_template;
+use djls_testing::ProjectFixture;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
 
@@ -280,6 +283,100 @@ fn test_template_tree_building() {
     insta::assert_yaml_snapshot!(
         "template_tree",
         TemplateTreeSnapshot::from_tree(template_tree, &db)
+    );
+}
+
+#[test]
+fn projectless_structure_queries_bypass_correlated_template_analysis() {
+    let event_log = SalsaEventLog::default();
+    let db = TestDatabase::with_event_log(event_log.clone());
+    db.add_file("/tree.html", "{% if value %}body{% endif %}");
+    db.add_file(
+        "/opaque.html",
+        "{% verbatim %}{% if ignored %}{% endverbatim %}",
+    );
+    let tree_file = db.file(Utf8Path::new("/tree.html"));
+    let opaque_file = db.file(Utf8Path::new("/opaque.html"));
+    let tree_nodes = parse_template(&db, tree_file).expect("tree fixture should parse");
+    let opaque_nodes = parse_template(&db, opaque_file).expect("opaque fixture should parse");
+
+    let _ = event_log.take();
+    let tree = build_template_tree_for_file(&db, tree_file, tree_nodes);
+    assert!(tree.regions(&db).iter().next().is_some());
+    let executed = event_log.take_will_execute_names(&db);
+    assert!(
+        executed
+            .iter()
+            .any(|name| name.ends_with("build_template_tree_for_file")),
+        "projectless structure should execute its direct tree query: {executed:?}"
+    );
+    assert!(
+        executed
+            .iter()
+            .all(|name| !name.ends_with("template_analysis_projection_for_file_in_scope")),
+        "projectless structure must bypass correlated analysis: {executed:?}"
+    );
+
+    let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
+    assert!(regions.is_opaque(20));
+    let executed = event_log.take_will_execute_names(&db);
+    assert!(
+        executed
+            .iter()
+            .any(|name| name.ends_with("build_template_tree_for_file")),
+        "projectless opaque analysis should build one direct tree: {executed:?}"
+    );
+    assert!(
+        executed
+            .iter()
+            .all(|name| !name.ends_with("template_analysis_projection_for_file_in_scope")),
+        "projectless opaque analysis must bypass correlated analysis: {executed:?}"
+    );
+}
+
+#[test]
+fn project_backed_structure_queries_use_correlated_template_analysis() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/project/templates/tree.html",
+            "{% if value %}body{% endif %}",
+        )
+        .file(
+            "/project/templates/opaque.html",
+            "{% verbatim %}{% if ignored %}{% endverbatim %}",
+        )
+        .install(&mut db);
+    let tree_file = db.file(Utf8Path::new("/project/templates/tree.html"));
+    let opaque_file = db.file(Utf8Path::new("/project/templates/opaque.html"));
+    let tree_nodes = parse_template(&db, tree_file).expect("tree fixture should parse");
+    let opaque_nodes = parse_template(&db, opaque_file).expect("opaque fixture should parse");
+
+    let _ = event_log.take();
+    let tree = build_template_tree_for_file(&db, tree_file, tree_nodes);
+    assert!(tree.regions(&db).iter().next().is_some());
+    let executed = event_log.take_will_execute_names(&db);
+    assert!(
+        executed
+            .iter()
+            .any(|name| name.ends_with("template_analysis_projection_for_file_in_scope")),
+        "project-backed structure must use correlated analysis: {executed:?}"
+    );
+
+    let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
+    assert!(regions.is_opaque(20));
+    let executed = event_log.take_will_execute_names(&db);
+    assert!(
+        executed
+            .iter()
+            .any(|name| name.ends_with("template_analysis_projection_for_file_in_scope")),
+        "project-backed opaque analysis must use correlated analysis: {executed:?}"
     );
 }
 

@@ -417,7 +417,7 @@ fn source_less_default_builtins_keep_django_grammar_and_load_configured_library(
         .into_iter()
         .find(|library| library.module_name_str() == "django.template.defaulttags")
         .expect("defaulttags identity should remain present");
-    let specs = library_tag_specs(&db, project, defaulttags.key(&db));
+    let specs = library_tag_specs(&db, project, defaulttags.key());
     for name in ["if", "for", "load", "comment", "verbatim"] {
         assert!(
             specs.get(name).is_some(),
@@ -490,14 +490,14 @@ fn configured_same_name_specs_remain_keyed_by_library() {
         .expect("beta should resolve");
 
     assert!(
-        library_tag_specs(&db, project, alpha.key(&db))
+        library_tag_specs(&db, project, alpha.key())
             .get("shared")
             .and_then(|spec| spec.end_tag.as_ref())
             .is_some(),
         "alpha's configured block shape must not be overwritten by beta"
     );
     assert!(
-        library_tag_specs(&db, project, beta.key(&db))
+        library_tag_specs(&db, project, beta.key())
             .get("shared")
             .is_some_and(|spec| spec.end_tag.is_none()),
         "beta's configured standalone shape must not inherit alpha's same-name spec"
@@ -549,7 +549,7 @@ fn configured_dynamic_registration_is_available_through_its_library_catalog() {
         djls_project::SymbolDefinition::Exact { .. }
     ));
     assert!(
-        library_tag_specs(&db, project, dynamic.key(&db))
+        library_tag_specs(&db, project, dynamic.key())
             .get("dynamic_panel")
             .is_some(),
         "configured-only definition should enter the keyed semantic product"
@@ -1305,7 +1305,7 @@ fn extracted_block_db(source: &str) -> TestDatabase {
     .into_iter()
     .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
     .expect("fixture library should be discovered");
-    let library_specs = library_tag_specs(&db, project, library.key(&db));
+    let library_specs = library_tag_specs(&db, project, library.key());
     let mut specs = djls_semantic::TagSpecs::default();
     if let Some(spec) = library_specs.get("mystery") {
         specs.insert("mystery".to_string(), spec.clone());

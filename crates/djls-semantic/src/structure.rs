@@ -20,6 +20,8 @@ pub(crate) mod opaque;
 pub(crate) mod outline;
 pub(crate) mod tree;
 
+use salsa::Accumulator;
+
 use crate::db::Db;
 pub(crate) use crate::structure::active::ActiveTemplateNode;
 pub(crate) use crate::structure::active::ActiveTemplateTag;
@@ -62,5 +64,20 @@ pub fn build_template_tree_for_file<'db>(
     file: djls_source::File,
     nodelist: djls_templates::NodeList<'db>,
 ) -> TemplateTree<'db> {
+    if db.project().is_none() {
+        return build_projectless_template_tree(db, nodelist);
+    }
     crate::scoping::template_analysis_projection_for_file(db, file, nodelist).tree(db)
+}
+
+fn build_projectless_template_tree<'db>(
+    db: &'db dyn Db,
+    nodelist: djls_templates::NodeList<'db>,
+) -> TemplateTree<'db> {
+    let grammar = grammar::SparseTagGrammar::projectless(db, nodelist);
+    let tree_data = TemplateTreeBuilder::new(db, &grammar).model_data(db, nodelist);
+    for error in &tree_data.diagnostics {
+        crate::ValidationErrorAccumulator(error.clone()).accumulate(db);
+    }
+    tree_data.into_tree(db)
 }

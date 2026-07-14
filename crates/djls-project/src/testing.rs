@@ -134,7 +134,7 @@ pub fn template_libraries_with_omissions(
 }
 
 fn build_template_libraries(
-    _db: &dyn Db,
+    db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
     has_omissions: bool,
 ) -> TemplateLibraries {
@@ -142,19 +142,26 @@ fn build_template_libraries(
         .into_iter()
         .map(|input| match input {
             TemplateLibraryInput::Builtin { module, symbols } => {
-                TemplateLibrary::configured_builtin(module, symbols)
+                let key = crate::templates::TemplateLibraryKey::new(db, None, module.clone());
+                TemplateLibrary::configured_builtin(key, module, symbols)
             }
             TemplateLibraryInput::Installed {
                 load_name,
                 module,
                 symbols,
-            } => TemplateLibrary::configured_installed(load_name, module, symbols),
+            } => {
+                let key = crate::templates::TemplateLibraryKey::new(db, None, module.clone());
+                TemplateLibrary::configured_installed(key, load_name, module, symbols)
+            }
             TemplateLibraryInput::Available {
                 load_name,
                 app,
                 module,
                 symbols,
-            } => TemplateLibrary::configured_available(load_name, app, module, symbols),
+            } => {
+                let key = crate::templates::TemplateLibraryKey::new(db, None, module.clone());
+                TemplateLibrary::configured_available(key, load_name, app, module, symbols)
+            }
         })
         .collect();
 

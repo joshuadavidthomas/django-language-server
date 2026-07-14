@@ -651,7 +651,7 @@ mod invalidation_tests {
             .into_iter()
             .filter(|library| library.source_file().is_some())
         {
-            let key = library.key(&db);
+            let key = library.key();
             let facts = djls_project::template_library_definition_facts(&db, key);
             assert!(facts.is_library());
             let tags = djls_semantic::library_tag_specs(&db, project, key);
@@ -1071,7 +1071,7 @@ mod invalidation_tests {
             .into_iter()
             .next()
             .expect("fixture should discover a builtin library");
-        let key = library.key(&db);
+        let key = library.key();
         let _ = djls_semantic::library_tag_specs(&db, project, key);
         let _ = djls_semantic::library_filter_specs(&db, key);
         event_log.take();
@@ -1137,7 +1137,7 @@ mod invalidation_tests {
             .find(|library| library.module_name_str() == "project_tags")
             .expect("configured builtin should resolve before settings change");
         assert!(
-            djls_semantic::library_tag_specs(&db, project, library.key(&db))
+            djls_semantic::library_tag_specs(&db, project, library.key())
                 .get("project_tag")
                 .is_some(),
             "configured builtin tag should be extracted before settings change"
@@ -1765,13 +1765,13 @@ env_file = ".env.local"
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == "django.template.defaulttags")
-            .map(|library| library.key(&db))
+            .map(djls_project::TemplateLibrary::key)
             .expect("defaulttags should be active");
         let loader_tags = TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == "django.template.loader_tags")
-            .map(|library| library.key(&db))
+            .map(djls_project::TemplateLibrary::key)
             .expect("loader_tags should be active");
         let defaulttags_identity = (defaulttags.file(&db), defaulttags.module(&db).clone());
         let loader_tags_identity = (loader_tags.file(&db), loader_tags.module(&db).clone());
@@ -1898,7 +1898,7 @@ env_file = ".env.local"
             .resolved_libraries()
             .into_iter()
             .filter(|library| matches!(library.module_name_str(), "alpha_tags" | "beta_tags"))
-            .map(|library| library.key(&db))
+            .map(djls_project::TemplateLibrary::key)
             .collect();
         assert_eq!(keys.len(), 2);
         let primed = djls_ide::prime_template_library_products(&db).unwrap();

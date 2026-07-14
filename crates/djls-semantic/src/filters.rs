@@ -42,13 +42,8 @@ impl FilterAritySpecs {
 
     /// Look up the arity for a filter by name.
     #[must_use]
-    fn get(&self, filter_name: &str) -> Option<&FilterArity> {
+    pub(crate) fn get(&self, filter_name: &str) -> Option<&FilterArity> {
         self.specs.get(filter_name).map(|(_, arity)| arity)
-    }
-
-    #[must_use]
-    pub(crate) fn contains(&self, filter_name: &str) -> bool {
-        self.specs.contains_key(filter_name)
     }
 
     /// Merge extracted filter arities into this map.
@@ -86,12 +81,6 @@ pub(crate) fn effective_filter_arity_in_environment(
     filter_name: &str,
     load_state: &crate::scoping::LoadState<'_>,
 ) -> Option<FilterArity> {
-    if db.project().is_none() {
-        return db
-            .projectless_filter_arity_specs()
-            .get(filter_name)
-            .cloned();
-    }
     let loaded = load_state.libraries_loading_symbol(filter_name);
     let mut agreed = None;
     let mut alternatives_agree = true;
@@ -102,9 +91,9 @@ pub(crate) fn effective_filter_arity_in_environment(
         |alternative| {
             let definition = match alternative {
                 EffectiveDefinitionLibrary::Known(library) => library
-                    .and_then(|library| library_filter_specs(db, library.key(db)).get(filter_name)),
+                    .and_then(|library| library_filter_specs(db, library.key()).get(filter_name)),
                 EffectiveDefinitionLibrary::Unobserved(library) => {
-                    let Some(arity) = library_filter_specs(db, library.key(db)).get(filter_name)
+                    let Some(arity) = library_filter_specs(db, library.key()).get(filter_name)
                     else {
                         alternatives_agree = false;
                         return;

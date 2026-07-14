@@ -81,7 +81,7 @@ Project meaning. This is where observed Project Facts meet the parsed template, 
 
 Each Template Library contributes two independently backdatable semantic products: `LibraryTagSpecs`, which fuses extracted Tag Rules and Block Specs with builtin and configured fallback meaning, and `LibraryFilterSpecs`, which carries extracted Filter Arity. The products are keyed by Template Library identity, so changing one library or one fact category does not rebuild project-global semantic inventories.
 
-For a Template, semantic analysis builds one tracked `TemplateAnalysisProjection`. A fixed-point loop resolves only Tag and Filter occurrences in the source, discovers effective loader occurrences by `TagRole`, and converges the ordered loaded-library state with a sparse occurrence grammar. The converged product correlates:
+For a project-backed Template, semantic analysis builds one tracked `TemplateAnalysisProjection`. A fixed-point loop resolves only Tag and Filter occurrences in the source, discovers effective loader occurrences by `TagRole`, and converges the ordered loaded-library state with a sparse occurrence grammar. The explicit projectless structure seam instead builds its sparse grammar and `TemplateTree` directly in one pass; it does not construct project-correlated Tag or Filter facts. The converged project-backed product correlates:
 
 - the `TemplateTree` and captured closing occurrences;
 - ordered Loaded Libraries;
@@ -187,7 +187,7 @@ When a template file opens or changes, it flows through a series of stages. Each
 
 1. **Lexing** — tokenizes template text into tag, variable, comment, and text tokens.
 2. **Parsing** — produces a flat `NodeList`. Parse errors become `Node::Error` entries and are also emitted via `TemplateErrorAccumulator`.
-3. **Correlated Template analysis** — `TemplateAnalysisProjection` runs a sparse structural/load fixed point. It resolves source occurrences against the borrowed `TemplateEnvironment`, converges loader state, builds the `TemplateTree`, and records sparse Tag and Filter facts. Opening Branches capture their contracts, so later loads cannot rewrite existing structure. Structural errors accumulate once from the converged pass.
+3. **Template analysis** — Project-backed analysis uses `TemplateAnalysisProjection` to run a sparse structural/load fixed point. It resolves source occurrences against the borrowed `TemplateEnvironment`, converges loader state, builds the `TemplateTree`, and records sparse Tag and Filter facts. Opening Branches capture their contracts, so later loads cannot rewrite existing structure. Structural errors accumulate once from the converged pass. Explicit projectless structure analysis is a direct one-pass query that builds only the sparse grammar and tree needed by its caller.
 4. **Validation** — a single-pass validator consumes the correlated projection and checks load scoping, argument counts, Filter Arity, expression syntax, and `{% extends %}` rules. Opaque contents have already been excluded from active semantic occurrences. Errors accumulate as `ValidationError`s.
 5. **Diagnostics** — `collect_diagnostics` in `djls-ide` retrieves accumulated errors from both the parsing and validation accumulators, converts them to LSP diagnostics, and applies severity overrides from the diagnostics configuration.
 

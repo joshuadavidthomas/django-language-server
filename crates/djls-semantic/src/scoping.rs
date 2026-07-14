@@ -119,7 +119,7 @@ pub(crate) struct TemplateAnalysisProjection<'db> {
 #[allow(clippy::too_many_lines)]
 pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
     db: &'db dyn Db,
-    source_file: File,
+    _source_file: File,
     nodelist: NodeList<'db>,
     scope_file: File,
 ) -> TemplateAnalysisProjection<'db> {
@@ -133,10 +133,14 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         .count()
         + 1;
 
+    let project = db.project();
     let environment = crate::db::template_environment_for_file(db, scope_file);
     let mut loaded = LoadedLibraries::default();
     for _ in 0..fixed_point_limit {
-        let grammar = SparseTagGrammar::for_pass(db, source_file, nodelist, &loaded, environment);
+        let grammar = project.map_or_else(
+            || SparseTagGrammar::projectless(db, nodelist),
+            |project| SparseTagGrammar::project_pass(db, project, nodelist, &loaded, environment),
+        );
         // Fixed-point passes are plain temporary values. No tracked Tree identity
         // or structural diagnostic is produced until this pass converges.
         let tree_data =
@@ -181,7 +185,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                     };
                     let spec = occurrence_spec(&grammar, *tag);
                     let load_state = load_cursor.advance_to(tag.span.start());
-                    let availability = if db.project().is_none() {
+                    let availability = if project.is_none() {
                         if grammar_fact.spec.is_some() {
                             SymbolAvailability::Available
                         } else {
@@ -238,30 +242,38 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                 ActiveTemplateNode::Variable(variable) => {
                     let load_state = load_cursor.advance_to(variable.span.start());
                     for filter in variable.filters {
-                        let availability = if db.project().is_none() {
-                            if db.projectless_filter_arity_specs().contains(&filter.name) {
+                        let (availability, arity) = if project.is_none() {
+                            let arity = db
+                                .projectless_filter_arity_specs()
+                                .get(&filter.name)
+                                .cloned();
+                            let availability = if arity.is_some() {
                                 SymbolAvailability::Available
                             } else {
                                 SymbolAvailability::Unknown
-                            }
+                            };
+                            (availability, arity)
                         } else {
-                            resolve_occurrence_availability(
-                                environment,
-                                &load_state,
-                                &filter.name,
-                                TemplateSymbolKind::Filter,
+                            (
+                                resolve_occurrence_availability(
+                                    environment,
+                                    &load_state,
+                                    &filter.name,
+                                    TemplateSymbolKind::Filter,
+                                ),
+                                crate::filters::effective_filter_arity_in_environment(
+                                    db,
+                                    environment,
+                                    &filter.name,
+                                    &load_state,
+                                ),
                             )
                         };
                         filter_facts.insert(
                             FilterOccurrenceKey::from_filter(filter),
                             ScopedFilterFact {
                                 availability,
-                                arity: crate::filters::effective_filter_arity_in_environment(
-                                    db,
-                                    environment,
-                                    &filter.name,
-                                    &load_state,
-                                ),
+                                arity,
                                 unknown_load_can_shadow: loaded
                                     .has_unknown_load_that_can_shadow_symbol_before(
                                         variable.span.start(),
@@ -348,7 +360,7 @@ pub fn effective_symbol_candidate_at(
                 },
             );
             Some((
-                library.key(db),
+                library.key(),
                 TemplateSymbolCandidate {
                     symbol,
                     availability,

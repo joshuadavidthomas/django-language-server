@@ -92,7 +92,7 @@ fn configured_library_tag_specs(
 }
 
 /// Return the effective tag spec at one occurrence, but only when every feasible backend agrees.
-pub(crate) fn effective_tag_spec(
+fn effective_tag_spec(
     db: &dyn Db,
     file: djls_source::File,
     name: &str,
@@ -144,7 +144,7 @@ pub(crate) fn effective_tag_spec_from_environment(
                 alternative.unknown = true;
                 return;
             };
-            if let Some(spec) = library_tag_specs(db, project, library.key(db)).get(name) {
+            if let Some(spec) = library_tag_specs(db, project, library.key()).get(name) {
                 alternative.effective = Some(spec);
                 alternative.unknown = false;
             } else if library.symbol(TemplateSymbolKind::Tag, name).is_some() {
@@ -285,7 +285,7 @@ fn completion_tag_candidate_names(
         .collect();
     for library in environment.resolved_libraries() {
         names.extend(
-            library_tag_specs(db, project, library.key(db))
+            library_tag_specs(db, project, library.key())
                 .iter()
                 .map(|(name, _spec)| name.clone()),
         );

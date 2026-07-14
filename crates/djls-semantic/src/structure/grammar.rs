@@ -6,7 +6,6 @@ use djls_project::TemplateEnvironment;
 use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_libraries;
-use djls_source::File;
 use djls_source::Span;
 use djls_templates::Node;
 use djls_templates::NodeList;
@@ -71,7 +70,7 @@ pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGra
         ..SemanticGrammarVocabulary::default()
     };
     for library in environment.resolved_libraries() {
-        let specs = library_tag_specs(db, project, library.key(db));
+        let specs = library_tag_specs(db, project, library.key());
         for (name, spec) in specs.iter() {
             if library.symbol(TemplateSymbolKind::Tag, name).is_none()
                 && !library.symbol_inventory_is_open()
@@ -82,7 +81,7 @@ pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGra
                 continue;
             };
             let definition = GrammarOpeningDefinition {
-                library: library.key(db),
+                library: library.key(),
                 name: name.clone(),
             };
             push_candidate(
@@ -197,21 +196,84 @@ impl GrammarOccurrenceKey {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ProjectFactCacheKey {
+    load_prefix_statement_count: usize,
+    name: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TagGrammarFactIndex(usize);
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct SparseTagGrammar {
-    occurrences: BTreeMap<GrammarOccurrenceKey, TagGrammarFact>,
+    facts: Vec<TagGrammarFact>,
+    occurrences: BTreeMap<GrammarOccurrenceKey, TagGrammarFactIndex>,
 }
 
 impl SparseTagGrammar {
-    pub(crate) fn for_pass(
+    pub(crate) fn projectless(db: &dyn Db, nodelist: NodeList<'_>) -> Self {
+        Self::build_occurrences(
+            db,
+            nodelist,
+            |name, _span| (name.to_string(), ()),
+            |name, ()| {
+                let spec = db.projectless_tag_specs().get(name).cloned();
+                fact_from_spec(spec, || classify_projectless_orphan(db, name))
+            },
+        )
+    }
+
+    pub(crate) fn project_pass(
         db: &dyn Db,
-        source_file: File,
+        project: Project,
         nodelist: NodeList<'_>,
         loaded: &LoadedLibraries,
         environment: TemplateEnvironment<'_>,
     ) -> Self {
-        let mut occurrences = BTreeMap::new();
+        let mut loaded_names = Vec::new();
         let mut load_cursor = loaded.cursor();
+        Self::build_occurrences(
+            db,
+            nodelist,
+            |name, span| {
+                let load_state = load_cursor.advance_to(span.start());
+                (
+                    ProjectFactCacheKey {
+                        load_prefix_statement_count: load_state.visible_statement_count(),
+                        name: name.to_string(),
+                    },
+                    load_state,
+                )
+            },
+            |name, load_state| {
+                load_state.write_libraries_loading_symbol(name, &mut loaded_names);
+                let spec = crate::tags::effective_tag_spec_from_environment(
+                    db,
+                    project,
+                    environment,
+                    name,
+                    &loaded_names,
+                );
+                fact_from_spec(spec, || {
+                    classify_project_orphan(db, project, name, &load_state, environment)
+                })
+            },
+        )
+    }
+
+    fn build_occurrences<K, C>(
+        db: &dyn Db,
+        nodelist: NodeList<'_>,
+        mut prepare: impl FnMut(&str, Span) -> (K, C),
+        mut resolve: impl FnMut(&str, C) -> TagGrammarFact,
+    ) -> Self
+    where
+        K: Ord,
+    {
+        let mut facts = Vec::new();
+        let mut fact_cache = BTreeMap::new();
+        let mut occurrences = BTreeMap::new();
         for node in nodelist.nodelist(db) {
             let Node::Tag {
                 name,
@@ -222,55 +284,50 @@ impl SparseTagGrammar {
             else {
                 continue;
             };
-            let load_state = load_cursor.advance_to(span.start());
-            let spec = match db.project() {
-                Some(project) => {
-                    let loaded_names = load_state.libraries_loading_symbol(name);
-                    crate::tags::effective_tag_spec_from_environment(
-                        db,
-                        project,
-                        environment,
-                        name,
-                        &loaded_names,
-                    )
-                }
-                None => crate::tags::effective_tag_spec(db, source_file, name, &load_state),
+            let (cache_key, context) = prepare(name, *span);
+            let fact_index = if let Some(index) = fact_cache.get(&cache_key) {
+                *index
+            } else {
+                let index = TagGrammarFactIndex(facts.len());
+                facts.push(resolve(name, context));
+                fact_cache.insert(cache_key, index);
+                index
             };
-            let classification = spec.as_ref().map_or_else(
-                || classify_orphan(db, source_file, name, &load_state, environment),
-                |spec| {
-                    OpeningContract::from_spec(spec)
-                        .map_or(TagClassification::Standalone, TagClassification::Opener)
-                },
-            );
-            occurrences.insert(
-                GrammarOccurrenceKey::from_name_span(*name_span),
-                TagGrammarFact {
-                    spec,
-                    classification,
-                },
-            );
+            occurrences.insert(GrammarOccurrenceKey::from_name_span(*name_span), fact_index);
         }
-        Self { occurrences }
+        Self { facts, occurrences }
     }
 
     #[must_use]
     pub(crate) fn for_name_span(&self, name_span: Span) -> Option<&TagGrammarFact> {
-        self.occurrences
-            .get(&GrammarOccurrenceKey::from_name_span(name_span))
+        let index = self
+            .occurrences
+            .get(&GrammarOccurrenceKey::from_name_span(name_span))?;
+        self.facts.get(index.0)
     }
 }
 
-fn classify_orphan(
+fn fact_from_spec(
+    spec: Option<TagSpec>,
+    classify_orphan: impl FnOnce() -> TagClassification,
+) -> TagGrammarFact {
+    let classification = spec.as_ref().map_or_else(classify_orphan, |spec| {
+        OpeningContract::from_spec(spec)
+            .map_or(TagClassification::Standalone, TagClassification::Opener)
+    });
+    TagGrammarFact {
+        spec,
+        classification,
+    }
+}
+
+fn classify_project_orphan(
     db: &dyn Db,
-    source_file: File,
+    project: Project,
     spelling: &str,
     load_state: &crate::scoping::LoadState<'_>,
     environment: TemplateEnvironment<'_>,
 ) -> TagClassification {
-    let Some(project) = db.project() else {
-        return classify_projectless_orphan(db, source_file, spelling);
-    };
     let vocabulary = semantic_grammar_vocabulary(db, project);
 
     let (closers, closer_uncertain) = resolve_orphan_candidates(
@@ -341,7 +398,7 @@ fn resolve_orphan_candidates(
                 alternatives += 1;
                 match definition {
                     EffectiveDefinitionLibrary::Known(Some(library))
-                        if library.key(db) == *candidate.library() =>
+                        if library.key() == *candidate.library() =>
                     {
                         matching += 1;
                     }
@@ -369,7 +426,7 @@ fn resolve_orphan_candidates(
     (openers, uncertain)
 }
 
-fn classify_projectless_orphan(db: &dyn Db, _file: File, spelling: &str) -> TagClassification {
+fn classify_projectless_orphan(db: &dyn Db, spelling: &str) -> TagClassification {
     let mut closers = Vec::new();
     let mut intermediates = Vec::new();
     for (name, spec) in db.projectless_tag_specs() {
