@@ -299,13 +299,13 @@ fn installed_apps(
                 unsupported_mutation_issues(values, KnownSetting::InstalledApps, &bound.value);
             let PythonValueKind::List(list) = &bound.value.kind else {
                 let case = match &bound.value.kind {
-                    PythonValueKind::Unknown(unknown) => {
-                        SettingCase::Dynamic(DynamicInstalledApps {
-                            apps: OrderedInstalledApps {
-                                evidence: vec![InstalledAppEvidence::Issue(unknown_issue(unknown))],
-                            },
-                        })
-                    }
+                    PythonValueKind::Unknown(_) => SettingCase::Dynamic(DynamicInstalledApps {
+                        apps: OrderedInstalledApps {
+                            evidence: vec![InstalledAppEvidence::Issue(unknown_value_issue(
+                                &bound.value,
+                            ))],
+                        },
+                    }),
                     _ => SettingCase::Malformed(MalformedInstalledApps {
                         apps: OrderedInstalledApps {
                             evidence: vec![InstalledAppEvidence::Issue(value_issue(
@@ -376,8 +376,8 @@ fn string_list_items(items: &[PythonListItem]) -> (OrderedInstalledApps, bool) {
                     text.clone(),
                     value.origins().collect(),
                 )),
-                PythonValueKind::Unknown(unknown) => {
-                    InstalledAppEvidence::Issue(unknown_issue(unknown))
+                PythonValueKind::Unknown(_) => {
+                    InstalledAppEvidence::Issue(unknown_value_issue(value))
                 }
                 _ => {
                     malformed = true;
@@ -412,10 +412,12 @@ fn templates(
                 PythonValueKind::List(list) => {
                     template_list(db, list, &mutation_issues, constraints)
                 }
-                PythonValueKind::Unknown(unknown) => correlated_cases(
+                PythonValueKind::Unknown(_) => correlated_cases(
                     vec![SettingCase::Dynamic(DynamicTemplates {
                         templates: OrderedTemplateList {
-                            evidence: vec![TemplateListEvidence::Issue(unknown_issue(unknown))],
+                            evidence: vec![TemplateListEvidence::Issue(unknown_value_issue(
+                                &bound.value,
+                            ))],
                         },
                     })],
                     constraints,
@@ -526,13 +528,11 @@ fn template_list_variant(
                         })
                         .collect()
                 }
-                PythonValueKind::Unknown(unknown) => {
-                    vec![(
-                        TemplateListEvidence::Issue(unknown_issue(unknown)),
-                        false,
-                        SettingCorrelation::independent(),
-                    )]
-                }
+                PythonValueKind::Unknown(_) => vec![(
+                    TemplateListEvidence::Issue(unknown_value_issue(value)),
+                    false,
+                    SettingCorrelation::independent(),
+                )],
                 _ => vec![(
                     TemplateListEvidence::Issue(value_issue(SettingIssueKind::InvalidShape, value)),
                     true,
@@ -646,8 +646,8 @@ fn partial_backend(
                 backend.backend.known =
                     Some(WithOrigin::new(name.clone(), value.origins().collect()));
             }
-            PythonValueKind::Unknown(unknown) => {
-                backend.backend.issues.push(unknown_issue(unknown));
+            PythonValueKind::Unknown(_) => {
+                backend.backend.issues.push(unknown_value_issue(value));
             }
             _ => backend
                 .backend
@@ -669,8 +669,8 @@ fn partial_backend(
             PythonValueKind::Bool(flag) => {
                 backend.app_dirs.known = Some(WithOrigin::new(*flag, value.origins().collect()));
             }
-            PythonValueKind::Unknown(unknown) => {
-                backend.app_dirs.issues.push(unknown_issue(unknown));
+            PythonValueKind::Unknown(_) => {
+                backend.app_dirs.issues.push(unknown_value_issue(value));
             }
             _ => backend
                 .app_dirs
@@ -684,8 +684,8 @@ fn partial_backend(
     if let Some(options) = options_value {
         match &options.kind {
             PythonValueKind::Dict(options) => extract_options(options, &mut backend),
-            PythonValueKind::Unknown(unknown) => {
-                backend.options.issues.push(unknown_issue(unknown));
+            PythonValueKind::Unknown(_) => {
+                backend.options.issues.push(unknown_value_issue(options));
             }
             _ => backend
                 .options
@@ -720,8 +720,8 @@ fn extract_options(options: &PythonDict, backend: &mut PartialTemplateBackend) {
     if let Some(value) = libraries_value {
         match &value.kind {
             PythonValueKind::Dict(dict) => extract_libraries(dict, &mut backend.libraries),
-            PythonValueKind::Unknown(unknown) => {
-                backend.libraries.issues.push(unknown_issue(unknown));
+            PythonValueKind::Unknown(_) => {
+                backend.libraries.issues.push(unknown_value_issue(value));
             }
             _ => backend
                 .libraries
@@ -758,12 +758,10 @@ fn extract_options(options: &PythonDict, backend: &mut PartialTemplateBackend) {
                                     )),
                                 }
                             }
-                            PythonValueKind::Unknown(unknown) => {
-                                backend
-                                    .context_processors
-                                    .issues
-                                    .push(unknown_issue(unknown));
-                            }
+                            PythonValueKind::Unknown(_) => backend
+                                .context_processors
+                                .issues
+                                .push(unknown_value_issue(value)),
                             _ => backend
                                 .context_processors
                                 .issues
@@ -780,12 +778,10 @@ fn extract_options(options: &PythonDict, backend: &mut PartialTemplateBackend) {
                     }
                 }
             }
-            PythonValueKind::Unknown(unknown) => {
-                backend
-                    .context_processors
-                    .issues
-                    .push(unknown_issue(unknown));
-            }
+            PythonValueKind::Unknown(_) => backend
+                .context_processors
+                .issues
+                .push(unknown_value_issue(value)),
             _ => backend
                 .context_processors
                 .issues
@@ -805,9 +801,9 @@ fn extract_libraries(
             PythonDictItem::Entry { key, value } => {
                 let PythonValueKind::Str(alias) = &key.kind else {
                     let issue = match &key.kind {
-                        PythonValueKind::Unknown(unknown) => {
+                        PythonValueKind::Unknown(_) => {
                             unknown_unpack_has_authority = true;
-                            unknown_issue(unknown)
+                            unknown_value_issue(key)
                         }
                         _ => value_issue(SettingIssueKind::InvalidShape, key),
                     };
@@ -832,8 +828,8 @@ fn extract_libraries(
                                 .insert(0, value_issue(SettingIssueKind::InvalidModuleName, value)),
                         }
                     }
-                    PythonValueKind::Unknown(unknown) => {
-                        libraries.issues.insert(0, unknown_issue(unknown));
+                    PythonValueKind::Unknown(_) => {
+                        libraries.issues.insert(0, unknown_value_issue(value));
                     }
                     _ => libraries
                         .issues
@@ -861,11 +857,14 @@ fn module_name_list(
     let mut issues = Vec::new();
     let mut malformed = false;
     let PythonValueKind::List(list) = &value.kind else {
-        return (
-            known,
-            vec![value_issue(SettingIssueKind::InvalidShape, value)],
-            true,
-        );
+        return match &value.kind {
+            PythonValueKind::Unknown(_) => (known, vec![unknown_value_issue(value)], false),
+            _ => (
+                known,
+                vec![value_issue(SettingIssueKind::InvalidShape, value)],
+                true,
+            ),
+        };
     };
     for item in &list.items {
         match item {
@@ -878,7 +877,9 @@ fn module_name_list(
                         issues.push(value_issue(SettingIssueKind::InvalidModuleName, value));
                     }
                 }
-                PythonValueKind::Unknown(unknown) => issues.push(unknown_issue(unknown)),
+                PythonValueKind::Unknown(_) => {
+                    issues.push(unknown_value_issue(value));
+                }
                 _ => {
                     malformed = true;
                     issues.push(value_issue(SettingIssueKind::InvalidShape, value));
@@ -910,11 +911,9 @@ fn static_url(
                         StaticUrl(value.clone()),
                         bound.value.origins().collect(),
                     )),
-                    PythonValueKind::Unknown(unknown) => {
-                        SettingCase::Dynamic(DynamicScalarSetting {
-                            issues: vec![unknown_issue(unknown)],
-                        })
-                    }
+                    PythonValueKind::Unknown(_) => SettingCase::Dynamic(DynamicScalarSetting {
+                        issues: vec![unknown_value_issue(&bound.value)],
+                    }),
                     _ => SettingCase::Malformed(MalformedScalarSetting {
                         issues: vec![value_issue(SettingIssueKind::InvalidShape, &bound.value)],
                     }),
@@ -938,9 +937,9 @@ fn static_root(
         |bound, constraints| {
             let paths = evaluated_paths(db, &bound.value);
             if paths.is_empty() {
-                let case = if let PythonValueKind::Unknown(unknown) = &bound.value.kind {
+                let case = if let PythonValueKind::Unknown(_) = &bound.value.kind {
                     SettingCase::Dynamic(DynamicScalarSetting {
-                        issues: vec![unknown_issue(unknown)],
+                        issues: vec![unknown_value_issue(&bound.value)],
                     })
                 } else {
                     SettingCase::Malformed(MalformedScalarSetting {
@@ -1008,10 +1007,12 @@ fn staticfiles_dirs(
                         (case, constraints.intersection(&projection_correlation))
                     })
                     .collect(),
-                PythonValueKind::Unknown(unknown) => correlated_cases(
+                PythonValueKind::Unknown(_) => correlated_cases(
                     vec![SettingCase::Dynamic(DynamicStaticFilesDirs {
                         paths: OrderedPathList {
-                            evidence: vec![PathListEvidence::Issue(unknown_issue(unknown))],
+                            evidence: vec![PathListEvidence::Issue(unknown_value_issue(
+                                &bound.value,
+                            ))],
                         },
                     })],
                     constraints,
@@ -1084,14 +1085,15 @@ fn path_list_capped(
     value: &PythonValue,
 ) -> CappedExpansion<PathListProjection> {
     let PythonValueKind::List(list) = &value.kind else {
-        let (kind, malformed) = if matches!(value.kind, PythonValueKind::Unknown(_)) {
-            (SettingIssueKind::DynamicExpression, false)
-        } else {
-            (SettingIssueKind::InvalidShape, true)
-        };
         let mut projection = PathListProjection::empty();
-        projection.paths.push_issue(value_issue(kind, value));
-        projection.malformed = malformed;
+        if let PythonValueKind::Unknown(_) = &value.kind {
+            projection.paths.push_issue(unknown_value_issue(value));
+        } else {
+            projection
+                .paths
+                .push_issue(value_issue(SettingIssueKind::InvalidShape, value));
+            projection.malformed = true;
+        }
         return CappedExpansion::one(projection);
     };
 
@@ -1134,11 +1136,8 @@ fn path_list_variant(
                 let evaluated = evaluated_paths(db, value);
                 if evaluated.is_empty() {
                     for projection in &mut configurations {
-                        if matches!(value.kind, PythonValueKind::Unknown(_)) {
-                            projection.paths.push_issue(value_issue(
-                                SettingIssueKind::DynamicExpression,
-                                value,
-                            ));
+                        if let PythonValueKind::Unknown(_) = &value.kind {
+                            projection.paths.push_issue(unknown_value_issue(value));
                         } else {
                             projection.malformed = true;
                             projection
@@ -1257,10 +1256,7 @@ fn dict_lookup<'a>(
             PythonDictItem::Entry { key, .. }
                 if matches!(key.kind, PythonValueKind::Unknown(_)) =>
             {
-                let PythonValueKind::Unknown(unknown) = &key.kind else {
-                    unreachable!();
-                };
-                issues.push(unknown_issue(unknown));
+                issues.push(unknown_value_issue(key));
             }
             PythonDictItem::Entry { .. } => {}
         }
@@ -1342,7 +1338,18 @@ fn alternative_limit_issue(origin: Origin) -> SettingIssue {
 }
 
 fn unknown_issue(unknown: &PythonUnknown) -> SettingIssue {
-    let kind = match unknown.cause {
+    issue(unknown_issue_kind(unknown), unknown.origin)
+}
+
+fn unknown_value_issue(value: &PythonValue) -> SettingIssue {
+    let PythonValueKind::Unknown(unknown) = &value.kind else {
+        unreachable!("unknown value issue requires PythonValueKind::Unknown");
+    };
+    value_issue(unknown_issue_kind(unknown), value)
+}
+
+fn unknown_issue_kind(unknown: &PythonUnknown) -> SettingIssueKind {
+    match unknown.cause {
         PythonUnknownCause::Unreadable(_) => SettingIssueKind::Unreadable,
         PythonUnknownCause::SyntaxErrors(_) => SettingIssueKind::SyntaxError,
         PythonUnknownCause::UnsupportedMutation => SettingIssueKind::UnsupportedMutation,
@@ -1352,9 +1359,9 @@ fn unknown_issue(unknown: &PythonUnknown) -> SettingIssue {
         | PythonUnknownCause::SkippedExternal(_)
         | PythonUnknownCause::Cycle
         | PythonUnknownCause::AlternativeLimitExceeded => SettingIssueKind::DynamicExpression,
-    };
-    issue(kind, unknown.origin)
+    }
 }
+
 fn value_issue(kind: SettingIssueKind, value: &PythonValue) -> SettingIssue {
     SettingIssue {
         kind,

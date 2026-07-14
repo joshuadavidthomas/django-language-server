@@ -1739,6 +1739,73 @@ fn equal_malformed_scalar_alternatives_merge_all_issue_origins() {
 }
 
 #[test]
+fn equal_top_level_unknown_alternatives_merge_all_issue_origins() {
+    let source =
+        "if FLAG:\n    STATIC_URL = first_dynamic()\nelse:\n    STATIC_URL = second_dynamic()";
+    let settings = extract(source);
+    let cases = cases(&settings, "/staticfiles/static_url/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    let issues = cases[0]["dynamic"]["issues"].as_array().unwrap();
+    assert_eq!(issues.len(), 1, "{settings:#}");
+    assert_eq!(issues[0]["kind"], "dynamic_expression");
+    assert_eq!(
+        issues[0]["spans"],
+        serde_json::to_value([
+            expected_span(source, "first_dynamic()"),
+            expected_span(source, "second_dynamic()"),
+        ])
+        .unwrap()
+    );
+}
+
+#[test]
+fn branch_merged_unknown_appended_to_installed_apps_retains_all_origins() {
+    let source = "if FLAG:\n    APP = first_dynamic()\nelse:\n    APP = second_dynamic()\nINSTALLED_APPS = []\nINSTALLED_APPS.append(APP)";
+    let settings = extract(source);
+    let evidence = cases(&settings, "/installed_apps/cases")[0]["dynamic"]["apps"]["evidence"]
+        .as_array()
+        .unwrap();
+
+    assert_eq!(evidence.len(), 1, "{settings:#}");
+    assert_eq!(evidence[0]["issue"]["kind"], "dynamic_expression");
+    assert_eq!(
+        evidence[0]["issue"]["spans"],
+        serde_json::to_value([
+            expected_span(source, "first_dynamic()"),
+            expected_span(source, "second_dynamic()"),
+        ])
+        .unwrap()
+    );
+}
+
+#[test]
+fn typed_unknowns_reach_module_name_and_path_extractors_with_all_origins() {
+    let source = "if FLAG:\n    VALUE = []\n    VALUE.clear()\nelse:\n    VALUE = []\n    VALUE.clear()\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': VALUE, 'OPTIONS': {'builtins': VALUE}},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': []},\n]\nTEMPLATES[1]['DIRS'].append(VALUE)";
+    let settings = extract(source);
+    let expected_spans = serde_json::to_value([
+        expected_span(source, "VALUE.clear()"),
+        Span::saturating_from_parts_usize(
+            source.rfind("VALUE.clear()").unwrap(),
+            "VALUE.clear()".len(),
+        ),
+    ])
+    .unwrap();
+
+    let backends = cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
+        .as_array()
+        .unwrap();
+    let direct_dirs_issue = &backends[0]["backend"]["dirs"]["evidence"][0]["issue"];
+    let builtins_issue = &backends[0]["backend"]["builtins"]["issues"][0];
+    let appended_dirs_issue = &backends[1]["backend"]["dirs"]["evidence"][0]["issue"];
+
+    for issue in [direct_dirs_issue, builtins_issue, appended_dirs_issue] {
+        assert_eq!(issue["kind"], "unsupported_mutation", "{settings:#}");
+        assert_eq!(issue["spans"], expected_spans, "{settings:#}");
+    }
+}
+
+#[test]
 fn static_root_resolves_relative_to_imported_origin_file() {
     let settings = extract_project(
         "from one.base import STATIC_ROOT",
