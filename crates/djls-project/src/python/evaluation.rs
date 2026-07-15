@@ -5,7 +5,6 @@ mod evaluator;
 mod mutation;
 mod query;
 mod result;
-mod statement_walk;
 mod touched_names;
 mod value;
 

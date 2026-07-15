@@ -496,6 +496,66 @@ fn star_import_translates_every_typed_namespace_cause_to_the_import_site() {
 }
 
 #[test]
+fn deterministic_false_while_executes_only_else_body() {
+    let source = "while False:\n    from missing_body import INSTALLED_APPS\nelse:\n    INSTALLED_APPS = ['else']\n";
+    let (db, project, settings) = extract_project(source, &[]);
+    assert_eq!(
+        cases(&settings, "/installed_apps/cases")[0]["known"]["apps"][0]["value"],
+        "else"
+    );
+
+    let file = settings_module_file(&db, project).unwrap();
+    let evaluation = python_module_evaluation(&db, project, file);
+    assert!(
+        evaluation.imports.is_empty(),
+        "the unreachable while body must contribute no import outcome"
+    );
+}
+
+#[test]
+fn ambiguous_while_degrades_writes_and_retains_branch_effects() {
+    let source = "INSTALLED_APPS = []\nwhile FLAG:\n    INSTALLED_APPS.append('loop')\nelse:\n    from plugin import STATIC_URL\n";
+    let (db, project, settings) = extract_project(source, &[("plugin", "STATIC_URL = '/static/'")]);
+    let app_cases = cases(&settings, "/installed_apps/cases");
+    assert_eq!(app_cases.len(), 2, "{settings:#}");
+    assert_eq!(
+        app_cases[0]["known"]["apps"].as_array().unwrap().len(),
+        0,
+        "{settings:#}"
+    );
+    assert_eq!(
+        app_cases[1]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
+        "{settings:#}"
+    );
+    assert_eq!(
+        cases(&settings, "/staticfiles/static_url/cases")[0]["dynamic"]["issues"][0]["kind"],
+        "dynamic_expression",
+        "{settings:#}"
+    );
+
+    let file = settings_module_file(&db, project).unwrap();
+    let plugin = db.file(Utf8Path::new("/project/settings/plugin.py"));
+    let evaluation = python_module_evaluation(&db, project, file);
+    assert!(evaluation.dependency_files.contains(&plugin));
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::Resolved { file: imported, .. }] if *imported == plugin
+    ));
+    assert!(matches!(
+        evaluation.mutations.as_slice(),
+        [mutation]
+            if mutation.binding == "INSTALLED_APPS"
+                && mutation.operation == PythonMutationOperationView::Append
+                && mutation.path.is_empty()
+                && mutation.origin
+                    == djls_source::Origin::new(
+                        file,
+                        expected_span(source, "INSTALLED_APPS.append('loop')"),
+                    )
+    ));
+}
+
+#[test]
 fn python_module_evaluation_keeps_failed_star_import_from_loop_body() {
     let db = TestDatabase::new();
     let source = "for item in ITEMS:\n    from missing_star import *\n";
