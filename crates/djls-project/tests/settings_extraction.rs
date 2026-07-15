@@ -2178,6 +2178,22 @@ fn nested_template_dirs_append_and_extend_are_supported() {
 }
 
 #[test]
+fn nested_template_dirs_mutation_updates_all_correlated_equal_lists() {
+    let settings = extract(
+        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'].append('/b')",
+    );
+    let cases = cases(&settings, "/templates/cases");
+
+    assert!(!cases.is_empty(), "{settings:#}");
+    for case in cases {
+        let dirs = case["known"]["backends"][0]["dirs"].as_array().unwrap();
+        assert_eq!(dirs.len(), 2, "{settings:#}");
+        assert_eq!(dirs[0]["value"]["resolved"], "/a");
+        assert_eq!(dirs[1]["value"]["resolved"], "/b");
+    }
+}
+
+#[test]
 fn nested_template_dirs_augmented_assignment_is_supported() {
     let settings = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'] += ['/b']",

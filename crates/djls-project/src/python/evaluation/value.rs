@@ -87,6 +87,7 @@ impl PythonValue {
             origin,
             constraints: BranchConstraints::unconstrained(),
         });
+        normalize_value_evidence(&mut self.evidence);
     }
 
     pub(super) fn normalize(&mut self) {
@@ -209,17 +210,17 @@ impl PythonValueKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PythonListVariant {
-    pub(crate) items: Vec<PythonListItem>,
-    pub(crate) constraints: BranchConstraints,
+struct PythonListVariant {
+    items: Vec<PythonListItem>,
+    constraints: BranchConstraints,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonList {
     /// Canonical items used for semantic equality and ordinary value consumers.
-    pub(crate) items: Vec<PythonListItem>,
+    items: Vec<PythonListItem>,
     /// Complete correlated item sequences retained before equal lists merge their evidence.
-    pub(crate) variants: Vec<PythonListVariant>,
+    variants: Vec<PythonListVariant>,
 }
 
 impl PythonList {
@@ -231,6 +232,18 @@ impl PythonList {
             }],
             items,
         }
+    }
+
+    pub(crate) fn semantic_items(&self) -> &[PythonListItem] {
+        &self.items
+    }
+
+    pub(crate) fn correlated_variants(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (&[PythonListItem], &BranchConstraints)> {
+        self.variants
+            .iter()
+            .map(|variant| (variant.items.as_slice(), &variant.constraints))
     }
 
     pub(super) fn append(&mut self, item: &PythonListItem) {
@@ -298,6 +311,33 @@ impl PythonList {
         }
     }
 
+    pub(super) fn try_mutate_indexed_value(
+        &mut self,
+        index: usize,
+        mut mutate: impl FnMut(&mut PythonValue) -> bool,
+    ) -> bool {
+        let mut updated = self.clone();
+        let Some(PythonListItem::Value(next)) = updated.items.get_mut(index) else {
+            return false;
+        };
+        if !mutate(next) {
+            return false;
+        }
+        for variant in &mut updated.variants {
+            if is_list_variant_limit_unknown(&variant.items) {
+                continue;
+            }
+            let Some(PythonListItem::Value(next)) = variant.items.get_mut(index) else {
+                return false;
+            };
+            if !mutate(next) {
+                return false;
+            }
+        }
+        *self = updated;
+        true
+    }
+
     fn normalize(&mut self, operation_origin: Option<Origin>) {
         normalize_list_items(&mut self.items);
         for variant in &mut self.variants {
@@ -344,7 +384,7 @@ impl PythonList {
     }
 }
 
-pub(super) fn is_list_variant_limit_unknown(variant: &[PythonListItem]) -> bool {
+fn is_list_variant_limit_unknown(variant: &[PythonListItem]) -> bool {
     matches!(
         variant,
         [PythonListItem::UnknownUnpack(PythonUnknown {
@@ -697,6 +737,89 @@ mod tests {
         }
     }
 
+    fn correlated_backend_list(starts: impl IntoIterator<Item = u32>) -> PythonList {
+        let backend = |start| {
+            let value = |kind| PythonValue::known(kind, origin(start));
+            PythonListItem::Value(value(PythonValueKind::Dict(PythonDict {
+                items: vec![PythonDictItem::Entry {
+                    key: value(PythonValueKind::Str("DIRS".to_string())),
+                    value: value(PythonValueKind::List(PythonList::new(Vec::new()))),
+                }],
+            })))
+        };
+        starts
+            .into_iter()
+            .map(|start| PythonList::new(vec![backend(start)]))
+            .reduce(|mut correlated, alternative| {
+                correlated.merge_semantically_equal(alternative, None);
+                correlated
+            })
+            .expect("a correlated backend list needs at least one alternative")
+    }
+
+    fn dirs_value(items: &[PythonListItem]) -> &PythonValue {
+        let [
+            PythonListItem::Value(PythonValue {
+                kind: PythonValueKind::Dict(dict),
+                ..
+            }),
+        ] = items
+        else {
+            panic!("a test backend projection should contain one dictionary");
+        };
+        let [PythonDictItem::Entry { value, .. }] = dict.items.as_slice() else {
+            panic!("a test backend should contain one DIRS entry");
+        };
+        value
+    }
+
+    fn assert_dirs_mutated(items: &[PythonListItem], mutation_origin: Origin) {
+        let PythonListItem::Value(backend) = &items[0] else {
+            panic!("a test backend should be an exact value");
+        };
+        assert!(backend.origins().any(|origin| origin == mutation_origin));
+
+        let dirs = dirs_value(items);
+        assert!(dirs.origins().any(|origin| origin == mutation_origin));
+        let PythonValueKind::List(dirs) = &dirs.kind else {
+            panic!("DIRS should remain a list");
+        };
+        let is_added = |items: &[PythonListItem]| {
+            matches!(
+                items,
+                [PythonListItem::Value(PythonValue {
+                    kind: PythonValueKind::Str(value),
+                    ..
+                })] if value == "added"
+            )
+        };
+        assert!(is_added(dirs.semantic_items()));
+        assert!(dirs.correlated_variants().all(|(items, _)| is_added(items)));
+    }
+
+    fn append_to_dirs(
+        backend: &mut PythonValue,
+        argument: &PythonValue,
+        mutation_origin: Origin,
+    ) -> bool {
+        let PythonValueKind::Dict(dict) = &mut backend.kind else {
+            return false;
+        };
+        let Some(dirs) = dict.items.iter_mut().find_map(|item| match item {
+            PythonDictItem::Entry { value, .. } => Some(value),
+            PythonDictItem::UnknownUnpack(_) => None,
+        }) else {
+            return false;
+        };
+        let PythonValueKind::List(list) = &mut dirs.kind else {
+            return false;
+        };
+        list.append(&PythonListItem::Value(argument.clone()));
+        dirs.record_origin(mutation_origin);
+        backend.record_origin(mutation_origin);
+        true
+    }
+
     fn joined(bindings: Vec<PythonBinding>, right_grouped: bool) -> PythonBinding {
         let overflow_origin = origin(1_000);
         if right_grouped {
@@ -819,6 +942,21 @@ mod tests {
             panic!("joined value should remain a list");
         };
         assert_eq!(list.variants.len(), 3);
+        let semantic_starts = list
+            .semantic_items()
+            .iter()
+            .map(|item| match item {
+                PythonListItem::Value(value) => value
+                    .origins()
+                    .map(|origin| origin.span.start())
+                    .collect::<Vec<_>>(),
+                PythonListItem::UnknownElement(_) | PythonListItem::UnknownUnpack(_) => {
+                    panic!("the semantic list should contain only exact values")
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(semantic_starts, [vec![10, 20, 30], vec![11, 21, 31]]);
+
         let starts = list
             .variants
             .iter()
@@ -845,6 +983,74 @@ mod tests {
             [vec![10, 21], vec![20, 11], vec![30, 31]]
                 .into_iter()
                 .collect()
+        );
+    }
+
+    #[test]
+    fn correlated_indexed_mutation_updates_every_projection_and_retains_recursive_origins() {
+        let mut list = correlated_backend_list([10, 20, 30]);
+        let argument = PythonValue::known(PythonValueKind::Str("added".to_string()), origin(200));
+        let mutation_origin = origin(300);
+
+        assert!(list.try_mutate_indexed_value(0, |backend| {
+            append_to_dirs(backend, &argument, mutation_origin)
+        }));
+
+        assert_dirs_mutated(list.semantic_items(), mutation_origin);
+        for (items, _) in list.correlated_variants() {
+            assert_dirs_mutated(items, mutation_origin);
+        }
+    }
+
+    #[test]
+    fn failing_correlated_indexed_mutation_leaves_every_projection_unchanged() {
+        let mut list = correlated_backend_list([10, 20, 30]);
+        let before = list.clone();
+        let mutation_origin = origin(300);
+        let mut calls = 0;
+
+        assert!(!list.try_mutate_indexed_value(0, |backend| {
+            calls += 1;
+            backend.record_origin(mutation_origin);
+            calls < 2
+        }));
+        assert_eq!(list, before);
+    }
+
+    #[test]
+    fn correlated_indexed_mutation_preserves_the_64_plus_remainder_state() {
+        let mut list = correlated_backend_list(0..32);
+        list.merge_semantically_equal(correlated_backend_list(32..65), Some(origin(1_000)));
+        assert_eq!(list.variants.len(), 65);
+        let remainder = list
+            .variants
+            .iter_mut()
+            .find(|variant| is_list_variant_limit_unknown(&variant.items))
+            .expect("overflow should retain one typed remainder");
+        remainder.constraints.select(origin(1_500), 1);
+        let remainder = remainder.clone();
+        let argument = PythonValue::known(PythonValueKind::Str("added".to_string()), origin(3_000));
+        let mutation_origin = origin(4_000);
+
+        assert!(list.try_mutate_indexed_value(0, |backend| {
+            append_to_dirs(backend, &argument, mutation_origin)
+        }));
+
+        let exact = list
+            .variants
+            .iter()
+            .filter(|variant| !is_list_variant_limit_unknown(&variant.items))
+            .collect::<Vec<_>>();
+        assert_eq!(exact.len(), 64);
+        for variant in exact {
+            assert_dirs_mutated(&variant.items, mutation_origin);
+        }
+        assert_eq!(
+            list.variants
+                .iter()
+                .filter(|variant| is_list_variant_limit_unknown(&variant.items))
+                .collect::<Vec<_>>(),
+            [&remainder],
         );
     }
 

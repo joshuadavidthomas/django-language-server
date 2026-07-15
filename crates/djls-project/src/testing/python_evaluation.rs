@@ -265,8 +265,9 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
             evaluation::PythonValueKind::Bool(value) => PythonValueKindView::Bool(value),
             evaluation::PythonValueKind::Path(value) => PythonValueKindView::Path(value),
             evaluation::PythonValueKind::List(list) => PythonValueKindView::List(
-                list.items
-                    .into_iter()
+                list.semantic_items()
+                    .iter()
+                    .cloned()
                     .map(|item| match item {
                         evaluation::PythonListItem::Value(value) => {
                             PythonListItemView::Value(value_view(value))

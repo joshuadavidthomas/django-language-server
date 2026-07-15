@@ -319,10 +319,9 @@ fn installed_apps(
                 return correlated_cases(vec![case], constraints);
             };
 
-            list.variants
-                .iter()
-                .map(|variant| {
-                    let (mut apps, malformed) = string_list_items(&variant.items);
+            list.correlated_variants()
+                .map(|(items, variant_constraints)| {
+                    let (mut apps, malformed) = string_list_items(items);
                     apps.evidence.extend(
                         mutation_issues
                             .iter()
@@ -351,7 +350,7 @@ fn installed_apps(
                     };
                     (
                         case,
-                        constraints.intersection(&setting_correlation(&variant.constraints)),
+                        constraints.intersection(&setting_correlation(variant_constraints)),
                     )
                 })
                 .collect()
@@ -458,18 +457,18 @@ fn template_list(
 )> {
     let mut cases = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
     let mut overflow_origin = None;
-    for variant in &list.variants {
+    for (items, constraints) in list.correlated_variants() {
         if cases.len() == MAX_EXACT_SETTING_ALTERNATIVES {
-            overflow_origin = overflow_origin.or_else(|| list_item_origin(&variant.items));
+            overflow_origin = overflow_origin.or_else(|| list_item_origin(items));
             break;
         }
         let expansion = template_list_variant(
             db,
-            &variant.items,
+            items,
             issues,
             MAX_EXACT_SETTING_ALTERNATIVES - cases.len(),
         );
-        let variant_correlation = setting_correlation(&variant.constraints);
+        let variant_correlation = setting_correlation(constraints);
         cases.extend(expansion.exact.into_iter().filter_map(|configuration| {
             let correlation = outer_correlation
                 .intersection(&variant_correlation)
@@ -744,7 +743,7 @@ fn extract_options(options: &PythonDict, backend: &mut PartialTemplateBackend) {
     if let Some(value) = processors_value {
         match &value.kind {
             PythonValueKind::List(list) => {
-                for item in &list.items {
+                for item in list.semantic_items() {
                     match item {
                         PythonListItem::Value(value) => match &value.kind {
                             PythonValueKind::Str(path) => {
@@ -867,7 +866,7 @@ fn module_name_list(
             ),
         };
     };
-    for item in &list.items {
+    for item in list.semantic_items() {
         match item {
             PythonListItem::Value(value) => match &value.kind {
                 PythonValueKind::Str(name) => {
@@ -1100,20 +1099,20 @@ fn path_list_capped(
 
     let mut projections = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES);
     let mut overflow_origin = None;
-    for variant in &list.variants {
+    for (items, constraints) in list.correlated_variants() {
         if projections.len() == MAX_EXACT_SETTING_ALTERNATIVES {
             overflow_origin = overflow_origin
-                .or_else(|| list_item_origin(&variant.items))
+                .or_else(|| list_item_origin(items))
                 .or_else(|| value.origins().next());
             break;
         }
         let expansion = path_list_variant(
             db,
-            &variant.items,
+            items,
             MAX_EXACT_SETTING_ALTERNATIVES - projections.len(),
         );
         projections.extend(expansion.exact.into_iter().map(|mut projection| {
-            projection.constraints = projection.constraints.intersection(&variant.constraints);
+            projection.constraints = projection.constraints.intersection(constraints);
             projection
         }));
         overflow_origin = overflow_origin.or(expansion.overflow_origin);
@@ -1307,7 +1306,7 @@ fn unsupported_mutation_issues(
 fn value_contains_origin(value: &PythonValue, wanted: Origin) -> bool {
     value.origins().any(|origin| origin == wanted)
         || match &value.kind {
-            PythonValueKind::List(list) => list.items.iter().any(|item| match item {
+            PythonValueKind::List(list) => list.semantic_items().iter().any(|item| match item {
                 PythonListItem::Value(value) => value_contains_origin(value, wanted),
                 PythonListItem::UnknownElement(unknown)
                 | PythonListItem::UnknownUnpack(unknown) => unknown.origin == Some(wanted),

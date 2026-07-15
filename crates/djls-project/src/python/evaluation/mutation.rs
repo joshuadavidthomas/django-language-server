@@ -47,6 +47,75 @@ impl PythonMutationOperation {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum InsertIndex {
+    NonNegative(usize),
+    Negative(usize),
+}
+
+enum EvaluatedMutation<'a> {
+    Append(&'a PythonValue),
+    Extend(&'a PythonValue),
+    Insert {
+        index: InsertIndex,
+        value: &'a PythonValue,
+    },
+    Remove(&'a str),
+}
+
+impl EvaluatedMutation<'_> {
+    fn apply(&self, value: &mut PythonValue, origin: Origin) -> bool {
+        match self {
+            Self::Append(argument) => {
+                let PythonValueKind::List(list) = &mut value.kind else {
+                    return false;
+                };
+                list.append(&PythonListItem::Value((*argument).clone()));
+            }
+            Self::Extend(extension) => {
+                return extend_list_value(value, extension, origin);
+            }
+            Self::Insert { index, value: item } => {
+                let PythonValueKind::List(list) = &mut value.kind else {
+                    return false;
+                };
+                if !list_is_authoritative(list) {
+                    return false;
+                }
+                let len = list.semantic_items().len();
+                let index = match index {
+                    InsertIndex::NonNegative(index) => (*index).min(len),
+                    InsertIndex::Negative(magnitude) => {
+                        if *magnitude == 0 {
+                            0
+                        } else {
+                            len.saturating_sub(*magnitude)
+                        }
+                    }
+                };
+                list.insert(index, &PythonListItem::Value((*item).clone()));
+            }
+            Self::Remove(needle) => {
+                let PythonValueKind::List(list) = &mut value.kind else {
+                    return false;
+                };
+                if !list_is_authoritative(list) {
+                    return false;
+                }
+                let Some(index) = list.semantic_items().iter().position(|item| {
+                    matches!(item, PythonListItem::Value(PythonValue {
+                        kind: PythonValueKind::Str(candidate), ..
+                    }) if candidate == needle)
+                }) else {
+                    return false;
+                };
+                list.remove(index);
+            }
+        }
+        true
+    }
+}
+
 pub(super) struct MutationTarget<'a> {
     pub(super) binding: &'a str,
     path: Vec<PythonMutationPathSegment>,
@@ -103,9 +172,12 @@ pub(super) fn apply_augmented_add(
     extension: &PythonValue,
     origin: Origin,
 ) {
-    let supported = mutate_target(state, &target, origin, |value| {
-        extend_list_value(value, extension, origin)
-    });
+    let supported = mutate_target(
+        state,
+        &target,
+        origin,
+        &EvaluatedMutation::Extend(extension),
+    );
     let binding = target.binding.to_string();
     state
         .mutations
@@ -179,69 +251,28 @@ fn apply_mutation_operation(
         .iter()
         .map(|argument| evaluate_value(context, state, argument))
         .collect::<Vec<_>>();
-    match (operation, arguments.as_slice()) {
-        (PythonMutationOperation::Append, [argument]) => {
-            mutate_target(state, target, origin, |value| {
-                let PythonValueKind::List(list) = &mut value.kind else {
-                    return false;
-                };
-                list.append(&PythonListItem::Value(argument.clone()));
-                true
-            })
-        }
-        (PythonMutationOperation::Extend, [extension]) => {
-            mutate_target(state, target, origin, |value| {
-                extend_list_value(value, extension, origin)
-            })
-        }
+    let mutation = match (operation, arguments.as_slice()) {
+        (PythonMutationOperation::Append, [argument]) => EvaluatedMutation::Append(argument),
+        (PythonMutationOperation::Extend, [extension]) => EvaluatedMutation::Extend(extension),
         (PythonMutationOperation::Insert, [_, argument]) => {
             let index = &call.arguments.args[0];
-            let non_negative = index.non_negative_integer();
-            let negative = index.negative_integer();
-            (non_negative.is_some() || negative.is_some())
-                && mutate_target(state, target, origin, |value| {
-                    let PythonValueKind::List(list) = &mut value.kind else {
-                        return false;
-                    };
-                    if !list_is_authoritative(list) {
-                        return false;
-                    }
-                    let index = non_negative.map_or_else(
-                        || {
-                            let magnitude = negative.expect("insert index is an integer literal");
-                            if magnitude == 0 {
-                                0
-                            } else {
-                                list.items.len().saturating_sub(magnitude)
-                            }
-                        },
-                        |index| index.min(list.items.len()),
-                    );
-                    list.insert(index, &PythonListItem::Value(argument.clone()));
-                    true
-                })
+            let index = if let Some(index) = index.non_negative_integer() {
+                InsertIndex::NonNegative(index)
+            } else if let Some(index) = index.negative_integer() {
+                InsertIndex::Negative(index)
+            } else {
+                return false;
+            };
+            EvaluatedMutation::Insert {
+                index,
+                value: argument,
+            }
         }
         (PythonMutationOperation::Remove, [argument]) => {
-            mutate_target(state, target, origin, |value| {
-                let PythonValueKind::Str(needle) = &argument.kind else {
-                    return false;
-                };
-                let PythonValueKind::List(list) = &mut value.kind else {
-                    return false;
-                };
-                if !list_is_authoritative(list) {
-                    return false;
-                }
-                let Some(index) = list.items.iter().position(|item| {
-                    matches!(item, PythonListItem::Value(PythonValue {
-                        kind: PythonValueKind::Str(candidate), ..
-                    }) if candidate == needle)
-                }) else {
-                    return false;
-                };
-                list.remove(index);
-                true
-            })
+            let PythonValueKind::Str(needle) = &argument.kind else {
+                return false;
+            };
+            EvaluatedMutation::Remove(needle)
         }
         (
             PythonMutationOperation::Append
@@ -249,8 +280,9 @@ fn apply_mutation_operation(
             | PythonMutationOperation::Insert
             | PythonMutationOperation::Remove,
             _,
-        ) => false,
-    }
+        ) => return false,
+    };
+    mutate_target(state, target, origin, &mutation)
 }
 
 fn extend_list_value(value: &mut PythonValue, extension: &PythonValue, origin: Origin) -> bool {
@@ -271,7 +303,7 @@ fn extend_list_value(value: &mut PythonValue, extension: &PythonValue, origin: O
 }
 
 fn list_is_authoritative(list: &PythonList) -> bool {
-    list.items
+    list.semantic_items()
         .iter()
         .all(|item| matches!(item, PythonListItem::Value(_)))
 }
@@ -280,7 +312,7 @@ fn mutate_target(
     state: &mut EvaluationState,
     target: &MutationTarget<'_>,
     origin: Origin,
-    mutate: impl Fn(&mut PythonValue) -> bool,
+    mutation: &EvaluatedMutation<'_>,
 ) -> bool {
     let Some(binding) = state.bindings.get_mut(target.binding) else {
         return false;
@@ -288,51 +320,31 @@ fn mutate_target(
     let Some(bound) = binding.single_bound_mut() else {
         return false;
     };
-    let supported = mutate_at_path(&mut bound.value, &target.path, origin, &mutate);
-    if supported {
-        bound.value.normalize();
-    }
-    supported
+    mutate_at_path(&mut bound.value, &target.path, origin, mutation)
 }
 
 fn mutate_at_path(
     value: &mut PythonValue,
     path: &[PythonMutationPathSegment],
     origin: Origin,
-    mutate: &impl Fn(&mut PythonValue) -> bool,
+    mutation: &EvaluatedMutation<'_>,
 ) -> bool {
     let Some((next_segment, remaining)) = path.split_first() else {
-        if !mutate(value) {
+        if !mutation.apply(value, origin) {
             return false;
         }
         value.record_origin(origin);
-        value.normalize();
         return true;
     };
 
-    match next_segment {
+    let supported = match next_segment {
         PythonMutationPathSegment::Index(index) => {
             let PythonValueKind::List(list) = &mut value.kind else {
                 return false;
             };
-            let Some(PythonListItem::Value(next)) = list.items.get_mut(*index) else {
-                return false;
-            };
-            if !mutate_at_path(next, remaining, origin, mutate) {
-                return false;
-            }
-            for variant in &mut list.variants {
-                if super::value::is_list_variant_limit_unknown(&variant.items) {
-                    continue;
-                }
-                let Some(PythonListItem::Value(next)) = variant.items.get_mut(*index) else {
-                    return false;
-                };
-                if !mutate_at_path(next, remaining, origin, mutate) {
-                    return false;
-                }
-            }
-            true
+            list.try_mutate_indexed_value(*index, |next| {
+                mutate_at_path(next, remaining, origin, mutation)
+            })
         }
         PythonMutationPathSegment::Key(key) => {
             let PythonValueKind::Dict(dict) = &mut value.kind else {
@@ -348,7 +360,11 @@ fn mutate_at_path(
             }) else {
                 return false;
             };
-            mutate_at_path(next, remaining, origin, mutate)
+            mutate_at_path(next, remaining, origin, mutation)
         }
+    };
+    if supported {
+        value.record_origin(origin);
     }
+    supported
 }
