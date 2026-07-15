@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), warn(clippy::expect_used))]
+
 mod client;
 mod document;
 mod ext;

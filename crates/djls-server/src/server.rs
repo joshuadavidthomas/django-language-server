@@ -73,27 +73,7 @@ impl DjangoLanguageServer {
         F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
         R: Default + Send + 'static,
     {
-        let f = Arc::new(f);
-        for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
-            let snapshot = { self.session.lock().await.snapshot() };
-            let f = Arc::clone(&f);
-            let result = tokio::task::spawn_blocking(move || {
-                salsa::Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))
-            })
-            .await
-            .expect("snapshot task must not panic");
-            match result {
-                Ok(result) => return result,
-                Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                    tracing::debug!(?cancelled, "Syntax snapshot cancelled; retrying");
-                }
-                Err(cancelled) => {
-                    tracing::debug!(?cancelled, "Syntax snapshot cancelled; returning fallback");
-                    return R::default();
-                }
-            }
-        }
-        unreachable!("snapshot retry loop must return")
+        with_session_snapshot(&self.session, Arc::new(f)).await
     }
 
     fn schedule_document_mutation(&self, mutation: DocumentMutation) -> Option<TextDocument> {
@@ -142,6 +122,42 @@ impl DjangoLanguageServer {
     }
 }
 
+async fn with_session_snapshot<F, R>(session: &Arc<Mutex<Session>>, f: Arc<F>) -> R
+where
+    F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
+    R: Default + Send + 'static,
+{
+    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+        let snapshot = { session.lock().await.snapshot() };
+        let f = Arc::clone(&f);
+        let result = match tokio::task::spawn_blocking(move || {
+            salsa::Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "Syntax-only request snapshot task failed; returning fallback"
+                );
+                return R::default();
+            }
+        };
+        match result {
+            Ok(result) => return result,
+            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+                tracing::debug!(?cancelled, "Syntax snapshot cancelled; retrying");
+            }
+            Err(cancelled) => {
+                tracing::debug!(?cancelled, "Syntax snapshot cancelled; returning fallback");
+                return R::default();
+            }
+        }
+    }
+    unreachable!("snapshot retry loop must return")
+}
+
 async fn with_ready_session_snapshot<F, R>(session: &Arc<Mutex<Session>>, f: Arc<F>) -> R
 where
     F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
@@ -152,11 +168,20 @@ where
             return R::default();
         };
         let f = Arc::clone(&f);
-        let result = tokio::task::spawn_blocking(move || {
+        let result = match tokio::task::spawn_blocking(move || {
             salsa::Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))
         })
         .await
-        .expect("snapshot task must not panic");
+        {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "Project-aware request snapshot task failed; returning fallback"
+                );
+                return R::default();
+            }
+        };
 
         match result {
             Ok(result) => return result,
@@ -648,6 +673,8 @@ impl LanguageServer for DjangoLanguageServer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
     use tokio::time::timeout;
@@ -656,10 +683,67 @@ mod tests {
     use crate::session::ProjectWork;
 
     #[tokio::test]
+    async fn syntax_only_request_task_panic_returns_default() {
+        let session = Arc::new(Mutex::new(Session::default()));
+        let executions = Arc::new(AtomicUsize::new(0));
+
+        let response: usize = with_session_snapshot(&session, {
+            let executions = Arc::clone(&executions);
+            Arc::new(move |_: &SessionSnapshot| {
+                executions.fetch_add(1, Ordering::SeqCst);
+                panic!("synthetic syntax request panic");
+            })
+        })
+        .await;
+
+        assert_eq!(response, usize::default());
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn project_aware_request_task_panic_returns_default() {
+        let session = Arc::new(Mutex::new(Session::default()));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let mut request = tokio::spawn({
+            let session = Arc::clone(&session);
+            let executions = Arc::clone(&executions);
+            async move {
+                with_ready_session_snapshot(
+                    &session,
+                    Arc::new(move |_: &SessionSnapshot| {
+                        executions.fetch_add(1, Ordering::SeqCst);
+                        panic!("synthetic project-aware request panic");
+                    }),
+                )
+                .await
+            }
+        });
+
+        assert!(
+            timeout(Duration::from_millis(20), &mut request)
+                .await
+                .is_err(),
+            "an unready generation must block project-aware requests"
+        );
+        assert_eq!(executions.load(Ordering::SeqCst), 0);
+
+        let primed = {
+            let session = session.lock().await;
+            djls_ide::prime_template_library_products(session.db()).unwrap()
+        };
+        assert!(session.lock().await.publish_intrinsic_readiness(0, &primed));
+
+        let response: usize = timeout(Duration::from_secs(1), request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response, usize::default());
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn cancellation_restarts_at_barrier_and_waits_for_reprime() {
         use std::sync::Mutex as StdMutex;
-        use std::sync::atomic::AtomicUsize;
-        use std::sync::atomic::Ordering;
 
         let session = Arc::new(Mutex::new(Session::default()));
         let path = camino::Utf8PathBuf::from("/tmp/retry.py");

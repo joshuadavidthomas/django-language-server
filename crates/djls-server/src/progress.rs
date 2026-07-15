@@ -111,9 +111,11 @@ impl ProgressItem {
         } else {
             format!("{done}/{total} {message}")
         };
-        let percentage = done.saturating_mul(100).checked_div(total).map(|value| {
-            u32::try_from(value.min(100)).expect("progress percentage is clamped to 100")
-        });
+        let percentage = done
+            .saturating_mul(100)
+            .checked_div(total)
+            .map(|value| value.min(100))
+            .and_then(|value| u32::try_from(value).ok());
 
         self.send_report(message, percentage).await;
     }
