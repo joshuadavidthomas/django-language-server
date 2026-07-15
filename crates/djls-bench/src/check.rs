@@ -246,6 +246,7 @@ mod tests {
     use crate::template_fixtures;
     use crate::validation_error_fixtures;
 
+    #[derive(Debug, Eq, PartialEq)]
     struct CheckDigest {
         parser_count: usize,
         validation_count: usize,
@@ -272,6 +273,59 @@ mod tests {
         fn total(&self) -> usize {
             self.parser_count + self.validation_count
         }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    enum SemanticDiagnosticCategory {
+        Parser,
+        Validation,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    struct NormalizedSpan {
+        start: u32,
+        length: u32,
+    }
+
+    #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+    struct NormalizedSemanticDiagnostic {
+        category: SemanticDiagnosticCategory,
+        code: &'static str,
+        primary_span: Option<NormalizedSpan>,
+        message: String,
+    }
+
+    fn normalize_semantic_diagnostics(check: &CheckResult) -> Vec<NormalizedSemanticDiagnostic> {
+        let parser_diagnostics =
+            check
+                .template_errors
+                .iter()
+                .map(|error| NormalizedSemanticDiagnostic {
+                    category: SemanticDiagnosticCategory::Parser,
+                    code: error.diagnostic_code(),
+                    primary_span: error
+                        .primary_span()
+                        .map(|(start, length)| NormalizedSpan { start, length }),
+                    message: error.to_string(),
+                });
+        let validation_diagnostics =
+            check
+                .validation_errors
+                .iter()
+                .map(|error| NormalizedSemanticDiagnostic {
+                    category: SemanticDiagnosticCategory::Validation,
+                    code: error.code(),
+                    primary_span: error.primary_span().map(|span| NormalizedSpan {
+                        start: span.start(),
+                        length: span.length(),
+                    }),
+                    message: error.to_string(),
+                });
+        let mut normalized = parser_diagnostics
+            .chain(validation_diagnostics)
+            .collect::<Vec<_>>();
+        normalized.sort();
+        normalized
     }
 
     struct StableHasher(Sha256);
@@ -366,6 +420,27 @@ mod tests {
             Some(severity) => format!("unknown({severity:?})"),
             None => "none".to_string(),
         }
+    }
+
+    fn normalize_lsp_diagnostics(
+        path: &str,
+        diagnostics: Vec<tower_lsp_server::ls_types::Diagnostic>,
+    ) -> Vec<NormalizedDiagnostic> {
+        let mut normalized = diagnostics
+            .into_iter()
+            .map(|diagnostic| NormalizedDiagnostic {
+                path: path.to_string(),
+                code: diagnostic_code(diagnostic.code),
+                severity: diagnostic_severity(diagnostic.severity),
+                start_line: diagnostic.range.start.line,
+                start_character: diagnostic.range.start.character,
+                end_line: diagnostic.range.end.line,
+                end_character: diagnostic.range.end.character,
+                message: diagnostic.message,
+            })
+            .collect::<Vec<_>>();
+        normalized.sort();
+        normalized
     }
 
     fn hash_normalized_diagnostics(diagnostics: &[NormalizedDiagnostic]) -> String {
@@ -543,18 +618,8 @@ mod tests {
 
             if let Some(diagnostics) = djls_ide::collect_diagnostics(db, file) {
                 ide_eligible_file_count += 1;
-                normalized_ide_diagnostics.extend(diagnostics.into_iter().map(|diagnostic| {
-                    NormalizedDiagnostic {
-                        path: path.to_string(),
-                        code: diagnostic_code(diagnostic.code),
-                        severity: diagnostic_severity(diagnostic.severity),
-                        start_line: diagnostic.range.start.line,
-                        start_character: diagnostic.range.start.character,
-                        end_line: diagnostic.range.end.line,
-                        end_character: diagnostic.range.end.character,
-                        message: diagnostic.message,
-                    }
-                }));
+                normalized_ide_diagnostics
+                    .extend(normalize_lsp_diagnostics(path.as_str(), diagnostics));
             }
 
             if render {
@@ -630,8 +695,127 @@ mod tests {
     fn execution_count(names: &[String], query: &str) -> usize {
         names
             .iter()
-            .filter(|name| name.rsplit("::").next() == Some(query))
+            .filter(|name| name.as_str() == query || name.rsplit("::").next() == Some(query))
             .count()
+    }
+
+    fn assert_execution_count(names: &[String], query: &str, expected: usize) {
+        assert_eq!(
+            execution_count(names, query),
+            expected,
+            "unexpected {query} execution count in {names:#?}"
+        );
+    }
+
+    #[test]
+    fn semantic_incremental_validation_executes_after_each_edit() {
+        let fixture = template_fixtures()
+            .iter()
+            .find(|fixture| fixture.label == "large/views_technical_500.html")
+            .expect("benchmark should have the views_technical_500.html Template fixture");
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut db = realistic_db_with_event_log(Arc::clone(&events));
+        let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
+        let original = fixture.source.clone();
+        let modified = {
+            let mut text = original.clone();
+            text.push(' ');
+            text
+        };
+
+        djls_semantic::validate_template_file(&db, file);
+        let priming_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&priming_names, "validate_template_file", 1);
+
+        let original_diagnostics = normalize_semantic_diagnostics(&check_file(&db, file));
+        assert!(
+            !original_diagnostics.is_empty(),
+            "incremental validation fixture should produce semantic diagnostics"
+        );
+        let original_output_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&original_output_names, "validate_template_file", 0);
+
+        db.set_file_contents(file, &modified);
+        djls_semantic::validate_template_file(&db, file);
+        let modified_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&modified_names, "validate_template_file", 1);
+        let modified_diagnostics = normalize_semantic_diagnostics(&check_file(&db, file));
+        let modified_output_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&modified_output_names, "validate_template_file", 0);
+
+        db.set_file_contents(file, &original);
+        djls_semantic::validate_template_file(&db, file);
+        let restored_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&restored_names, "validate_template_file", 1);
+        let restored_diagnostics = normalize_semantic_diagnostics(&check_file(&db, file));
+        let restored_output_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&restored_output_names, "validate_template_file", 0);
+
+        djls_semantic::validate_template_file(&db, file);
+        let repeated_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&repeated_names, "validate_template_file", 0);
+
+        assert_eq!(modified_diagnostics, original_diagnostics);
+        assert_eq!(restored_diagnostics, original_diagnostics);
+    }
+
+    #[test]
+    fn diagnostics_incremental_collection_executes_after_each_edit() {
+        let fixture = template_fixtures()
+            .iter()
+            .find(|fixture| fixture.label == "large/views_technical_500.html")
+            .expect("benchmark should have the views_technical_500.html Template fixture");
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut db = realistic_db_with_event_log(Arc::clone(&events));
+        djls_ide::prime_template_library_products(&db)
+            .expect("realistic benchmark database should install a Project");
+
+        let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
+        let original = fixture.source.clone();
+        let modified = {
+            let mut text = original.clone();
+            text.push(' ');
+            text
+        };
+        let mut original_diagnostics = Vec::new();
+        for _ in 0..crate::DIAGNOSTICS_WARMUP_ITERS {
+            original_diagnostics = djls_ide::collect_diagnostics(&db, file)
+                .expect("Template fixture should be eligible for diagnostics");
+        }
+        let original_diagnostics =
+            normalize_lsp_diagnostics(fixture.path.as_str(), original_diagnostics);
+        assert!(
+            !original_diagnostics.is_empty(),
+            "incremental diagnostics fixture should produce LSP diagnostics"
+        );
+        let _ = take_will_execute_names(&db, &events);
+
+        db.set_file_contents(file, &modified);
+        let modified_diagnostics = djls_ide::collect_diagnostics(&db, file)
+            .expect("Template fixture should be eligible for diagnostics");
+        let modified_diagnostics =
+            normalize_lsp_diagnostics(fixture.path.as_str(), modified_diagnostics);
+        let modified_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&modified_names, "validate_template_file", 1);
+
+        db.set_file_contents(file, &original);
+        let restored_diagnostics = djls_ide::collect_diagnostics(&db, file)
+            .expect("Template fixture should be eligible for diagnostics");
+        let restored_diagnostics =
+            normalize_lsp_diagnostics(fixture.path.as_str(), restored_diagnostics);
+        let restored_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&restored_names, "validate_template_file", 1);
+
+        let repeated_diagnostics = djls_ide::collect_diagnostics(&db, file)
+            .expect("Template fixture should be eligible for diagnostics");
+        let repeated_diagnostics =
+            normalize_lsp_diagnostics(fixture.path.as_str(), repeated_diagnostics);
+        let repeated_names = take_will_execute_names(&db, &events);
+        assert_execution_count(&repeated_names, "validate_template_file", 0);
+
+        assert_eq!(modified_diagnostics, original_diagnostics);
+        assert_eq!(restored_diagnostics, original_diagnostics);
+        assert_eq!(repeated_diagnostics, original_diagnostics);
     }
 
     #[test]
