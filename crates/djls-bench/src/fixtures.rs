@@ -82,6 +82,7 @@ pub(crate) fn crate_root() -> Utf8PathBuf {
 
 #[derive(Debug)]
 pub struct CorpusTemplates {
+    #[cfg(test)]
     pub(crate) discovered_file_count: usize,
     pub files: Vec<(Utf8PathBuf, String)>,
 }
@@ -141,6 +142,7 @@ fn read_corpus_templates(
     }
 
     Ok(CorpusTemplates {
+        #[cfg(test)]
         discovered_file_count,
         files,
     })
