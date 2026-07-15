@@ -5,9 +5,11 @@ use crate::db::Db;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
 use crate::python::PythonImportError;
+use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::evaluation;
+use crate::python::file_to_module;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonModuleEvaluationView {
@@ -111,9 +113,6 @@ pub struct PythonFileReadErrorView {
 pub enum PythonImportErrorView {
     InvalidModuleName(InvalidModuleName),
     EmptyAbsoluteImport,
-    EmptyRelativeImport,
-    ImporterOutsideSearchPaths(String),
-    ImporterIsNotPythonSource(String),
     TooManyDots,
 }
 
@@ -122,6 +121,8 @@ pub enum PythonImportOutcomeView {
     Resolved {
         origin: djls_source::Origin,
         file: File,
+        importer_module: PythonModuleName,
+        imported_module: PythonModuleName,
     },
     InvalidImport {
         origin: djls_source::Origin,
@@ -138,16 +139,23 @@ pub enum PythonImportOutcomeView {
     Unreadable {
         origin: djls_source::Origin,
         file: File,
+        importer_module: PythonModuleName,
+        imported_module: PythonModuleName,
         error: PythonFileReadErrorView,
     },
     SyntaxErrors {
         origin: djls_source::Origin,
         file: File,
+        importer_module: PythonModuleName,
+        imported_module: PythonModuleName,
         errors: Vec<PythonSyntaxError>,
     },
     Cycle {
         origin: djls_source::Origin,
         file: File,
+        importer_module: PythonModuleName,
+        imported_module: PythonModuleName,
+        syntax_errors: Vec<PythonSyntaxError>,
     },
 }
 
@@ -178,8 +186,18 @@ pub fn python_module_evaluation(
     project: Project,
     file: djls_source::File,
 ) -> PythonModuleEvaluationView {
-    let values = evaluation::python_module_values(db, project, file).clone();
-    let dependencies = evaluation::python_module_dependencies(db, project, file).clone();
+    let module = file_to_module(db, project, file.path(db).to_path_buf())
+        .expect("the evaluated file should have a canonical module identity");
+    python_module_evaluation_for_module(db, project, module)
+}
+
+pub fn python_module_evaluation_for_module(
+    db: &dyn Db,
+    project: Project,
+    module: PythonModule,
+) -> PythonModuleEvaluationView {
+    let values = evaluation::python_module_values(db, project, module.clone()).clone();
+    let dependencies = evaluation::python_module_dependencies(db, project, module).clone();
     let (bindings, namespace_unknowns, syntax_errors, mutations, read_error) = match values {
         evaluation::PythonModuleValuesOutcome::Readable(values) => (
             values
@@ -230,7 +248,7 @@ pub fn python_module_evaluation(
         syntax_errors,
         mutations,
         read_error,
-        dependency_files: dependencies.files,
+        dependency_files: dependencies.files.into_iter().collect(),
         imports: dependencies
             .imports
             .into_iter()
@@ -351,22 +369,40 @@ fn import_error_view(error: PythonImportError) -> PythonImportErrorView {
             PythonImportErrorView::InvalidModuleName(error)
         }
         PythonImportError::EmptyAbsoluteImport => PythonImportErrorView::EmptyAbsoluteImport,
-        PythonImportError::EmptyRelativeImport => PythonImportErrorView::EmptyRelativeImport,
-        PythonImportError::ImporterOutsideSearchPaths(path) => {
-            PythonImportErrorView::ImporterOutsideSearchPaths(path)
-        }
-        PythonImportError::ImporterIsNotPythonSource(path) => {
-            PythonImportErrorView::ImporterIsNotPythonSource(path)
-        }
         PythonImportError::TooManyDots => PythonImportErrorView::TooManyDots,
     }
 }
 
 fn import_outcome_view(outcome: evaluation::PythonImportOutcome) -> PythonImportOutcomeView {
     match outcome {
-        evaluation::PythonImportOutcome::Resolved { origin, file } => {
-            PythonImportOutcomeView::Resolved { origin, file }
-        }
+        evaluation::PythonImportOutcome::Evaluated { edge, status } => match status {
+            evaluation::PythonImportEvaluationStatus::Resolved => {
+                PythonImportOutcomeView::Resolved {
+                    origin: edge.origin,
+                    file: edge.imported.file(),
+                    importer_module: edge.importer.name().clone(),
+                    imported_module: edge.imported.name().clone(),
+                }
+            }
+            evaluation::PythonImportEvaluationStatus::SyntaxErrors(errors) => {
+                PythonImportOutcomeView::SyntaxErrors {
+                    origin: edge.origin,
+                    file: edge.imported.file(),
+                    importer_module: edge.importer.name().clone(),
+                    imported_module: edge.imported.name().clone(),
+                    errors,
+                }
+            }
+            evaluation::PythonImportEvaluationStatus::Cycle { syntax_errors } => {
+                PythonImportOutcomeView::Cycle {
+                    origin: edge.origin,
+                    file: edge.imported.file(),
+                    importer_module: edge.importer.name().clone(),
+                    imported_module: edge.imported.name().clone(),
+                    syntax_errors,
+                }
+            }
+        },
         evaluation::PythonImportOutcome::InvalidImport { origin, reason } => {
             PythonImportOutcomeView::InvalidImport {
                 origin,
@@ -379,26 +415,14 @@ fn import_outcome_view(outcome: evaluation::PythonImportOutcome) -> PythonImport
         evaluation::PythonImportOutcome::SkippedExternal { origin, module } => {
             PythonImportOutcomeView::SkippedExternal { origin, module }
         }
-        evaluation::PythonImportOutcome::Unreadable {
-            origin,
-            file,
-            error,
-        } => PythonImportOutcomeView::Unreadable {
-            origin,
-            file,
-            error: file_read_error_view(&error),
-        },
-        evaluation::PythonImportOutcome::SyntaxErrors {
-            origin,
-            file,
-            errors,
-        } => PythonImportOutcomeView::SyntaxErrors {
-            origin,
-            file,
-            errors,
-        },
-        evaluation::PythonImportOutcome::Cycle { origin, file } => {
-            PythonImportOutcomeView::Cycle { origin, file }
+        evaluation::PythonImportOutcome::Unreadable { edge, error } => {
+            PythonImportOutcomeView::Unreadable {
+                origin: edge.origin,
+                file: edge.imported.file(),
+                importer_module: edge.importer.name().clone(),
+                imported_module: edge.imported.name().clone(),
+                error: file_read_error_view(&error),
+            }
         }
     }
 }

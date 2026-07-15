@@ -1,11 +1,12 @@
 mod binding;
 mod constraints;
-mod control_flow;
 mod evaluator;
 mod mutation;
 mod query;
 mod result;
 mod touched_names;
+mod truthiness;
+mod unique_vec;
 mod value;
 
 pub(crate) use self::binding::PythonBinding;
@@ -17,6 +18,8 @@ pub(crate) use self::mutation::PythonMutationOperation;
 pub(crate) use self::mutation::PythonMutationPathSegment;
 pub(crate) use self::query::python_module_dependencies;
 pub(crate) use self::query::python_module_values;
+pub(crate) use self::result::PythonImportEdge;
+pub(crate) use self::result::PythonImportEvaluationStatus;
 pub(crate) use self::result::PythonImportOutcome;
 pub(crate) use self::result::PythonModuleDependencies;
 pub(crate) use self::result::PythonModuleEvaluation;
@@ -25,9 +28,11 @@ pub(crate) use self::result::PythonModuleValuesOutcome;
 pub(crate) use self::result::PythonNamespaceCause;
 pub(crate) use self::result::PythonNamespaceRemainder;
 pub(crate) use self::result::PythonSyntaxImpact;
+pub(crate) use self::unique_vec::UniqueVec;
 pub(crate) use self::value::PythonDict;
 pub(crate) use self::value::PythonDictItem;
 pub(crate) use self::value::PythonList;
+pub(crate) use self::value::PythonListAlternativeRef;
 pub(crate) use self::value::PythonListItem;
 pub(crate) use self::value::PythonUnknown;
 pub(crate) use self::value::PythonUnknownCause;
@@ -35,11 +40,3 @@ pub(crate) use self::value::PythonValue;
 pub(crate) use self::value::PythonValueKind;
 
 const MAX_EXACT_PYTHON_ALTERNATIVES: usize = 64;
-
-fn extend_ordered_unique<T: Clone + PartialEq>(target: &mut Vec<T>, incoming: &[T]) {
-    for item in incoming {
-        if !target.contains(item) {
-            target.push(item.clone());
-        }
-    }
-}

@@ -31,12 +31,11 @@ use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
-use super::extend_ordered_unique;
+use super::UniqueVec;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonImportRequest;
 use crate::python::PythonModule;
 use crate::python::PythonPathBindings;
 use crate::python::evaluate_path;
@@ -44,27 +43,59 @@ use crate::python::evaluate_path;
 pub(super) fn evaluate_body(
     db: &dyn ProjectDb,
     project: Project,
-    file: File,
+    module: PythonModule,
     body: &[ast::Stmt],
 ) -> PythonModuleEvaluation {
-    let context = EvaluationContext { db, project, file };
-    let state = EvaluationState::new(file);
-    statement::evaluate_body(context, state, body).finish()
+    let mut evaluator = Evaluator::new(db, project, module);
+    evaluator.evaluate_body(body);
+    evaluator.finish()
 }
 
-pub(super) struct EvaluationContext<'db> {
+pub(super) struct Evaluator<'db> {
     db: &'db dyn ProjectDb,
     project: Project,
-    file: File,
+    module: PythonModule,
+    pub(super) state: EvaluationState,
 }
 
-impl EvaluationContext<'_> {
+impl<'db> Evaluator<'db> {
+    fn new(db: &'db dyn ProjectDb, project: Project, module: PythonModule) -> Self {
+        let state = EvaluationState::new(module.file());
+        Self {
+            db,
+            project,
+            module,
+            state,
+        }
+    }
+
+    fn fork(&self) -> Self {
+        Self {
+            db: self.db,
+            project: self.project,
+            module: self.module.clone(),
+            state: self.state.clone(),
+        }
+    }
+
+    fn join_forks(&mut self, forks: Vec<Self>, origin: Origin) {
+        let branches = forks
+            .into_iter()
+            .map(|evaluator| evaluator.state)
+            .collect::<Vec<_>>();
+        self.state = EvaluationState::join_branches(self.state.clone(), &branches, origin);
+    }
+
+    fn finish(self) -> PythonModuleEvaluation {
+        self.state.finish()
+    }
+
     pub(super) fn origin<T: RangedExt>(&self, ranged: &T) -> Origin {
-        Origin::new(self.file, ranged.span())
+        Origin::new(self.module.file(), ranged.span())
     }
 
     fn origin_at(&self, span: Span) -> Origin {
-        Origin::new(self.file, span)
+        Origin::new(self.module.file(), span)
     }
 }
 
@@ -72,7 +103,7 @@ impl EvaluationContext<'_> {
 pub(super) struct EvaluationState {
     pub(super) bindings: BTreeMap<String, PythonBinding>,
     namespace_causes: Vec<PythonNamespaceCause>,
-    pub(super) mutations: Vec<PythonMutation>,
+    pub(super) mutations: UniqueVec<PythonMutation>,
     dependencies: PythonModuleDependencies,
 }
 
@@ -81,7 +112,7 @@ impl EvaluationState {
         Self {
             bindings: BTreeMap::new(),
             namespace_causes: Vec::new(),
-            mutations: Vec::new(),
+            mutations: UniqueVec::new(),
             dependencies: PythonModuleDependencies::rooted(file),
         }
     }
@@ -255,7 +286,7 @@ impl EvaluationState {
                     origin: Some(import_origin),
                 }));
         }
-        extend_ordered_unique(&mut self.mutations, &values.mutations);
+        self.mutations.extend(values.mutations.iter().cloned());
         if let Some(remainder) = &values.namespace_remainder {
             self.namespace_causes
                 .extend(remainder.causes.iter().cloned().map(|mut cause| {
@@ -322,7 +353,7 @@ impl EvaluationState {
                 mutation
             })
             .collect::<Vec<_>>();
-        extend_ordered_unique(&mut self.mutations, &copied);
+        self.mutations.extend(copied);
     }
 
     fn join_branches(mut base: Self, branches: &[Self], origin: Origin) -> Self {
@@ -356,9 +387,13 @@ impl EvaluationState {
                     cause.select_branch(origin, arm);
                     cause
                 }));
-            extend_ordered_unique(&mut base.mutations, &branch.mutations);
-            extend_ordered_unique(&mut base.dependencies.files, &branch.dependencies.files);
-            extend_ordered_unique(&mut base.dependencies.imports, &branch.dependencies.imports);
+            base.mutations.extend(branch.mutations.iter().cloned());
+            base.dependencies
+                .files
+                .extend(branch.dependencies.files.iter().copied());
+            base.dependencies
+                .imports
+                .extend(branch.dependencies.imports.iter().cloned());
         }
         base
     }
@@ -411,17 +446,16 @@ impl EvaluationState {
     }
 
     fn record_import(&mut self, outcome: PythonImportOutcome) {
-        if !self.dependencies.imports.contains(&outcome) {
-            self.dependencies.imports.push(outcome);
-        }
+        self.dependencies.imports.insert(outcome);
     }
 
-    fn absorb_dependencies(&mut self, evaluation: &PythonModuleEvaluation) {
-        extend_ordered_unique(&mut self.dependencies.files, &evaluation.dependencies.files);
-        extend_ordered_unique(
-            &mut self.dependencies.imports,
-            &evaluation.dependencies.imports,
-        );
+    fn absorb_dependencies(&mut self, dependencies: &PythonModuleDependencies) {
+        self.dependencies
+            .files
+            .extend(dependencies.files.iter().copied());
+        self.dependencies
+            .imports
+            .extend(dependencies.imports.iter().cloned());
     }
 }
 
@@ -459,6 +493,7 @@ mod tests {
     use super::PythonUnknownCause;
     use super::PythonValue;
     use super::PythonValueKind;
+    use crate::python::PythonModuleName;
 
     fn test_file(index: u64) -> File {
         File::from_id(Id::from_bits(index + 1))
@@ -494,9 +529,9 @@ mod tests {
     fn changed_names_include_rooted_mutation_evidence() {
         let mut base = state_with_binding();
         base.mutations
-            .push(mutation(PythonMutationOperation::Append, 2));
+            .insert(mutation(PythonMutationOperation::Append, 2));
         let mut changed = base.clone();
-        changed.mutations[0] = mutation(PythonMutationOperation::Extend, 2);
+        changed.mutations = vec![mutation(PythonMutationOperation::Extend, 2)].into();
 
         assert_eq!(
             changed.changed_names_from(&base),
@@ -510,9 +545,12 @@ mod tests {
         base.mutations = vec![
             mutation(PythonMutationOperation::Append, 2),
             mutation(PythonMutationOperation::Extend, 3),
-        ];
+        ]
+        .into();
         let mut changed = base.clone();
-        changed.mutations.reverse();
+        let mut reversed = changed.mutations.into_iter().collect::<Vec<_>>();
+        reversed.reverse();
+        changed.mutations = reversed.into();
 
         assert_eq!(
             changed.changed_names_from(&base),
@@ -524,7 +562,7 @@ mod tests {
     fn changed_names_ignore_fully_equal_states() {
         let mut base = state_with_binding();
         base.mutations
-            .push(mutation(PythonMutationOperation::Append, 2));
+            .insert(mutation(PythonMutationOperation::Append, 2));
 
         assert!(base.clone().changed_names_from(&base).is_empty());
     }
@@ -555,13 +593,13 @@ mod tests {
                 cause: PythonUnknownCause::UnsupportedExpression,
                 origin: Some(origin(2)),
             }));
-        changed.dependencies.files.push(test_file(1));
+        changed.dependencies.files.insert(test_file(1));
         changed
             .dependencies
             .imports
-            .push(PythonImportOutcome::Resolved {
+            .insert(PythonImportOutcome::NotFound {
                 origin: origin(3),
-                file: test_file(1),
+                module: PythonModuleName::parse("missing").unwrap(),
             });
 
         assert!(changed.changed_names_from(&base).is_empty());
@@ -573,7 +611,7 @@ mod tests {
         let first_seen = mutation(PythonMutationOperation::Extend, 2);
         let later = mutation(PythonMutationOperation::Append, 3);
         let mut first_branch = base.clone();
-        first_branch.mutations.push(first_seen.clone());
+        first_branch.mutations.insert(first_seen.clone());
         let mut second_branch = base.clone();
         second_branch
             .mutations
@@ -582,6 +620,6 @@ mod tests {
         let joined =
             EvaluationState::join_branches(base, &[first_branch, second_branch], origin(4));
 
-        assert_eq!(joined.mutations, [first_seen, later]);
+        assert_eq!(joined.mutations.as_slice(), [first_seen, later]);
     }
 }

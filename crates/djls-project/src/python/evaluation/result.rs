@@ -9,6 +9,8 @@ use super::BranchConstraints;
 use super::PythonBinding;
 use super::PythonMutation;
 use super::PythonUnknown;
+use super::UniqueVec;
+use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
@@ -25,7 +27,7 @@ pub(crate) struct PythonModuleValues {
     pub(crate) namespace_remainder: Option<PythonNamespaceRemainder>,
     pub(crate) syntax_errors: Vec<PythonSyntaxError>,
     pub(crate) syntax_impacts: Vec<PythonSyntaxImpact>,
-    pub(crate) mutations: Vec<PythonMutation>,
+    pub(crate) mutations: UniqueVec<PythonMutation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,24 +131,40 @@ impl PythonModuleEvaluation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct PythonModuleDependencies {
-    pub(crate) files: Vec<File>,
-    pub(crate) imports: Vec<PythonImportOutcome>,
+    pub(crate) files: UniqueVec<File>,
+    pub(crate) imports: UniqueVec<PythonImportOutcome>,
 }
 
 impl PythonModuleDependencies {
     pub(super) fn rooted(file: File) -> Self {
         Self {
-            files: vec![file],
-            imports: Vec::new(),
+            files: [file].into_iter().collect(),
+            imports: UniqueVec::new(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PythonImportEdge {
+    pub(crate) origin: Origin,
+    pub(crate) importer: PythonModule,
+    pub(crate) imported: PythonModule,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PythonImportEvaluationStatus {
+    Resolved,
+    SyntaxErrors(Vec<PythonSyntaxError>),
+    Cycle {
+        syntax_errors: Vec<PythonSyntaxError>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PythonImportOutcome {
-    Resolved {
-        origin: Origin,
-        file: File,
+    Evaluated {
+        edge: PythonImportEdge,
+        status: PythonImportEvaluationStatus,
     },
     InvalidImport {
         origin: Origin,
@@ -161,17 +179,7 @@ pub(crate) enum PythonImportOutcome {
         module: PythonModuleName,
     },
     Unreadable {
-        origin: Origin,
-        file: File,
+        edge: PythonImportEdge,
         error: FileReadError,
-    },
-    SyntaxErrors {
-        origin: Origin,
-        file: File,
-        errors: Vec<PythonSyntaxError>,
-    },
-    Cycle {
-        origin: Origin,
-        file: File,
     },
 }

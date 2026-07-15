@@ -94,16 +94,7 @@ impl PythonValue {
             evidence.constraints = evidence.constraints.intersection(constraints);
         }
         match &mut self.kind {
-            PythonValueKind::List(list) => {
-                for variant in &mut list.variants {
-                    variant.constraints = variant.constraints.intersection(constraints);
-                    for item in &mut variant.items {
-                        if let PythonListItem::Value(value) = item {
-                            value.constrain_value_evidence(constraints);
-                        }
-                    }
-                }
-            }
+            PythonValueKind::List(list) => list.constrain_value_evidence(constraints),
             PythonValueKind::Dict(dict) => {
                 for item in &mut dict.items {
                     if let PythonDictItem::Entry { key, value } = item {
@@ -204,206 +195,348 @@ impl PythonValueKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PythonListVariant {
+struct ConstrainedExactListAlternative {
     items: Vec<PythonListItem>,
     constraints: BranchConstraints,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PythonList {
-    /// Canonical items used for semantic equality and ordinary value consumers.
-    items: Vec<PythonListItem>,
-    /// Complete correlated item sequences retained before equal lists merge their evidence.
-    variants: Vec<PythonListVariant>,
+struct PythonListAlternativeRemainder {
+    origin: Origin,
+    constraints: BranchConstraints,
 }
 
-impl PythonList {
-    pub(super) fn new(items: Vec<PythonListItem>) -> Self {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PythonListAlternatives {
+    exact: Vec<ConstrainedExactListAlternative>,
+    remainder: Option<PythonListAlternativeRemainder>,
+}
+
+impl PythonListAlternatives {
+    fn one(items: Vec<PythonListItem>) -> Self {
         Self {
-            variants: vec![PythonListVariant {
-                items: items.clone(),
+            exact: vec![ConstrainedExactListAlternative {
+                items,
                 constraints: BranchConstraints::unconstrained(),
             }],
-            items,
+            remainder: None,
         }
     }
 
-    pub(crate) fn semantic_items(&self) -> &[PythonListItem] {
-        &self.items
-    }
-
-    pub(crate) fn correlated_variants(
-        &self,
-    ) -> impl ExactSizeIterator<Item = (&[PythonListItem], &BranchConstraints)> {
-        self.variants
-            .iter()
-            .map(|variant| (variant.items.as_slice(), &variant.constraints))
-    }
-
-    pub(super) fn append(&mut self, item: &PythonListItem) {
-        self.items.push(item.clone());
-        for variant in &mut self.variants {
-            if !is_list_variant_limit_unknown(&variant.items) {
-                variant.items.push(item.clone());
-            }
+    fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
+        for alternative in &mut self.exact {
+            alternative.constraints = alternative.constraints.intersection(constraints);
+            constrain_list_item_evidence(&mut alternative.items, constraints);
         }
+        if let Some(remainder) = &mut self.remainder {
+            remainder.constraints = remainder.constraints.intersection(constraints);
+        }
+        self.normalize(None);
     }
 
-    pub(super) fn extend(&mut self, extension: &Self, operation_origin: Origin) {
-        self.items.extend(extension.items.clone());
-        let mut variants = Vec::with_capacity(MAX_EXACT_PYTHON_ALTERNATIVES + 1);
-        let mut overflowed = self
-            .variants
-            .iter()
-            .chain(&extension.variants)
-            .any(|variant| is_list_variant_limit_unknown(&variant.items));
+    fn append(&mut self, item: &PythonListItem) {
+        for alternative in &mut self.exact {
+            alternative.items.push(item.clone());
+        }
+        self.debug_assert_invariants();
+    }
 
-        'products: for left in &self.variants {
-            if is_list_variant_limit_unknown(&left.items) {
-                continue;
-            }
-            for right in &extension.variants {
-                if is_list_variant_limit_unknown(&right.items) {
-                    continue;
-                }
+    fn extend(&mut self, extension: &Self, operation_origin: Origin) {
+        let mut exact = Vec::with_capacity(self.exact.len().saturating_mul(extension.exact.len()));
+        for left in &self.exact {
+            for right in &extension.exact {
                 let constraints = left.constraints.intersection(&right.constraints);
                 if constraints.is_impossible() {
                     continue;
                 }
                 let mut items = left.items.clone();
                 items.extend(right.items.clone());
-                variants.push(PythonListVariant { items, constraints });
-                if variants.len() > MAX_EXACT_PYTHON_ALTERNATIVES {
-                    overflowed = true;
-                    break 'products;
-                }
+                exact.push(ConstrainedExactListAlternative { items, constraints });
             }
         }
-        self.variants = variants;
-        if overflowed {
-            self.variants
-                .push(list_variant_limit_unknown(operation_origin));
+
+        let mut remainder_constraints = None;
+        if let Some(right_remainder) = &extension.remainder {
+            for left in &self.exact {
+                merge_feasible_constraints(
+                    &mut remainder_constraints,
+                    left.constraints.intersection(&right_remainder.constraints),
+                );
+            }
         }
+        if let Some(left_remainder) = &self.remainder {
+            for right in &extension.exact {
+                merge_feasible_constraints(
+                    &mut remainder_constraints,
+                    left_remainder.constraints.intersection(&right.constraints),
+                );
+            }
+        }
+        if let (Some(left_remainder), Some(right_remainder)) =
+            (&self.remainder, &extension.remainder)
+        {
+            merge_feasible_constraints(
+                &mut remainder_constraints,
+                left_remainder
+                    .constraints
+                    .intersection(&right_remainder.constraints),
+            );
+        }
+
+        *self = Self {
+            exact,
+            remainder: remainder_constraints.map(|constraints| PythonListAlternativeRemainder {
+                origin: operation_origin,
+                constraints,
+            }),
+        };
         self.normalize(Some(operation_origin));
     }
 
-    pub(super) fn insert(&mut self, index: usize, item: &PythonListItem) {
-        self.items.insert(index, item.clone());
-        for variant in &mut self.variants {
-            if !is_list_variant_limit_unknown(&variant.items) {
-                variant.items.insert(index, item.clone());
-            }
+    fn insert(&mut self, index: usize, item: &PythonListItem) {
+        for alternative in &mut self.exact {
+            alternative.items.insert(index, item.clone());
         }
+        self.debug_assert_invariants();
     }
 
-    pub(super) fn remove(&mut self, index: usize) {
-        self.items.remove(index);
-        for variant in &mut self.variants {
-            if !is_list_variant_limit_unknown(&variant.items) {
-                variant.items.remove(index);
-            }
+    fn remove(&mut self, index: usize) {
+        for alternative in &mut self.exact {
+            alternative.items.remove(index);
         }
+        self.debug_assert_invariants();
     }
 
-    pub(super) fn try_mutate_indexed_value(
+    fn try_mutate_indexed_value(
         &mut self,
         index: usize,
-        mut mutate: impl FnMut(&mut PythonValue) -> bool,
+        mutate: &impl Fn(&mut PythonValue) -> bool,
     ) -> bool {
         let mut updated = self.clone();
-        let Some(PythonListItem::Value(next)) = updated.items.get_mut(index) else {
-            return false;
-        };
-        if !mutate(next) {
-            return false;
-        }
-        for variant in &mut updated.variants {
-            if is_list_variant_limit_unknown(&variant.items) {
-                continue;
-            }
-            let Some(PythonListItem::Value(next)) = variant.items.get_mut(index) else {
+        for alternative in &mut updated.exact {
+            let Some(PythonListItem::Value(next)) = alternative.items.get_mut(index) else {
                 return false;
             };
             if !mutate(next) {
                 return false;
             }
         }
+        updated.debug_assert_invariants();
         *self = updated;
         true
     }
 
-    fn normalize(&mut self, operation_origin: Option<Origin>) {
-        normalize_list_items(&mut self.items);
-        for variant in &mut self.variants {
-            normalize_list_items(&mut variant.items);
-        }
-        self.variants
-            .sort_by_cached_key(|variant| format!("{variant:?}"));
-        self.variants.dedup();
-
-        let had_remainder = self
-            .variants
-            .iter()
-            .any(|variant| is_list_variant_limit_unknown(&variant.items));
-        let existing_remainder_origin = self
-            .variants
-            .iter()
-            .find_map(|variant| list_variant_limit_origin(&variant.items));
-        let mut exact_count = 0;
-        self.variants.retain(|variant| {
-            if is_list_variant_limit_unknown(&variant.items) {
-                return false;
+    fn merge(&mut self, incoming: Self, operation_origin: Option<Origin>) {
+        self.exact.extend(incoming.exact);
+        self.remainder = match (self.remainder.take(), incoming.remainder) {
+            (Some(existing), Some(incoming)) => {
+                let mut constraints = existing.constraints;
+                constraints.merge(incoming.constraints);
+                Some(PythonListAlternativeRemainder {
+                    origin: earliest_origin(Some(existing.origin), Some(incoming.origin))
+                        .expect("two remainder origins have an earliest origin"),
+                    constraints,
+                })
             }
-            exact_count += 1;
-            exact_count <= MAX_EXACT_PYTHON_ALTERNATIVES
-        });
-        let overflowed = exact_count > MAX_EXACT_PYTHON_ALTERNATIVES || had_remainder;
-        if overflowed {
-            let origin = operation_origin
-                .or(existing_remainder_origin)
-                .expect("a list alternative remainder must have an origin");
-            self.variants.push(list_variant_limit_unknown(origin));
+            (Some(remainder), None) | (None, Some(remainder)) => Some(remainder),
+            (None, None) => None,
+        };
+        self.normalize(operation_origin);
+    }
+
+    fn normalize(&mut self, operation_origin: Option<Origin>) {
+        for alternative in &mut self.exact {
+            normalize_list_items(&mut alternative.items);
         }
+        self.exact
+            .retain(|alternative| !alternative.constraints.is_impossible());
+        if self
+            .remainder
+            .as_ref()
+            .is_some_and(|remainder| remainder.constraints.is_impossible())
+        {
+            self.remainder = None;
+        }
+        self.exact
+            .sort_by_cached_key(|alternative| format!("{alternative:?}"));
+        self.exact.dedup();
+
+        if self.exact.len() > MAX_EXACT_PYTHON_ALTERNATIVES {
+            let omitted = self.exact.split_off(MAX_EXACT_PYTHON_ALTERNATIVES);
+            let mut constraints = self.remainder.take().map(|remainder| remainder.constraints);
+            for alternative in omitted {
+                merge_feasible_constraints(&mut constraints, alternative.constraints);
+            }
+            self.remainder = constraints.map(|constraints| PythonListAlternativeRemainder {
+                origin: operation_origin
+                    .expect("truncating list alternatives requires an operation origin"),
+                constraints,
+            });
+        }
+        self.debug_assert_invariants();
+    }
+
+    fn debug_assert_invariants(&self) {
+        debug_assert!(self.exact.len() <= MAX_EXACT_PYTHON_ALTERNATIVES);
+        debug_assert!(
+            self.exact
+                .iter()
+                .all(|alternative| !alternative.constraints.is_impossible())
+        );
+        debug_assert!(
+            self.remainder
+                .as_ref()
+                .is_none_or(|remainder| !remainder.constraints.is_impossible())
+        );
+    }
+}
+
+fn merge_feasible_constraints(
+    merged: &mut Option<BranchConstraints>,
+    constraints: BranchConstraints,
+) {
+    if constraints.is_impossible() {
+        return;
+    }
+    if let Some(merged) = merged {
+        merged.merge(constraints);
+    } else {
+        *merged = Some(constraints);
+    }
+}
+
+pub(crate) enum PythonListAlternativeRef<'a> {
+    Exact {
+        items: &'a [PythonListItem],
+        constraints: &'a BranchConstraints,
+    },
+    Remainder {
+        origin: Origin,
+        constraints: &'a BranchConstraints,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PythonList {
+    /// Materialized semantic projection used for equality and ordinary value consumers.
+    summary: Vec<PythonListItem>,
+    /// Bounded correlated exact alternatives plus the possible unmaterialized remainder.
+    alternatives: PythonListAlternatives,
+}
+
+impl PythonList {
+    pub(super) fn new(summary: Vec<PythonListItem>) -> Self {
+        let list = Self {
+            alternatives: PythonListAlternatives::one(summary.clone()),
+            summary,
+        };
+        list.debug_assert_semantic_equivalence();
+        list
+    }
+
+    pub(crate) fn semantic_items(&self) -> &[PythonListItem] {
+        &self.summary
+    }
+
+    pub(crate) fn alternatives(&self) -> impl Iterator<Item = PythonListAlternativeRef<'_>> {
+        self.alternatives
+            .exact
+            .iter()
+            .map(|alternative| PythonListAlternativeRef::Exact {
+                items: &alternative.items,
+                constraints: &alternative.constraints,
+            })
+            .chain(self.alternatives.remainder.iter().map(|remainder| {
+                PythonListAlternativeRef::Remainder {
+                    origin: remainder.origin,
+                    constraints: &remainder.constraints,
+                }
+            }))
+    }
+
+    fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
+        constrain_list_item_evidence(&mut self.summary, constraints);
+        self.alternatives.constrain_value_evidence(constraints);
+        self.debug_assert_semantic_equivalence();
+    }
+
+    pub(super) fn append(&mut self, item: &PythonListItem) {
+        self.summary.push(item.clone());
+        self.alternatives.append(item);
+        self.debug_assert_semantic_equivalence();
+    }
+
+    pub(super) fn extend(&mut self, extension: &Self, operation_origin: Origin) {
+        self.summary.extend(extension.summary.clone());
+        self.alternatives
+            .extend(&extension.alternatives, operation_origin);
+        self.debug_assert_semantic_equivalence();
+    }
+
+    pub(super) fn insert(&mut self, index: usize, item: &PythonListItem) {
+        self.summary.insert(index, item.clone());
+        self.alternatives.insert(index, item);
+        self.debug_assert_semantic_equivalence();
+    }
+
+    pub(super) fn remove(&mut self, index: usize) {
+        self.summary.remove(index);
+        self.alternatives.remove(index);
+        self.debug_assert_semantic_equivalence();
+    }
+
+    pub(super) fn try_mutate_indexed_value(
+        &mut self,
+        index: usize,
+        mutate: impl Fn(&mut PythonValue) -> bool,
+    ) -> bool {
+        let mut summary = self.summary.clone();
+        let Some(PythonListItem::Value(next)) = summary.get_mut(index) else {
+            return false;
+        };
+        if !mutate(next) {
+            return false;
+        }
+        let mut alternatives = self.alternatives.clone();
+        if !alternatives.try_mutate_indexed_value(index, &mutate) {
+            return false;
+        }
+        self.summary = summary;
+        self.alternatives = alternatives;
+        self.debug_assert_semantic_equivalence();
+        true
+    }
+
+    fn normalize(&mut self, operation_origin: Option<Origin>) {
+        normalize_list_items(&mut self.summary);
+        self.alternatives.normalize(operation_origin);
+        self.debug_assert_semantic_equivalence();
+    }
+
+    fn debug_assert_semantic_equivalence(&self) {
+        debug_assert!(self.alternatives.exact.iter().all(|alternative| {
+            list_items_same_semantic_value(&self.summary, &alternative.items)
+        }));
     }
 
     fn same_semantic_value(&self, other: &Self) -> bool {
-        list_items_same_semantic_value(&self.items, &other.items)
+        list_items_same_semantic_value(&self.summary, &other.summary)
     }
 
     fn merge_semantically_equal(&mut self, incoming: Self, operation_origin: Option<Origin>) {
         debug_assert!(self.same_semantic_value(&incoming));
-        merge_semantically_equal_list_items(&mut self.items, incoming.items, operation_origin);
-        self.variants.extend(incoming.variants);
-        self.normalize(operation_origin);
+        merge_semantically_equal_list_items(&mut self.summary, incoming.summary, operation_origin);
+        self.alternatives
+            .merge(incoming.alternatives, operation_origin);
+        self.debug_assert_semantic_equivalence();
     }
 }
 
-fn is_list_variant_limit_unknown(variant: &[PythonListItem]) -> bool {
-    matches!(
-        variant,
-        [PythonListItem::UnknownUnpack(PythonUnknown {
-            cause: PythonUnknownCause::AlternativeLimitExceeded,
-            ..
-        })]
-    )
-}
-
-fn list_variant_limit_origin(variant: &[PythonListItem]) -> Option<Origin> {
-    let [PythonListItem::UnknownUnpack(unknown)] = variant else {
-        return None;
-    };
-    (unknown.cause == PythonUnknownCause::AlternativeLimitExceeded)
-        .then_some(unknown.origin)
-        .flatten()
-}
-
-fn list_variant_limit_unknown(origin: Origin) -> PythonListVariant {
-    PythonListVariant {
-        items: vec![PythonListItem::UnknownUnpack(PythonUnknown {
-            cause: PythonUnknownCause::AlternativeLimitExceeded,
-            origin: Some(origin),
-        })],
-        constraints: BranchConstraints::unconstrained(),
+fn constrain_list_item_evidence(items: &mut [PythonListItem], constraints: &BranchConstraints) {
+    for item in items {
+        if let PythonListItem::Value(value) = item {
+            value.constrain_value_evidence(constraints);
+        }
     }
 }
 
@@ -723,14 +856,17 @@ mod tests {
             ))
         };
         PythonList {
-            items: vec![item(0)],
-            variants: starts
-                .into_iter()
-                .map(|start| PythonListVariant {
-                    items: vec![item(start)],
-                    constraints: BranchConstraints::unconstrained(),
-                })
-                .collect(),
+            summary: vec![item(0)],
+            alternatives: PythonListAlternatives {
+                exact: starts
+                    .into_iter()
+                    .map(|start| ConstrainedExactListAlternative {
+                        items: vec![item(start)],
+                        constraints: BranchConstraints::unconstrained(),
+                    })
+                    .collect(),
+                remainder: None,
+            },
         }
     }
 
@@ -791,7 +927,10 @@ mod tests {
             )
         };
         assert!(is_added(dirs.semantic_items()));
-        assert!(dirs.correlated_variants().all(|(items, _)| is_added(items)));
+        assert!(dirs.alternatives().all(|alternative| match alternative {
+            PythonListAlternativeRef::Exact { items, .. } => is_added(items),
+            PythonListAlternativeRef::Remainder { .. } => false,
+        }));
     }
 
     fn append_to_dirs(
@@ -926,7 +1065,7 @@ mod tests {
     }
 
     #[test]
-    fn equal_list_variant_join_obeys_laws_and_retains_correlated_sequences() {
+    fn equal_list_alternative_join_obeys_laws_and_retains_correlated_sequences() {
         let joined = assert_join_laws(vec![
             list_binding([10, 21], 100),
             list_binding([20, 11], 200),
@@ -938,7 +1077,7 @@ mod tests {
         let PythonValueKind::List(list) = &bound.value.kind else {
             panic!("joined value should remain a list");
         };
-        assert_eq!(list.variants.len(), 3);
+        assert_eq!(list.alternatives.exact.len(), 3);
         let semantic_starts = list
             .semantic_items()
             .iter()
@@ -955,10 +1094,11 @@ mod tests {
         assert_eq!(semantic_starts, [vec![10, 20, 30], vec![11, 21, 31]]);
 
         let starts = list
-            .variants
+            .alternatives
+            .exact
             .iter()
-            .map(|variant| {
-                variant
+            .map(|alternative| {
+                alternative
                     .items
                     .iter()
                     .map(|item| match item {
@@ -969,7 +1109,7 @@ mod tests {
                             .span
                             .start(),
                         PythonListItem::UnknownElement(_) | PythonListItem::UnknownUnpack(_) => {
-                            panic!("test variants contain only exact values")
+                            panic!("test alternatives contain only exact values")
                         }
                     })
                     .collect::<Vec<_>>()
@@ -994,7 +1134,10 @@ mod tests {
         }));
 
         assert_dirs_mutated(list.semantic_items(), mutation_origin);
-        for (items, _) in list.correlated_variants() {
+        for alternative in list.alternatives() {
+            let PythonListAlternativeRef::Exact { items, .. } = alternative else {
+                panic!("the test list should not have a remainder");
+            };
             assert_dirs_mutated(items, mutation_origin);
         }
     }
@@ -1004,12 +1147,15 @@ mod tests {
         let mut list = correlated_backend_list([10, 20, 30]);
         let before = list.clone();
         let mutation_origin = origin(300);
-        let mut calls = 0;
 
         assert!(!list.try_mutate_indexed_value(0, |backend| {
-            calls += 1;
+            let is_summary = backend.origins().len() > 1;
+            let is_rejected_alternative = backend.origins().any(|origin| origin.span.start() == 20);
+            if !is_summary && is_rejected_alternative {
+                return false;
+            }
             backend.record_origin(mutation_origin);
-            calls < 2
+            true
         }));
         assert_eq!(list, before);
     }
@@ -1018,11 +1164,11 @@ mod tests {
     fn correlated_indexed_mutation_preserves_the_64_plus_remainder_state() {
         let mut list = correlated_backend_list(0..32);
         list.merge_semantically_equal(correlated_backend_list(32..65), Some(origin(1_000)));
-        assert_eq!(list.variants.len(), 65);
+        assert_eq!(list.alternatives.exact.len(), 64);
         let remainder = list
-            .variants
-            .iter_mut()
-            .find(|variant| is_list_variant_limit_unknown(&variant.items))
+            .alternatives
+            .remainder
+            .as_mut()
             .expect("overflow should retain one typed remainder");
         remainder.constraints.select(origin(1_500), 1);
         let remainder = remainder.clone();
@@ -1033,69 +1179,103 @@ mod tests {
             append_to_dirs(backend, &argument, mutation_origin)
         }));
 
-        let exact = list
-            .variants
-            .iter()
-            .filter(|variant| !is_list_variant_limit_unknown(&variant.items))
-            .collect::<Vec<_>>();
-        assert_eq!(exact.len(), 64);
-        for variant in exact {
-            assert_dirs_mutated(&variant.items, mutation_origin);
+        assert_eq!(list.alternatives.exact.len(), 64);
+        for alternative in &list.alternatives.exact {
+            assert_dirs_mutated(&alternative.items, mutation_origin);
         }
-        assert_eq!(
-            list.variants
-                .iter()
-                .filter(|variant| is_list_variant_limit_unknown(&variant.items))
-                .collect::<Vec<_>>(),
-            [&remainder],
-        );
+        assert_eq!(list.alternatives.remainder.as_ref(), Some(&remainder));
     }
 
     #[test]
-    fn list_extension_has_exact_boundary_and_unknown_remainder() {
+    fn list_extension_has_exact_boundary_and_typed_remainder() {
         let mut at_limit = correlated_list(0..8);
         at_limit.extend(&correlated_list(100..108), origin(1_000));
-        assert_eq!(at_limit.variants.len(), 64);
-        assert!(
-            !at_limit
-                .variants
-                .iter()
-                .any(|variant| is_list_variant_limit_unknown(&variant.items))
-        );
+        assert_eq!(at_limit.alternatives.exact.len(), 64);
+        assert!(at_limit.alternatives.remainder.is_none());
 
         let mut overflowed = correlated_list(0..8);
         overflowed.extend(&correlated_list(100..109), origin(2_000));
-        assert_eq!(overflowed.variants.len(), 65);
-        let remainder = overflowed
-            .variants
-            .iter()
-            .filter_map(|variant| list_variant_limit_origin(&variant.items))
-            .collect::<Vec<_>>();
-        assert_eq!(remainder, [origin(2_000)]);
+        assert_eq!(overflowed.alternatives.exact.len(), 64);
+        assert_eq!(
+            overflowed
+                .alternatives
+                .remainder
+                .as_ref()
+                .map(|remainder| remainder.origin),
+            Some(origin(2_000))
+        );
     }
 
     #[test]
-    fn list_variant_merge_is_capped_at_the_exact_boundary() {
+    fn capped_list_merge_is_idempotent_and_preserves_remainder_constraints() {
+        let mut list = correlated_list(0..32);
+        list.merge_semantically_equal(correlated_list(32..65), Some(origin(1_000)));
+        list.alternatives
+            .remainder
+            .as_mut()
+            .expect("overflow should retain one typed remainder")
+            .constraints
+            .select(origin(1_500), 1);
+        let before = list.clone();
+
+        list.merge_semantically_equal(before.clone(), Some(origin(2_000)));
+
+        assert_eq!(list, before);
+    }
+
+    #[test]
+    fn list_extension_retains_only_feasible_remainder_products() {
+        let join = origin(1_000);
+        let mut left = correlated_list([0]);
+        left.alternatives.exact[0].constraints.select(join, 0);
+        let mut remainder_constraints = BranchConstraints::unconstrained();
+        remainder_constraints.select(join, 1);
+        left.alternatives.remainder = Some(PythonListAlternativeRemainder {
+            origin: origin(1_500),
+            constraints: remainder_constraints.clone(),
+        });
+
+        let mut exact_right = correlated_list([100]);
+        exact_right.alternatives.exact[0]
+            .constraints
+            .select(join, 0);
+        let mut exact_product = left.clone();
+        exact_product.extend(&exact_right, origin(2_000));
+        assert_eq!(exact_product.alternatives.exact.len(), 1);
+        assert!(exact_product.alternatives.remainder.is_none());
+
+        let mut remainder_right = correlated_list([200]);
+        remainder_right.alternatives.exact[0]
+            .constraints
+            .select(join, 1);
+        left.extend(&remainder_right, origin(3_000));
+        assert!(left.alternatives.exact.is_empty());
+        assert_eq!(
+            left.alternatives
+                .remainder
+                .as_ref()
+                .map(|remainder| &remainder.constraints),
+            Some(&remainder_constraints),
+        );
+    }
+
+    #[test]
+    fn list_alternative_merge_is_capped_at_the_exact_boundary() {
         let mut at_limit = correlated_list(0..32);
         at_limit.merge_semantically_equal(correlated_list(32..64), Some(origin(1_000)));
-        assert_eq!(at_limit.variants.len(), 64);
-        assert!(
-            !at_limit
-                .variants
-                .iter()
-                .any(|variant| is_list_variant_limit_unknown(&variant.items))
-        );
+        assert_eq!(at_limit.alternatives.exact.len(), 64);
+        assert!(at_limit.alternatives.remainder.is_none());
 
         let mut overflowed = correlated_list(0..32);
         overflowed.merge_semantically_equal(correlated_list(32..65), Some(origin(2_000)));
-        assert_eq!(overflowed.variants.len(), 65);
+        assert_eq!(overflowed.alternatives.exact.len(), 64);
         assert_eq!(
             overflowed
-                .variants
-                .iter()
-                .filter_map(|variant| list_variant_limit_origin(&variant.items))
-                .collect::<Vec<_>>(),
-            [origin(2_000)]
+                .alternatives
+                .remainder
+                .as_ref()
+                .map(|remainder| remainder.origin),
+            Some(origin(2_000))
         );
     }
 
@@ -1105,16 +1285,17 @@ mod tests {
         for operation_start in [100, 200, 300, 400] {
             let extension = list.clone();
             list.extend(&extension, origin(operation_start));
-            assert!(list.variants.len() <= MAX_EXACT_PYTHON_ALTERNATIVES + 1);
+            assert!(list.alternatives.exact.len() <= MAX_EXACT_PYTHON_ALTERNATIVES);
         }
 
-        assert_eq!(list.variants.len(), 65);
-        let remainder = list
-            .variants
-            .iter()
-            .filter_map(|variant| list_variant_limit_origin(&variant.items))
-            .collect::<Vec<_>>();
-        assert_eq!(remainder, [origin(400)]);
+        assert_eq!(list.alternatives.exact.len(), 64);
+        assert_eq!(
+            list.alternatives
+                .remainder
+                .as_ref()
+                .map(|remainder| remainder.origin),
+            Some(origin(400))
+        );
     }
 
     #[test]

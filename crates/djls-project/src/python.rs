@@ -15,7 +15,6 @@ pub use module::FileModuleCandidate;
 pub use module::FileModuleResolution;
 pub use module::PackageDirs;
 pub(crate) use module::PythonImportError;
-pub(crate) use module::PythonImportRequest;
 pub use module::PythonModule;
 pub use module::ResolvedPrefix;
 pub use module::file_to_module;

@@ -10,7 +10,7 @@ use djls_source::WalkOptions;
 use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SearchPath {
     FirstParty(Utf8PathBuf),
     Extra(Utf8PathBuf),

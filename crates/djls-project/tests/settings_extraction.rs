@@ -8,6 +8,8 @@ use djls_conf::TagSpecDef;
 use djls_project::FindTemplateResult;
 use djls_project::Interpreter;
 use djls_project::Project;
+use djls_project::PythonModule;
+use djls_project::PythonModuleName;
 use djls_project::SearchPaths;
 use djls_project::TemplateName;
 use djls_project::template_resolution;
@@ -24,6 +26,7 @@ use djls_project::testing::PythonValueKindView;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::django_settings;
 use djls_project::testing::python_module_evaluation;
+use djls_project::testing::python_module_evaluation_for_module;
 use djls_project::testing::settings_module_file;
 use djls_source::ChangeEvent;
 use djls_source::FileSystem;
@@ -173,6 +176,34 @@ fn branch_alternatives(count: usize) -> String {
         source.push_str(format!("    VALUE = '{index:02}'\n").as_str());
     }
     source
+}
+
+fn equal_top_level_list_alternatives(count: usize) -> Value {
+    let mut source = String::new();
+    let mut modules = Vec::new();
+    for index in 0..count {
+        if index == 0 {
+            source.push_str("if FLAG_0:\n");
+        } else if index + 1 == count {
+            source.push_str("else:\n");
+        } else {
+            writeln!(source, "elif FLAG_{index}:").unwrap();
+        }
+        writeln!(
+            source,
+            "    from variant_{index:02} import INSTALLED_APPS, TEMPLATES"
+        )
+        .unwrap();
+        modules.push((
+            format!("variant_{index:02}"),
+            "INSTALLED_APPS = ['shared']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates']}]\n",
+        ));
+    }
+    let module_refs = modules
+        .iter()
+        .map(|(name, body)| (name.as_str(), *body))
+        .collect::<Vec<_>>();
+    extract_project(&source, &module_refs).2
 }
 
 #[test]
@@ -329,6 +360,148 @@ fn python_module_evaluation_records_only_path_feasible_imports() {
     assert!(matches!(
         &evaluation.imports[0],
         PythonImportOutcomeView::NotFound { module, .. } if module.as_str() == "feasible"
+    ));
+}
+
+#[test]
+fn unresolved_moduleless_relative_import_records_canonical_failure() {
+    let db = TestDatabase::new();
+    let source = "VALUE = 'local'\nfrom . import VALUE\n";
+    db.add_file("/project/pkg/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/pkg/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::NotFound { origin, module }]
+            if *origin == djls_source::Origin::new(
+                settings,
+                expected_span(source, "from . import VALUE"),
+            ) && module.as_str() == "pkg"
+    ));
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("failed relative import should replace the prior binding");
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module)
+            if module.as_str() == "pkg")
+    ));
+}
+
+#[test]
+fn relative_import_cannot_escape_the_importer_package() {
+    let db = TestDatabase::new();
+    let source = "from ..missing import VALUE\n";
+    db.add_file("/project/pkg/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/pkg/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::InvalidImport { origin, reason }]
+            if *origin == djls_source::Origin::new(
+                settings,
+                expected_span(source, source.trim_end()),
+            ) && *reason == PythonImportErrorView::TooManyDots
+    ));
+}
+
+#[test]
+fn relative_import_uses_the_inbound_module_identity() {
+    let db = TestDatabase::new();
+    let source = "from .sibling import VALUE\n";
+    db.add_file("/project/lib/pkg/settings.py", source);
+    db.add_file(
+        "/project/pkg/sibling.py",
+        "VALUE = 'inbound module identity'\n",
+    );
+    db.add_file(
+        "/project/lib/pkg/sibling.py",
+        "VALUE = 'canonical file identity'\n",
+    );
+    let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/project/lib")]);
+    let module = PythonModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.settings").unwrap(),
+    )
+    .expect("pkg.settings should resolve through the nested search path");
+    let sibling = db.file(Utf8Path::new("/project/pkg/sibling.py"));
+
+    let evaluation = python_module_evaluation_for_module(&db, project, module.clone());
+
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::Resolved { file, .. }] if *file == sibling
+    ));
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("relative import should bind VALUE");
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Str(value),
+                ..
+            },
+            ..
+        })] if value == "inbound module identity"
+    ));
+
+    let canonical = python_module_evaluation(&db, project, module.file());
+    let canonical_binding = canonical
+        .binding("VALUE")
+        .expect("canonical file identity should also be evaluated");
+    assert!(matches!(
+        canonical_binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Str(value),
+                ..
+            },
+            ..
+        })] if value == "canonical file identity"
+    ));
+}
+
+#[test]
+fn relative_import_from_package_init_alias_uses_parent_package() {
+    let db = TestDatabase::new();
+    db.add_file("/project/pkg/__init__.py", "from .base import VALUE\n");
+    db.add_file("/project/pkg/base.py", "VALUE = 'package value'\n");
+    let project = python_project(&db);
+    let module = PythonModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.__init__").unwrap(),
+    )
+    .expect("pkg.__init__ should resolve as a file-module alias");
+
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("the package-relative import should bind VALUE");
+
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Str(value),
+                ..
+            },
+            ..
+        })] if value == "package value"
     ));
 }
 
@@ -952,6 +1125,7 @@ fn python_module_evaluation_reports_unreadable_import() {
             origin,
             file,
             error,
+            ..
         },
     ] = evaluation.imports.as_slice()
     else {
@@ -997,6 +1171,7 @@ fn python_module_evaluation_reports_import_syntax_errors() {
             origin,
             file,
             errors,
+            ..
         },
     ] = evaluation.imports.as_slice()
     else {
@@ -1239,6 +1414,92 @@ fn python_module_cycle_products_are_entry_order_independent() {
             1
         );
     }
+}
+
+#[test]
+fn relative_import_cycle_uses_module_identities_in_overlapping_roots() {
+    let db = TestDatabase::new();
+    db.add_file("/project/lib/pkg/a.py", "from .b import B\nA = B\n");
+    db.add_file("/project/lib/pkg/b.py", "from lib.pkg.a import A\nB = A\n");
+    let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/project/lib")]);
+    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.a").unwrap())
+        .expect("pkg.a should resolve through the nested search path");
+
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+    let cycles = evaluation
+        .imports
+        .iter()
+        .filter_map(|outcome| match outcome {
+            PythonImportOutcomeView::Cycle {
+                importer_module,
+                imported_module,
+                ..
+            } => Some((importer_module.as_str(), imported_module.as_str())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(cycles, [("lib.pkg.a", "lib.pkg.b")]);
+}
+
+#[test]
+fn disjoint_import_cycles_each_keep_a_canonical_edge() {
+    let db = TestDatabase::new();
+    db.add_file("/project/settings.py", "from a import A\nfrom x import X\n");
+    db.add_file("/project/a.py", "from b import B\nA = B\n");
+    db.add_file("/project/b.py", "from a import A\nB = A\n");
+    db.add_file("/project/x.py", "from y import Y\nX = Y\n");
+    db.add_file("/project/y.py", "from x import X\nY = X\n");
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let cycles = evaluation
+        .imports
+        .iter()
+        .filter_map(|outcome| match outcome {
+            PythonImportOutcomeView::Cycle {
+                importer_module,
+                imported_module,
+                ..
+            } => Some((importer_module.as_str(), imported_module.as_str())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(cycles, [("a", "b"), ("x", "y")]);
+}
+
+#[test]
+fn cycle_edge_preserves_imported_module_syntax_errors() {
+    let db = TestDatabase::new();
+    db.add_file("/project/a.py", "from b import B\nA = B\n");
+    db.add_file("/project/b.py", "from a import A\nB = A\nbroken(\n");
+    let project = python_project(&db);
+    let a = db.file(Utf8Path::new("/project/a.py"));
+
+    let evaluation = python_module_evaluation(&db, project, a);
+    let cycle = evaluation
+        .imports
+        .iter()
+        .find_map(|outcome| match outcome {
+            PythonImportOutcomeView::Cycle {
+                importer_module,
+                imported_module,
+                syntax_errors,
+                ..
+            } if importer_module.as_str() == "a" && imported_module.as_str() == "b" => {
+                Some(syntax_errors)
+            }
+            _ => None,
+        })
+        .expect("the canonical a-to-b cycle edge should be retained");
+
+    assert!(
+        cycle
+            .iter()
+            .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
+    );
 }
 
 #[test]
@@ -2768,6 +3029,74 @@ fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
             .collect()
         );
     }
+}
+
+#[test]
+fn equal_top_level_setting_lists_have_an_exact_boundary_and_typed_remainder() {
+    let at_limit = equal_top_level_list_alternatives(64);
+    let installed_apps = cases(&at_limit, "/installed_apps/cases");
+    assert_eq!(installed_apps.len(), 1, "{at_limit:#}");
+    assert_eq!(installed_apps[0]["known"]["apps"][0]["value"], "shared");
+    assert_eq!(
+        installed_apps[0]["known"]["apps"][0]["spans"]
+            .as_array()
+            .unwrap()
+            .len(),
+        64,
+        "{at_limit:#}"
+    );
+    let templates = cases(&at_limit, "/templates/cases");
+    assert_eq!(templates.len(), 64, "{at_limit:#}");
+    assert!(templates.iter().all(|case| case.get("known").is_some()));
+
+    let overflowed = equal_top_level_list_alternatives(65);
+    assert_eq!(
+        overflowed,
+        equal_top_level_list_alternatives(65),
+        "top-level list projection must be deterministic"
+    );
+
+    let installed_apps = cases(&overflowed, "/installed_apps/cases");
+    assert_eq!(installed_apps.len(), 2, "{overflowed:#}");
+    assert_eq!(installed_apps[0]["known"]["apps"][0]["value"], "shared");
+    let installed_remainder = installed_apps[1]["dynamic"]["apps"]["evidence"]
+        .as_array()
+        .unwrap();
+    assert_eq!(installed_remainder.len(), 1, "{overflowed:#}");
+    assert_eq!(
+        installed_remainder[0]["issue"]["kind"],
+        "dynamic_expression"
+    );
+    assert_eq!(
+        installed_remainder[0]["issue"]["spans"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "{overflowed:#}"
+    );
+
+    let templates = cases(&overflowed, "/templates/cases");
+    assert_eq!(templates.len(), 65, "{overflowed:#}");
+    assert!(
+        templates[..64]
+            .iter()
+            .all(|case| case.get("known").is_some()),
+        "{overflowed:#}"
+    );
+    let template_remainder = templates[64]["dynamic"]["templates"]["evidence"]
+        .as_array()
+        .unwrap();
+    assert_eq!(template_remainder.len(), 1, "{overflowed:#}");
+    assert_eq!(template_remainder[0]["issue"]["kind"], "dynamic_expression");
+    assert_eq!(
+        template_remainder[0]["issue"]["spans"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "{overflowed:#}"
+    );
 }
 
 #[test]

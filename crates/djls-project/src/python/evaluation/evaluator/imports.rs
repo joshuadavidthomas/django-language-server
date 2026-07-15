@@ -1,178 +1,298 @@
+use djls_source::FileReadError;
+
 use super::BranchConstraints;
-use super::EvaluationContext;
 use super::EvaluationState;
-use super::File;
+use super::Evaluator;
 use super::Origin;
 use super::PythonImportOutcome;
-use super::PythonImportRequest;
-use super::PythonModule;
+use super::PythonModuleDependencies;
+use super::PythonModuleValues;
 use super::PythonModuleValuesOutcome;
 use super::PythonNamespaceCause;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::ast;
-use super::extend_ordered_unique;
+use crate::python::PythonImportError;
+use crate::python::evaluation::PythonImportEdge;
+use crate::python::evaluation::PythonImportEvaluationStatus;
+use crate::python::module::PythonImportRequest;
+use crate::python::module::PythonImportResolution;
+use crate::python::module::PythonModule;
 
-pub(super) fn walk_import_from(
-    context: &EvaluationContext<'_>,
-    state: &mut EvaluationState,
-    import: &ast::StmtImportFrom,
-) {
-    let origin = context.origin(import);
-    let is_star = import.names.iter().any(|alias| alias.name.as_str() == "*");
-    let request = PythonImportRequest {
-        level: import.level,
-        module: import.module.as_ref().map(ast::Identifier::as_str),
-        importer: context.file.path(context.db),
-    };
-    let module = match PythonModule::resolve_import(context.db, context.project, request) {
-        Err(reason) => {
-            state.record_import(PythonImportOutcome::InvalidImport {
-                origin,
-                reason: reason.clone(),
-            });
-            apply_failed_import(
-                state,
-                import,
-                is_star,
-                origin,
-                PythonUnknownCause::InvalidImport(reason),
-            );
-            return;
-        }
-        Ok(None) => {
-            let Some(module) = import
-                .module
-                .as_ref()
-                .and_then(|name| crate::python::PythonModuleName::parse(name.as_str()).ok())
-            else {
-                return;
-            };
-            state.record_import(PythonImportOutcome::NotFound {
-                origin,
-                module: module.clone(),
-            });
-            apply_failed_import(
-                state,
-                import,
-                is_star,
-                origin,
-                PythonUnknownCause::ImportNotFound(module),
-            );
-            return;
-        }
-        Ok(Some(module)) => module,
-    };
-    if !is_star && !module.search_path().is_first_party() {
-        state.record_import(PythonImportOutcome::SkippedExternal {
-            origin,
-            module: module.name().clone(),
-        });
-        apply_failed_import(
-            state,
-            import,
-            false,
-            origin,
-            PythonUnknownCause::SkippedExternal(module.name().clone()),
-        );
-        return;
+impl Evaluator<'_> {
+    pub(super) fn evaluate_import_from(&mut self, statement: &ast::StmtImportFrom) {
+        let import = FromImport::lower(self, statement);
+        let result = match self.resolve_import(&import) {
+            Ok(module) => self.evaluate_imported_module(module),
+            Err(failure) => FromImportResult::Failed(failure.into()),
+        };
+        self.state.apply_import(&import, result);
     }
 
-    apply_resolved_import(context, state, import, is_star, origin, module.file());
+    fn resolve_import(
+        &self,
+        import: &FromImport<'_>,
+    ) -> Result<PythonModule, ImportResolutionFailure> {
+        let request = PythonImportRequest {
+            level: import.level,
+            module: import.module,
+            importer: &import.importer,
+        };
+        let module = match PythonModule::resolve_import(self.db, self.project, request) {
+            Err(error) => return Err(ImportResolutionFailure::Invalid(error)),
+            Ok(PythonImportResolution::Missing(module)) => {
+                return Err(ImportResolutionFailure::NotFound(module));
+            }
+            Ok(PythonImportResolution::Found(module)) => module,
+        };
+        if matches!(import.selection, ImportSelection::Named(_))
+            && !module.search_path().is_first_party()
+        {
+            return Err(ImportResolutionFailure::SkippedExternal(
+                module.name().clone(),
+            ));
+        }
+        Ok(module)
+    }
+
+    fn evaluate_imported_module(&self, module: PythonModule) -> FromImportResult {
+        let evaluation =
+            super::super::query::evaluate_python_module(self.db, self.project, module.clone());
+        if evaluation.is_cycle_seed() {
+            return FromImportResult::Failed(ImportFailure::Cycle { module });
+        }
+
+        let dependencies = evaluation.dependencies;
+        match evaluation.values {
+            PythonModuleValuesOutcome::Unreadable(error) => {
+                FromImportResult::Failed(ImportFailure::Unreadable {
+                    module,
+                    error,
+                    dependencies,
+                })
+            }
+            PythonModuleValuesOutcome::Readable(values) => FromImportResult::Loaded {
+                module,
+                values,
+                dependencies,
+            },
+        }
+    }
 }
 
-fn apply_resolved_import(
-    context: &EvaluationContext<'_>,
-    state: &mut EvaluationState,
-    import: &ast::StmtImportFrom,
-    is_star: bool,
+struct FromImport<'ast> {
     origin: Origin,
-    imported_file: File,
-) {
-    extend_ordered_unique(&mut state.dependencies.files, &[imported_file]);
-    let imported =
-        super::super::query::evaluate_python_module(context.db, context.project, imported_file);
-    if imported.is_cycle_seed() {
-        state.record_import(PythonImportOutcome::Cycle {
-            origin,
-            file: imported_file,
-        });
-        apply_failed_import(state, import, is_star, origin, PythonUnknownCause::Cycle);
-        return;
-    }
-    state.absorb_dependencies(&imported);
-    match &imported.values {
-        PythonModuleValuesOutcome::Unreadable(error) => {
-            state.record_import(PythonImportOutcome::Unreadable {
-                origin,
-                file: imported_file,
-                error: error.clone(),
-            });
-            apply_failed_import(
-                state,
-                import,
-                is_star,
-                origin,
-                PythonUnknownCause::Unreadable(error.clone()),
-            );
+    importer: PythonModule,
+    level: u32,
+    module: Option<&'ast str>,
+    selection: ImportSelection<'ast>,
+}
+
+impl<'ast> FromImport<'ast> {
+    fn lower(evaluator: &Evaluator<'_>, statement: &'ast ast::StmtImportFrom) -> Self {
+        let selection = if statement
+            .names
+            .iter()
+            .any(|alias| alias.name.as_str() == "*")
+        {
+            ImportSelection::Star
+        } else {
+            ImportSelection::Named(
+                statement
+                    .names
+                    .iter()
+                    .map(|alias| {
+                        let imported = alias.name.as_str();
+                        ImportedBinding {
+                            imported,
+                            bound: alias
+                                .asname
+                                .as_ref()
+                                .map_or(imported, ast::Identifier::as_str),
+                            origin: evaluator.origin(alias),
+                        }
+                    })
+                    .collect(),
+            )
+        };
+        Self {
+            origin: evaluator.origin(statement),
+            importer: evaluator.module.clone(),
+            level: statement.level,
+            module: statement.module.as_ref().map(ast::Identifier::as_str),
+            selection,
         }
-        PythonModuleValuesOutcome::Readable(values) => {
-            let outcome = if values.syntax_errors.is_empty() {
-                PythonImportOutcome::Resolved {
-                    origin,
-                    file: imported_file,
-                }
-            } else {
-                PythonImportOutcome::SyntaxErrors {
-                    origin,
-                    file: imported_file,
-                    errors: values.syntax_errors.clone(),
-                }
-            };
-            state.record_import(outcome);
-            if is_star {
-                state.apply_star_import(values, origin);
-            } else {
-                for alias in &import.names {
-                    let imported_name = alias.name.as_str();
-                    let bound_name = alias
-                        .asname
-                        .as_ref()
-                        .map_or(imported_name, ast::Identifier::as_str);
-                    state.bind_named_import(
-                        values,
-                        imported_name,
-                        bound_name,
-                        context.origin(alias),
-                    );
+    }
+}
+
+enum ImportSelection<'ast> {
+    Star,
+    Named(Vec<ImportedBinding<'ast>>),
+}
+
+struct ImportedBinding<'ast> {
+    imported: &'ast str,
+    bound: &'ast str,
+    origin: Origin,
+}
+
+enum FromImportResult {
+    Failed(ImportFailure),
+    Loaded {
+        module: PythonModule,
+        values: PythonModuleValues,
+        dependencies: PythonModuleDependencies,
+    },
+}
+
+enum ImportResolutionFailure {
+    Invalid(PythonImportError),
+    NotFound(crate::python::PythonModuleName),
+    SkippedExternal(crate::python::PythonModuleName),
+}
+
+impl From<ImportResolutionFailure> for ImportFailure {
+    fn from(failure: ImportResolutionFailure) -> Self {
+        match failure {
+            ImportResolutionFailure::Invalid(error) => Self::Invalid(error),
+            ImportResolutionFailure::NotFound(module) => Self::NotFound(module),
+            ImportResolutionFailure::SkippedExternal(module) => Self::SkippedExternal(module),
+        }
+    }
+}
+
+enum ImportFailure {
+    Invalid(PythonImportError),
+    NotFound(crate::python::PythonModuleName),
+    SkippedExternal(crate::python::PythonModuleName),
+    Cycle {
+        module: PythonModule,
+    },
+    Unreadable {
+        module: PythonModule,
+        error: FileReadError,
+        dependencies: PythonModuleDependencies,
+    },
+}
+
+impl EvaluationState {
+    fn apply_import(&mut self, import: &FromImport<'_>, result: FromImportResult) {
+        match result {
+            FromImportResult::Failed(failure) => self.apply_import_failure(import, failure),
+            FromImportResult::Loaded {
+                module,
+                values,
+                dependencies,
+            } => {
+                self.dependencies.files.insert(module.file());
+                self.absorb_dependencies(&dependencies);
+                let edge = PythonImportEdge {
+                    origin: import.origin,
+                    importer: import.importer.clone(),
+                    imported: module,
+                };
+                let status = if values.syntax_errors.is_empty() {
+                    PythonImportEvaluationStatus::Resolved
+                } else {
+                    PythonImportEvaluationStatus::SyntaxErrors(values.syntax_errors.clone())
+                };
+                let outcome = PythonImportOutcome::Evaluated { edge, status };
+                self.record_import(outcome);
+                match &import.selection {
+                    ImportSelection::Star => self.apply_star_import(&values, import.origin),
+                    ImportSelection::Named(bindings) => {
+                        for binding in bindings {
+                            self.bind_named_import(
+                                &values,
+                                binding.imported,
+                                binding.bound,
+                                binding.origin,
+                            );
+                        }
+                    }
                 }
             }
         }
     }
-}
 
-fn apply_failed_import(
-    state: &mut EvaluationState,
-    import: &ast::StmtImportFrom,
-    is_star: bool,
-    origin: Origin,
-    cause: PythonUnknownCause,
-) {
-    if is_star {
-        state.degrade_all_bindings(&cause, origin, &BranchConstraints::unconstrained());
-        state
-            .namespace_causes
-            .push(PythonNamespaceCause::unconstrained(PythonUnknown {
-                cause,
-                origin: Some(origin),
-            }));
-    } else {
-        for alias in &import.names {
-            let bound_name = alias
-                .asname
-                .as_ref()
-                .map_or_else(|| alias.name.as_str(), ast::Identifier::as_str);
-            state.bind_unknown(bound_name, &cause, origin);
+    fn apply_import_failure(&mut self, import: &FromImport<'_>, failure: ImportFailure) {
+        let (outcome, cause) = match failure {
+            ImportFailure::Invalid(error) => (
+                PythonImportOutcome::InvalidImport {
+                    origin: import.origin,
+                    reason: error.clone(),
+                },
+                PythonUnknownCause::InvalidImport(error),
+            ),
+            ImportFailure::NotFound(module) => (
+                PythonImportOutcome::NotFound {
+                    origin: import.origin,
+                    module: module.clone(),
+                },
+                PythonUnknownCause::ImportNotFound(module),
+            ),
+            ImportFailure::SkippedExternal(module) => (
+                PythonImportOutcome::SkippedExternal {
+                    origin: import.origin,
+                    module: module.clone(),
+                },
+                PythonUnknownCause::SkippedExternal(module),
+            ),
+            ImportFailure::Cycle { module } => {
+                self.dependencies.files.insert(module.file());
+                (
+                    PythonImportOutcome::Evaluated {
+                        edge: PythonImportEdge {
+                            origin: import.origin,
+                            importer: import.importer.clone(),
+                            imported: module,
+                        },
+                        status: PythonImportEvaluationStatus::Cycle {
+                            syntax_errors: Vec::new(),
+                        },
+                    },
+                    PythonUnknownCause::Cycle,
+                )
+            }
+            ImportFailure::Unreadable {
+                module,
+                error,
+                dependencies,
+            } => {
+                self.dependencies.files.insert(module.file());
+                self.absorb_dependencies(&dependencies);
+                (
+                    PythonImportOutcome::Unreadable {
+                        edge: PythonImportEdge {
+                            origin: import.origin,
+                            importer: import.importer.clone(),
+                            imported: module,
+                        },
+                        error: error.clone(),
+                    },
+                    PythonUnknownCause::Unreadable(error),
+                )
+            }
+        };
+        self.record_import(outcome);
+        match &import.selection {
+            ImportSelection::Star => {
+                self.degrade_all_bindings(
+                    &cause,
+                    import.origin,
+                    &BranchConstraints::unconstrained(),
+                );
+                self.namespace_causes
+                    .push(PythonNamespaceCause::unconstrained(PythonUnknown {
+                        cause,
+                        origin: Some(import.origin),
+                    }));
+            }
+            ImportSelection::Named(bindings) => {
+                for binding in bindings {
+                    self.bind_unknown(binding.bound, &cause, import.origin);
+                }
+            }
         }
     }
 }

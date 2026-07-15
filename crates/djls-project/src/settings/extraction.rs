@@ -9,6 +9,7 @@ use crate::python::evaluation::PythonBoundValue;
 use crate::python::evaluation::PythonDict;
 use crate::python::evaluation::PythonDictItem;
 use crate::python::evaluation::PythonList;
+use crate::python::evaluation::PythonListAlternativeRef;
 use crate::python::evaluation::PythonListItem;
 use crate::python::evaluation::PythonModuleValues;
 use crate::python::evaluation::PythonMutation;
@@ -313,36 +314,35 @@ fn installed_apps(
                 return correlated_cases(vec![case], constraints);
             };
 
-            list.correlated_variants()
-                .map(|(items, variant_constraints)| {
-                    let (mut apps, malformed) = string_list_items(items);
-                    apps.evidence.extend(
-                        mutation_issues
-                            .iter()
-                            .cloned()
-                            .map(InstalledAppEvidence::Issue),
-                    );
-                    let case = if malformed {
-                        SettingCase::Malformed(MalformedInstalledApps { apps })
-                    } else if apps
-                        .evidence
-                        .iter()
-                        .all(|evidence| matches!(evidence, InstalledAppEvidence::Known(_)))
-                    {
-                        SettingCase::Known(InstalledAppsValue {
-                            apps: apps
-                                .evidence
-                                .into_iter()
-                                .filter_map(|evidence| match evidence {
-                                    InstalledAppEvidence::Known(app) => Some(app),
-                                    InstalledAppEvidence::Issue(_) => None,
-                                })
-                                .collect(),
-                        })
-                    } else {
-                        SettingCase::Dynamic(DynamicInstalledApps { apps })
-                    };
-                    (case, constraints.intersection(variant_constraints))
+            list.alternatives()
+                .map(|alternative| match alternative {
+                    PythonListAlternativeRef::Exact {
+                        items,
+                        constraints: alternative_constraints,
+                    } => (
+                        installed_apps_list_case(items, &mutation_issues),
+                        constraints.intersection(alternative_constraints),
+                    ),
+                    PythonListAlternativeRef::Remainder {
+                        origin,
+                        constraints: remainder_constraints,
+                    } => {
+                        let mut apps = OrderedInstalledApps {
+                            evidence: vec![InstalledAppEvidence::Issue(alternative_limit_issue(
+                                origin,
+                            ))],
+                        };
+                        apps.evidence.extend(
+                            mutation_issues
+                                .iter()
+                                .cloned()
+                                .map(InstalledAppEvidence::Issue),
+                        );
+                        (
+                            SettingCase::Dynamic(DynamicInstalledApps { apps }),
+                            constraints.intersection(remainder_constraints),
+                        )
+                    }
                 })
                 .collect()
         },
@@ -355,6 +355,39 @@ fn installed_apps(
             },
         },
     )
+}
+
+fn installed_apps_list_case(
+    items: &[PythonListItem],
+    mutation_issues: &[SettingIssue],
+) -> SettingCase<InstalledAppsValue, DynamicInstalledApps, MalformedInstalledApps> {
+    let (mut apps, malformed) = string_list_items(items);
+    apps.evidence.extend(
+        mutation_issues
+            .iter()
+            .cloned()
+            .map(InstalledAppEvidence::Issue),
+    );
+    if malformed {
+        SettingCase::Malformed(MalformedInstalledApps { apps })
+    } else if apps
+        .evidence
+        .iter()
+        .all(|evidence| matches!(evidence, InstalledAppEvidence::Known(_)))
+    {
+        SettingCase::Known(InstalledAppsValue {
+            apps: apps
+                .evidence
+                .into_iter()
+                .filter_map(|evidence| match evidence {
+                    InstalledAppEvidence::Known(app) => Some(app),
+                    InstalledAppEvidence::Issue(_) => None,
+                })
+                .collect(),
+        })
+    } else {
+        SettingCase::Dynamic(DynamicInstalledApps { apps })
+    }
 }
 
 fn string_list_items(items: &[PythonListItem]) -> (OrderedInstalledApps, bool) {
@@ -448,24 +481,51 @@ fn template_list(
 )> {
     let mut cases = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
     let mut overflow_origin = None;
-    for (items, constraints) in list.correlated_variants() {
-        if cases.len() == MAX_EXACT_SETTING_ALTERNATIVES {
-            overflow_origin = overflow_origin.or_else(|| list_item_origin(items));
-            break;
+    for alternative in list.alternatives() {
+        match alternative {
+            PythonListAlternativeRef::Exact { items, constraints } => {
+                if cases.len() == MAX_EXACT_SETTING_ALTERNATIVES {
+                    overflow_origin = overflow_origin.or_else(|| list_item_origin(items));
+                    break;
+                }
+                let expansion = template_list_alternative(
+                    db,
+                    items,
+                    issues,
+                    MAX_EXACT_SETTING_ALTERNATIVES - cases.len(),
+                );
+                cases.extend(expansion.exact.into_iter().filter_map(|configuration| {
+                    let correlation = outer_correlation
+                        .intersection(constraints)
+                        .intersection(&configuration.correlation);
+                    (!correlation.is_impossible()).then_some((configuration.case, correlation))
+                }));
+                overflow_origin = overflow_origin.or(expansion.overflow_origin);
+            }
+            PythonListAlternativeRef::Remainder {
+                origin,
+                constraints,
+            } => {
+                if cases.len() == MAX_EXACT_SETTING_ALTERNATIVES {
+                    overflow_origin = overflow_origin.or(Some(origin));
+                } else {
+                    let mut evidence = issues
+                        .iter()
+                        .cloned()
+                        .map(TemplateListEvidence::Issue)
+                        .collect::<Vec<_>>();
+                    evidence.push(TemplateListEvidence::Issue(alternative_limit_issue(origin)));
+                    let configuration =
+                        template_configuration(evidence, false, BranchConstraints::unconstrained());
+                    let correlation = outer_correlation
+                        .intersection(constraints)
+                        .intersection(&configuration.correlation);
+                    if !correlation.is_impossible() {
+                        cases.push((configuration.case, correlation));
+                    }
+                }
+            }
         }
-        let expansion = template_list_variant(
-            db,
-            items,
-            issues,
-            MAX_EXACT_SETTING_ALTERNATIVES - cases.len(),
-        );
-        cases.extend(expansion.exact.into_iter().filter_map(|configuration| {
-            let correlation = outer_correlation
-                .intersection(constraints)
-                .intersection(&configuration.correlation);
-            (!correlation.is_impossible()).then_some((configuration.case, correlation))
-        }));
-        overflow_origin = overflow_origin.or(expansion.overflow_origin);
     }
     if let Some(origin) = overflow_origin {
         cases.push((
@@ -485,7 +545,7 @@ struct CorrelatedTemplateConfiguration {
     correlation: BranchConstraints,
 }
 
-fn template_list_variant(
+fn template_list_alternative(
     db: &dyn ProjectDb,
     items: &[PythonListItem],
     issues: &[SettingIssue],
@@ -1089,23 +1149,40 @@ fn path_list_capped(
 
     let mut projections = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES);
     let mut overflow_origin = None;
-    for (items, constraints) in list.correlated_variants() {
-        if projections.len() == MAX_EXACT_SETTING_ALTERNATIVES {
-            overflow_origin = overflow_origin
-                .or_else(|| list_item_origin(items))
-                .or_else(|| value.origins().next());
-            break;
+    for alternative in list.alternatives() {
+        match alternative {
+            PythonListAlternativeRef::Exact { items, constraints } => {
+                if projections.len() == MAX_EXACT_SETTING_ALTERNATIVES {
+                    overflow_origin = overflow_origin
+                        .or_else(|| list_item_origin(items))
+                        .or_else(|| value.origins().next());
+                    break;
+                }
+                let expansion = path_list_alternative(
+                    db,
+                    items,
+                    MAX_EXACT_SETTING_ALTERNATIVES - projections.len(),
+                );
+                projections.extend(expansion.exact.into_iter().map(|mut projection| {
+                    projection.constraints = projection.constraints.intersection(constraints);
+                    projection
+                }));
+                overflow_origin = overflow_origin.or(expansion.overflow_origin);
+            }
+            PythonListAlternativeRef::Remainder {
+                origin,
+                constraints,
+            } => {
+                if projections.len() == MAX_EXACT_SETTING_ALTERNATIVES {
+                    overflow_origin = overflow_origin.or(Some(origin));
+                } else {
+                    let mut projection = PathListProjection::empty();
+                    projection.paths.push_issue(alternative_limit_issue(origin));
+                    projection.constraints = projection.constraints.intersection(constraints);
+                    projections.push(projection);
+                }
+            }
         }
-        let expansion = path_list_variant(
-            db,
-            items,
-            MAX_EXACT_SETTING_ALTERNATIVES - projections.len(),
-        );
-        projections.extend(expansion.exact.into_iter().map(|mut projection| {
-            projection.constraints = projection.constraints.intersection(constraints);
-            projection
-        }));
-        overflow_origin = overflow_origin.or(expansion.overflow_origin);
     }
     CappedExpansion {
         exact: projections,
@@ -1113,7 +1190,7 @@ fn path_list_capped(
     }
 }
 
-fn path_list_variant(
+fn path_list_alternative(
     db: &dyn ProjectDb,
     items: &[PythonListItem],
     limit: usize,
@@ -1152,12 +1229,12 @@ fn path_list_variant(
                 );
                 for projection in &configurations {
                     for path in &evaluated {
-                        if next.len() == limit {
-                            overflow_origin.get_or_insert_with(|| path.path.origin());
-                            continue;
-                        }
                         let constraints = projection.constraints.intersection(&path.constraints);
                         if constraints.is_impossible() {
+                            continue;
+                        }
+                        if next.len() == limit {
+                            overflow_origin.get_or_insert_with(|| path.path.origin());
                             continue;
                         }
                         let mut projection = projection.clone();

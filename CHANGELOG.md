@@ -59,6 +59,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Reworked template analysis around per-library semantic products, sparse per-Template projections, and generation-gated production priming.
 - **Internal**: Corrected realistic benchmark semantics to fuse extracted Django source with canonical builtin roles; diagnostic output contracts changed intentionally without changing fixture cardinality.
 - **Internal**: Moved corpus tooling and shared test fixtures into `djls-testing`.
+- **Internal**: Reworked Python settings evaluation around module identities, typed import outcomes, invariant-preserving collections, and correlated list alternatives.
 
 ### Removed
 
@@ -69,6 +70,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed relative imports in Django settings modules, including package aliases and overlapping Python search roots.
 - Fixed project analysis failures so waiting requests are released and analysis can recover after the relevant source changes.
 - Fixed later selective `{% load %}` statements so they restore definitions shadowed by intervening Template Libraries.
 - Fixed Django relative template paths (`./`, `../`) in `{% extends %}` and `{% include %}` resolution, including inheritance chains, document links, goto definition, and find references.

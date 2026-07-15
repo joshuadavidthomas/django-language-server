@@ -5,9 +5,8 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use super::PythonSyntaxImpact;
-use super::control_flow::Truthiness;
-use super::control_flow::evaluate_test_with;
 use super::mutation::MutationTarget;
+use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::python::PythonSyntaxError;
@@ -352,14 +351,14 @@ fn deterministic_if_body<'a>(
     stmt_if: &'a ast::StmtIf,
     bool_values: &FxHashMap<String, bool>,
 ) -> Option<&'a [ast::Stmt]> {
-    match truthiness(&stmt_if.test, bool_values) {
+    match known_truthiness(&stmt_if.test, bool_values) {
         Truthiness::AlwaysTrue => Some(&stmt_if.body),
         Truthiness::AlwaysFalse => {
             for clause in &stmt_if.elif_else_clauses {
                 let Some(test) = &clause.test else {
                     return Some(&clause.body);
                 };
-                match truthiness(test, bool_values) {
+                match known_truthiness(test, bool_values) {
                     Truthiness::AlwaysTrue => return Some(&clause.body),
                     Truthiness::AlwaysFalse => {}
                     Truthiness::Ambiguous => return None,
@@ -372,15 +371,15 @@ fn deterministic_if_body<'a>(
 }
 
 fn exact_bool(expr: &ast::Expr, bool_values: &FxHashMap<String, bool>) -> Option<bool> {
-    match truthiness(expr, bool_values) {
+    match known_truthiness(expr, bool_values) {
         Truthiness::AlwaysTrue => Some(true),
         Truthiness::AlwaysFalse => Some(false),
         Truthiness::Ambiguous => None,
     }
 }
 
-fn truthiness(expr: &ast::Expr, bool_values: &FxHashMap<String, bool>) -> Truthiness {
-    evaluate_test_with(expr, |name| bool_values.get(name).copied())
+fn known_truthiness(expression: &ast::Expr, bool_values: &FxHashMap<String, bool>) -> Truthiness {
+    Truthiness::of_expr(expression, &|name| bool_values.get(name).copied())
 }
 
 fn collect_stmt_touched_names(stmt: &ast::Stmt, names: &mut TouchedNames) {

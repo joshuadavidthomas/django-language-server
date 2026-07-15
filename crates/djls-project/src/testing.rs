@@ -19,6 +19,7 @@ pub use python_evaluation::PythonUnknownView;
 pub use python_evaluation::PythonValueKindView;
 pub use python_evaluation::PythonValueView;
 pub use python_evaluation::python_module_evaluation;
+pub use python_evaluation::python_module_evaluation_for_module;
 
 use crate::db::Db;
 pub use crate::discovery::compute_django_environment;

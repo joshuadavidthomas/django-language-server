@@ -13,9 +13,10 @@ use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::search_paths::SearchPath;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PythonModule {
     name: PythonModuleName,
+    package: Option<PythonModuleName>,
     path: Utf8PathBuf,
     file: File,
     search_path: SearchPath,
@@ -101,7 +102,13 @@ enum ResolvedComponent {
 pub(crate) struct PythonImportRequest<'a> {
     pub(crate) level: u32,
     pub(crate) module: Option<&'a str>,
-    pub(crate) importer: &'a Utf8Path,
+    pub(crate) importer: &'a PythonModule,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PythonImportResolution {
+    Found(PythonModule),
+    Missing(PythonModuleName),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -110,12 +117,6 @@ pub(crate) enum PythonImportError {
     InvalidModuleName(#[from] InvalidModuleName),
     #[error("absolute import must name a module")]
     EmptyAbsoluteImport,
-    #[error("relative import resolved to an empty module name")]
-    EmptyRelativeImport,
-    #[error("importer is outside project search paths: {0}")]
-    ImporterOutsideSearchPaths(String),
-    #[error("importer is not a python source file: {0}")]
-    ImporterIsNotPythonSource(String),
     #[error("relative import has too many leading dots")]
     TooManyDots,
 }
@@ -363,12 +364,14 @@ pub fn file_to_module_resolution(
 impl PythonModule {
     pub(crate) fn new(
         name: PythonModuleName,
+        package: Option<PythonModuleName>,
         path: Utf8PathBuf,
         file: File,
         search_path: SearchPath,
     ) -> Self {
         Self {
             name,
+            package,
             path,
             file,
             search_path,
@@ -379,38 +382,22 @@ impl PythonModule {
         db: &dyn ProjectDb,
         project: Project,
         import: PythonImportRequest<'_>,
-    ) -> Result<Option<Self>, PythonImportError> {
+    ) -> Result<PythonImportResolution, PythonImportError> {
         let name = if import.level == 0 {
             let module = import
                 .module
                 .ok_or(PythonImportError::EmptyAbsoluteImport)?;
             PythonModuleName::parse(module)?
         } else {
-            let root = project
-                .search_paths(db)
-                .iter()
-                .filter(|search_path| import.importer.starts_with(search_path.path()))
-                .max_by_key(|search_path| search_path.path().as_str().len())
-                .map(super::search_paths::SearchPath::path)
-                .ok_or_else(|| {
-                    PythonImportError::ImporterOutsideSearchPaths(import.importer.to_string())
-                })?;
-            let relative = import.importer.strip_prefix(root).map_err(|_| {
-                PythonImportError::ImporterOutsideSearchPaths(import.importer.to_string())
-            })?;
-            if relative.extension() != Some("py") {
-                return Err(PythonImportError::ImporterIsNotPythonSource(
-                    import.importer.to_string(),
-                ));
+            let mut module_parts: Vec<String> = import
+                .importer
+                .package
+                .as_ref()
+                .map(|package| package.as_str().split('.').map(str::to_string).collect())
+                .unwrap_or_default();
+            if import.level as usize > module_parts.len() {
+                return Err(PythonImportError::TooManyDots);
             }
-
-            let mut module_parts: Vec<String> = relative
-                .parent()
-                .ok_or(PythonImportError::EmptyRelativeImport)?
-                .components()
-                .map(|component| component.as_str().to_string())
-                .collect();
-
             for _ in 1..import.level {
                 module_parts.pop().ok_or(PythonImportError::TooManyDots)?;
             }
@@ -424,14 +411,13 @@ impl PythonModule {
                 );
             }
 
-            if module_parts.is_empty() {
-                return Err(PythonImportError::EmptyRelativeImport);
-            }
-
             PythonModuleName::parse(&module_parts.join("."))?
         };
 
-        Ok(Self::resolve(db, project, name))
+        Ok(match Self::resolve(db, project, name.clone()) {
+            Some(module) => PythonImportResolution::Found(module),
+            None => PythonImportResolution::Missing(name),
+        })
     }
 
     #[must_use]
@@ -465,9 +451,10 @@ impl PythonModule {
                 init_file,
                 file,
                 ..
-            } => Some(Self::new(name, init_file, file, root)),
+            } => Some(Self::new(name.clone(), Some(name), init_file, file, root)),
             ModuleLookupResult::FileModule { root, path, file } => {
-                Some(Self::new(name, path, file, root))
+                let package = name.parent();
+                Some(Self::new(name, package, path, file, root))
             }
             ModuleLookupResult::NamespaceOnly { .. } | ModuleLookupResult::NotFound => None,
         }
@@ -478,6 +465,7 @@ impl fmt::Debug for PythonModule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PythonModule")
             .field("name", &self.name)
+            .field("package", &self.package)
             .field("path", &self.path)
             .finish_non_exhaustive()
     }

@@ -2,18 +2,20 @@ use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
+use crate::python::PythonModule;
 use crate::python::evaluation::PythonModuleValuesOutcome;
 use crate::python::evaluation::python_module_dependencies;
 use crate::python::evaluation::python_module_values;
 use crate::settings::DjangoSettings;
 use crate::settings::extraction::settings_from_values;
 
-pub(super) fn django_settings_from_file(
+pub(super) fn django_settings_from_module(
     db: &dyn ProjectDb,
     project: Project,
-    file: File,
+    module: PythonModule,
 ) -> DjangoSettings {
-    match python_module_values(db, project, file) {
+    let file = module.file();
+    match python_module_values(db, project, module) {
         PythonModuleValuesOutcome::Readable(values) => settings_from_values(db, file, values),
         PythonModuleValuesOutcome::Unreadable(_) => DjangoSettings::unreadable(),
     }
@@ -34,9 +36,15 @@ impl DjangoSettingsSources {
 
 #[salsa::tracked]
 pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSettingsSources {
-    let Some(file) = crate::settings::settings_module_file(db, project) else {
+    let Some(module) = super::settings_module(db, project) else {
         return DjangoSettingsSources(Vec::new());
     };
 
-    DjangoSettingsSources(python_module_dependencies(db, project, file).files.clone())
+    DjangoSettingsSources(
+        python_module_dependencies(db, project, module)
+            .files
+            .clone()
+            .into_iter()
+            .collect(),
+    )
 }

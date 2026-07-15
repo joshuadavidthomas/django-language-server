@@ -13,15 +13,19 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 
+fn settings_module(db: &dyn ProjectDb, project: Project) -> Option<PythonModule> {
+    let django_settings_module = project.django_settings_module(db).as_ref()?.clone();
+    PythonModule::resolve(db, project, django_settings_module)
+}
+
 #[salsa::tracked]
 pub(crate) fn settings_module_file(db: &dyn ProjectDb, project: Project) -> Option<File> {
-    let django_settings_module = project.django_settings_module(db).as_ref()?.clone();
-    PythonModule::resolve(db, project, django_settings_module).map(|module| module.file())
+    settings_module(db, project).map(|module| module.file())
 }
 
 #[salsa::tracked(returns(ref))]
 pub(crate) fn django_settings(db: &dyn ProjectDb, project: Project) -> DjangoSettings {
-    let Some(file) = settings_module_file(db, project) else {
+    let Some(module) = settings_module(db, project) else {
         return if project.django_settings_module(db).is_some() {
             DjangoSettings::unreadable()
         } else {
@@ -29,5 +33,5 @@ pub(crate) fn django_settings(db: &dyn ProjectDb, project: Project) -> DjangoSet
         };
     };
 
-    sources::django_settings_from_file(db, project, file)
+    sources::django_settings_from_module(db, project, module)
 }

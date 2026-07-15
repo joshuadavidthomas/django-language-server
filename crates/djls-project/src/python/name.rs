@@ -75,6 +75,12 @@ impl PythonModuleName {
         &self.0
     }
 
+    pub(crate) fn parent(&self) -> Option<Self> {
+        self.as_str()
+            .rsplit_once('.')
+            .map(|(parent, _)| Self(Arc::from(parent)))
+    }
+
     #[must_use]
     pub(crate) fn into_string(self) -> String {
         self.0.to_string()

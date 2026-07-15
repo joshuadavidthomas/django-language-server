@@ -7,9 +7,8 @@ use super::PythonListItem;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
-use super::evaluator::EvaluationContext;
 use super::evaluator::EvaluationState;
-use super::evaluator::expression::evaluate_value;
+use super::evaluator::Evaluator;
 use super::touched_names::expr_read_names;
 use crate::ast::ExprExt;
 
@@ -181,55 +180,54 @@ pub(super) fn apply_augmented_add(
     let binding = target.binding.to_string();
     state
         .mutations
-        .push(target.into_fact(PythonMutationOperation::Extend, origin));
+        .insert(target.into_fact(PythonMutationOperation::Extend, origin));
     if !supported {
         state.degrade_names([binding], &PythonUnknownCause::UnsupportedMutation, origin);
     }
 }
 
-pub(super) fn walk_expr(
-    context: &EvaluationContext<'_>,
-    state: &mut EvaluationState,
-    expression: &ast::Expr,
-) {
+pub(super) fn walk_expr(evaluator: &mut Evaluator<'_>, expression: &ast::Expr) {
     let ast::Expr::Call(call) = expression else {
-        state.degrade_names(
+        evaluator.state.degrade_names(
             expr_read_names(expression),
             &PythonUnknownCause::UnsupportedExpression,
-            context.origin(expression),
+            evaluator.origin(expression),
         );
         return;
     };
     let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
-        state.degrade_names(
+        evaluator.state.degrade_names(
             expr_read_names(expression),
             &PythonUnknownCause::UnsupportedMutation,
-            context.origin(expression),
+            evaluator.origin(expression),
         );
         return;
     };
     let Some(target) = MutationTarget::from_expr(&attribute.value) else {
-        state.degrade_names(
+        evaluator.state.degrade_names(
             expr_read_names(expression),
             &PythonUnknownCause::UnsupportedMutation,
-            context.origin(expression),
+            evaluator.origin(expression),
         );
         return;
     };
-    let origin = context.origin(call);
+    let origin = evaluator.origin(call);
     let Some(operation) = PythonMutationOperation::from_method(attribute.attr.as_str()) else {
-        state.invalidate_names(
+        evaluator.state.invalidate_names(
             [target.binding.to_string()],
             &PythonUnknownCause::UnsupportedMutation,
             origin,
         );
         return;
     };
-    let supported = apply_mutation_operation(context, state, call, &target, operation, origin);
+    let supported = apply_mutation_operation(evaluator, call, &target, operation, origin);
     if supported {
-        state.mutations.push(target.into_fact(operation, origin));
+        evaluator
+            .state
+            .mutations
+            .insert(target.into_fact(operation, origin));
     } else {
-        state.invalidate_names(
+        evaluator.state.invalidate_names(
             [target.binding.to_string()],
             &PythonUnknownCause::UnsupportedMutation,
             origin,
@@ -238,8 +236,7 @@ pub(super) fn walk_expr(
 }
 
 fn apply_mutation_operation(
-    context: &EvaluationContext<'_>,
-    state: &mut EvaluationState,
+    evaluator: &mut Evaluator<'_>,
     call: &ast::ExprCall,
     target: &MutationTarget<'_>,
     operation: PythonMutationOperation,
@@ -249,7 +246,7 @@ fn apply_mutation_operation(
         .arguments
         .args
         .iter()
-        .map(|argument| evaluate_value(context, state, argument))
+        .map(|argument| evaluator.evaluate_value(argument))
         .collect::<Vec<_>>();
     let mutation = match (operation, arguments.as_slice()) {
         (PythonMutationOperation::Append, [argument]) => EvaluatedMutation::Append(argument),
@@ -282,7 +279,7 @@ fn apply_mutation_operation(
             _,
         ) => return false,
     };
-    mutate_target(state, target, origin, &mutation)
+    mutate_target(&mut evaluator.state, target, origin, &mutation)
 }
 
 fn extend_list_value(value: &mut PythonValue, extension: &PythonValue, origin: Origin) -> bool {

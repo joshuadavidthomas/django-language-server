@@ -2133,17 +2133,18 @@ def my_filter(value, arg):
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
             root.join("djls.toml").as_std_path(),
-            "django_settings_module = \"settings\"\n",
+            "django_settings_module = \"config.settings\"\n",
         )
         .unwrap();
         let settings = Settings::new(root.as_path(), None).unwrap();
-        let settings_path = root.join("settings.py");
-        let base_settings_path = root.join("base.py");
+        let settings_path = root.join("config/settings.py");
+        let base_settings_path = root.join("config/base.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
             let mut fs = fs.lock().unwrap();
             fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(root.join("config/__init__.py"), String::new());
             fs.add_file(settings_path, settings_source.to_string());
             fs.add_file(
                 base_settings_path.clone(),
@@ -2205,17 +2206,18 @@ def my_filter(value, arg):
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
             root.join("djls.toml").as_std_path(),
-            "django_settings_module = \"settings\"\n",
+            "django_settings_module = \"config.settings\"\n",
         )
         .unwrap();
         let settings = Settings::new(root.as_path(), None).unwrap();
-        let settings_path = root.join("settings.py");
-        let extra_settings_path = root.join("extra.py");
+        let settings_path = root.join("config/settings.py");
+        let extra_settings_path = root.join("config/extra.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
             let mut fs = fs.lock().unwrap();
             fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(root.join("config/__init__.py"), String::new());
             fs.add_file(settings_path.clone(), "INSTALLED_APPS = []\n".to_string());
             fs.add_file(
                 extra_settings_path.clone(),
@@ -2277,18 +2279,19 @@ def my_filter(value, arg):
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
             root.join("djls.toml").as_std_path(),
-            "django_settings_module = \"settings\"\n",
+            "django_settings_module = \"config.settings\"\n",
         )
         .unwrap();
         let settings = Settings::new(root.as_path(), None).unwrap();
-        let base_settings_path = root.join("base.py");
+        let base_settings_path = root.join("config/base.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
             let mut fs = fs.lock().unwrap();
             fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(root.join("config/__init__.py"), String::new());
             fs.add_file(
-                root.join("settings.py"),
+                root.join("config/settings.py"),
                 "from .base import *\n".to_string(),
             );
             fs.add_file(
