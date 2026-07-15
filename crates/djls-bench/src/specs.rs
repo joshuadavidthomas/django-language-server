@@ -1,13 +1,7 @@
-#[cfg(test)]
-use std::sync::Arc;
-#[cfg(test)]
-use std::sync::Mutex;
 use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use djls_conf::TagSpecDef;
-#[cfg(test)]
-use djls_project::Db as ProjectDb;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::Interpreter;
@@ -209,11 +203,6 @@ fn configure_realistic_db(db: Db) -> Db {
     db
 }
 
-#[cfg(test)]
-pub(crate) fn realistic_db_with_event_log(events: Arc<Mutex<Vec<salsa::Event>>>) -> Db {
-    configure_realistic_db(Db::with_event_log(events))
-}
-
 /// Create the realistic database with production intrinsic priming complete.
 ///
 /// # Panics
@@ -229,12 +218,22 @@ pub fn primed_realistic_db() -> Db {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use djls_project::Db as ProjectDb;
     use djls_project::TemplateEnvironment;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::TagRole;
     use djls_source::Offset;
 
     use super::*;
+
+    impl Db {
+        pub(crate) fn realistic_with_event_log(events: Arc<Mutex<Vec<salsa::Event>>>) -> Self {
+            configure_realistic_db(Self::with_event_log(events))
+        }
+    }
 
     #[test]
     fn realistic_project_fuses_canonical_builtins_and_converges_loads() {

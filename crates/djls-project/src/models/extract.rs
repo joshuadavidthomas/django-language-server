@@ -22,8 +22,6 @@ use crate::models::graph::Relation;
 use crate::models::graph::RelationTarget;
 use crate::models::graph::RelationType;
 use crate::python::ImportBindings;
-#[cfg(test)]
-use crate::python::ModuleKind;
 use crate::python::PythonModuleName;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -535,22 +533,19 @@ mod tests {
 
     use super::*;
     use crate::models::graph::ModelId;
+    use crate::python::import_bindings;
 
     fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
         let db = TestDatabase::new();
         db.add_file("/test.py", source);
         let file = db.file(Utf8Path::new("/test.py"));
         let module_name = PythonModuleName::parse(module_name).unwrap();
-        let imports = crate::python::extract_import_bindings_for_source(
-            source,
-            &module_name,
-            ModuleKind::Module,
-        );
+        let imports = import_bindings(&db, file, module_name.clone());
         let Ok(parsed) = ruff_python_parser::parse_module(source) else {
             return ModelGraph::default();
         };
         let module = parsed.into_syntax();
-        super::extract_models_impl(&module.body, module_name, file, &imports).graph
+        super::extract_models_impl(&module.body, module_name, file, imports).graph
     }
 
     fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {

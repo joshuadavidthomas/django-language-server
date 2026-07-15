@@ -9,10 +9,6 @@ mod search_paths;
 
 pub(crate) use import::ImportBindings;
 pub(crate) use import::ImportPathResolutionError;
-#[cfg(test)]
-pub(crate) use import::ModuleKind;
-#[cfg(test)]
-pub(crate) use import::extract_import_bindings_for_source;
 pub(crate) use import::import_bindings;
 pub use interpreter::Interpreter;
 pub use module::FileModuleCandidate;

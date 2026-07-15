@@ -1,15 +1,9 @@
 use camino::Utf8PathBuf;
-#[cfg(test)]
-use djls_source::File;
 use djls_source::FileReadError;
 use djls_source::Origin;
 
 use super::BranchConstraints;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
-#[cfg(test)]
-use super::PythonBinding;
-#[cfg(test)]
-use super::PythonBindingState;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
@@ -647,9 +641,12 @@ fn origin_sort_key(origin: &Origin) -> (String, u32, u32) {
 
 #[cfg(test)]
 mod tests {
+    use djls_source::File;
     use djls_source::Span;
     use salsa::plumbing::FromId as _;
 
+    use super::super::PythonBinding;
+    use super::super::PythonBindingState;
     use super::*;
 
     #[derive(Clone)]

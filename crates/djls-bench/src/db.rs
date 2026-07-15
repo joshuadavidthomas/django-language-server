@@ -2,8 +2,6 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::io;
 use std::sync::Arc;
-#[cfg(test)]
-use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -140,16 +138,6 @@ impl Db {
         Self::with_storage(salsa::Storage::default())
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_event_log(events: Arc<Mutex<Vec<salsa::Event>>>) -> Self {
-        Self::with_storage(salsa::Storage::new(Some(Box::new(move |event| {
-            events
-                .lock()
-                .expect("benchmark event log lock should not be poisoned")
-                .push(event);
-        }))))
-    }
-
     fn with_storage(storage: salsa::Storage<Self>) -> Self {
         Self {
             fs: SourceMapFileSystem {
@@ -253,7 +241,20 @@ impl SemanticDb for Db {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+
+    impl Db {
+        pub(crate) fn with_event_log(events: Arc<Mutex<Vec<salsa::Event>>>) -> Self {
+            Self::with_storage(salsa::Storage::new(Some(Box::new(move |event| {
+                events
+                    .lock()
+                    .expect("benchmark event log lock should not be poisoned")
+                    .push(event);
+            }))))
+        }
+    }
 
     fn walked_paths(db: &Db, options: &WalkOptions) -> Vec<Utf8PathBuf> {
         let RootWalk::Directory { entries, issues } =

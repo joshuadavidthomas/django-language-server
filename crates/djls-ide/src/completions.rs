@@ -9,8 +9,6 @@
 use djls_project::EnvironmentSymbolLookup;
 use djls_project::LoadableLibraryLookup;
 use djls_project::TemplateEnvironment;
-#[cfg(test)]
-use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
@@ -1004,6 +1002,7 @@ mod tests {
     use camino::Utf8Path;
     use djls_project::PythonModuleName;
     use djls_project::SymbolDefinition;
+    use djls_project::TemplateLibraries;
     use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolName;
     use djls_semantic::EndTag;

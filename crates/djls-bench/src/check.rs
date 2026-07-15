@@ -241,7 +241,6 @@ mod tests {
     use crate::full_corpus_templates;
     use crate::primed_realistic_db;
     use crate::realistic_db;
-    use crate::specs::realistic_db_with_event_log;
     use crate::structure_db;
     use crate::template_fixtures;
     use crate::validation_error_fixtures;
@@ -714,7 +713,7 @@ mod tests {
             .find(|fixture| fixture.label == "large/views_technical_500.html")
             .expect("benchmark should have the views_technical_500.html Template fixture");
         let events = Arc::new(Mutex::new(Vec::new()));
-        let mut db = realistic_db_with_event_log(Arc::clone(&events));
+        let mut db = crate::Db::realistic_with_event_log(Arc::clone(&events));
         let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
         let original = fixture.source.clone();
         let modified = {
@@ -766,7 +765,7 @@ mod tests {
             .find(|fixture| fixture.label == "large/views_technical_500.html")
             .expect("benchmark should have the views_technical_500.html Template fixture");
         let events = Arc::new(Mutex::new(Vec::new()));
-        let mut db = realistic_db_with_event_log(Arc::clone(&events));
+        let mut db = crate::Db::realistic_with_event_log(Arc::clone(&events));
         djls_ide::prime_template_library_products(&db)
             .expect("realistic benchmark database should install a Project");
 
@@ -821,7 +820,7 @@ mod tests {
     #[test]
     fn check_preparation_orders_shared_work_and_kernel_reuses_it() {
         let events = Arc::new(Mutex::new(Vec::new()));
-        let mut db = realistic_db_with_event_log(Arc::clone(&events));
+        let mut db = crate::Db::realistic_with_event_log(Arc::clone(&events));
         let files = template_fixtures()
             .iter()
             .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
