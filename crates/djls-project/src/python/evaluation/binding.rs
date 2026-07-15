@@ -165,7 +165,7 @@ impl PythonBinding {
             .into_iter()
             .filter_map(|mut case| {
                 let intersection = case.constraints.intersection(constraints);
-                if intersection.alternatives.is_empty() {
+                if intersection.is_impossible() {
                     None
                 } else {
                     case.constraints = intersection;

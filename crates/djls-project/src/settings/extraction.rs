@@ -42,7 +42,6 @@ use crate::settings::types::PartialTemplateBackend;
 use crate::settings::types::PathListEvidence;
 use crate::settings::types::SettingAlternatives;
 use crate::settings::types::SettingCase;
-use crate::settings::types::SettingCorrelation;
 use crate::settings::types::SettingIssue;
 use crate::settings::types::SettingIssueKind;
 use crate::settings::types::StaticFilesDirsAlternatives;
@@ -184,8 +183,8 @@ fn binding_cases<T, D, I>(
     namespace_dynamic: Option<&[NamespaceDynamicEvidence]>,
     mut bound: impl FnMut(
         &PythonBoundValue,
-        &SettingCorrelation,
-    ) -> Vec<(SettingCase<T, D, I>, SettingCorrelation)>,
+        &BranchConstraints,
+    ) -> Vec<(SettingCase<T, D, I>, BranchConstraints)>,
     dynamic: impl Fn(Vec<SettingIssue>) -> D,
 ) -> SettingAlternatives<T, D, I>
 where
@@ -193,11 +192,11 @@ where
     D: MergeEvidence + MergeDynamicEvidence,
     I: MergeEvidence,
 {
-    let mut cases: Vec<(SettingCase<T, D, I>, SettingCorrelation)> =
+    let mut cases: Vec<(SettingCase<T, D, I>, BranchConstraints)> =
         Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
     let mut overflow_origin = None;
     {
-        let mut add_case = |case, correlation: SettingCorrelation, origin| {
+        let mut add_case = |case, correlation: BranchConstraints, origin| {
             for (existing, existing_correlation) in &mut cases {
                 if existing.merge_evidence(&case) {
                     existing_correlation.merge_evidence(&correlation);
@@ -220,28 +219,27 @@ where
                             .first()
                             .copied()
                             .or_else(|| value.value.origins().next());
-                        for (case, correlation) in bound(value, &setting_correlation(constraints)) {
+                        for (case, correlation) in bound(value, constraints) {
                             add_case(case, correlation, origin);
                         }
                     }
                     PythonBindingState::Unbound => {
-                        let correlation = setting_correlation(constraints);
+                        let correlation = constraints.clone();
                         unbound_constraints.push(correlation.clone());
                         add_case(SettingCase::Unset, correlation, None);
                     }
                 }
             }
         } else {
-            let correlation = SettingCorrelation::independent();
+            let correlation = BranchConstraints::unconstrained();
             unbound_constraints.push(correlation.clone());
             add_case(SettingCase::Unset, correlation, None);
         }
         if let Some(evidence) = namespace_dynamic {
             for unbound in &unbound_constraints {
-                let mut groups: Vec<(SettingCorrelation, Vec<SettingIssue>)> = Vec::new();
+                let mut groups: Vec<(BranchConstraints, Vec<SettingIssue>)> = Vec::new();
                 for cause in evidence {
-                    let correlation =
-                        unbound.intersection(&setting_correlation(&cause.constraints));
+                    let correlation = unbound.intersection(&cause.constraints);
                     if correlation.is_impossible() {
                         continue;
                     }
@@ -267,20 +265,16 @@ where
     if let Some(origin) = overflow_origin {
         cases.push((
             SettingCase::Dynamic(dynamic(vec![alternative_limit_issue(origin)])),
-            SettingCorrelation::independent(),
+            BranchConstraints::unconstrained(),
         ));
     }
     SettingAlternatives::from_correlated(cases)
 }
 
-fn setting_correlation(constraints: &BranchConstraints) -> SettingCorrelation {
-    SettingCorrelation::normalized(constraints.normalized_alternatives().to_vec())
-}
-
 fn correlated_cases<T, D, I>(
     cases: Vec<SettingCase<T, D, I>>,
-    correlation: &SettingCorrelation,
-) -> Vec<(SettingCase<T, D, I>, SettingCorrelation)> {
+    correlation: &BranchConstraints,
+) -> Vec<(SettingCase<T, D, I>, BranchConstraints)> {
     cases
         .into_iter()
         .map(|case| (case, correlation.clone()))
@@ -348,10 +342,7 @@ fn installed_apps(
                     } else {
                         SettingCase::Dynamic(DynamicInstalledApps { apps })
                     };
-                    (
-                        case,
-                        constraints.intersection(&setting_correlation(variant_constraints)),
-                    )
+                    (case, constraints.intersection(variant_constraints))
                 })
                 .collect()
         },
@@ -450,10 +441,10 @@ fn template_list(
     db: &dyn ProjectDb,
     list: &PythonList,
     issues: &[SettingIssue],
-    outer_correlation: &SettingCorrelation,
+    outer_correlation: &BranchConstraints,
 ) -> Vec<(
     SettingCase<TemplatesValue, DynamicTemplates, MalformedTemplates>,
-    SettingCorrelation,
+    BranchConstraints,
 )> {
     let mut cases = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
     let mut overflow_origin = None;
@@ -468,10 +459,9 @@ fn template_list(
             issues,
             MAX_EXACT_SETTING_ALTERNATIVES - cases.len(),
         );
-        let variant_correlation = setting_correlation(constraints);
         cases.extend(expansion.exact.into_iter().filter_map(|configuration| {
             let correlation = outer_correlation
-                .intersection(&variant_correlation)
+                .intersection(constraints)
                 .intersection(&configuration.correlation);
             (!correlation.is_impossible()).then_some((configuration.case, correlation))
         }));
@@ -484,7 +474,7 @@ fn template_list(
                     evidence: vec![TemplateListEvidence::Issue(alternative_limit_issue(origin))],
                 },
             }),
-            SettingCorrelation::independent(),
+            BranchConstraints::unconstrained(),
         ));
     }
     cases
@@ -492,7 +482,7 @@ fn template_list(
 
 struct CorrelatedTemplateConfiguration {
     case: SettingCase<TemplatesValue, DynamicTemplates, MalformedTemplates>,
-    correlation: SettingCorrelation,
+    correlation: BranchConstraints,
 }
 
 fn template_list_variant(
@@ -506,7 +496,7 @@ fn template_list_variant(
         .cloned()
         .map(TemplateListEvidence::Issue)
         .collect::<Vec<_>>();
-    let mut configurations = vec![(initial_evidence, false, SettingCorrelation::independent())];
+    let mut configurations = vec![(initial_evidence, false, BranchConstraints::unconstrained())];
     let mut overflow_origin = None;
     for item in items {
         let alternatives = match item {
@@ -531,12 +521,12 @@ fn template_list_variant(
                 PythonValueKind::Unknown(_) => vec![(
                     TemplateListEvidence::Issue(unknown_value_issue(value)),
                     false,
-                    SettingCorrelation::independent(),
+                    BranchConstraints::unconstrained(),
                 )],
                 _ => vec![(
                     TemplateListEvidence::Issue(value_issue(SettingIssueKind::InvalidShape, value)),
                     true,
-                    SettingCorrelation::independent(),
+                    BranchConstraints::unconstrained(),
                 )],
             },
             PythonListItem::UnknownElement(unknown) => vec![(
@@ -545,12 +535,12 @@ fn template_list_variant(
                     unknown.origin,
                 )),
                 false,
-                SettingCorrelation::independent(),
+                BranchConstraints::unconstrained(),
             )],
             PythonListItem::UnknownUnpack(unknown) => vec![(
                 TemplateListEvidence::Issue(issue(SettingIssueKind::UnknownUnpack, unknown.origin)),
                 false,
-                SettingCorrelation::independent(),
+                BranchConstraints::unconstrained(),
             )],
         };
         let item_origin = python_list_item_origin(item);
@@ -588,7 +578,7 @@ fn template_list_variant(
 fn template_configuration(
     evidence: Vec<TemplateListEvidence>,
     malformed: bool,
-    correlation: SettingCorrelation,
+    correlation: BranchConstraints,
 ) -> CorrelatedTemplateConfiguration {
     let templates = OrderedTemplateList { evidence };
     let case = if malformed {
@@ -628,7 +618,7 @@ fn partial_backend(
     dict: &PythonDict,
 ) -> CappedExpansion<PartialTemplateBackend> {
     let mut backend = PartialTemplateBackend {
-        correlation: SettingCorrelation::independent(),
+        correlation: BranchConstraints::unconstrained(),
         backend: PartialSettingField::new(None),
         dirs: OrderedPathList::new(),
         app_dirs: PartialSettingField::new(None),
@@ -704,7 +694,7 @@ fn partial_backend(
             .into_iter()
             .map(|projection| {
                 let mut projected = backend.clone();
-                projected.correlation = setting_correlation(&projection.constraints);
+                projected.correlation = projection.constraints;
                 projected.dirs.extend_issues(dirs_issues.clone());
                 projected.dirs.evidence.extend(projection.paths.evidence);
                 projected
@@ -956,7 +946,7 @@ fn static_root(
                                 StaticRoot::new(path.path.value),
                                 path.path.origins,
                             )),
-                            constraints.intersection(&setting_correlation(&path.constraints)),
+                            constraints.intersection(&path.constraints),
                         )
                     })
                     .collect()
@@ -993,7 +983,7 @@ fn staticfiles_dirs(
                 PythonValueKind::List(_) => path_list(db, &bound.value)
                     .into_iter()
                     .map(|projection| {
-                        let projection_correlation = setting_correlation(&projection.constraints);
+                        let projection_correlation = projection.constraints;
                         let paths = projection.paths;
                         let case = if projection.malformed {
                             SettingCase::Malformed(MalformedStaticFilesDirs { paths })
@@ -1167,7 +1157,7 @@ fn path_list_variant(
                             continue;
                         }
                         let constraints = projection.constraints.intersection(&path.constraints);
-                        if constraints.normalized_alternatives().is_empty() {
+                        if constraints.is_impossible() {
                             continue;
                         }
                         let mut projection = projection.clone();

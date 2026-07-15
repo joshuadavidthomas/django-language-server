@@ -92,7 +92,7 @@ fn combine_bindings(
                 continue;
             };
             let constraints = left_constraints.intersection(right_constraints);
-            if constraints.normalized_alternatives().is_empty() {
+            if constraints.is_impossible() {
                 continue;
             }
             let alternative = PythonBinding::constrained_bound(

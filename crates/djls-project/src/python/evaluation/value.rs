@@ -273,7 +273,7 @@ impl PythonList {
                     continue;
                 }
                 let constraints = left.constraints.intersection(&right.constraints);
-                if constraints.alternatives.is_empty() {
+                if constraints.is_impossible() {
                     continue;
                 }
                 let mut items = left.items.clone();

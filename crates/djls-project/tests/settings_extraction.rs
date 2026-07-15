@@ -5,9 +5,12 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::TagSpecDef;
+use djls_project::FindTemplateResult;
 use djls_project::Interpreter;
 use djls_project::Project;
 use djls_project::SearchPaths;
+use djls_project::TemplateName;
+use djls_project::template_resolution;
 use djls_project::testing::PythonBindingAlternativeView;
 use djls_project::testing::PythonBoundValueView;
 use djls_project::testing::PythonImportErrorView;
@@ -2559,6 +2562,51 @@ fn two_backends_sharing_a_branch_path_keep_only_feasible_configurations() {
         [
             "/project/settings/one/templates",
             "/project/settings/two/templates",
+        ]
+        .into_iter()
+        .collect()
+    );
+}
+
+#[test]
+fn same_join_settings_reach_only_matching_template_winners() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project/settings")
+        .django_settings_module("config.settings")
+        .file(
+            "/project/settings/config/settings.py",
+            "if FLAG:\n    INSTALLED_APPS = ['first']\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/settings/a'], 'APP_DIRS': True}]\nelse:\n    INSTALLED_APPS = ['second']\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/settings/b'], 'APP_DIRS': True}]\n",
+        )
+        .file("/project/settings/a/shared.html", "a")
+        .file("/project/settings/first/__init__.py", "")
+        .file(
+            "/project/settings/first/templates/shared.html",
+            "impossible cross-pair",
+        )
+        .file("/project/settings/second/__init__.py", "")
+        .file(
+            "/project/settings/second/templates/shared.html",
+            "second",
+        )
+        .build(&db);
+
+    let name = TemplateName::new(&db, "shared.html".to_string());
+    let FindTemplateResult::Inconclusive(search) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("the two feasible settings branches have different winners");
+    };
+    let possible_paths = search
+        .possible_origins
+        .iter()
+        .map(|origin| origin.path_buf(&db).as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(
+        possible_paths,
+        [
+            "/project/settings/a/shared.html",
+            "/project/settings/second/templates/shared.html",
         ]
         .into_iter()
         .collect()

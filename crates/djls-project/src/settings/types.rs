@@ -5,6 +5,7 @@ use serde::ser::SerializeStruct;
 
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
+use crate::python::evaluation::BranchConstraints;
 
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 pub(crate) const MAX_EXACT_SETTING_ALTERNATIVES: usize = 64;
@@ -22,7 +23,7 @@ pub(crate) enum SettingCase<T, D, I> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CorrelatedSettingCase<T, D, I> {
     case: SettingCase<T, D, I>,
-    correlation: SettingCorrelation,
+    correlation: BranchConstraints,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,82 +50,6 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct SettingCorrelation {
-    // Disjunction of conjunctions. Each conjunction selects arms at source control-flow joins.
-    alternatives: Vec<Vec<(Origin, usize)>>,
-}
-
-impl SettingCorrelation {
-    pub(super) fn normalized(alternatives: Vec<Vec<(Origin, usize)>>) -> Self {
-        let mut correlation = Self { alternatives };
-        correlation.normalize();
-        correlation
-    }
-
-    pub(super) fn independent() -> Self {
-        Self::normalized(vec![Vec::new()])
-    }
-
-    pub(super) fn intersection(&self, other: &Self) -> Self {
-        let mut alternatives = Vec::new();
-        for left in &self.alternatives {
-            for right in &other.alternatives {
-                let mut choices = left.clone();
-                let mut compatible = true;
-                for &(join, arm) in right {
-                    if let Some((_, existing_arm)) = choices
-                        .iter()
-                        .find(|(existing_join, _)| *existing_join == join)
-                    {
-                        if *existing_arm != arm {
-                            compatible = false;
-                            break;
-                        }
-                    } else {
-                        choices.push((join, arm));
-                    }
-                }
-                if compatible {
-                    alternatives.push(choices);
-                }
-            }
-        }
-        Self::normalized(alternatives)
-    }
-
-    pub(super) fn is_impossible(&self) -> bool {
-        self.alternatives.is_empty()
-    }
-
-    fn merge(&mut self, other: Self) {
-        self.alternatives.extend(other.alternatives);
-        self.normalize();
-    }
-
-    fn normalize(&mut self) {
-        for choices in &mut self.alternatives {
-            choices.sort_by_key(|choice| format!("{choice:?}"));
-            choices.dedup();
-        }
-        self.alternatives
-            .sort_by_key(|choices| format!("{choices:?}"));
-        self.alternatives.dedup();
-    }
-
-    fn compatible_with(&self, other: &Self) -> bool {
-        self.alternatives.iter().any(|left| {
-            other.alternatives.iter().any(|right| {
-                left.iter().all(|(left_join, left_arm)| {
-                    right.iter().all(|(right_join, right_arm)| {
-                        left_join != right_join || left_arm == right_arm
-                    })
-                })
-            })
-        })
-    }
-}
-
 impl<T, D, I> SettingAlternatives<T, D, I>
 where
     T: MergeEvidence,
@@ -143,7 +68,7 @@ where
         alternatives
     }
 
-    pub(super) fn from_correlated(cases: Vec<(SettingCase<T, D, I>, SettingCorrelation)>) -> Self {
+    pub(super) fn from_correlated(cases: Vec<(SettingCase<T, D, I>, BranchConstraints)>) -> Self {
         let mut alternatives = Self { cases: Vec::new() };
         for (case, correlation) in cases {
             alternatives.add_with_correlation(case, correlation);
@@ -161,21 +86,17 @@ where
 
     fn cases_with_correlations(
         &self,
-    ) -> impl Iterator<Item = (&SettingCase<T, D, I>, &SettingCorrelation)> {
+    ) -> impl Iterator<Item = (&SettingCase<T, D, I>, &BranchConstraints)> {
         self.cases
             .iter()
             .map(|case| (&case.case, &case.correlation))
     }
 
     pub(crate) fn add(&mut self, case: SettingCase<T, D, I>) {
-        self.add_with_correlation(case, SettingCorrelation::independent());
+        self.add_with_correlation(case, BranchConstraints::unconstrained());
     }
 
-    fn add_with_correlation(
-        &mut self,
-        case: SettingCase<T, D, I>,
-        correlation: SettingCorrelation,
-    ) {
+    fn add_with_correlation(&mut self, case: SettingCase<T, D, I>, correlation: BranchConstraints) {
         for existing in &mut self.cases {
             if existing.case.merge_evidence(&case) {
                 existing.correlation.merge(correlation);
@@ -199,7 +120,7 @@ where
             remainder.merge_dynamic_evidence(additional);
             // A capped remainder may represent several incompatible branches. Treating it as
             // unconstrained is conservative while keeping the existing cap.
-            existing.correlation = SettingCorrelation::independent();
+            existing.correlation = BranchConstraints::unconstrained();
         }
     }
 }
@@ -573,7 +494,7 @@ impl<T> PartialSettingField<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct PartialTemplateBackend {
     #[serde(skip)]
-    pub(super) correlation: SettingCorrelation,
+    pub(super) correlation: BranchConstraints,
     pub(crate) backend: PartialSettingField<Option<WithOrigin<String>>>,
     pub(crate) dirs: OrderedPathList,
     pub(crate) app_dirs: PartialSettingField<Option<WithOrigin<bool>>>,
@@ -587,7 +508,7 @@ pub(crate) struct PartialTemplateBackend {
 impl PartialTemplateBackend {
     pub(crate) fn from_complete(backend: TemplateBackend) -> Self {
         Self {
-            correlation: SettingCorrelation::independent(),
+            correlation: BranchConstraints::unconstrained(),
             backend: PartialSettingField::new(Some(backend.backend)),
             dirs: OrderedPathList::from_known(backend.dirs),
             app_dirs: PartialSettingField::new(backend.app_dirs),
@@ -982,7 +903,7 @@ impl<T: MergeEvidence> MergeEvidence for PartialSettingField<T> {
         }
     }
 }
-impl MergeEvidence for SettingCorrelation {
+impl MergeEvidence for BranchConstraints {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         self.merge(other.clone());
         true
