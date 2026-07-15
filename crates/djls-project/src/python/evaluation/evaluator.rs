@@ -3,6 +3,7 @@ mod imports;
 mod statement;
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use djls_source::File;
 use djls_source::Origin;
@@ -22,6 +23,8 @@ use super::PythonModuleEvaluation;
 use super::PythonModuleValues;
 use super::PythonModuleValuesOutcome;
 use super::PythonMutation;
+use super::PythonMutationOperation;
+use super::PythonMutationPathSegment;
 use super::PythonNamespaceCause;
 use super::PythonNamespaceRemainder;
 use super::PythonUnknown;
@@ -29,7 +32,6 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::extend_ordered_unique;
-use super::touched_names::TouchedNames;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
@@ -323,20 +325,11 @@ impl EvaluationState {
         extend_ordered_unique(&mut self.mutations, &copied);
     }
 
-    fn join_branches(
-        mut base: Self,
-        branches: &[Self],
-        writes: &TouchedNames,
-        origin: Origin,
-    ) -> Self {
-        let mut names = writes.names.clone();
-        for branch in branches {
-            for (name, binding) in &branch.bindings {
-                if base.binding(name) != Some(binding) {
-                    names.insert(name.clone());
-                }
-            }
-        }
+    fn join_branches(mut base: Self, branches: &[Self], origin: Origin) -> Self {
+        let names = branches
+            .iter()
+            .flat_map(|branch| branch.changed_names_from(&base))
+            .collect::<BTreeSet<_>>();
         for name in names {
             let mut joined: Option<PythonBinding> = None;
             for (arm, branch) in branches.iter().enumerate() {
@@ -370,19 +363,51 @@ impl EvaluationState {
         base
     }
 
-    fn changed_writes_from(base: &Self, changed: &Self) -> TouchedNames {
-        let mut writes = TouchedNames::default();
-        for (name, binding) in &changed.bindings {
-            if base.binding(name) != Some(binding) {
-                writes.record(name);
+    fn changed_names_from(&self, base: &Self) -> BTreeSet<String> {
+        let mut changed = base
+            .bindings
+            .keys()
+            .chain(self.bindings.keys())
+            .filter(|name| base.binding(name) != self.binding(name))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let mutation_roots = base
+            .mutations
+            .iter()
+            .chain(&self.mutations)
+            .map(|mutation| mutation.binding.as_str())
+            .collect::<BTreeSet<_>>();
+        for name in mutation_roots {
+            if !base
+                .rooted_mutation_evidence(name)
+                .eq(self.rooted_mutation_evidence(name))
+            {
+                changed.insert(name.to_string());
             }
         }
-        for name in base.bindings.keys() {
-            if changed.binding(name).is_none() {
-                writes.record(name);
-            }
-        }
-        writes
+        changed
+    }
+
+    fn rooted_mutation_evidence<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> impl Iterator<
+        Item = (
+            &'a [PythonMutationPathSegment],
+            PythonMutationOperation,
+            Origin,
+        ),
+    > + 'a {
+        self.mutations
+            .iter()
+            .filter(move |mutation| mutation.binding == name)
+            .map(|mutation| {
+                (
+                    mutation.path.as_slice(),
+                    mutation.operation,
+                    mutation.origin,
+                )
+            })
     }
 
     fn record_import(&mut self, outcome: PythonImportOutcome) {
@@ -413,5 +438,150 @@ fn rebase_cycle_unknowns(binding: &mut PythonBinding, origin: Origin) {
             bound.binding_origins = vec![origin];
             bound.value.rebase_origin(origin);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use djls_source::File;
+    use djls_source::Span;
+    use salsa::plumbing::FromId;
+    use salsa::plumbing::Id;
+
+    use super::EvaluationState;
+    use super::Origin;
+    use super::PythonBinding;
+    use super::PythonImportOutcome;
+    use super::PythonMutation;
+    use super::PythonMutationOperation;
+    use super::PythonNamespaceCause;
+    use super::PythonUnknown;
+    use super::PythonUnknownCause;
+    use super::PythonValue;
+    use super::PythonValueKind;
+
+    fn test_file(index: u64) -> File {
+        File::from_id(Id::from_bits(index + 1))
+    }
+
+    fn origin(start: usize) -> Origin {
+        Origin::new(test_file(0), Span::saturating_from_parts_usize(start, 1))
+    }
+
+    fn state_with_binding() -> EvaluationState {
+        let mut state = EvaluationState::new(test_file(0));
+        let binding_origin = origin(1);
+        state.bindings.insert(
+            "VALUE".to_string(),
+            PythonBinding::bound(
+                PythonValue::known(PythonValueKind::Str("value".to_string()), binding_origin),
+                binding_origin,
+            ),
+        );
+        state
+    }
+
+    fn mutation(operation: PythonMutationOperation, start: usize) -> PythonMutation {
+        PythonMutation {
+            binding: "VALUE".to_string(),
+            path: Vec::new(),
+            operation,
+            origin: origin(start),
+        }
+    }
+
+    #[test]
+    fn changed_names_include_rooted_mutation_evidence() {
+        let mut base = state_with_binding();
+        base.mutations
+            .push(mutation(PythonMutationOperation::Append, 2));
+        let mut changed = base.clone();
+        changed.mutations[0] = mutation(PythonMutationOperation::Extend, 2);
+
+        assert_eq!(
+            changed.changed_names_from(&base),
+            ["VALUE".to_string()].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn changed_names_treat_rooted_mutation_order_as_semantic() {
+        let mut base = state_with_binding();
+        base.mutations = vec![
+            mutation(PythonMutationOperation::Append, 2),
+            mutation(PythonMutationOperation::Extend, 3),
+        ];
+        let mut changed = base.clone();
+        changed.mutations.reverse();
+
+        assert_eq!(
+            changed.changed_names_from(&base),
+            ["VALUE".to_string()].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn changed_names_ignore_fully_equal_states() {
+        let mut base = state_with_binding();
+        base.mutations
+            .push(mutation(PythonMutationOperation::Append, 2));
+
+        assert!(base.clone().changed_names_from(&base).is_empty());
+    }
+
+    #[test]
+    fn changed_names_include_constraint_only_binding_changes() {
+        let base = state_with_binding();
+        let mut changed = base.clone();
+        changed
+            .bindings
+            .get_mut("VALUE")
+            .expect("the fixture binding should exist")
+            .select_branch(origin(2), 0);
+
+        assert_eq!(
+            changed.changed_names_from(&base),
+            ["VALUE".to_string()].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn changed_names_ignore_namespace_dependency_and_import_only_changes() {
+        let base = state_with_binding();
+        let mut changed = base.clone();
+        changed
+            .namespace_causes
+            .push(PythonNamespaceCause::unconstrained(PythonUnknown {
+                cause: PythonUnknownCause::UnsupportedExpression,
+                origin: Some(origin(2)),
+            }));
+        changed.dependencies.files.push(test_file(1));
+        changed
+            .dependencies
+            .imports
+            .push(PythonImportOutcome::Resolved {
+                origin: origin(3),
+                file: test_file(1),
+            });
+
+        assert!(changed.changed_names_from(&base).is_empty());
+    }
+
+    #[test]
+    fn branch_join_preserves_first_seen_mutation_order_and_deduplicates() {
+        let base = EvaluationState::new(test_file(0));
+        let first_seen = mutation(PythonMutationOperation::Extend, 2);
+        let later = mutation(PythonMutationOperation::Append, 3);
+        let mut first_branch = base.clone();
+        first_branch.mutations.push(first_seen.clone());
+        let mut second_branch = base.clone();
+        second_branch
+            .mutations
+            .extend([later.clone(), first_seen.clone()]);
+
+        let joined =
+            EvaluationState::join_branches(base, &[first_branch, second_branch], origin(4));
+
+        assert_eq!(joined.mutations, [first_seen, later]);
     }
 }

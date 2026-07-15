@@ -13,13 +13,13 @@ use crate::ast::RangedExt;
 use crate::python::PythonSyntaxError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(super) struct TouchedNames {
-    pub(super) names: FxHashSet<String>,
+struct TouchedNames {
+    names: FxHashSet<String>,
     all: bool,
 }
 
 impl TouchedNames {
-    pub(super) fn record(&mut self, name: &str) {
+    fn record(&mut self, name: &str) {
         self.names.insert(name.to_string());
     }
 
@@ -27,16 +27,15 @@ impl TouchedNames {
         self.all = true;
     }
 
-    pub(super) fn merge(&mut self, other: Self) {
+    fn merge(&mut self, other: Self) {
         self.names.extend(other.names);
         self.all |= other.all;
     }
 }
 
-// This must mirror every statement effect that can alter bindings or mutation
-// state. Branch joins and loop degradation use it to decide which names lose
-// straight-line certainty.
-pub(super) fn collect_touched_names(body: &[ast::Stmt]) -> TouchedNames {
+// Recovered syntax impacts intentionally over-approximate source effects without
+// depending on evaluator reachability.
+fn collect_touched_names(body: &[ast::Stmt]) -> TouchedNames {
     let mut names = TouchedNames::default();
     for stmt in body {
         collect_stmt_touched_names(stmt, &mut names);

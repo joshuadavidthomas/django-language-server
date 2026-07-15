@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use djls_source::Span;
 use ruff_python_ast as ast;
 
@@ -14,8 +16,6 @@ use super::super::control_flow::try_paths;
 use super::super::extend_ordered_unique;
 use super::super::mutation;
 use super::super::mutation::MutationTarget;
-use super::super::touched_names::TouchedNames;
-use super::super::touched_names::collect_touched_names;
 use super::super::touched_names::first_import_segment;
 use super::super::touched_names::pattern_bound_names;
 use super::super::touched_names::target_write_names;
@@ -292,10 +292,10 @@ impl SemanticEvaluator<'_> {
         control_span: Span,
     ) -> EvaluationState {
         let base = state.clone();
-        let mut writes = TouchedNames::default();
+        let mut changed_names = BTreeSet::new();
         for body in bodies {
             let body_state = walk_body(self, base.clone(), body);
-            writes.merge(EvaluationState::changed_writes_from(&base, &body_state));
+            changed_names.extend(body_state.changed_names_from(&base));
             extend_ordered_unique(
                 &mut state.dependencies.files,
                 &body_state.dependencies.files,
@@ -308,7 +308,7 @@ impl SemanticEvaluator<'_> {
             state.namespace_causes.extend(body_state.namespace_causes);
         }
         state.degrade_names(
-            writes.names,
+            changed_names,
             &PythonUnknownCause::UnsupportedExpression,
             self.context.origin_at(control_span),
         );
@@ -321,12 +321,6 @@ impl SemanticEvaluator<'_> {
         paths: &[BranchPath<'_>],
         control_span: Span,
     ) -> EvaluationState {
-        let mut writes = TouchedNames::default();
-        for path in paths {
-            for segment in path.segments() {
-                writes.merge(collect_touched_names(segment));
-            }
-        }
         let base = state;
         let mut branches = Vec::with_capacity(paths.len());
         for path in paths {
@@ -336,12 +330,7 @@ impl SemanticEvaluator<'_> {
             }
             branches.push(branch);
         }
-        EvaluationState::join_branches(
-            base,
-            &branches,
-            &writes,
-            self.context.origin_at(control_span),
-        )
+        EvaluationState::join_branches(base, &branches, self.context.origin_at(control_span))
     }
 
     fn join_match_cases(
@@ -350,13 +339,6 @@ impl SemanticEvaluator<'_> {
         cases: &[ast::MatchCase],
         control_span: Span,
     ) -> EvaluationState {
-        let mut writes = TouchedNames::default();
-        for case in cases {
-            for name in pattern_bound_names(&case.pattern) {
-                writes.record(name);
-            }
-            writes.merge(collect_touched_names(&case.body));
-        }
         let base = state;
         let mut branches = Vec::with_capacity(cases.len() + 1);
         for case in cases {
@@ -367,12 +349,7 @@ impl SemanticEvaluator<'_> {
         if !cases.iter().any(is_irrefutable_match_case) {
             branches.push(base.clone());
         }
-        EvaluationState::join_branches(
-            base,
-            &branches,
-            &writes,
-            self.context.origin_at(control_span),
-        )
+        EvaluationState::join_branches(base, &branches, self.context.origin_at(control_span))
     }
 }
 

@@ -556,6 +556,288 @@ fn ambiguous_while_degrades_writes_and_retains_branch_effects() {
 }
 
 #[test]
+fn ambiguous_branch_annotation_only_name_is_absent() {
+    let db = TestDatabase::new();
+    db.add_file("/project/settings.py", "if FLAG:\n    VALUE: str\n");
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert!(evaluation.binding("VALUE").is_none());
+}
+
+#[test]
+fn ambiguous_branch_skips_nested_deterministically_dead_write() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "if FLAG:\n    if False:\n        VALUE = 'dead'\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert!(evaluation.binding("VALUE").is_none());
+}
+
+#[test]
+fn ambiguous_branch_same_value_reassignment_preserves_origins() {
+    let db = TestDatabase::new();
+    let source = "VALUE = 'same'\nif FLAG:\n    VALUE = 'same'\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let binding = evaluation.binding("VALUE").expect("VALUE should be bound");
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("the equal values should normalize into one bound alternative");
+    };
+    let expected_origins = source
+        .match_indices("'same'")
+        .map(|(start, value)| {
+            djls_source::Origin::new(
+                settings,
+                Span::saturating_from_parts_usize(start, value.len()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(bound.value.origins, expected_origins);
+    assert_eq!(bound.binding_origins, expected_origins);
+}
+
+#[test]
+fn ambiguous_branch_restoration_preserves_only_base_and_restoration_origins() {
+    let db = TestDatabase::new();
+    let source = "VALUE = 'base'\nif FLAG:\n    VALUE = 'temporary'\n    VALUE = 'base'\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let binding = evaluation.binding("VALUE").expect("VALUE should be bound");
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("the restored value should normalize into one bound alternative");
+    };
+    let expected_origins = source
+        .match_indices("'base'")
+        .map(|(start, value)| {
+            djls_source::Origin::new(
+                settings,
+                Span::saturating_from_parts_usize(start, value.len()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(bound.value.origins, expected_origins);
+    assert_eq!(bound.binding_origins, expected_origins);
+    assert!(
+        bound
+            .value
+            .origins
+            .iter()
+            .all(|origin| origin.span != expected_span(source, "'temporary'"))
+    );
+}
+
+#[test]
+fn ambiguous_branch_append_remove_retains_mutation_evidence() {
+    let db = TestDatabase::new();
+    let source = "VALUES = []\nif FLAG:\n    VALUES.append('item')\n    VALUES.remove('item')\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let binding = evaluation
+        .binding("VALUES")
+        .expect("VALUES should be bound");
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("the restored list should normalize into one bound alternative");
+    };
+    let PythonValueKindView::List(items) = &bound.value.kind else {
+        panic!("VALUES should remain a list");
+    };
+
+    assert!(items.is_empty());
+    assert_eq!(bound.value.origins.len(), 3);
+    assert_eq!(evaluation.mutations.len(), 2);
+    assert!(evaluation.mutations.iter().any(|mutation| {
+        mutation.binding == "VALUES"
+            && mutation.operation == PythonMutationOperationView::Append
+            && mutation.origin.span == expected_span(source, "VALUES.append('item')")
+    }));
+    assert!(evaluation.mutations.iter().any(|mutation| {
+        mutation.binding == "VALUES"
+            && mutation.operation == PythonMutationOperationView::Remove
+            && mutation.origin.span == expected_span(source, "VALUES.remove('item')")
+    }));
+}
+
+#[test]
+fn ambiguous_branch_reassignment_clears_prior_mutation_evidence() {
+    let db = TestDatabase::new();
+    let source = "VALUES = []\nif FLAG:\n    VALUES.append('stale')\n    VALUES = []\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let binding = evaluation
+        .binding("VALUES")
+        .expect("VALUES should be bound");
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("the reassigned lists should normalize into one bound alternative");
+    };
+
+    assert!(evaluation.mutations.is_empty());
+    assert_eq!(bound.value.origins.len(), 2);
+    assert!(
+        bound
+            .value
+            .origins
+            .iter()
+            .all(|origin| origin.span != expected_span(source, "VALUES.append('stale')"))
+    );
+}
+
+#[test]
+fn ambiguous_branch_noop_extend_retains_mutation_evidence() {
+    let db = TestDatabase::new();
+    let source = "VALUES = []\nif FLAG:\n    VALUES.extend([])\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let binding = evaluation
+        .binding("VALUES")
+        .expect("VALUES should be bound");
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("the empty lists should normalize into one bound alternative");
+    };
+
+    assert_eq!(bound.value.origins.len(), 2);
+    assert!(matches!(
+        evaluation.mutations.as_slice(),
+        [mutation]
+            if mutation.binding == "VALUES"
+                && mutation.operation == PythonMutationOperationView::Extend
+                && mutation.origin.span == expected_span(source, "VALUES.extend([])")
+    ));
+}
+
+#[test]
+fn ambiguous_branch_mutations_remain_uncorrelated_may_have_evidence() {
+    let db = TestDatabase::new();
+    let source = "VALUES = []\nif FLAG:\n    VALUES.append('item')\nelse:\n    VALUES.extend([])\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let binding = evaluation
+        .binding("VALUES")
+        .expect("VALUES should be bound");
+    let mut list_lengths = binding
+        .alternatives
+        .iter()
+        .map(|alternative| match alternative {
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value:
+                    djls_project::testing::PythonValueView {
+                        kind: PythonValueKindView::List(items),
+                        ..
+                    },
+                ..
+            }) => items.len(),
+            PythonBindingAlternativeView::Bound(_) | PythonBindingAlternativeView::Unbound => {
+                panic!("both branches should retain exact list values")
+            }
+        })
+        .collect::<Vec<_>>();
+    list_lengths.sort_unstable();
+
+    assert_eq!(list_lengths, [0, 1]);
+    assert_eq!(evaluation.mutations.len(), 2);
+    assert!(
+        evaluation
+            .mutations
+            .iter()
+            .any(|mutation| mutation.operation == PythonMutationOperationView::Append)
+    );
+    assert!(
+        evaluation
+            .mutations
+            .iter()
+            .any(|mutation| mutation.operation == PythonMutationOperationView::Extend)
+    );
+}
+
+#[test]
+fn ambiguous_match_joins_only_evaluated_pattern_and_body_names() {
+    let db = TestDatabase::new();
+    let source = "match SUBJECT:\n    case {'item': ITEM} if GUARD:\n        VALUE = 'matched'\n        DEAD: str\n    case _:\n        FALLBACK = 'fallback'\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in ["ITEM", "VALUE", "FALLBACK"] {
+        let binding = evaluation
+            .binding(name)
+            .unwrap_or_else(|| panic!("{name} should participate in the match join"));
+        assert_eq!(binding.alternatives.len(), 2, "{name}");
+        assert!(
+            binding
+                .alternatives
+                .contains(&PythonBindingAlternativeView::Unbound),
+            "{name}"
+        );
+        assert!(
+            binding
+                .alternatives
+                .iter()
+                .any(|alternative| matches!(alternative, PythonBindingAlternativeView::Bound(_))),
+            "{name}"
+        );
+    }
+    assert!(evaluation.binding("DEAD").is_none());
+}
+
+#[test]
+fn python_module_evaluation_canonicalizes_branch_mutation_order() {
+    let db = TestDatabase::new();
+    let source = "A_VALUES = []\nZ_VALUES = []\nif FLAG:\n    Z_VALUES.append('z')\nelse:\n    A_VALUES.append('a')\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert_eq!(
+        evaluation
+            .mutations
+            .iter()
+            .map(|mutation| mutation.binding.as_str())
+            .collect::<Vec<_>>(),
+        ["A_VALUES", "Z_VALUES"]
+    );
+    assert_eq!(
+        evaluation.mutations[0].origin.span,
+        expected_span(source, "A_VALUES.append('a')")
+    );
+    assert_eq!(
+        evaluation.mutations[1].origin.span,
+        expected_span(source, "Z_VALUES.append('z')")
+    );
+}
+
+#[test]
 fn python_module_evaluation_keeps_failed_star_import_from_loop_body() {
     let db = TestDatabase::new();
     let source = "for item in ITEMS:\n    from missing_star import *\n";
