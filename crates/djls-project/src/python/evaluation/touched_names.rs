@@ -419,7 +419,7 @@ fn collect_stmt_touched_names(stmt: &ast::Stmt, names: &mut TouchedNames) {
                 && let ast::Expr::Attribute(attribute) = call.func.as_ref()
                 && let Some(target) = MutationTarget::from_expr(&attribute.value)
             {
-                names.record(target.root);
+                names.record(target.binding);
             }
             for name in expr_read_names(&expr.value) {
                 names.record(&name);

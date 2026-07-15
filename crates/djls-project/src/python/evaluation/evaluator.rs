@@ -21,6 +21,7 @@ use super::PythonModuleEvaluation;
 use super::PythonModuleValues;
 use super::PythonModuleValuesOutcome;
 use super::PythonMutation;
+use super::PythonMutationOperation;
 use super::PythonNamespaceCause;
 use super::PythonNamespaceRemainder;
 use super::PythonUnknown;
@@ -118,7 +119,7 @@ impl EvaluationState {
     }
 
     fn assign_binding(&mut self, name: &str, binding: PythonBinding, origin: Origin) {
-        self.mutations.retain(|mutation| mutation.root != name);
+        self.mutations.retain(|mutation| mutation.binding != name);
         self.bindings
             .insert(name.to_string(), binding.rebase_binding_origin(origin));
     }
@@ -132,14 +133,14 @@ impl EvaluationState {
         let copied = self
             .mutations
             .iter()
-            .filter(|mutation| mutation.root == source)
+            .filter(|mutation| mutation.binding == source)
             .cloned()
             .map(|mut mutation| {
-                mutation.root = name.to_string();
+                mutation.binding = name.to_string();
                 mutation
             })
             .collect::<Vec<_>>();
-        self.mutations.retain(|mutation| mutation.root != name);
+        self.mutations.retain(|mutation| mutation.binding != name);
         self.mutations.extend(copied);
         true
     }
@@ -324,10 +325,10 @@ impl EvaluationState {
         let copied = values
             .mutations
             .iter()
-            .filter(|mutation| mutation.root == imported_name)
+            .filter(|mutation| mutation.binding == imported_name)
             .cloned()
             .map(|mut mutation| {
-                mutation.root = bound_name.to_string();
+                mutation.binding = bound_name.to_string();
                 mutation
             })
             .collect::<Vec<_>>();
@@ -456,12 +457,11 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
         {
             let right = expression::evaluate_value(&self.context, state, &assign.value);
             state.assign_value(name, expression::add_values(left, right, origin), origin);
-            state.mutations.push(PythonMutation {
-                root: name.to_string(),
-                access: Vec::new(),
-                method: "extend".to_string(),
-                origin,
-            });
+            let target = MutationTarget::from_expr(&assign.target)
+                .expect("a name target is a supported mutation target");
+            state
+                .mutations
+                .push(target.into_fact(PythonMutationOperation::Extend, origin));
             return;
         }
 
@@ -469,7 +469,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
             && let Some(target) = MutationTarget::from_expr(&assign.target)
         {
             let extension = expression::evaluate_value(&self.context, state, &assign.value);
-            super::mutation::apply_augmented_add(state, &target, &extension, origin);
+            super::mutation::apply_augmented_add(state, target, &extension, origin);
             return;
         }
 

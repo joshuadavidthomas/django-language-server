@@ -153,16 +153,24 @@ pub enum PythonImportOutcomeView {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonMutationView {
-    pub root: String,
-    pub access: Vec<PythonMutationAccessView>,
-    pub method: String,
+    pub binding: String,
+    pub path: Vec<PythonMutationPathSegmentView>,
+    pub operation: PythonMutationOperationView,
     pub origin: djls_source::Origin,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PythonMutationAccessView {
+pub enum PythonMutationPathSegmentView {
     Index(usize),
     Key(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PythonMutationOperationView {
+    Append,
+    Extend,
+    Insert,
+    Remove,
 }
 
 pub fn python_module_evaluation(
@@ -196,13 +204,13 @@ pub fn python_module_evaluation(
                 .mutations
                 .into_iter()
                 .map(|mutation| PythonMutationView {
-                    root: mutation.root,
-                    access: mutation
-                        .access
+                    binding: mutation.binding,
+                    path: mutation
+                        .path
                         .into_iter()
-                        .map(mutation_access_view)
+                        .map(mutation_path_segment_view)
                         .collect(),
-                    method: mutation.method,
+                    operation: mutation_operation_view(mutation.operation),
                     origin: mutation.origin,
                 })
                 .collect(),
@@ -394,9 +402,24 @@ fn import_outcome_view(outcome: evaluation::PythonImportOutcome) -> PythonImport
     }
 }
 
-fn mutation_access_view(access: evaluation::PythonMutationAccess) -> PythonMutationAccessView {
-    match access {
-        evaluation::PythonMutationAccess::Index(index) => PythonMutationAccessView::Index(index),
-        evaluation::PythonMutationAccess::Key(key) => PythonMutationAccessView::Key(key),
+fn mutation_path_segment_view(
+    segment: evaluation::PythonMutationPathSegment,
+) -> PythonMutationPathSegmentView {
+    match segment {
+        evaluation::PythonMutationPathSegment::Index(index) => {
+            PythonMutationPathSegmentView::Index(index)
+        }
+        evaluation::PythonMutationPathSegment::Key(key) => PythonMutationPathSegmentView::Key(key),
+    }
+}
+
+fn mutation_operation_view(
+    operation: evaluation::PythonMutationOperation,
+) -> PythonMutationOperationView {
+    match operation {
+        evaluation::PythonMutationOperation::Append => PythonMutationOperationView::Append,
+        evaluation::PythonMutationOperation::Extend => PythonMutationOperationView::Extend,
+        evaluation::PythonMutationOperation::Insert => PythonMutationOperationView::Insert,
+        evaluation::PythonMutationOperation::Remove => PythonMutationOperationView::Remove,
     }
 }

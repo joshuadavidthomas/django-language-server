@@ -12,7 +12,8 @@ use crate::python::evaluation::PythonList;
 use crate::python::evaluation::PythonListItem;
 use crate::python::evaluation::PythonModuleValues;
 use crate::python::evaluation::PythonMutation;
-use crate::python::evaluation::PythonMutationAccess;
+use crate::python::evaluation::PythonMutationOperation;
+use crate::python::evaluation::PythonMutationPathSegment;
 use crate::python::evaluation::PythonUnknown;
 use crate::python::evaluation::PythonUnknownCause;
 use crate::python::evaluation::PythonValue;
@@ -1264,18 +1265,23 @@ fn dict_lookup<'a>(
     (value, issues)
 }
 
-fn supports_mutation(setting: KnownSetting, mutation: &PythonMutation) -> bool {
+fn setting_accepts_mutation(setting: KnownSetting, mutation: &PythonMutation) -> bool {
     match setting {
         KnownSetting::InstalledApps => {
-            mutation.access.is_empty()
+            mutation.path.is_empty()
                 && matches!(
-                    mutation.method.as_str(),
-                    "append" | "extend" | "insert" | "remove"
+                    mutation.operation,
+                    PythonMutationOperation::Append
+                        | PythonMutationOperation::Extend
+                        | PythonMutationOperation::Insert
+                        | PythonMutationOperation::Remove
                 )
         }
         KnownSetting::Templates => {
-            matches!(mutation.method.as_str(), "append" | "extend")
-                && matches!(mutation.access.as_slice(), [PythonMutationAccess::Index(_), PythonMutationAccess::Key(key)] if key == "DIRS")
+            matches!(
+                mutation.operation,
+                PythonMutationOperation::Append | PythonMutationOperation::Extend
+            ) && matches!(mutation.path.as_slice(), [PythonMutationPathSegment::Index(_), PythonMutationPathSegment::Key(key)] if key == "DIRS")
         }
         KnownSetting::StaticUrl | KnownSetting::StaticRoot | KnownSetting::StaticFilesDirs => false,
     }
@@ -1290,8 +1296,8 @@ fn unsupported_mutation_issues(
         .mutations
         .iter()
         .filter(|mutation| {
-            mutation.root == setting.name()
-                && !supports_mutation(setting, mutation)
+            mutation.binding == setting.name()
+                && !setting_accepts_mutation(setting, mutation)
                 && value_contains_origin(value, mutation.origin)
         })
         .map(|mutation| issue(SettingIssueKind::UnsupportedMutation, Some(mutation.origin)))

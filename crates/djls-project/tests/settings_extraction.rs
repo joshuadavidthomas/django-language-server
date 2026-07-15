@@ -13,6 +13,8 @@ use djls_project::testing::PythonBoundValueView;
 use djls_project::testing::PythonImportErrorView;
 use djls_project::testing::PythonImportOutcomeView;
 use djls_project::testing::PythonListItemView;
+use djls_project::testing::PythonMutationOperationView;
+use djls_project::testing::PythonMutationPathSegmentView;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::PythonUnknownCauseView;
 use djls_project::testing::PythonValueKindView;
@@ -692,12 +694,12 @@ fn python_module_evaluation_records_mutation_origins_on_values_and_effects() {
     let [mutation] = evaluation.mutations.as_slice() else {
         panic!("append should record one mutation");
     };
-    assert_eq!(mutation.root, "VALUES");
-    assert_eq!(mutation.method, "append");
-    assert!(mutation.access.is_empty());
+    assert_eq!(mutation.binding, "VALUES");
+    assert_eq!(mutation.operation, PythonMutationOperationView::Append);
+    assert!(mutation.path.is_empty());
     assert_eq!(
-        mutation.origin.span,
-        expected_span(source, "VALUES.append('added')")
+        mutation.origin,
+        djls_source::Origin::new(settings, expected_span(source, "VALUES.append('added')"))
     );
     let binding = evaluation
         .binding("VALUES")
@@ -715,6 +717,123 @@ fn python_module_evaluation_records_mutation_origins_on_values_and_effects() {
 }
 
 #[test]
+fn python_module_evaluation_records_typed_nested_mutation_facts() {
+    let db = TestDatabase::new();
+    let source = "TEMPLATES = [{'DIRS': []}]\nTEMPLATES[0]['DIRS'].append('/one')\nTEMPLATES[0]['DIRS'] += ['/two']\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let [append, augmented_add] = evaluation.mutations.as_slice() else {
+        panic!("the nested mutations should produce two durable facts");
+    };
+    let expected_path = [
+        PythonMutationPathSegmentView::Index(0),
+        PythonMutationPathSegmentView::Key("DIRS".to_string()),
+    ];
+    assert_eq!(append.binding, "TEMPLATES");
+    assert_eq!(append.path, expected_path);
+    assert_eq!(append.operation, PythonMutationOperationView::Append);
+    assert_eq!(
+        append.origin,
+        djls_source::Origin::new(
+            settings,
+            expected_span(source, "TEMPLATES[0]['DIRS'].append('/one')"),
+        )
+    );
+    assert_eq!(augmented_add.binding, "TEMPLATES");
+    assert_eq!(augmented_add.path, expected_path);
+    assert_eq!(augmented_add.operation, PythonMutationOperationView::Extend);
+    assert_eq!(
+        augmented_add.origin,
+        djls_source::Origin::new(
+            settings,
+            expected_span(source, "TEMPLATES[0]['DIRS'] += ['/two']"),
+        )
+    );
+}
+
+#[test]
+fn python_module_evaluation_discards_facts_after_unsupported_mutation() {
+    let db = TestDatabase::new();
+    let source = "VALUES = []\nVALUES.append('stale')\nVALUES.clear()\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert!(evaluation.mutations.is_empty());
+    let binding = evaluation
+        .binding("VALUES")
+        .expect("the invalidated binding should remain observable");
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: djls_project::testing::PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+            && unknown.origin == Some(djls_source::Origin::new(
+                settings,
+                expected_span(source, "VALUES.clear()"),
+            ))
+    ));
+}
+
+#[test]
+fn python_module_evaluation_records_and_degrades_unsupported_nested_augmented_add() {
+    let db = TestDatabase::new();
+    let source = "TEMPLATES = [{'DIRS': []}]\nTEMPLATES[0]['DIRS'].append('/one')\nTEMPLATES[0]['DIRS'] += 'invalid'\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let [append, augmented_add] = evaluation.mutations.as_slice() else {
+        panic!("both attempted mutations should remain observable");
+    };
+    assert_eq!(append.operation, PythonMutationOperationView::Append);
+    assert_eq!(augmented_add.operation, PythonMutationOperationView::Extend);
+    assert_eq!(append.binding, "TEMPLATES");
+    assert_eq!(augmented_add.binding, "TEMPLATES");
+
+    let binding = evaluation
+        .binding("TEMPLATES")
+        .expect("the degraded binding should remain observable");
+    assert!(binding.alternatives.iter().any(|alternative| {
+        matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: djls_project::testing::PythonValueView {
+                    kind: PythonValueKindView::List(_),
+                    ..
+                },
+                ..
+            })
+        )
+    }));
+    assert!(binding.alternatives.iter().any(|alternative| {
+        matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: djls_project::testing::PythonValueView {
+                    kind: PythonValueKindView::Unknown(unknown),
+                    ..
+                },
+                ..
+            }) if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+                && unknown.origin == Some(djls_source::Origin::new(
+                    settings,
+                    expected_span(source, "TEMPLATES[0]['DIRS'] += 'invalid'"),
+                ))
+        )
+    }));
+}
+
+#[test]
 fn python_module_evaluation_keeps_mutation_from_loop_body() {
     let db = TestDatabase::new();
     let source = "VALUES = []\nfor item in ITEMS:\n    VALUES.append(item)\n";
@@ -726,9 +845,9 @@ fn python_module_evaluation_keeps_mutation_from_loop_body() {
     let [mutation] = evaluation.mutations.as_slice() else {
         panic!("the loop body mutation should be retained");
     };
-    assert_eq!(mutation.root, "VALUES");
-    assert_eq!(mutation.method, "append");
-    assert!(mutation.access.is_empty());
+    assert_eq!(mutation.binding, "VALUES");
+    assert_eq!(mutation.operation, PythonMutationOperationView::Append);
+    assert!(mutation.path.is_empty());
     assert_eq!(
         mutation.origin,
         djls_source::Origin::new(settings, expected_span(source, "VALUES.append(item)")),
@@ -1001,13 +1120,13 @@ fn python_module_cycle_unions_all_feasible_mutations_independent_of_entry_order(
             evaluation
                 .mutations
                 .iter()
-                .any(|mutation| mutation.root == "VALUES_A")
+                .any(|mutation| mutation.binding == "VALUES_A")
         );
         assert!(
             evaluation
                 .mutations
                 .iter()
-                .any(|mutation| mutation.root == "VALUES_B")
+                .any(|mutation| mutation.binding == "VALUES_B")
         );
     }
 }

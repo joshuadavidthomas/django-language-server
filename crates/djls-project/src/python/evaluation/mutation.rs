@@ -15,43 +15,68 @@ use crate::ast::ExprExt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonMutation {
-    pub(crate) root: String,
-    pub(crate) access: Vec<PythonMutationAccess>,
-    pub(crate) method: String,
+    pub(crate) binding: String,
+    pub(crate) path: Vec<PythonMutationPathSegment>,
+    pub(crate) operation: PythonMutationOperation,
     pub(crate) origin: Origin,
 }
 
-// REVIEW: PythonMutationAccess and MutationAccess -- clean up on aisle three, feels like cruft
-// accumulated in the PR hasn't been addressed
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PythonMutationAccess {
+pub(crate) enum PythonMutationPathSegment {
     Index(usize),
     Key(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PythonMutationOperation {
+    Append,
+    Extend,
+    Insert,
+    Remove,
+}
+
+impl PythonMutationOperation {
+    fn from_method(method: &str) -> Option<Self> {
+        match method {
+            "append" => Some(Self::Append),
+            "extend" => Some(Self::Extend),
+            "insert" => Some(Self::Insert),
+            "remove" => Some(Self::Remove),
+            _ => None,
+        }
+    }
+}
+
 pub(super) struct MutationTarget<'a> {
-    pub(super) root: &'a str,
-    access: Vec<MutationAccess>,
+    pub(super) binding: &'a str,
+    path: Vec<PythonMutationPathSegment>,
 }
 
 impl<'a> MutationTarget<'a> {
     pub(super) fn from_expr(expr: &'a ast::Expr) -> Option<Self> {
-        let mut access = Vec::new();
-        let root = collect_mutation_target(expr, &mut access)?;
-        access.reverse();
-        Some(Self { root, access })
+        let mut path = Vec::new();
+        let binding = collect_mutation_target(expr, &mut path)?;
+        path.reverse();
+        Some(Self { binding, path })
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum MutationAccess {
-    Index(usize),
-    Key(String),
+    pub(super) fn into_fact(
+        self,
+        operation: PythonMutationOperation,
+        origin: Origin,
+    ) -> PythonMutation {
+        PythonMutation {
+            binding: self.binding.to_string(),
+            path: self.path,
+            operation,
+            origin,
+        }
+    }
 }
 
 fn collect_mutation_target<'a>(
     expr: &'a ast::Expr,
-    access: &mut Vec<MutationAccess>,
+    path: &mut Vec<PythonMutationPathSegment>,
 ) -> Option<&'a str> {
     if let Some(name) = expr.name_target() {
         return Some(name);
@@ -62,50 +87,31 @@ fn collect_mutation_target<'a>(
     };
 
     if let Some(index) = subscript.slice.non_negative_integer() {
-        access.push(MutationAccess::Index(index));
+        path.push(PythonMutationPathSegment::Index(index));
     } else if let Some(key) = subscript.slice.string_literal() {
-        access.push(MutationAccess::Key(key.to_string()));
+        path.push(PythonMutationPathSegment::Key(key.to_string()));
     } else {
         return None;
     }
 
-    collect_mutation_target(&subscript.value, access)
+    collect_mutation_target(&subscript.value, path)
 }
 
 pub(super) fn apply_augmented_add(
     state: &mut EvaluationState,
-    target: &MutationTarget<'_>,
+    target: MutationTarget<'_>,
     extension: &PythonValue,
     origin: Origin,
 ) {
-    let supported = mutate_target(state, target, origin, |value| {
-        let PythonValueKind::List(list) = &mut value.kind else {
-            return false;
-        };
-        match &extension.kind {
-            PythonValueKind::List(extension) => list.extend(extension, origin),
-            PythonValueKind::Unknown(unknown) => {
-                list.append(&PythonListItem::UnknownUnpack(unknown.clone()));
-            }
-            PythonValueKind::Str(_)
-            | PythonValueKind::Bool(_)
-            | PythonValueKind::Path(_)
-            | PythonValueKind::Dict(_) => return false,
-        }
-        true
+    let supported = mutate_target(state, &target, origin, |value| {
+        extend_list_value(value, extension, origin)
     });
-    state.mutations.push(PythonMutation {
-        root: target.root.to_string(),
-        access: target.access.iter().map(access_to_public).collect(),
-        method: "extend".to_string(),
-        origin,
-    });
+    let binding = target.binding.to_string();
+    state
+        .mutations
+        .push(target.into_fact(PythonMutationOperation::Extend, origin));
     if !supported {
-        state.degrade_names(
-            [target.root.to_string()],
-            &PythonUnknownCause::UnsupportedMutation,
-            origin,
-        );
+        state.degrade_names([binding], &PythonUnknownCause::UnsupportedMutation, origin);
     }
 }
 
@@ -138,30 +144,33 @@ pub(super) fn walk_expr(
         );
         return;
     };
-    let method = attribute.attr.as_str();
     let origin = context.origin(call);
-    let supported = apply_mutation_call(context, state, call, &target, method, origin);
-    state.mutations.push(PythonMutation {
-        root: target.root.to_string(),
-        access: target.access.iter().map(access_to_public).collect(),
-        method: method.to_string(),
-        origin,
-    });
-    if !supported {
+    let Some(operation) = PythonMutationOperation::from_method(attribute.attr.as_str()) else {
         state.invalidate_names(
-            [target.root.to_string()],
+            [target.binding.to_string()],
+            &PythonUnknownCause::UnsupportedMutation,
+            origin,
+        );
+        return;
+    };
+    let supported = apply_mutation_operation(context, state, call, &target, operation, origin);
+    if supported {
+        state.mutations.push(target.into_fact(operation, origin));
+    } else {
+        state.invalidate_names(
+            [target.binding.to_string()],
             &PythonUnknownCause::UnsupportedMutation,
             origin,
         );
     }
 }
 
-fn apply_mutation_call(
+fn apply_mutation_operation(
     context: &EvaluationContext<'_>,
     state: &mut EvaluationState,
     call: &ast::ExprCall,
     target: &MutationTarget<'_>,
-    method: &str,
+    operation: PythonMutationOperation,
     origin: Origin,
 ) -> bool {
     let arguments = call
@@ -170,31 +179,22 @@ fn apply_mutation_call(
         .iter()
         .map(|argument| evaluate_value(context, state, argument))
         .collect::<Vec<_>>();
-    match (method, arguments.as_slice()) {
-        ("append", [argument]) => mutate_target(state, target, origin, |value| {
-            let PythonValueKind::List(list) = &mut value.kind else {
-                return false;
-            };
-            list.append(&PythonListItem::Value(argument.clone()));
-            true
-        }),
-        ("extend", [extension]) => mutate_target(state, target, origin, |value| {
-            let PythonValueKind::List(list) = &mut value.kind else {
-                return false;
-            };
-            match &extension.kind {
-                PythonValueKind::List(extension) => list.extend(extension, origin),
-                PythonValueKind::Unknown(unknown) => {
-                    list.append(&PythonListItem::UnknownUnpack(unknown.clone()));
-                }
-                PythonValueKind::Str(_)
-                | PythonValueKind::Bool(_)
-                | PythonValueKind::Path(_)
-                | PythonValueKind::Dict(_) => return false,
-            }
-            true
-        }),
-        ("insert", [_, argument]) => {
+    match (operation, arguments.as_slice()) {
+        (PythonMutationOperation::Append, [argument]) => {
+            mutate_target(state, target, origin, |value| {
+                let PythonValueKind::List(list) = &mut value.kind else {
+                    return false;
+                };
+                list.append(&PythonListItem::Value(argument.clone()));
+                true
+            })
+        }
+        (PythonMutationOperation::Extend, [extension]) => {
+            mutate_target(state, target, origin, |value| {
+                extend_list_value(value, extension, origin)
+            })
+        }
+        (PythonMutationOperation::Insert, [_, argument]) => {
             let index = &call.arguments.args[0];
             let non_negative = index.non_negative_integer();
             let negative = index.negative_integer();
@@ -221,28 +221,53 @@ fn apply_mutation_call(
                     true
                 })
         }
-        ("remove", [argument]) => mutate_target(state, target, origin, |value| {
-            let PythonValueKind::Str(needle) = &argument.kind else {
-                return false;
-            };
-            let PythonValueKind::List(list) = &mut value.kind else {
-                return false;
-            };
-            if !list_is_authoritative(list) {
-                return false;
-            }
-            let Some(index) = list.items.iter().position(|item| {
-                matches!(item, PythonListItem::Value(PythonValue {
-                    kind: PythonValueKind::Str(candidate), ..
-                }) if candidate == needle)
-            }) else {
-                return false;
-            };
-            list.remove(index);
-            true
-        }),
-        ("append" | "extend" | "insert" | "remove" | _, _) => false,
+        (PythonMutationOperation::Remove, [argument]) => {
+            mutate_target(state, target, origin, |value| {
+                let PythonValueKind::Str(needle) = &argument.kind else {
+                    return false;
+                };
+                let PythonValueKind::List(list) = &mut value.kind else {
+                    return false;
+                };
+                if !list_is_authoritative(list) {
+                    return false;
+                }
+                let Some(index) = list.items.iter().position(|item| {
+                    matches!(item, PythonListItem::Value(PythonValue {
+                        kind: PythonValueKind::Str(candidate), ..
+                    }) if candidate == needle)
+                }) else {
+                    return false;
+                };
+                list.remove(index);
+                true
+            })
+        }
+        (
+            PythonMutationOperation::Append
+            | PythonMutationOperation::Extend
+            | PythonMutationOperation::Insert
+            | PythonMutationOperation::Remove,
+            _,
+        ) => false,
     }
+}
+
+fn extend_list_value(value: &mut PythonValue, extension: &PythonValue, origin: Origin) -> bool {
+    let PythonValueKind::List(list) = &mut value.kind else {
+        return false;
+    };
+    match &extension.kind {
+        PythonValueKind::List(extension) => list.extend(extension, origin),
+        PythonValueKind::Unknown(unknown) => {
+            list.append(&PythonListItem::UnknownUnpack(unknown.clone()));
+        }
+        PythonValueKind::Str(_)
+        | PythonValueKind::Bool(_)
+        | PythonValueKind::Path(_)
+        | PythonValueKind::Dict(_) => return false,
+    }
+    true
 }
 
 fn list_is_authoritative(list: &PythonList) -> bool {
@@ -257,26 +282,26 @@ fn mutate_target(
     origin: Origin,
     mutate: impl Fn(&mut PythonValue) -> bool,
 ) -> bool {
-    let Some(binding) = state.bindings.get_mut(target.root) else {
+    let Some(binding) = state.bindings.get_mut(target.binding) else {
         return false;
     };
     let Some(bound) = binding.single_bound_mut() else {
         return false;
     };
-    let supported = mutate_at_access(&mut bound.value, &target.access, origin, &mutate);
+    let supported = mutate_at_path(&mut bound.value, &target.path, origin, &mutate);
     if supported {
         bound.value.normalize();
     }
     supported
 }
 
-fn mutate_at_access(
+fn mutate_at_path(
     value: &mut PythonValue,
-    access: &[MutationAccess],
+    path: &[PythonMutationPathSegment],
     origin: Origin,
     mutate: &impl Fn(&mut PythonValue) -> bool,
 ) -> bool {
-    let Some((next_access, remaining)) = access.split_first() else {
+    let Some((next_segment, remaining)) = path.split_first() else {
         if !mutate(value) {
             return false;
         }
@@ -285,15 +310,15 @@ fn mutate_at_access(
         return true;
     };
 
-    match next_access {
-        MutationAccess::Index(index) => {
+    match next_segment {
+        PythonMutationPathSegment::Index(index) => {
             let PythonValueKind::List(list) = &mut value.kind else {
                 return false;
             };
             let Some(PythonListItem::Value(next)) = list.items.get_mut(*index) else {
                 return false;
             };
-            if !mutate_at_access(next, remaining, origin, mutate) {
+            if !mutate_at_path(next, remaining, origin, mutate) {
                 return false;
             }
             for variant in &mut list.variants {
@@ -303,13 +328,13 @@ fn mutate_at_access(
                 let Some(PythonListItem::Value(next)) = variant.items.get_mut(*index) else {
                     return false;
                 };
-                if !mutate_at_access(next, remaining, origin, mutate) {
+                if !mutate_at_path(next, remaining, origin, mutate) {
                     return false;
                 }
             }
             true
         }
-        MutationAccess::Key(key) => {
+        PythonMutationPathSegment::Key(key) => {
             let PythonValueKind::Dict(dict) = &mut value.kind else {
                 return false;
             };
@@ -323,17 +348,7 @@ fn mutate_at_access(
             }) else {
                 return false;
             };
-            mutate_at_access(next, remaining, origin, mutate)
+            mutate_at_path(next, remaining, origin, mutate)
         }
-    }
-}
-
-// REVIEW: oh, i guess there is a difference... the naming sucks then. and this methods could have
-// been a trait impl of Into or From, or on one MutationAccess. but honestly, i'd prefer a second
-// look because feels like two layers too many
-fn access_to_public(access: &MutationAccess) -> PythonMutationAccess {
-    match access {
-        MutationAccess::Index(index) => PythonMutationAccess::Index(*index),
-        MutationAccess::Key(key) => PythonMutationAccess::Key(key.clone()),
     }
 }
