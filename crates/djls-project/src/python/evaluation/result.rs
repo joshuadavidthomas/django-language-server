@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use djls_source::File;
@@ -5,7 +6,7 @@ use djls_source::FileReadError;
 use djls_source::Origin;
 
 use super::BranchConstraints;
-use super::PythonBindings;
+use super::PythonBinding;
 use super::PythonMutation;
 use super::PythonUnknown;
 use crate::python::PythonModuleName;
@@ -20,7 +21,7 @@ pub(crate) enum PythonModuleValuesOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct PythonModuleValues {
-    pub(crate) bindings: PythonBindings,
+    pub(crate) bindings: BTreeMap<String, PythonBinding>,
     pub(crate) namespace_remainder: Option<PythonNamespaceRemainder>,
     pub(crate) syntax_errors: Vec<PythonSyntaxError>,
     pub(crate) syntax_impacts: Vec<PythonSyntaxImpact>,
@@ -130,6 +131,15 @@ impl PythonModuleEvaluation {
 pub(crate) struct PythonModuleDependencies {
     pub(crate) files: Vec<File>,
     pub(crate) imports: Vec<PythonImportOutcome>,
+}
+
+impl PythonModuleDependencies {
+    pub(super) fn rooted(file: File) -> Self {
+        Self {
+            files: vec![file],
+            imports: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -3,9 +3,6 @@ use super::EvaluationContext;
 use super::EvaluationState;
 use super::File;
 use super::Origin;
-use super::PythonBinding;
-use super::PythonBindingAlternative;
-use super::PythonBoundValue;
 use super::PythonImportOutcome;
 use super::PythonImportRequest;
 use super::PythonModule;
@@ -13,9 +10,8 @@ use super::PythonModuleValuesOutcome;
 use super::PythonNamespaceCause;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
-use super::PythonValue;
 use super::ast;
-use super::extend_unique;
+use super::extend_ordered_unique;
 
 pub(super) fn walk_import_from(
     context: &EvaluationContext<'_>,
@@ -93,7 +89,7 @@ fn apply_resolved_import(
     origin: Origin,
     imported_file: File,
 ) {
-    extend_unique(&mut state.dependencies.files, &[imported_file]);
+    extend_ordered_unique(&mut state.dependencies.files, &[imported_file]);
     let imported =
         super::super::query::evaluate_python_module(context.db, context.project, imported_file);
     if imported.is_cycle_seed() {
@@ -155,18 +151,6 @@ fn apply_resolved_import(
     }
 }
 
-pub(super) fn constrained_unknown_binding(
-    cause: PythonUnknownCause,
-    origin: Origin,
-    constraints: &BranchConstraints,
-) -> Option<PythonBinding> {
-    PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-        value: PythonValue::unknown(cause, Some(origin)),
-        binding_origins: vec![origin],
-    })])
-    .intersect_constraints(constraints)
-}
-
 fn apply_failed_import(
     state: &mut EvaluationState,
     import: &ast::StmtImportFrom,
@@ -175,7 +159,7 @@ fn apply_failed_import(
     cause: PythonUnknownCause,
 ) {
     if is_star {
-        state.degrade_all_bindings(cause.clone(), origin, &BranchConstraints::unconstrained());
+        state.degrade_all_bindings(&cause, origin, &BranchConstraints::unconstrained());
         state
             .namespace_causes
             .push(PythonNamespaceCause::unconstrained(PythonUnknown {
@@ -188,7 +172,7 @@ fn apply_failed_import(
                 .asname
                 .as_ref()
                 .map_or_else(|| alias.name.as_str(), ast::Identifier::as_str);
-            state.bind_unknown(bound_name, cause.clone(), origin);
+            state.bind_unknown(bound_name, &cause, origin);
         }
     }
 }

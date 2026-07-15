@@ -1,5 +1,7 @@
-mod expression;
+pub(super) mod expression;
 mod imports;
+
+use std::collections::BTreeMap;
 
 use djls_source::File;
 use djls_source::Origin;
@@ -8,9 +10,7 @@ use ruff_python_ast as ast;
 
 use super::BranchConstraints;
 use super::PythonBinding;
-use super::PythonBindingAlternative;
-use super::PythonBindings;
-use super::PythonBoundValue;
+use super::PythonBindingState;
 use super::PythonDict;
 use super::PythonDictItem;
 use super::PythonImportOutcome;
@@ -31,11 +31,10 @@ use super::control_flow::BranchPath;
 use super::control_flow::Truthiness;
 use super::control_flow::evaluate_test_with;
 use super::control_flow::is_irrefutable_match_case;
+use super::extend_ordered_unique;
 use super::mutation::MutationTarget;
+use super::statement_walk;
 use super::statement_walk::StatementInterpreter;
-use super::statement_walk::{
-    self,
-};
 use super::touched_names::TouchedNames;
 use super::touched_names::collect_touched_names;
 use super::touched_names::first_import_segment;
@@ -57,26 +56,9 @@ pub(super) fn evaluate_body(
     body: &[ast::Stmt],
 ) -> PythonModuleEvaluation {
     let context = EvaluationContext { db, project, file };
-    let state = EvaluationState {
-        dependencies: PythonModuleDependencies {
-            files: vec![file],
-            imports: Vec::new(),
-        },
-        ..EvaluationState::default()
-    };
+    let state = EvaluationState::new(file);
     let mut evaluator = SemanticEvaluator { context };
-    let state = statement_walk::walk_body(&mut evaluator, state, body);
-    PythonModuleEvaluation::evaluated(
-        PythonModuleValuesOutcome::Readable(PythonModuleValues {
-            bindings: state.bindings,
-            namespace_remainder: (!state.namespace_causes.is_empty())
-                .then(|| PythonNamespaceRemainder::new(state.namespace_causes)),
-            syntax_errors: Vec::new(),
-            syntax_impacts: Vec::new(),
-            mutations: state.mutations,
-        }),
-        state.dependencies,
-    )
+    statement_walk::walk_body(&mut evaluator, state, body).finish()
 }
 
 pub(super) struct EvaluationContext<'db> {
@@ -95,50 +77,58 @@ impl EvaluationContext<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct EvaluationState {
-    pub(super) bindings: PythonBindings,
+    pub(super) bindings: BTreeMap<String, PythonBinding>,
     namespace_causes: Vec<PythonNamespaceCause>,
     pub(super) mutations: Vec<PythonMutation>,
     dependencies: PythonModuleDependencies,
 }
 
 impl EvaluationState {
+    fn new(file: File) -> Self {
+        Self {
+            bindings: BTreeMap::new(),
+            namespace_causes: Vec::new(),
+            mutations: Vec::new(),
+            dependencies: PythonModuleDependencies::rooted(file),
+        }
+    }
+
+    fn finish(self) -> PythonModuleEvaluation {
+        PythonModuleEvaluation::evaluated(
+            PythonModuleValuesOutcome::Readable(PythonModuleValues {
+                bindings: self.bindings,
+                namespace_remainder: (!self.namespace_causes.is_empty())
+                    .then(|| PythonNamespaceRemainder::new(self.namespace_causes)),
+                syntax_errors: Vec::new(),
+                syntax_impacts: Vec::new(),
+                mutations: self.mutations,
+            }),
+            self.dependencies,
+        )
+    }
+
     fn binding(&self, name: &str) -> Option<&PythonBinding> {
         self.bindings.get(name)
     }
 
     fn assign_value(&mut self, name: &str, value: PythonValue, origin: Origin) {
-        self.assign_binding(
-            name,
-            PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-                value,
-                binding_origins: vec![origin],
-            })]),
-            origin,
-        );
+        self.assign_binding(name, PythonBinding::bound(value, origin), origin);
     }
 
-    fn assign_binding(&mut self, name: &str, mut binding: PythonBinding, origin: Origin) {
+    fn assign_binding(&mut self, name: &str, binding: PythonBinding, origin: Origin) {
         self.mutations.retain(|mutation| mutation.root != name);
-        for alternative in binding.alternatives_mut() {
-            if let PythonBindingAlternative::Bound(bound) = alternative {
-                bound.binding_origins = vec![origin];
-            }
-        }
-        self.bindings.insert(name.to_string(), binding);
+        self.bindings
+            .insert(name.to_string(), binding.rebase_binding_origin(origin));
     }
 
     fn assign_from_name(&mut self, name: &str, source: &str, origin: Origin) -> bool {
-        let Some(mut binding) = self.binding(source).cloned() else {
+        let Some(binding) = self.binding(source).cloned() else {
             return false;
         };
-        for alternative in binding.alternatives_mut() {
-            if let PythonBindingAlternative::Bound(bound) = alternative {
-                bound.binding_origins = vec![origin];
-            }
-        }
-        self.bindings.insert(name.to_string(), binding);
+        self.bindings
+            .insert(name.to_string(), binding.rebase_binding_origin(origin));
         let copied = self
             .mutations
             .iter()
@@ -154,8 +144,8 @@ impl EvaluationState {
         true
     }
 
-    fn bind_unknown(&mut self, name: &str, cause: PythonUnknownCause, origin: Origin) {
-        self.assign_value(name, PythonValue::unknown(cause, Some(origin)), origin);
+    fn bind_unknown(&mut self, name: &str, cause: &PythonUnknownCause, origin: Origin) {
+        self.assign_binding(name, PythonBinding::unknown(cause, origin), origin);
     }
 
     fn value_for_name(&self, name: &str) -> Option<PythonValue> {
@@ -166,7 +156,7 @@ impl EvaluationState {
     fn bool_value(&self, name: &str) -> Option<bool> {
         let binding = self.binding(name)?;
         let mut values = binding.alternatives();
-        let PythonBindingAlternative::Bound(first) = values.next()? else {
+        let PythonBindingState::Bound(first) = values.next()? else {
             return None;
         };
         let PythonValueKind::Bool(value) = first.value.kind else {
@@ -174,7 +164,7 @@ impl EvaluationState {
         };
         values
             .all(|alternative| {
-                matches!(alternative, PythonBindingAlternative::Bound(bound)
+                matches!(alternative, PythonBindingState::Bound(bound)
                     if matches!(bound.value.kind, PythonValueKind::Bool(other) if other == value))
             })
             .then_some(value)
@@ -182,7 +172,7 @@ impl EvaluationState {
 
     fn path_bindings(&self) -> PythonPathBindings {
         let mut paths = PythonPathBindings::default();
-        for (name, binding) in &self.bindings.0 {
+        for (name, binding) in &self.bindings {
             let Some(bound) = binding.single_bound() else {
                 continue;
             };
@@ -193,50 +183,42 @@ impl EvaluationState {
         paths
     }
 
-    #[allow(clippy::needless_pass_by_value)]
     fn degrade_all_bindings(
         &mut self,
-        cause: PythonUnknownCause,
+        cause: &PythonUnknownCause,
         origin: Origin,
         constraints: &BranchConstraints,
     ) {
-        for binding in self.bindings.0.values_mut() {
-            let unknown = imports::constrained_unknown_binding(cause.clone(), origin, constraints)
+        for binding in self.bindings.values_mut() {
+            let unknown = PythonBinding::constrained_unknown(cause, origin, constraints)
                 .expect("a namespace cause must have a feasible branch");
             *binding = binding.clone().join(unknown, origin);
         }
     }
 
-    #[allow(clippy::needless_pass_by_value)]
     pub(super) fn invalidate_names(
         &mut self,
         names: impl IntoIterator<Item = String>,
-        cause: PythonUnknownCause,
+        cause: &PythonUnknownCause,
         origin: Origin,
     ) {
         for name in names {
-            self.bind_unknown(&name, cause.clone(), origin);
+            self.bind_unknown(&name, cause, origin);
         }
     }
 
-    #[allow(clippy::needless_pass_by_value)]
     pub(super) fn degrade_names(
         &mut self,
         names: impl IntoIterator<Item = String>,
-        cause: PythonUnknownCause,
+        cause: &PythonUnknownCause,
         origin: Origin,
     ) {
         for name in names {
-            let unknown =
-                PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-                    value: PythonValue::unknown(cause.clone(), Some(origin)),
-                    binding_origins: vec![origin],
-                })]);
-            let binding = self
-                .bindings
-                .0
-                .remove(&name)
-                .map_or(unknown.clone(), |binding| binding.join(unknown, origin));
+            let unknown = PythonBinding::unknown(cause, origin);
+            let binding = match self.bindings.remove(&name) {
+                Some(binding) => binding.join(unknown, origin),
+                None => unknown,
+            };
             self.bindings.insert(name, binding);
         }
     }
@@ -244,15 +226,11 @@ impl EvaluationState {
     fn apply_star_import(&mut self, values: &PythonModuleValues, import_origin: Origin) {
         if let Some(remainder) = &values.namespace_remainder {
             for cause in &remainder.causes {
-                self.degrade_all_bindings(
-                    cause.unknown.cause.clone(),
-                    import_origin,
-                    &cause.constraints,
-                );
+                self.degrade_all_bindings(&cause.unknown.cause, import_origin, &cause.constraints);
             }
         }
-        for (name, binding) in &values.bindings.0 {
-            let prior = self.bindings.0.get(name).cloned();
+        for (name, binding) in &values.bindings {
+            let prior = self.bindings.get(name).cloned();
             let mut binding = binding.clone();
             rebase_cycle_unknowns(&mut binding, import_origin);
             self.bindings.insert(
@@ -264,7 +242,6 @@ impl EvaluationState {
         for impact in &values.syntax_impacts {
             let affected = self
                 .bindings
-                .0
                 .keys()
                 .filter(|name| impact.affects(name))
                 .cloned()
@@ -272,7 +249,7 @@ impl EvaluationState {
             if !affected.is_empty() {
                 self.degrade_names(
                     affected,
-                    PythonUnknownCause::SyntaxErrors(vec![impact.error.clone()]),
+                    &PythonUnknownCause::SyntaxErrors(vec![impact.error.clone()]),
                     import_origin,
                 );
             }
@@ -287,7 +264,7 @@ impl EvaluationState {
                     origin: Some(import_origin),
                 }));
         }
-        extend_unique(&mut self.mutations, &values.mutations);
+        extend_ordered_unique(&mut self.mutations, &values.mutations);
         if let Some(remainder) = &values.namespace_remainder {
             self.namespace_causes
                 .extend(remainder.causes.iter().cloned().map(|mut cause| {
@@ -314,26 +291,22 @@ impl EvaluationState {
             .bindings
             .get(imported_name)
             .cloned()
-            .unwrap_or_else(|| PythonBinding::new(vec![PythonBindingAlternative::Unbound]));
-        for alternative in binding.alternatives_mut() {
-            if let PythonBindingAlternative::Bound(bound) = alternative {
-                bound.binding_origins = vec![origin];
-            }
-        }
+            .unwrap_or_else(PythonBinding::unbound)
+            .rebase_binding_origin(origin);
         rebase_cycle_unknowns(&mut binding, origin);
 
         let unbound_constraints = binding
             .alternatives_with_constraints()
             .filter_map(|(alternative, constraints)| {
-                (*alternative == PythonBindingAlternative::Unbound).then_some(constraints.clone())
+                (*alternative == PythonBindingState::Unbound).then_some(constraints.clone())
             })
             .collect::<Vec<_>>();
         if let Some(remainder) = &values.namespace_remainder {
             for unbound in &unbound_constraints {
                 for cause in &remainder.causes {
                     let constraints = unbound.intersection(&cause.constraints);
-                    if let Some(unknown) = imports::constrained_unknown_binding(
-                        cause.unknown.cause.clone(),
+                    if let Some(unknown) = PythonBinding::constrained_unknown(
+                        &cause.unknown.cause,
                         origin,
                         &constraints,
                     ) {
@@ -344,13 +317,7 @@ impl EvaluationState {
         }
         if !syntax_errors.is_empty() {
             let unknown =
-                PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-                    value: PythonValue::unknown(
-                        PythonUnknownCause::SyntaxErrors(syntax_errors),
-                        Some(origin),
-                    ),
-                    binding_origins: vec![origin],
-                })]);
+                PythonBinding::unknown(&PythonUnknownCause::SyntaxErrors(syntax_errors), origin);
             binding = binding.join(unknown, origin);
         }
         self.bindings.insert(bound_name.to_string(), binding);
@@ -364,7 +331,7 @@ impl EvaluationState {
                 mutation
             })
             .collect::<Vec<_>>();
-        extend_unique(&mut self.mutations, &copied);
+        extend_ordered_unique(&mut self.mutations, &copied);
     }
 
     fn join_branches(
@@ -375,23 +342,24 @@ impl EvaluationState {
     ) -> Self {
         let mut names = writes.names.clone();
         for branch in branches {
-            for (name, binding) in &branch.bindings.0 {
+            for (name, binding) in &branch.bindings {
                 if base.binding(name) != Some(binding) {
                     names.insert(name.clone());
                 }
             }
         }
         for name in names {
-            let mut joined = None;
+            let mut joined: Option<PythonBinding> = None;
             for (arm, branch) in branches.iter().enumerate() {
                 let mut candidate = branch
                     .binding(&name)
                     .cloned()
-                    .unwrap_or_else(|| PythonBinding::new(vec![PythonBindingAlternative::Unbound]));
+                    .unwrap_or_else(PythonBinding::unbound);
                 candidate.select_branch(origin, arm);
-                joined = Some(joined.map_or(candidate.clone(), |current: PythonBinding| {
-                    current.join(candidate, origin)
-                }));
+                joined = Some(match joined {
+                    Some(current) => current.join(candidate, origin),
+                    None => candidate,
+                });
             }
             if let Some(binding) = joined {
                 base.bindings.insert(name, binding);
@@ -406,21 +374,21 @@ impl EvaluationState {
                     cause.select_branch(origin, arm);
                     cause
                 }));
-            extend_unique(&mut base.mutations, &branch.mutations);
-            extend_unique(&mut base.dependencies.files, &branch.dependencies.files);
-            extend_unique(&mut base.dependencies.imports, &branch.dependencies.imports);
+            extend_ordered_unique(&mut base.mutations, &branch.mutations);
+            extend_ordered_unique(&mut base.dependencies.files, &branch.dependencies.files);
+            extend_ordered_unique(&mut base.dependencies.imports, &branch.dependencies.imports);
         }
         base
     }
 
     fn changed_writes_from(base: &Self, changed: &Self) -> TouchedNames {
         let mut writes = TouchedNames::default();
-        for (name, binding) in &changed.bindings.0 {
+        for (name, binding) in &changed.bindings {
             if base.binding(name) != Some(binding) {
                 writes.record(name);
             }
         }
-        for name in base.bindings.0.keys() {
+        for name in base.bindings.keys() {
             if changed.binding(name).is_none() {
                 writes.record(name);
             }
@@ -435,8 +403,8 @@ impl EvaluationState {
     }
 
     fn absorb_dependencies(&mut self, evaluation: &PythonModuleEvaluation) {
-        extend_unique(&mut self.dependencies.files, &evaluation.dependencies.files);
-        extend_unique(
+        extend_ordered_unique(&mut self.dependencies.files, &evaluation.dependencies.files);
+        extend_ordered_unique(
             &mut self.dependencies.imports,
             &evaluation.dependencies.imports,
         );
@@ -444,8 +412,8 @@ impl EvaluationState {
 }
 
 fn rebase_cycle_unknowns(binding: &mut PythonBinding, origin: Origin) {
-    for alternative in binding.alternatives_mut() {
-        let PythonBindingAlternative::Bound(bound) = alternative else {
+    for state in binding.alternatives_mut() {
+        let PythonBindingState::Bound(bound) = state else {
             continue;
         };
         let PythonValueKind::Unknown(unknown) = &mut bound.value.kind else {
@@ -509,7 +477,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
             &self.context,
             state,
             &assign.target,
-            PythonUnknownCause::UnsupportedMutation,
+            &PythonUnknownCause::UnsupportedMutation,
         );
     }
 
@@ -521,7 +489,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
             );
             state.bind_unknown(
                 bound_name,
-                PythonUnknownCause::UnsupportedExpression,
+                &PythonUnknownCause::UnsupportedExpression,
                 self.context.origin(alias),
             );
         }
@@ -540,7 +508,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
             &self.context,
             state,
             target,
-            PythonUnknownCause::UnsupportedExpression,
+            &PythonUnknownCause::UnsupportedExpression,
         );
     }
 
@@ -551,7 +519,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
     fn bind_function(&mut self, state: &mut Self::State, function: &ast::StmtFunctionDef) {
         state.bind_unknown(
             function.name.as_str(),
-            PythonUnknownCause::UnsupportedExpression,
+            &PythonUnknownCause::UnsupportedExpression,
             self.context.origin(function),
         );
     }
@@ -559,7 +527,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
     fn bind_class(&mut self, state: &mut Self::State, class: &ast::StmtClassDef) {
         state.bind_unknown(
             class.name.as_str(),
-            PythonUnknownCause::UnsupportedExpression,
+            &PythonUnknownCause::UnsupportedExpression,
             self.context.origin(class),
         );
     }
@@ -569,7 +537,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
             &self.context,
             state,
             target,
-            PythonUnknownCause::UnsupportedMutation,
+            &PythonUnknownCause::UnsupportedMutation,
         );
     }
 
@@ -578,7 +546,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
             &self.context,
             state,
             &alias.name,
-            PythonUnknownCause::UnsupportedExpression,
+            &PythonUnknownCause::UnsupportedExpression,
         );
     }
 
@@ -586,7 +554,7 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
         for name in pattern_bound_names(pattern) {
             state.bind_unknown(
                 name,
-                PythonUnknownCause::UnsupportedExpression,
+                &PythonUnknownCause::UnsupportedExpression,
                 self.context.origin(pattern),
             );
         }
@@ -607,20 +575,20 @@ impl StatementInterpreter for SemanticEvaluator<'_> {
         for body in bodies {
             let body_state = statement_walk::walk_body(self, base.clone(), body);
             writes.merge(EvaluationState::changed_writes_from(&base, &body_state));
-            extend_unique(
+            extend_ordered_unique(
                 &mut state.dependencies.files,
                 &body_state.dependencies.files,
             );
-            extend_unique(
+            extend_ordered_unique(
                 &mut state.dependencies.imports,
                 &body_state.dependencies.imports,
             );
-            extend_unique(&mut state.mutations, &body_state.mutations);
+            extend_ordered_unique(&mut state.mutations, &body_state.mutations);
             state.namespace_causes.extend(body_state.namespace_causes);
         }
         state.degrade_names(
             writes.names,
-            PythonUnknownCause::UnsupportedExpression,
+            &PythonUnknownCause::UnsupportedExpression,
             self.context.origin_at(control_span),
         );
         state
@@ -707,36 +675,19 @@ fn assign_target(
             context,
             state,
             target,
-            PythonUnknownCause::UnsupportedExpression,
+            &PythonUnknownCause::UnsupportedExpression,
         );
     }
 }
 
-pub(super) fn evaluate_value(
-    context: &EvaluationContext<'_>,
-    state: &EvaluationState,
-    expression: &ast::Expr,
-) -> PythonValue {
-    expression::evaluate_value(context, state, expression)
-}
-
-#[allow(clippy::needless_pass_by_value)]
 fn bind_unknown_targets(
     context: &EvaluationContext<'_>,
     state: &mut EvaluationState,
     target: &ast::Expr,
-    cause: PythonUnknownCause,
+    cause: &PythonUnknownCause,
 ) {
     let origin = context.origin(target);
     for name in target_write_names(target) {
-        state.bind_unknown(name, cause.clone(), origin);
-    }
-}
-
-fn extend_unique<T: Clone + PartialEq>(target: &mut Vec<T>, incoming: &[T]) {
-    for item in incoming {
-        if !target.contains(item) {
-            target.push(item.clone());
-        }
+        state.bind_unknown(name, cause, origin);
     }
 }

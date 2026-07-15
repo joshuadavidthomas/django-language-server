@@ -176,7 +176,6 @@ pub fn python_module_evaluation(
         evaluation::PythonModuleValuesOutcome::Readable(values) => (
             values
                 .bindings
-                .0
                 .into_iter()
                 .map(|(name, binding)| PythonBindingView {
                     name,
@@ -239,13 +238,13 @@ fn binding_alternatives_view(
         .alternatives()
         .cloned()
         .map(|alternative| match alternative {
-            evaluation::PythonBindingAlternative::Bound(bound) => {
+            evaluation::PythonBindingState::Bound(bound) => {
                 PythonBindingAlternativeView::Bound(PythonBoundValueView {
                     value: value_view(bound.value),
                     binding_origins: bound.binding_origins,
                 })
             }
-            evaluation::PythonBindingAlternative::Unbound => PythonBindingAlternativeView::Unbound,
+            evaluation::PythonBindingState::Unbound => PythonBindingAlternativeView::Unbound,
         })
         .collect()
 }

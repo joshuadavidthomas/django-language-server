@@ -1,11 +1,9 @@
-use super::BranchConstraints;
 use super::EvaluationContext;
 use super::EvaluationState;
 use super::ExprExt;
 use super::Origin;
 use super::PythonBinding;
-use super::PythonBindingAlternative;
-use super::PythonBoundValue;
+use super::PythonBindingState;
 use super::PythonDict;
 use super::PythonDictItem;
 use super::PythonList;
@@ -24,20 +22,26 @@ pub(super) fn evaluate_binding(
 ) -> PythonBinding {
     let origin = context.origin(expression);
     if let Some(value) = expression.string_literal() {
-        return value_binding(
-            known_value(PythonValueKind::Str(value.to_string()), origin),
+        return PythonBinding::bound(
+            PythonValue::known(PythonValueKind::Str(value.to_string()), origin),
             origin,
         );
     }
     if let Some(value) = expression.bool_literal() {
-        return value_binding(known_value(PythonValueKind::Bool(value), origin), origin);
+        return PythonBinding::bound(
+            PythonValue::known(PythonValueKind::Bool(value), origin),
+            origin,
+        );
     }
     if let Some(path) = evaluate_path(
         expression,
         context.file.path(context.db),
         &state.path_bindings(),
     ) {
-        return value_binding(known_value(PythonValueKind::Path(path), origin), origin);
+        return PythonBinding::bound(
+            PythonValue::known(PythonValueKind::Path(path), origin),
+            origin,
+        );
     }
     if let Some(name) = expression.name_target()
         && let Some(binding) = state.binding(name)
@@ -54,14 +58,11 @@ pub(super) fn evaluate_binding(
             |left, right| add_values(left, right, origin),
         ),
         ast::Expr::Dict(dict) => evaluate_dict_binding(context, state, dict, origin),
-        _ => value_binding(
-            PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin)),
-            origin,
-        ),
+        _ => PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
     }
 }
 
-pub(super) fn evaluate_value(
+pub(in crate::python::evaluation) fn evaluate_value(
     context: &EvaluationContext<'_>,
     state: &EvaluationState,
     expression: &ast::Expr,
@@ -75,68 +76,40 @@ pub(super) fn evaluate_value(
         )
 }
 
-fn value_binding(value: PythonValue, origin: Origin) -> PythonBinding {
-    PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-        value,
-        binding_origins: vec![origin],
-    })])
-}
-
-fn correlated_value_binding(
-    value: PythonValue,
-    origin: Origin,
-    constraints: BranchConstraints,
-) -> PythonBinding {
-    PythonBinding::correlated(
-        PythonBindingAlternative::Bound(PythonBoundValue {
-            value,
-            binding_origins: vec![origin],
-        }),
-        constraints,
-    )
-}
-
 fn combine_bindings(
     left: &PythonBinding,
     right: &PythonBinding,
     origin: Origin,
     combine: impl Fn(PythonValue, PythonValue) -> PythonValue,
 ) -> PythonBinding {
-    let mut result = None;
+    let mut result: Option<PythonBinding> = None;
     for (left, left_constraints) in left.alternatives_with_constraints() {
-        let PythonBindingAlternative::Bound(left) = left else {
+        let PythonBindingState::Bound(left) = left else {
             continue;
         };
         for (right, right_constraints) in right.alternatives_with_constraints() {
-            let PythonBindingAlternative::Bound(right) = right else {
+            let PythonBindingState::Bound(right) = right else {
                 continue;
             };
             let constraints = left_constraints.intersection(right_constraints);
             if constraints.normalized_alternatives().is_empty() {
                 continue;
             }
-            let alternative = correlated_value_binding(
+            let alternative = PythonBinding::constrained_bound(
                 combine(left.value.clone(), right.value.clone()),
                 origin,
-                constraints,
-            );
-            result = Some(
-                result.map_or(alternative.clone(), |current: PythonBinding| {
-                    current.join(alternative, origin)
-                }),
-            );
+                &constraints,
+            )
+            .expect("combined binding constraints are feasible");
+            result = Some(match result {
+                Some(current) => current.join(alternative, origin),
+                None => alternative,
+            });
         }
     }
     result.unwrap_or_else(|| {
-        value_binding(
-            PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin)),
-            origin,
-        )
+        PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
     })
-}
-
-fn known_value(kind: PythonValueKind, origin: Origin) -> PythonValue {
-    PythonValue::known(kind, origin)
 }
 
 fn evaluate_list_binding(
@@ -145,8 +118,8 @@ fn evaluate_list_binding(
     elements: &[ast::Expr],
     origin: Origin,
 ) -> PythonBinding {
-    let mut lists = value_binding(
-        known_value(PythonValueKind::List(PythonList::new(Vec::new())), origin),
+    let mut lists = PythonBinding::bound(
+        PythonValue::known(PythonValueKind::List(PythonList::new(Vec::new())), origin),
         origin,
     );
     for element in elements {
@@ -197,7 +170,7 @@ pub(super) fn add_values(left: PythonValue, right: PythonValue, origin: Origin) 
     match (left.kind, right.kind) {
         (PythonValueKind::List(mut left), PythonValueKind::List(right)) => {
             left.extend(&right, origin);
-            known_value(PythonValueKind::List(left), origin)
+            PythonValue::known(PythonValueKind::List(left), origin)
         }
         (
             PythonValueKind::Str(_)
@@ -217,8 +190,8 @@ fn evaluate_dict_binding(
     dictionary: &ast::ExprDict,
     origin: Origin,
 ) -> PythonBinding {
-    let mut dictionaries = value_binding(
-        known_value(
+    let mut dictionaries = PythonBinding::bound(
+        PythonValue::known(
             PythonValueKind::Dict(PythonDict { items: Vec::new() }),
             origin,
         ),

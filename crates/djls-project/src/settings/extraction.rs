@@ -4,7 +4,7 @@ use djls_source::Origin;
 
 use crate::db::Db as ProjectDb;
 use crate::python::evaluation::BranchConstraints;
-use crate::python::evaluation::PythonBindingAlternative;
+use crate::python::evaluation::PythonBindingState;
 use crate::python::evaluation::PythonBoundValue;
 use crate::python::evaluation::PythonDict;
 use crate::python::evaluation::PythonDictItem;
@@ -210,10 +210,10 @@ where
             }
         };
         let mut unbound_constraints = Vec::new();
-        if let Some(binding) = values.bindings.0.get(setting.name()) {
+        if let Some(binding) = values.bindings.get(setting.name()) {
             for (alternative, constraints) in binding.alternatives_with_constraints() {
                 match alternative {
-                    PythonBindingAlternative::Bound(value) => {
+                    PythonBindingState::Bound(value) => {
                         let origin = value
                             .binding_origins
                             .first()
@@ -223,7 +223,7 @@ where
                             add_case(case, correlation, origin);
                         }
                     }
-                    PythonBindingAlternative::Unbound => {
+                    PythonBindingState::Unbound => {
                         let correlation = setting_correlation(constraints);
                         unbound_constraints.push(correlation.clone());
                         add_case(SettingCase::Unset, correlation, None);

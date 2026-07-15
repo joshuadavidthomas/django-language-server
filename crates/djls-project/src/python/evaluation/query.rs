@@ -3,8 +3,6 @@ use std::collections::BTreeSet;
 use djls_source::File;
 
 use super::PythonBinding;
-use super::PythonBindingAlternative;
-use super::PythonBoundValue;
 use super::PythonImportOutcome;
 use super::PythonModuleDependencies;
 use super::PythonModuleEvaluation;
@@ -14,7 +12,7 @@ use super::PythonNamespaceCause;
 use super::PythonNamespaceRemainder;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
-use super::PythonValue;
+use super::extend_ordered_unique;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::RecoveredPythonModuleResult;
@@ -35,19 +33,13 @@ pub(crate) fn evaluate_python_module(
         RecoveredPythonModuleResult::Unreadable(error) => {
             return PythonModuleEvaluation::evaluated(
                 PythonModuleValuesOutcome::Unreadable(error),
-                PythonModuleDependencies {
-                    files: vec![file],
-                    imports: Vec::new(),
-                },
+                PythonModuleDependencies::rooted(file),
             );
         }
         RecoveredPythonModuleResult::NotPython => {
             return PythonModuleEvaluation::evaluated(
                 PythonModuleValuesOutcome::Readable(PythonModuleValues::default()),
-                PythonModuleDependencies {
-                    files: vec![file],
-                    imports: Vec::new(),
-                },
+                PythonModuleDependencies::rooted(file),
             );
         }
     };
@@ -61,6 +53,8 @@ pub(crate) fn evaluate_python_module(
     evaluation
 }
 
+// This projection gives value consumers an independent red-green cutoff when only dependencies
+// change.
 #[salsa::tracked(returns(ref))]
 pub(crate) fn python_module_values(
     db: &dyn ProjectDb,
@@ -70,6 +64,8 @@ pub(crate) fn python_module_values(
     evaluate_python_module(db, project, file).values.clone()
 }
 
+// This projection gives dependency consumers an independent red-green cutoff when only values
+// change.
 #[salsa::tracked(returns(ref))]
 pub(crate) fn python_module_dependencies(
     db: &dyn ProjectDb,
@@ -147,14 +143,15 @@ fn widen_cycle_evaluation(
         ) => {
             let names = previous_values
                 .bindings
-                .0
                 .keys()
-                .chain(computed_values.bindings.0.keys())
+                .chain(computed_values.bindings.keys())
                 .cloned()
                 .collect::<BTreeSet<_>>();
             for name in names {
                 if previous_values.bindings.get(&name) != computed_values.bindings.get(&name) {
-                    computed_values.bindings.insert(name, cycle_binding());
+                    computed_values
+                        .bindings
+                        .insert(name, PythonBinding::originless_cycle_unknown());
                 }
             }
             if previous_values.namespace_remainder != computed_values.namespace_remainder {
@@ -165,7 +162,7 @@ fn widen_cycle_evaluation(
                     }),
                 ]));
             }
-            merge_unique(&mut computed_values.mutations, &previous_values.mutations);
+            extend_ordered_unique(&mut computed_values.mutations, &previous_values.mutations);
             computed_values
                 .mutations
                 .sort_by_key(|mutation| format!("{mutation:?}"));
@@ -194,7 +191,7 @@ fn widen_cycle_dependencies(
     root: File,
 ) -> PythonModuleDependencies {
     let mut candidates = previous.imports.clone();
-    merge_unique(&mut candidates, &computed.imports);
+    extend_ordered_unique(&mut candidates, &computed.imports);
     normalize_cycle_edges(&mut candidates);
     let cycle = candidates
         .iter()
@@ -202,23 +199,16 @@ fn widen_cycle_dependencies(
         .cloned();
 
     let mut files = vec![root];
-    merge_unique(&mut files, &previous.files);
-    merge_unique(&mut files, &computed.files);
+    extend_ordered_unique(&mut files, &previous.files);
+    extend_ordered_unique(&mut files, &computed.files);
     let mut imports = candidates;
     if let Some(PythonImportOutcome::Cycle { origin, file }) = cycle {
-        merge_unique(&mut files, &[origin.file, file]);
+        extend_ordered_unique(&mut files, &[origin.file, file]);
     }
     files[1..].sort_by_key(|file| format!("{file:?}"));
     imports.sort_by_key(|outcome| format!("{outcome:?}"));
     imports.dedup();
     PythonModuleDependencies { files, imports }
-}
-
-fn cycle_binding() -> PythonBinding {
-    PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-        value: PythonValue::unknown(PythonUnknownCause::Cycle, None),
-        binding_origins: Vec::new(),
-    })])
 }
 
 fn root_participates_in_import_cycle(imports: &[PythonImportOutcome], root: File) -> bool {
@@ -325,12 +315,4 @@ fn path_exists(edges: &[(djls_source::Origin, File)], start: File, destination: 
         );
     }
     false
-}
-
-fn merge_unique<T: Clone + PartialEq>(target: &mut Vec<T>, incoming: &[T]) {
-    for item in incoming {
-        if !target.contains(item) {
-            target.push(item.clone());
-        }
-    }
 }

@@ -10,8 +10,7 @@ mod touched_names;
 mod value;
 
 pub(crate) use self::binding::PythonBinding;
-pub(crate) use self::binding::PythonBindingAlternative;
-pub(crate) use self::binding::PythonBindings;
+pub(crate) use self::binding::PythonBindingState;
 pub(crate) use self::binding::PythonBoundValue;
 pub(crate) use self::constraints::BranchConstraints;
 pub(crate) use self::mutation::PythonMutation;
@@ -34,3 +33,13 @@ pub(crate) use self::value::PythonUnknown;
 pub(crate) use self::value::PythonUnknownCause;
 pub(crate) use self::value::PythonValue;
 pub(crate) use self::value::PythonValueKind;
+
+const MAX_EXACT_PYTHON_ALTERNATIVES: usize = 64;
+
+fn extend_ordered_unique<T: Clone + PartialEq>(target: &mut Vec<T>, incoming: &[T]) {
+    for item in incoming {
+        if !target.contains(item) {
+            target.push(item.clone());
+        }
+    }
+}

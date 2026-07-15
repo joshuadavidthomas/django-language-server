@@ -5,19 +5,14 @@ use djls_source::FileReadError;
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 #[cfg(test)]
 use super::PythonBinding;
 #[cfg(test)]
-use super::PythonBindingAlternative;
-#[cfg(test)]
-use super::PythonBoundValue;
-#[cfg(test)]
-use super::binding::is_alternative_limit_unknown;
+use super::PythonBindingState;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
-
-const MAX_PYTHON_ALTERNATIVES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PythonValueEvidence {
@@ -249,7 +244,7 @@ impl PythonList {
 
     pub(super) fn extend(&mut self, extension: &Self, operation_origin: Origin) {
         self.items.extend(extension.items.clone());
-        let mut variants = Vec::with_capacity(MAX_PYTHON_ALTERNATIVES + 1);
+        let mut variants = Vec::with_capacity(MAX_EXACT_PYTHON_ALTERNATIVES + 1);
         let mut overflowed = self
             .variants
             .iter()
@@ -271,7 +266,7 @@ impl PythonList {
                 let mut items = left.items.clone();
                 items.extend(right.items.clone());
                 variants.push(PythonListVariant { items, constraints });
-                if variants.len() > MAX_PYTHON_ALTERNATIVES {
+                if variants.len() > MAX_EXACT_PYTHON_ALTERNATIVES {
                     overflowed = true;
                     break 'products;
                 }
@@ -326,9 +321,9 @@ impl PythonList {
                 return false;
             }
             exact_count += 1;
-            exact_count <= MAX_PYTHON_ALTERNATIVES
+            exact_count <= MAX_EXACT_PYTHON_ALTERNATIVES
         });
-        let overflowed = exact_count > MAX_PYTHON_ALTERNATIVES || had_remainder;
+        let overflowed = exact_count > MAX_EXACT_PYTHON_ALTERNATIVES || had_remainder;
         if overflowed {
             let origin = operation_origin
                 .or(existing_remainder_origin)
@@ -660,10 +655,7 @@ mod tests {
                 )]))
             }
         };
-        PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-            value: PythonValue::known(kind, origin),
-            binding_origins: vec![origin],
-        })])
+        PythonBinding::bound(PythonValue::known(kind, origin), origin)
     }
 
     fn list_binding(item_starts: [u32; 2], list_start: u32) -> PythonBinding {
@@ -674,16 +666,16 @@ mod tests {
             ))
         };
         let list_origin = origin(list_start);
-        PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-            value: PythonValue::known(
+        PythonBinding::bound(
+            PythonValue::known(
                 PythonValueKind::List(PythonList::new(vec![
                     item("first", item_starts[0]),
                     item("second", item_starts[1]),
                 ])),
                 list_origin,
             ),
-            binding_origins: vec![list_origin],
-        })])
+            list_origin,
+        )
     }
 
     fn correlated_list(starts: impl IntoIterator<Item = u32>) -> PythonList {
@@ -792,13 +784,16 @@ mod tests {
         let from_a = Origin::new(test_file(0), Span::new(10, 1));
         let from_b = Origin::new(test_file(1), Span::new(20, 1));
         let exact = |origins: Vec<Origin>| {
-            PythonBinding::new(vec![PythonBindingAlternative::Bound(PythonBoundValue {
-                value: PythonValue::with_evidence(
-                    PythonValueKind::Str("same".to_string()),
-                    origins.clone(),
-                ),
-                binding_origins: origins,
-            })])
+            origins
+                .into_iter()
+                .map(|origin| {
+                    PythonBinding::bound(
+                        PythonValue::known(PythonValueKind::Str("same".to_string()), origin),
+                        origin,
+                    )
+                })
+                .reduce(|binding, incoming| binding.join(incoming, from_a))
+                .expect("test bindings have at least one origin")
         };
         let a = exact(vec![from_a]);
         let ab = exact(vec![from_a, from_b]);
@@ -907,7 +902,7 @@ mod tests {
         for operation_start in [100, 200, 300, 400] {
             let extension = list.clone();
             list.extend(&extension, origin(operation_start));
-            assert!(list.variants.len() <= MAX_PYTHON_ALTERNATIVES + 1);
+            assert!(list.variants.len() <= MAX_EXACT_PYTHON_ALTERNATIVES + 1);
         }
 
         assert_eq!(list.variants.len(), 65);
@@ -929,13 +924,17 @@ mod tests {
 
         let at_limit = assert_join_laws(alternatives(64));
         assert_eq!(at_limit.alternatives().len(), 64);
-        assert!(!at_limit.alternatives().any(is_alternative_limit_unknown));
+        assert!(
+            !at_limit
+                .alternatives()
+                .any(PythonBindingState::is_limit_remainder)
+        );
 
         let overflowed = assert_join_laws(alternatives(65));
         assert_eq!(overflowed.alternatives().len(), 65);
-        let PythonBindingAlternative::Bound(overflow) = overflowed
+        let PythonBindingState::Bound(overflow) = overflowed
             .alternatives()
-            .find(|alternative| is_alternative_limit_unknown(alternative))
+            .find(|state| state.is_limit_remainder())
             .expect("overflow should add a typed unknown remainder")
         else {
             unreachable!();

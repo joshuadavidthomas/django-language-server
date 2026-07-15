@@ -9,7 +9,7 @@ use super::PythonValue;
 use super::PythonValueKind;
 use super::evaluator::EvaluationContext;
 use super::evaluator::EvaluationState;
-use super::evaluator::evaluate_value;
+use super::evaluator::expression::evaluate_value;
 use super::touched_names::expr_read_names;
 use crate::ast::ExprExt;
 
@@ -21,6 +21,8 @@ pub(crate) struct PythonMutation {
     pub(crate) origin: Origin,
 }
 
+// REVIEW: PythonMutationAccess and MutationAccess -- clean up on aisle three, feels like cruft
+// accumulated in the PR hasn't been addressed
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PythonMutationAccess {
     Index(usize),
@@ -101,7 +103,7 @@ pub(super) fn apply_augmented_add(
     if !supported {
         state.degrade_names(
             [target.root.to_string()],
-            PythonUnknownCause::UnsupportedMutation,
+            &PythonUnknownCause::UnsupportedMutation,
             origin,
         );
     }
@@ -115,7 +117,7 @@ pub(super) fn walk_expr(
     let ast::Expr::Call(call) = expression else {
         state.degrade_names(
             expr_read_names(expression),
-            PythonUnknownCause::UnsupportedExpression,
+            &PythonUnknownCause::UnsupportedExpression,
             context.origin(expression),
         );
         return;
@@ -123,7 +125,7 @@ pub(super) fn walk_expr(
     let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
         state.degrade_names(
             expr_read_names(expression),
-            PythonUnknownCause::UnsupportedMutation,
+            &PythonUnknownCause::UnsupportedMutation,
             context.origin(expression),
         );
         return;
@@ -131,7 +133,7 @@ pub(super) fn walk_expr(
     let Some(target) = MutationTarget::from_expr(&attribute.value) else {
         state.degrade_names(
             expr_read_names(expression),
-            PythonUnknownCause::UnsupportedMutation,
+            &PythonUnknownCause::UnsupportedMutation,
             context.origin(expression),
         );
         return;
@@ -148,7 +150,7 @@ pub(super) fn walk_expr(
     if !supported {
         state.invalidate_names(
             [target.root.to_string()],
-            PythonUnknownCause::UnsupportedMutation,
+            &PythonUnknownCause::UnsupportedMutation,
             origin,
         );
     }
@@ -255,7 +257,7 @@ fn mutate_target(
     origin: Origin,
     mutate: impl Fn(&mut PythonValue) -> bool,
 ) -> bool {
-    let Some(binding) = state.bindings.0.get_mut(target.root) else {
+    let Some(binding) = state.bindings.get_mut(target.root) else {
         return false;
     };
     let Some(bound) = binding.single_bound_mut() else {
@@ -326,6 +328,9 @@ fn mutate_at_access(
     }
 }
 
+// REVIEW: oh, i guess there is a difference... the naming sucks then. and this methods could have
+// been a trait impl of Into or From, or on one MutationAccess. but honestly, i'd prefer a second
+// look because feels like two layers too many
 fn access_to_public(access: &MutationAccess) -> PythonMutationAccess {
     match access {
         MutationAccess::Index(index) => PythonMutationAccess::Index(*index),
