@@ -1,3 +1,5 @@
+use djls_source::Origin;
+
 mod binding;
 mod constraints;
 mod evaluator;
@@ -39,3 +41,11 @@ pub(crate) use self::value::PythonValue;
 pub(crate) use self::value::PythonValueKind;
 
 const MAX_EXACT_PYTHON_ALTERNATIVES: usize = 64;
+
+fn origin_sort_key(origin: &Origin) -> (String, u32, u32) {
+    (
+        format!("{:?}", origin.file),
+        origin.span.start(),
+        origin.span.length(),
+    )
+}

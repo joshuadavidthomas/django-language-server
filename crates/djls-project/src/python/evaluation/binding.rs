@@ -6,6 +6,51 @@ use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
+use super::origin_sort_key;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct CanonicalOrigins(Vec<Origin>);
+
+impl CanonicalOrigins {
+    fn one(origin: Origin) -> Self {
+        Self(vec![origin])
+    }
+
+    fn insert(&mut self, origin: Origin) {
+        if self.0.contains(&origin) {
+            return;
+        }
+        self.0.push(origin);
+        self.0.sort_by_key(origin_sort_key);
+    }
+
+    fn extend(&mut self, origins: impl IntoIterator<Item = Origin>) {
+        for origin in origins {
+            self.insert(origin);
+        }
+    }
+
+    fn rebase(&mut self, origin: Origin) {
+        self.0.clear();
+        self.0.push(origin);
+    }
+
+    fn first(&self) -> Option<Origin> {
+        self.0.first().copied()
+    }
+
+    fn iter(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
+        self.0.iter().copied()
+    }
+}
+
+impl FromIterator<Origin> for CanonicalOrigins {
+    fn from_iter<T: IntoIterator<Item = Origin>>(iter: T) -> Self {
+        let mut origins = Self::default();
+        origins.extend(iter);
+        origins
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PythonBindingCase {
@@ -23,7 +68,7 @@ impl PythonBinding {
         Self::from_case(PythonBindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value,
-                binding_origins: vec![binding_origin],
+                binding_origins: CanonicalOrigins::one(binding_origin),
             }),
             constraints: BranchConstraints::unconstrained(),
         })
@@ -64,7 +109,7 @@ impl PythonBinding {
         Self::from_case(PythonBindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value: PythonValue::unknown(PythonUnknownCause::Cycle, None),
-                binding_origins: Vec::new(),
+                binding_origins: CanonicalOrigins::default(),
             }),
             constraints: BranchConstraints::unconstrained(),
         })
@@ -113,7 +158,7 @@ impl PythonBinding {
     pub(super) fn rebase_binding_origin(mut self, origin: Origin) -> Self {
         for state in self.alternatives_mut() {
             if let PythonBindingState::Bound(bound) = state {
-                bound.binding_origins = vec![origin];
+                bound.binding_origins.rebase(origin);
             }
         }
         self
@@ -187,21 +232,20 @@ impl PythonBinding {
         joined.normalize(Some(overflow_origin));
 
         if joined.exact_alternative_count() > MAX_EXACT_PYTHON_ALTERNATIVES {
-            let mut overflow_origins = vec![overflow_origin];
+            let mut overflow_origins = CanonicalOrigins::one(overflow_origin);
             let mut retained = Vec::with_capacity(MAX_EXACT_PYTHON_ALTERNATIVES);
             for case in joined.cases.drain(..) {
                 if case.state.is_limit_remainder()
                     || retained.len() == MAX_EXACT_PYTHON_ALTERNATIVES
                 {
                     if let PythonBindingState::Bound(bound) = &case.state {
-                        overflow_origins.extend(bound.binding_origins.iter().copied());
+                        overflow_origins.extend(bound.binding_origins.iter());
                         overflow_origins.extend(bound.value.origins());
                     }
                 } else {
                     retained.push(case);
                 }
             }
-            deduplicate_origins(&mut overflow_origins);
             retained.push(Self::alternative_limit_case(
                 overflow_origin,
                 overflow_origins,
@@ -214,7 +258,7 @@ impl PythonBinding {
 
     fn alternative_limit_case(
         overflow_origin: Origin,
-        overflow_origins: Vec<Origin>,
+        overflow_origins: CanonicalOrigins,
     ) -> PythonBindingCase {
         PythonBindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
@@ -223,7 +267,7 @@ impl PythonBinding {
                         cause: PythonUnknownCause::AlternativeLimitExceeded,
                         origin: Some(overflow_origin),
                     }),
-                    overflow_origins.clone(),
+                    overflow_origins.iter(),
                 ),
                 binding_origins: overflow_origins,
             }),
@@ -264,7 +308,9 @@ impl PythonBinding {
                         let PythonBindingState::Bound(existing) = &mut existing_case.state else {
                             unreachable!()
                         };
-                        merge_origins(&mut existing.binding_origins, incoming.binding_origins);
+                        existing
+                            .binding_origins
+                            .extend(incoming.binding_origins.iter());
                         existing
                             .value
                             .merge_semantically_equal(incoming.value, operation_origin);
@@ -276,14 +322,23 @@ impl PythonBinding {
                 }
             }
         }
-        normalized.sort_by_key(|case| {
-            format!(
-                "{}:{:?}",
-                binding_state_sort_key(&case.state),
-                case.constraints
-            )
-        });
+        normalized.sort_by_key(PythonBindingCase::canonical_sort_key);
         self.cases = normalized;
+    }
+}
+
+impl PythonBindingCase {
+    fn canonical_sort_key(&self) -> String {
+        match &self.state {
+            PythonBindingState::Unbound => format!("0:{:?}", self.constraints),
+            PythonBindingState::Bound(bound) => format!(
+                "1:{:?}:{:?}:{:?}:{:?}",
+                bound.value.kind,
+                bound.value.origins().collect::<Vec<_>>(),
+                bound.binding_origins.iter().collect::<Vec<_>>(),
+                self.constraints,
+            ),
+        }
     }
 }
 
@@ -311,43 +366,60 @@ impl PythonBindingState {
     }
 }
 
-fn binding_state_sort_key(state: &PythonBindingState) -> String {
-    match state {
-        PythonBindingState::Unbound => "0".to_string(),
-        PythonBindingState::Bound(bound) => format!(
-            "1:{:?}:{:?}:{:?}",
-            bound.value.kind,
-            bound.value.origins().collect::<Vec<_>>(),
-            bound.binding_origins
-        ),
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonBoundValue {
     pub(crate) value: PythonValue,
-    pub(crate) binding_origins: Vec<Origin>,
+    binding_origins: CanonicalOrigins,
 }
 
 impl PythonBoundValue {
+    pub(crate) fn binding_origins(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
+        self.binding_origins.iter()
+    }
+
+    pub(crate) fn first_binding_origin(&self) -> Option<Origin> {
+        self.binding_origins.first()
+    }
+
+    pub(super) fn rebase_binding_origin(&mut self, origin: Origin) {
+        self.binding_origins.rebase(origin);
+    }
+
     fn normalize_origins(&mut self) {
-        deduplicate_origins(&mut self.binding_origins);
         self.value.normalize();
     }
 }
 
-fn deduplicate_origins(origins: &mut Vec<Origin>) {
-    origins.sort_by_key(|origin| {
-        (
-            format!("{:?}", origin.file),
-            origin.span.start(),
-            origin.span.length(),
-        )
-    });
-    origins.dedup();
-}
+#[cfg(test)]
+mod tests {
+    use djls_source::File;
+    use djls_source::Span;
+    use salsa::plumbing::FromId as _;
 
-fn merge_origins(target: &mut Vec<Origin>, incoming: Vec<Origin>) {
-    target.extend(incoming);
-    deduplicate_origins(target);
+    use super::CanonicalOrigins;
+    use super::Origin;
+
+    fn origin(file: u32, start: u32) -> Origin {
+        // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
+        // files are compared only as opaque IDs and are never read.
+        let file = File::from_id(unsafe { salsa::Id::from_index(file) });
+        Origin::new(file, Span::new(start, 1))
+    }
+
+    #[test]
+    fn canonical_origins_are_independent_of_insertion_order() {
+        let first = origin(0, 20);
+        let second = origin(0, 10);
+        let third = origin(1, 5);
+
+        let forward = [first, second, third, first]
+            .into_iter()
+            .collect::<CanonicalOrigins>();
+        let reverse = [third, second, first]
+            .into_iter()
+            .collect::<CanonicalOrigins>();
+
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.iter().collect::<Vec<_>>(), [second, first, third]);
+    }
 }

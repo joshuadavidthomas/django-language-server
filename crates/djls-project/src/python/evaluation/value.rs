@@ -4,6 +4,7 @@ use djls_source::Origin;
 
 use super::BranchConstraints;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
+use super::origin_sort_key;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
@@ -15,24 +16,118 @@ struct PythonValueEvidence {
     is_mutable_identity: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct PythonValueEvidenceSet(Vec<PythonValueEvidence>);
+
+impl PythonValueEvidenceSet {
+    fn one(origin: Origin, is_mutable_identity: bool) -> Self {
+        Self(vec![PythonValueEvidence {
+            origin,
+            constraints: BranchConstraints::unconstrained(),
+            is_mutable_identity,
+        }])
+    }
+
+    fn from_origins(origins: impl IntoIterator<Item = Origin>, is_mutable_identity: bool) -> Self {
+        let mut evidence = Self::default();
+        evidence.extend(origins.into_iter().map(|origin| PythonValueEvidence {
+            origin,
+            constraints: BranchConstraints::unconstrained(),
+            is_mutable_identity,
+        }));
+        evidence
+    }
+
+    fn insert(&mut self, evidence: PythonValueEvidence) {
+        self.0.push(evidence);
+        self.normalize();
+    }
+
+    fn extend(&mut self, evidence: impl IntoIterator<Item = PythonValueEvidence>) {
+        self.0.extend(evidence);
+        self.normalize();
+    }
+
+    fn merge(&mut self, incoming: Self) {
+        self.extend(incoming.0);
+    }
+
+    fn origins(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
+        self.0.iter().map(|evidence| evidence.origin)
+    }
+
+    fn mutable_origins(&self) -> impl Iterator<Item = Origin> + '_ {
+        self.0
+            .iter()
+            .filter(|evidence| evidence.is_mutable_identity)
+            .map(|evidence| evidence.origin)
+    }
+
+    fn origins_with_constraints(&self) -> impl Iterator<Item = (Origin, &BranchConstraints)> {
+        self.0
+            .iter()
+            .map(|evidence| (evidence.origin, &evidence.constraints))
+    }
+
+    fn rebase(&mut self, origin: Origin, is_mutable_identity: bool) {
+        self.0.clear();
+        self.0.push(PythonValueEvidence {
+            origin,
+            constraints: BranchConstraints::unconstrained(),
+            is_mutable_identity,
+        });
+    }
+
+    fn record(&mut self, origin: Origin) {
+        self.insert(PythonValueEvidence {
+            origin,
+            constraints: BranchConstraints::unconstrained(),
+            is_mutable_identity: false,
+        });
+    }
+
+    fn constrain(&mut self, constraints: &BranchConstraints) {
+        for evidence in &mut self.0 {
+            evidence.constraints = evidence.constraints.intersection(constraints);
+        }
+    }
+
+    fn normalize(&mut self) {
+        self.0.sort_by_key(|evidence| {
+            (
+                origin_sort_key(&evidence.origin),
+                format!("{:?}", evidence.constraints),
+            )
+        });
+        let mut normalized: Vec<PythonValueEvidence> = Vec::with_capacity(self.0.len());
+        for evidence in std::mem::take(&mut self.0) {
+            if let Some(existing) = normalized
+                .iter_mut()
+                .find(|existing| existing.origin == evidence.origin)
+            {
+                existing.constraints.merge(evidence.constraints);
+                existing.is_mutable_identity |= evidence.is_mutable_identity;
+            } else {
+                normalized.push(evidence);
+            }
+        }
+        self.0 = normalized;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonValue {
     pub(crate) kind: PythonValueKind,
-    evidence: Vec<PythonValueEvidence>,
+    evidence: PythonValueEvidenceSet,
 }
 
 impl PythonValue {
     pub(super) fn unknown(cause: PythonUnknownCause, origin: Option<Origin>) -> Self {
         Self {
             kind: PythonValueKind::Unknown(PythonUnknown { cause, origin }),
-            evidence: origin
-                .into_iter()
-                .map(|origin| PythonValueEvidence {
-                    origin,
-                    constraints: BranchConstraints::unconstrained(),
-                    is_mutable_identity: false,
-                })
-                .collect(),
+            evidence: origin.map_or_else(PythonValueEvidenceSet::default, |origin| {
+                PythonValueEvidenceSet::one(origin, false)
+            }),
         }
     }
 
@@ -41,50 +136,35 @@ impl PythonValue {
             matches!(&kind, PythonValueKind::List(_) | PythonValueKind::Dict(_));
         Self {
             kind,
-            evidence: vec![PythonValueEvidence {
-                origin,
-                constraints: BranchConstraints::unconstrained(),
-                is_mutable_identity,
-            }],
+            evidence: PythonValueEvidenceSet::one(origin, is_mutable_identity),
         }
     }
 
     pub(super) fn known_tuple(list: PythonList, origin: Origin) -> Self {
         Self {
             kind: PythonValueKind::List(list),
-            evidence: vec![PythonValueEvidence {
-                origin,
-                constraints: BranchConstraints::unconstrained(),
-                is_mutable_identity: false,
-            }],
+            evidence: PythonValueEvidenceSet::one(origin, false),
         }
     }
 
-    pub(super) fn with_evidence(kind: PythonValueKind, origins: Vec<Origin>) -> Self {
+    pub(super) fn with_evidence(
+        kind: PythonValueKind,
+        origins: impl IntoIterator<Item = Origin>,
+    ) -> Self {
         let is_mutable_identity =
             matches!(&kind, PythonValueKind::List(_) | PythonValueKind::Dict(_));
         Self {
             kind,
-            evidence: origins
-                .into_iter()
-                .map(|origin| PythonValueEvidence {
-                    origin,
-                    constraints: BranchConstraints::unconstrained(),
-                    is_mutable_identity,
-                })
-                .collect(),
+            evidence: PythonValueEvidenceSet::from_origins(origins, is_mutable_identity),
         }
     }
 
     pub(crate) fn origins(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
-        self.evidence.iter().map(|evidence| evidence.origin)
+        self.evidence.origins()
     }
 
     pub(super) fn mutable_origins(&self) -> impl Iterator<Item = Origin> + '_ {
-        self.evidence
-            .iter()
-            .filter(|evidence| evidence.is_mutable_identity)
-            .map(|evidence| evidence.origin)
+        self.evidence.mutable_origins()
     }
 
     pub(super) fn is_mutable_container(&self) -> bool {
@@ -94,38 +174,25 @@ impl PythonValue {
     pub(crate) fn origins_with_constraints(
         &self,
     ) -> impl Iterator<Item = (Origin, &BranchConstraints)> {
-        self.evidence
-            .iter()
-            .map(|evidence| (evidence.origin, &evidence.constraints))
+        self.evidence.origins_with_constraints()
     }
 
     pub(super) fn rebase_origin(&mut self, origin: Origin) {
         let is_mutable_identity = self.is_mutable_container();
-        self.evidence = vec![PythonValueEvidence {
-            origin,
-            constraints: BranchConstraints::unconstrained(),
-            is_mutable_identity,
-        }];
+        self.evidence.rebase(origin, is_mutable_identity);
     }
 
     pub(super) fn record_origin(&mut self, origin: Origin) {
-        self.evidence.push(PythonValueEvidence {
-            origin,
-            constraints: BranchConstraints::unconstrained(),
-            is_mutable_identity: false,
-        });
-        normalize_value_evidence(&mut self.evidence);
+        self.evidence.record(origin);
     }
 
     pub(super) fn normalize(&mut self) {
-        normalize_value_evidence(&mut self.evidence);
+        self.evidence.normalize();
         self.kind.normalize();
     }
 
     pub(super) fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
-        for evidence in &mut self.evidence {
-            evidence.constraints = evidence.constraints.intersection(constraints);
-        }
+        self.evidence.constrain(constraints);
         match &mut self.kind {
             PythonValueKind::List(list) => list.constrain_value_evidence(constraints),
             PythonValueKind::Dict(dict) => {
@@ -153,7 +220,7 @@ impl PythonValue {
         operation_origin: Option<Origin>,
     ) {
         debug_assert!(self.same_semantic_value(&incoming));
-        self.evidence.extend(incoming.evidence);
+        self.evidence.merge(incoming.evidence);
         self.kind
             .merge_semantically_equal(incoming.kind, operation_origin);
         self.normalize();
@@ -763,28 +830,6 @@ pub(crate) enum PythonUnknownCause {
     AlternativeLimitExceeded,
 }
 
-fn normalize_value_evidence(evidence: &mut Vec<PythonValueEvidence>) {
-    evidence.sort_by_key(|evidence| {
-        (
-            origin_sort_key(&evidence.origin),
-            format!("{:?}", evidence.constraints),
-        )
-    });
-    let mut normalized: Vec<PythonValueEvidence> = Vec::new();
-    for evidence in std::mem::take(evidence) {
-        if let Some(existing) = normalized
-            .iter_mut()
-            .find(|existing| existing.origin == evidence.origin)
-        {
-            existing.constraints.merge(evidence.constraints);
-            existing.is_mutable_identity |= evidence.is_mutable_identity;
-        } else {
-            normalized.push(evidence);
-        }
-    }
-    *evidence = normalized;
-}
-
 fn earliest_origin(left: Option<Origin>, right: Option<Origin>) -> Option<Origin> {
     match (left, right) {
         (Some(left), Some(right)) => Some(
@@ -796,14 +841,6 @@ fn earliest_origin(left: Option<Origin>, right: Option<Origin>) -> Option<Origin
         (Some(origin), None) | (None, Some(origin)) => Some(origin),
         (None, None) => None,
     }
-}
-
-fn origin_sort_key(origin: &Origin) -> (String, u32, u32) {
-    (
-        format!("{:?}", origin.file),
-        origin.span.start(),
-        origin.span.length(),
-    )
 }
 
 #[cfg(test)]
@@ -832,6 +869,37 @@ mod tests {
 
     fn origin(start: u32) -> Origin {
         Origin::new(test_file(0), Span::new(start, 1))
+    }
+
+    #[test]
+    fn evidence_with_the_same_origin_coalesces_constraints_and_identity() {
+        let evidence_origin = origin(10);
+        let join = origin(20);
+        let mut first_constraints = BranchConstraints::unconstrained();
+        first_constraints.select(join, 0);
+        let mut second_constraints = BranchConstraints::unconstrained();
+        second_constraints.select(join, 1);
+
+        let mut evidence = PythonValueEvidenceSet::default();
+        evidence.insert(PythonValueEvidence {
+            origin: evidence_origin,
+            constraints: first_constraints.clone(),
+            is_mutable_identity: false,
+        });
+        evidence.insert(PythonValueEvidence {
+            origin: evidence_origin,
+            constraints: second_constraints.clone(),
+            is_mutable_identity: true,
+        });
+
+        let mut expected_constraints = first_constraints;
+        expected_constraints.merge(second_constraints);
+        assert_eq!(evidence.0.len(), 1);
+        assert_eq!(evidence.0[0].constraints, expected_constraints);
+        assert_eq!(
+            evidence.mutable_origins().collect::<Vec<_>>(),
+            [evidence_origin]
+        );
     }
 
     fn binding(value: BindingValue, start: u32) -> PythonBinding {
@@ -1047,8 +1115,7 @@ mod tests {
             };
             assert_eq!(
                 bound
-                    .binding_origins
-                    .iter()
+                    .binding_origins()
                     .map(|origin| origin.span.start())
                     .collect::<Vec<_>>(),
                 [10, 20, 30],

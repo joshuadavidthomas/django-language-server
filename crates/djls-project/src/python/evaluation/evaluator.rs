@@ -507,7 +507,7 @@ fn rebase_cycle_unknowns(binding: &mut PythonBinding, origin: Origin) {
         };
         if unknown.cause == PythonUnknownCause::Cycle {
             unknown.origin = Some(origin);
-            bound.binding_origins = vec![origin];
+            bound.rebase_binding_origin(origin);
             bound.value.rebase_origin(origin);
         }
     }

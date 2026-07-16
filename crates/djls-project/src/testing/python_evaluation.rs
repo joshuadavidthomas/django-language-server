@@ -265,9 +265,10 @@ fn binding_alternatives_view(
         .cloned()
         .map(|alternative| match alternative {
             evaluation::PythonBindingState::Bound(bound) => {
+                let binding_origins = bound.binding_origins().collect();
                 PythonBindingAlternativeView::Bound(PythonBoundValueView {
                     value: value_view(bound.value),
-                    binding_origins: bound.binding_origins,
+                    binding_origins,
                 })
             }
             evaluation::PythonBindingState::Unbound => PythonBindingAlternativeView::Unbound,
