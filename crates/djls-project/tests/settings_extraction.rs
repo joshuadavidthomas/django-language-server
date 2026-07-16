@@ -2119,7 +2119,10 @@ fn named_and_aliased_imports_dominate_namespace_wide_syntax_impact() {
             &source,
             &[
                 ("clean", ""),
-                ("apps", "INSTALLED_APPS = APPS = ['imported']\n"),
+                (
+                    "apps",
+                    "INSTALLED_APPS = ['imported']\nAPPS = ['imported']\n",
+                ),
             ],
         )
         .2;
@@ -2875,6 +2878,94 @@ fn exact_assignment_after_unsupported_mutation_restores_known_setting() {
         );
         assert!(cases[0].get("dynamic").is_none(), "{mutation}");
     }
+}
+
+#[test]
+fn chained_immutable_assignment_remains_exact() {
+    let settings = extract("STATIC_URL = URL = '/static/'");
+    let cases = cases(&settings, "/staticfiles/static_url/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert_eq!(cases[0]["known"]["value"], "/static/");
+}
+
+#[test]
+fn chained_immutable_tuple_assignment_remains_exact() {
+    let settings = extract("INSTALLED_APPS = APPS = ('first', 'second')");
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+
+    assert_eq!(apps.len(), 2, "{settings:#}");
+    assert_eq!(apps[0]["value"], "first");
+    assert_eq!(apps[1]["value"], "second");
+}
+
+#[test]
+fn chained_mutable_assignment_keeps_settings_conservative() {
+    let settings = extract("INSTALLED_APPS = APPS = []\nAPPS.append('blog')");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn chained_mutable_assignment_from_existing_name_invalidates_the_source() {
+    let settings =
+        extract("INSTALLED_APPS = []\nAPPS = ALIAS = INSTALLED_APPS\nALIAS.append('blog')");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn chained_mutable_assignment_invalidates_existing_aliases() {
+    let settings =
+        extract("ROOT = []\nINSTALLED_APPS = ROOT\nLEFT = RIGHT = ROOT\nRIGHT.append('blog')");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn chained_mutable_assignment_finds_aliases_after_augmented_add() {
+    let settings =
+        extract("ROOT = []\nINSTALLED_APPS = ROOT\nROOT += ['blog']\nLEFT = RIGHT = ROOT");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn chained_container_assignment_invalidates_nested_mutable_sources() {
+    let settings = extract(
+        "DIRS = []\nWRAPPER = {'DIRS': DIRS}\nLEFT = RIGHT = WRAPPER\nRIGHT['DIRS'].append('/templates')\nSTATICFILES_DIRS = DIRS",
+    );
+    let cases = cases(&settings, "/staticfiles/staticfiles_dirs/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn chained_mutable_dict_assignment_keeps_templates_conservative() {
+    let settings = extract(
+        "BACKEND = ALIAS = {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': []}\nTEMPLATES = [BACKEND]\nALIAS['DIRS'].append('/templates')",
+    );
+    let cases = cases(&settings, "/templates/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
 }
 
 #[test]
