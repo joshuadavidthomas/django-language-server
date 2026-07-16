@@ -32,6 +32,17 @@ pub(crate) struct RecoveredPythonModule<'db> {
 }
 
 impl<'db> RecoveredPythonModule<'db> {
+    pub(crate) fn from_file(
+        db: &'db dyn djls_source::Db,
+        file: File,
+    ) -> Result<Option<Self>, FileReadError> {
+        match parse_python_file(db, file) {
+            PythonParseResult::Parsed(parse) => Ok(Some(Self { parse })),
+            PythonParseResult::NotPython => Ok(None),
+            PythonParseResult::Unreadable(error) => Err(error),
+        }
+    }
+
     pub(crate) fn body(self, db: &'db dyn djls_source::Db) -> &'db [Stmt] {
         self.parse.body(db)
     }
@@ -41,7 +52,9 @@ impl<'db> RecoveredPythonModule<'db> {
     }
 
     pub(crate) fn has_ordinary_syntax_errors(self, db: &'db dyn djls_source::Db) -> bool {
-        has_ordinary_syntax_errors(self.syntax_errors(db))
+        self.syntax_errors(db)
+            .iter()
+            .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
     }
 }
 
@@ -92,17 +105,6 @@ fn parse_python_source(source: &str) -> PythonParseOutput {
     }
 }
 
-pub(crate) fn recovered_python_module(
-    db: &dyn djls_source::Db,
-    file: File,
-) -> Result<Option<RecoveredPythonModule<'_>>, FileReadError> {
-    match parse_python_file(db, file) {
-        PythonParseResult::Parsed(parse) => Ok(Some(RecoveredPythonModule { parse })),
-        PythonParseResult::NotPython => Ok(None),
-        PythonParseResult::Unreadable(error) => Err(error),
-    }
-}
-
 pub(crate) fn python_syntax_errors(
     db: &dyn djls_source::Db,
     file: File,
@@ -111,12 +113,6 @@ pub(crate) fn python_syntax_errors(
         PythonParseResult::Parsed(parse) => Some(parse.syntax_errors(db)),
         PythonParseResult::NotPython | PythonParseResult::Unreadable(_) => None,
     }
-}
-
-fn has_ordinary_syntax_errors(errors: &[PythonSyntaxError]) -> bool {
-    errors
-        .iter()
-        .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
 }
 
 #[salsa::tracked]

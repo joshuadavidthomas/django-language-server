@@ -12,7 +12,6 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ast;
-use super::evaluate_path;
 
 impl Evaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
@@ -29,8 +28,10 @@ impl Evaluator<'_> {
                 origin,
             );
         }
-        if let Some(path) =
-            evaluate_path(expression, self.module.path(), &self.state.path_bindings())
+        if let Some(path) = self
+            .state
+            .path_bindings()
+            .evaluate(expression, self.module.path())
         {
             return PythonBinding::bound(
                 PythonValue::known(PythonValueKind::Path(path), origin),

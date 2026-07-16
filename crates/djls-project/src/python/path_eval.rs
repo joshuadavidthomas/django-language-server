@@ -15,97 +15,80 @@ impl PythonPathBindings {
         self.paths.insert(name.into(), value);
     }
 
-    fn get(&self, name: &str) -> Option<&Utf8PathBuf> {
-        self.paths.get(name)
-    }
-}
+    pub(crate) fn evaluate(&self, expr: &ast::Expr, file_path: &Utf8Path) -> Option<Utf8PathBuf> {
+        if let Some(name) = expr.name_target() {
+            return self.paths.get(name).cloned();
+        }
 
-pub(crate) fn evaluate_path(
-    expr: &ast::Expr,
-    file_path: &Utf8Path,
-    bindings: &PythonPathBindings,
-) -> Option<Utf8PathBuf> {
-    if let Some(name) = expr.name_target() {
-        return bindings.get(name).cloned();
-    }
-
-    match expr {
-        ast::Expr::Attribute(attribute) if attribute.attr.as_str() == "parent" => {
-            evaluate_path(&attribute.value, file_path, bindings).and_then(|path| {
-                path.parent().map_or_else(
-                    || Some(Utf8PathBuf::from("/")),
-                    |parent| Some(parent.to_path_buf()),
-                )
-            })
-        }
-        ast::Expr::BinOp(bin_op) if bin_op.op == ast::Operator::Div => {
-            let base = evaluate_path(&bin_op.left, file_path, bindings)?;
-            let segment = bin_op.right.string_literal()?;
-            Some(base.join(segment))
-        }
-        ast::Expr::Call(call) => evaluate_path_call(call, file_path, bindings),
-        ast::Expr::StringLiteral(literal) => {
-            let value = Utf8Path::new(literal.value.to_str());
-            if value.is_absolute() {
-                Some(value.to_path_buf())
-            } else {
-                file_path.parent().map(|parent| parent.join(value))
+        match expr {
+            ast::Expr::Attribute(attribute) if attribute.attr.as_str() == "parent" => {
+                self.evaluate(&attribute.value, file_path).and_then(|path| {
+                    path.parent().map_or_else(
+                        || Some(Utf8PathBuf::from("/")),
+                        |parent| Some(parent.to_path_buf()),
+                    )
+                })
             }
-        }
-        _ => None,
-    }
-}
-
-fn evaluate_path_call(
-    call: &ast::ExprCall,
-    file_path: &Utf8Path,
-    bindings: &PythonPathBindings,
-) -> Option<Utf8PathBuf> {
-    match call.func.as_ref() {
-        func if func.name_target() == Some("Path") => {
-            let argument = single_positional_argument(&call.arguments)?;
-            if argument.name_target() == Some("__file__") {
-                Some(file_path.to_path_buf())
-            } else {
-                evaluate_path(argument, file_path, bindings)
+            ast::Expr::BinOp(bin_op) if bin_op.op == ast::Operator::Div => {
+                let base = self.evaluate(&bin_op.left, file_path)?;
+                let segment = bin_op.right.string_literal()?;
+                Some(base.join(segment))
             }
-        }
-        func if func.name_target() == Some("str") => evaluate_path(
-            single_positional_argument(&call.arguments)?,
-            file_path,
-            bindings,
-        ),
-        ast::Expr::Attribute(attribute) => match attribute.attr.as_str() {
-            "resolve" if call.arguments.is_empty() => {
-                evaluate_path(&attribute.value, file_path, bindings)
-            }
-            "joinpath" => {
-                let mut path = evaluate_path(&attribute.value, file_path, bindings)?;
-                for argument in positional_arguments(&call.arguments) {
-                    path = path.join(argument.string_literal()?);
+            ast::Expr::Call(call) => self.evaluate_call(call, file_path),
+            ast::Expr::StringLiteral(literal) => {
+                let value = Utf8Path::new(literal.value.to_str());
+                if value.is_absolute() {
+                    Some(value.to_path_buf())
+                } else {
+                    file_path.parent().map(|parent| parent.join(value))
                 }
-                Some(path)
-            }
-            "join" if is_os_path_attr(&attribute.value, "path") => {
-                let mut arguments = positional_arguments(&call.arguments);
-                let first = arguments.next()?;
-                let mut path = evaluate_path(first, file_path, bindings)?;
-                for argument in arguments {
-                    path = path.join(argument.string_literal()?);
-                }
-                Some(path)
-            }
-            "dirname" if is_os_path_attr(&attribute.value, "path") => {
-                let path = evaluate_path(
-                    single_positional_argument(&call.arguments)?,
-                    file_path,
-                    bindings,
-                )?;
-                path.parent().map(Utf8Path::to_path_buf)
             }
             _ => None,
-        },
-        _ => None,
+        }
+    }
+
+    fn evaluate_call(&self, call: &ast::ExprCall, file_path: &Utf8Path) -> Option<Utf8PathBuf> {
+        match call.func.as_ref() {
+            func if func.name_target() == Some("Path") => {
+                let argument = single_positional_argument(&call.arguments)?;
+                if argument.name_target() == Some("__file__") {
+                    Some(file_path.to_path_buf())
+                } else {
+                    self.evaluate(argument, file_path)
+                }
+            }
+            func if func.name_target() == Some("str") => {
+                self.evaluate(single_positional_argument(&call.arguments)?, file_path)
+            }
+            ast::Expr::Attribute(attribute) => match attribute.attr.as_str() {
+                "resolve" if call.arguments.is_empty() => {
+                    self.evaluate(&attribute.value, file_path)
+                }
+                "joinpath" => {
+                    let mut path = self.evaluate(&attribute.value, file_path)?;
+                    for argument in positional_arguments(&call.arguments) {
+                        path = path.join(argument.string_literal()?);
+                    }
+                    Some(path)
+                }
+                "join" if is_os_path_attr(&attribute.value, "path") => {
+                    let mut arguments = positional_arguments(&call.arguments);
+                    let first = arguments.next()?;
+                    let mut path = self.evaluate(first, file_path)?;
+                    for argument in arguments {
+                        path = path.join(argument.string_literal()?);
+                    }
+                    Some(path)
+                }
+                "dirname" if is_os_path_attr(&attribute.value, "path") => {
+                    let path =
+                        self.evaluate(single_positional_argument(&call.arguments)?, file_path)?;
+                    path.parent().map(Utf8Path::to_path_buf)
+                }
+                _ => None,
+            },
+            _ => None,
+        }
     }
 }
 

@@ -18,7 +18,7 @@ use super::UniqueVec;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
-use crate::python::recovered_python_module;
+use crate::python::RecoveredPythonModule;
 
 // Salsa tracked-query keys are by-value; `module` is a key, not a borrow.
 #[allow(clippy::needless_pass_by_value)]
@@ -32,7 +32,7 @@ pub(crate) fn evaluate_python_module(
     module: PythonModule,
 ) -> PythonModuleEvaluation {
     let file = module.file();
-    let parsed = match recovered_python_module(db, file) {
+    let parsed = match RecoveredPythonModule::from_file(db, file) {
         Ok(Some(parsed)) => parsed,
         Err(error) => {
             return PythonModuleEvaluation::Evaluated {

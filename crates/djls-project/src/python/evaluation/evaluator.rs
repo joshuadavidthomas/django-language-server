@@ -36,7 +36,6 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonPathBindings;
-use crate::python::evaluate_path;
 
 pub(super) fn evaluate_body(
     db: &dyn ProjectDb,

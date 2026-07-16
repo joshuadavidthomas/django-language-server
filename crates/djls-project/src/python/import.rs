@@ -8,7 +8,7 @@ use ruff_python_ast::Stmt;
 use crate::ast::AliasExt;
 use crate::ast::RangedExt;
 use crate::python::PythonModuleName;
-use crate::python::recovered_python_module;
+use crate::python::RecoveredPythonModule;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ImportBindings {
@@ -40,6 +40,105 @@ impl ImportBindings {
         PythonModuleName::parse(&target)
             .map_err(|_| ImportPathResolutionError::InvalidTarget { target })
     }
+
+    fn from_statements(
+        stmts: &[Stmt],
+        module_name: &PythonModuleName,
+        module_kind: ModuleKind,
+    ) -> Self {
+        let mut bindings = Self::default();
+        for stmt in stmts {
+            match stmt {
+                Stmt::Import(import) => bindings.record_import(&import.names),
+                Stmt::ImportFrom(import_from) => bindings.record_import_from(
+                    module_name,
+                    module_kind,
+                    import_from.level,
+                    import_from
+                        .module
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str),
+                    &import_from.names,
+                ),
+                _ => {}
+            }
+        }
+
+        bindings
+    }
+
+    fn record_import(&mut self, aliases: &[Alias]) {
+        for alias in aliases {
+            let imported_name = alias.name.as_str();
+            let (local_name, target, binding_range) = if let Some(asname) = &alias.asname {
+                (
+                    asname.as_str().to_string(),
+                    imported_name.to_string(),
+                    asname.span(),
+                )
+            } else {
+                let local_name = imported_name.split('.').next().unwrap_or(imported_name);
+                (
+                    local_name.to_string(),
+                    local_name.to_string(),
+                    alias.unaliased_binding_span(local_name),
+                )
+            };
+
+            let Ok(target) = PythonModuleName::parse(&target) else {
+                continue;
+            };
+            self.bindings.insert(
+                local_name,
+                ImportBinding {
+                    target,
+                    binding_range,
+                },
+            );
+        }
+    }
+
+    fn record_import_from(
+        &mut self,
+        module_name: &PythonModuleName,
+        module_kind: ModuleKind,
+        level: u32,
+        imported_from: Option<&str>,
+        aliases: &[Alias],
+    ) {
+        let Some(base) = import_from_base(module_name, module_kind, level, imported_from) else {
+            return;
+        };
+
+        for alias in aliases {
+            let imported_name = alias.name.as_str();
+            if imported_name == "*" {
+                continue;
+            }
+
+            let (local_name, binding_range) = if let Some(asname) = &alias.asname {
+                (asname.as_str().to_string(), asname.span())
+            } else {
+                (imported_name.to_string(), alias.name.span())
+            };
+            let target = if base.is_empty() {
+                imported_name.to_string()
+            } else {
+                format!("{base}.{imported_name}")
+            };
+            let Ok(target) = PythonModuleName::parse(&target) else {
+                continue;
+            };
+
+            self.bindings.insert(
+                local_name,
+                ImportBinding {
+                    target,
+                    binding_range,
+                },
+            );
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,7 +168,7 @@ pub(crate) fn import_bindings(
     file: File,
     module_name: PythonModuleName,
 ) -> ImportBindings {
-    let Ok(Some(module)) = recovered_python_module(db, file) else {
+    let Ok(Some(module)) = RecoveredPythonModule::from_file(db, file) else {
         return ImportBindings::default();
     };
 
@@ -78,7 +177,7 @@ pub(crate) fn import_bindings(
     } else {
         ModuleKind::Module
     };
-    extract_import_bindings_impl(module.body(db), &module_name, module_kind)
+    ImportBindings::from_statements(module.body(db), &module_name, module_kind)
 }
 
 #[cfg(test)]
@@ -92,107 +191,7 @@ pub(crate) fn extract_import_bindings_for_source(
     };
 
     let module = parsed.into_syntax();
-    extract_import_bindings_impl(&module.body, module_name, module_kind)
-}
-
-fn extract_import_bindings_impl(
-    stmts: &[Stmt],
-    module_name: &PythonModuleName,
-    module_kind: ModuleKind,
-) -> ImportBindings {
-    let mut table = ImportBindings::default();
-    for stmt in stmts {
-        match stmt {
-            Stmt::Import(import) => record_import(&mut table, &import.names),
-            Stmt::ImportFrom(import_from) => record_import_from(
-                &mut table,
-                module_name,
-                module_kind,
-                import_from.level,
-                import_from
-                    .module
-                    .as_ref()
-                    .map(ruff_python_ast::Identifier::as_str),
-                &import_from.names,
-            ),
-            _ => {}
-        }
-    }
-
-    table
-}
-
-fn record_import(table: &mut ImportBindings, aliases: &[Alias]) {
-    for alias in aliases {
-        let imported_name = alias.name.as_str();
-        let (local_name, target, binding_range) = if let Some(asname) = &alias.asname {
-            (
-                asname.as_str().to_string(),
-                imported_name.to_string(),
-                asname.span(),
-            )
-        } else {
-            let local_name = imported_name.split('.').next().unwrap_or(imported_name);
-            (
-                local_name.to_string(),
-                local_name.to_string(),
-                alias.unaliased_binding_span(local_name),
-            )
-        };
-
-        let Ok(target) = PythonModuleName::parse(&target) else {
-            continue;
-        };
-        table.bindings.insert(
-            local_name,
-            ImportBinding {
-                target,
-                binding_range,
-            },
-        );
-    }
-}
-
-fn record_import_from(
-    table: &mut ImportBindings,
-    module_name: &PythonModuleName,
-    module_kind: ModuleKind,
-    level: u32,
-    imported_from: Option<&str>,
-    aliases: &[Alias],
-) {
-    let Some(base) = import_from_base(module_name, module_kind, level, imported_from) else {
-        return;
-    };
-
-    for alias in aliases {
-        let imported_name = alias.name.as_str();
-        if imported_name == "*" {
-            continue;
-        }
-
-        let (local_name, binding_range) = if let Some(asname) = &alias.asname {
-            (asname.as_str().to_string(), asname.span())
-        } else {
-            (imported_name.to_string(), alias.name.span())
-        };
-        let target = if base.is_empty() {
-            imported_name.to_string()
-        } else {
-            format!("{base}.{imported_name}")
-        };
-        let Ok(target) = PythonModuleName::parse(&target) else {
-            continue;
-        };
-
-        table.bindings.insert(
-            local_name,
-            ImportBinding {
-                target,
-                binding_range,
-            },
-        );
-    }
+    ImportBindings::from_statements(&module.body, module_name, module_kind)
 }
 
 fn import_from_base(

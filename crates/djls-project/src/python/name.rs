@@ -41,7 +41,21 @@ impl PythonModuleName {
         if trimmed.chars().any(char::is_whitespace) {
             return Err(InvalidModuleName::ContainsWhitespace);
         }
-        validate_python_module_name(trimmed)?;
+        if trimmed.starts_with('.') {
+            return Err(InvalidModuleName::StartsWithDot);
+        }
+        if trimmed.ends_with('.') {
+            return Err(InvalidModuleName::EndsWithDot);
+        }
+        if trimmed.contains("..") {
+            return Err(InvalidModuleName::ContainsConsecutiveDots);
+        }
+        for segment in trimmed.split('.') {
+            if !is_python_identifier(segment) {
+                return Err(InvalidModuleName::InvalidSegment(segment.to_string()));
+            }
+        }
+
         Ok(Self(Arc::from(trimmed)))
     }
 
@@ -67,7 +81,18 @@ impl PythonModuleName {
             return Err(InvalidModuleName::MustHavePyExtension);
         }
 
-        Self::parse(&module_name_from_relative_source_path(path))
+        let without_ext = path.with_extension("");
+        let parts: Vec<&str> = without_ext
+            .components()
+            .map(|component| component.as_str())
+            .collect();
+        let module_name = if parts.last() == Some(&"__init__") {
+            parts[..parts.len() - 1].join(".")
+        } else {
+            parts.join(".")
+        };
+
+        Self::parse(&module_name)
     }
 
     #[must_use]
@@ -85,41 +110,6 @@ impl PythonModuleName {
     pub(crate) fn into_string(self) -> String {
         self.0.to_string()
     }
-}
-
-fn module_name_from_relative_source_path(path: &Utf8Path) -> String {
-    let without_ext = path.with_extension("");
-    let parts: Vec<&str> = without_ext
-        .components()
-        .map(|component| component.as_str())
-        .collect();
-    if parts.last() == Some(&"__init__") {
-        parts[..parts.len() - 1].join(".")
-    } else {
-        parts.join(".")
-    }
-}
-
-fn validate_python_module_name(name: &str) -> Result<(), InvalidModuleName> {
-    if name.starts_with('.') {
-        return Err(InvalidModuleName::StartsWithDot);
-    }
-
-    if name.ends_with('.') {
-        return Err(InvalidModuleName::EndsWithDot);
-    }
-
-    if name.contains("..") {
-        return Err(InvalidModuleName::ContainsConsecutiveDots);
-    }
-
-    for segment in name.split('.') {
-        if !is_python_identifier(segment) {
-            return Err(InvalidModuleName::InvalidSegment(segment.to_string()));
-        }
-    }
-
-    Ok(())
 }
 
 fn is_python_identifier(segment: &str) -> bool {

@@ -24,7 +24,7 @@ use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
-use crate::python::recovered_python_module;
+use crate::python::RecoveredPythonModule;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];
@@ -495,7 +495,7 @@ fn template_library_source_analysis(
     let Some(file) = key.file(db) else {
         return TemplateLibrarySourceAnalysis::failed();
     };
-    let Ok(Some(module)) = recovered_python_module(db, file) else {
+    let Ok(Some(module)) = RecoveredPythonModule::from_file(db, file) else {
         return TemplateLibrarySourceAnalysis::failed();
     };
     let source = if module.has_ordinary_syntax_errors(db) {

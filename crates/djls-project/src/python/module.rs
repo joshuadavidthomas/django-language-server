@@ -123,42 +123,40 @@ pub(crate) enum PythonImportError {
     TooManyDots,
 }
 
-fn resolve_component(
-    db: &dyn ProjectDb,
-    candidate: &CandidateDirectory,
-    component: &str,
-) -> Option<ResolvedComponent> {
-    let dir = candidate.dir.join(component);
-    let dir_status = path_to_file(db, &dir);
-    let init_file = dir.join("__init__.py");
-    if matches!(dir_status, Err(FileError::IsADirectory))
-        && let Ok(file) = path_to_file(db, &init_file)
-    {
-        return Some(ResolvedComponent::RegularPackage {
-            root: candidate.root.clone(),
-            dir,
-            init_file,
-            file,
-        });
-    }
+impl CandidateDirectory {
+    fn resolve_component(&self, db: &dyn ProjectDb, component: &str) -> Option<ResolvedComponent> {
+        let dir = self.dir.join(component);
+        let dir_status = path_to_file(db, &dir);
+        let init_file = dir.join("__init__.py");
+        if matches!(dir_status, Err(FileError::IsADirectory))
+            && let Ok(file) = path_to_file(db, &init_file)
+        {
+            return Some(ResolvedComponent::RegularPackage {
+                root: self.root.clone(),
+                dir,
+                init_file,
+                file,
+            });
+        }
 
-    let py_file = dir.with_extension("py");
-    if let Ok(file) = path_to_file(db, &py_file) {
-        return Some(ResolvedComponent::FileModule {
-            root: candidate.root.clone(),
-            path: py_file,
-            file,
-        });
-    }
+        let py_file = dir.with_extension("py");
+        if let Ok(file) = path_to_file(db, &py_file) {
+            return Some(ResolvedComponent::FileModule {
+                root: self.root.clone(),
+                path: py_file,
+                file,
+            });
+        }
 
-    if matches!(dir_status, Err(FileError::IsADirectory)) {
-        return Some(ResolvedComponent::NamespacePortion(CandidateDirectory {
-            root: candidate.root.clone(),
-            dir,
-        }));
-    }
+        if matches!(dir_status, Err(FileError::IsADirectory)) {
+            return Some(ResolvedComponent::NamespacePortion(Self {
+                root: self.root.clone(),
+                dir,
+            }));
+        }
 
-    None
+        None
+    }
 }
 
 fn resolve_name(
@@ -182,7 +180,7 @@ fn resolve_name(
         let mut next_dirs = None;
 
         for candidate in &candidate_dirs {
-            match resolve_component(db, candidate, component) {
+            match candidate.resolve_component(db, component) {
                 Some(ResolvedComponent::RegularPackage {
                     root,
                     dir,
