@@ -3,7 +3,6 @@ use ruff_python_ast as ast;
 
 use super::MutableOrigins;
 use super::PythonDictItem;
-use super::PythonList;
 use super::PythonListItem;
 use super::PythonUnknownCause;
 use super::PythonValue;
@@ -244,13 +243,13 @@ impl EvaluatedMutation<'_> {
                 list.append(&PythonListItem::Value((*argument).clone()));
             }
             Self::Extend(extension) => {
-                return extend_list_value(value, extension, origin);
+                return value.try_extend_from(extension, origin);
             }
             Self::Insert { index, value: item } => {
                 let PythonValueKind::List(list) = &mut value.kind else {
                     return false;
                 };
-                if !list_is_authoritative(list) {
+                if !list.is_authoritative() {
                     return false;
                 }
                 let len = list.semantic_items().len();
@@ -270,7 +269,7 @@ impl EvaluatedMutation<'_> {
                 let PythonValueKind::List(list) = &mut value.kind else {
                     return false;
                 };
-                if !list_is_authoritative(list) {
+                if !list.is_authoritative() {
                     return false;
                 }
                 let Some(index) = list.semantic_items().iter().position(|item| {
@@ -312,218 +311,186 @@ impl<'a> MutationTarget<'a> {
     }
 }
 
-pub(super) fn apply_augmented_add(
-    state: &mut EvaluationState,
-    target: MutationTarget<'_>,
-    extension: &PythonValue,
-    origin: Origin,
-) {
-    let binding = target.binding.to_string();
-    let mut stale_aliases = state.stale_alias_names_after_mutation(target.binding, &target.path);
-    let supported = mutate_target(
-        state,
-        &target,
-        origin,
-        &EvaluatedMutation::Extend(extension),
-    );
-    state
-        .mutations
-        .insert(target.into_fact(PythonMutationOperation::Extend, origin));
-    if supported {
-        state.invalidate_names(
-            stale_aliases,
-            &PythonUnknownCause::UnsupportedExpression,
-            origin,
-        );
-    } else {
-        if !stale_aliases.contains(&binding) {
-            stale_aliases.push(binding);
+impl EvaluationState {
+    pub(super) fn apply_augmented_add(
+        &mut self,
+        target: MutationTarget<'_>,
+        extension: &PythonValue,
+        origin: Origin,
+    ) {
+        let binding = target.binding.to_string();
+        let mut stale_aliases = self.stale_alias_names_after_mutation(target.binding, &target.path);
+        let supported =
+            self.try_apply_mutation(&target, &EvaluatedMutation::Extend(extension), origin);
+        self.mutations
+            .insert(target.into_fact(PythonMutationOperation::Extend, origin));
+        if supported {
+            self.invalidate_names(
+                stale_aliases,
+                &PythonUnknownCause::UnsupportedExpression,
+                origin,
+            );
+        } else {
+            if !stale_aliases.contains(&binding) {
+                stale_aliases.push(binding);
+            }
+            self.degrade_names(
+                stale_aliases,
+                &PythonUnknownCause::UnsupportedMutation,
+                origin,
+            );
         }
-        state.degrade_names(
-            stale_aliases,
-            &PythonUnknownCause::UnsupportedMutation,
-            origin,
-        );
+    }
+
+    fn try_apply_mutation(
+        &mut self,
+        target: &MutationTarget<'_>,
+        mutation: &EvaluatedMutation<'_>,
+        origin: Origin,
+    ) -> bool {
+        let Some(binding) = self.bindings.get_mut(target.binding) else {
+            return false;
+        };
+        let Some(bound) = binding.single_bound_mut() else {
+            return false;
+        };
+        target
+            .path
+            .try_apply_exact(&mut bound.value, mutation, origin)
     }
 }
 
-pub(super) fn walk_expr(evaluator: &mut Evaluator<'_>, expression: &ast::Expr) {
-    let ast::Expr::Call(call) = expression else {
-        evaluator.state.degrade_names(
-            expr_read_names(expression),
-            &PythonUnknownCause::UnsupportedExpression,
-            evaluator.origin(expression),
-        );
-        return;
-    };
-    let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
-        evaluator.state.degrade_names(
-            expr_read_names(expression),
-            &PythonUnknownCause::UnsupportedMutation,
-            evaluator.origin(expression),
-        );
-        return;
-    };
-    let Some(target) = MutationTarget::from_expr(&attribute.value) else {
-        evaluator.state.degrade_names(
-            expr_read_names(expression),
-            &PythonUnknownCause::UnsupportedMutation,
-            evaluator.origin(expression),
-        );
-        return;
-    };
-    let origin = evaluator.origin(call);
-    let Some(operation) = PythonMutationOperation::from_method(attribute.attr.as_str()) else {
-        let mut receiver_aliases = evaluator
+impl Evaluator<'_> {
+    pub(super) fn evaluate_expression_statement(&mut self, expression: &ast::Expr) {
+        let ast::Expr::Call(call) = expression else {
+            self.state.degrade_names(
+                expr_read_names(expression),
+                &PythonUnknownCause::UnsupportedExpression,
+                self.origin(expression),
+            );
+            return;
+        };
+        let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
+            self.state.degrade_names(
+                expr_read_names(expression),
+                &PythonUnknownCause::UnsupportedMutation,
+                self.origin(expression),
+            );
+            return;
+        };
+        let Some(target) = MutationTarget::from_expr(&attribute.value) else {
+            self.state.degrade_names(
+                expr_read_names(expression),
+                &PythonUnknownCause::UnsupportedMutation,
+                self.origin(expression),
+            );
+            return;
+        };
+        let origin = self.origin(call);
+        let Some(operation) = PythonMutationOperation::from_method(attribute.attr.as_str()) else {
+            let mut receiver_aliases = self
+                .state
+                .stale_alias_names_after_mutation(target.binding, &target.path);
+            if !receiver_aliases.iter().any(|name| name == target.binding) {
+                receiver_aliases.push(target.binding.to_string());
+            }
+            self.state.degrade_names(
+                expr_read_names(expression),
+                &PythonUnknownCause::UnsupportedMutation,
+                origin,
+            );
+            self.state.invalidate_names(
+                receiver_aliases,
+                &PythonUnknownCause::UnsupportedMutation,
+                origin,
+            );
+            return;
+        };
+        let mut stale_aliases = self
             .state
             .stale_alias_names_after_mutation(target.binding, &target.path);
-        if !receiver_aliases.iter().any(|name| name == target.binding) {
-            receiver_aliases.push(target.binding.to_string());
+        let supported = self.try_apply_mutation_call(call, &target, operation, origin);
+        if supported {
+            self.state.invalidate_names(
+                stale_aliases,
+                &PythonUnknownCause::UnsupportedExpression,
+                origin,
+            );
+            self.state
+                .mutations
+                .insert(target.into_fact(operation, origin));
+        } else {
+            if !stale_aliases.iter().any(|name| name == target.binding) {
+                stale_aliases.push(target.binding.to_string());
+            }
+            self.state.degrade_names(
+                expr_read_names(expression),
+                &PythonUnknownCause::UnsupportedMutation,
+                origin,
+            );
+            self.state.invalidate_names(
+                stale_aliases,
+                &PythonUnknownCause::UnsupportedMutation,
+                origin,
+            );
         }
-        evaluator.state.degrade_names(
-            expr_read_names(expression),
-            &PythonUnknownCause::UnsupportedMutation,
-            origin,
-        );
-        evaluator.state.invalidate_names(
-            receiver_aliases,
-            &PythonUnknownCause::UnsupportedMutation,
-            origin,
-        );
-        return;
-    };
-    let mut stale_aliases = evaluator
-        .state
-        .stale_alias_names_after_mutation(target.binding, &target.path);
-    let supported = apply_mutation_operation(evaluator, call, &target, operation, origin);
-    if supported {
-        evaluator.state.invalidate_names(
-            stale_aliases,
-            &PythonUnknownCause::UnsupportedExpression,
-            origin,
-        );
-        evaluator
-            .state
-            .mutations
-            .insert(target.into_fact(operation, origin));
-    } else {
-        if !stale_aliases.iter().any(|name| name == target.binding) {
-            stale_aliases.push(target.binding.to_string());
-        }
-        evaluator.state.degrade_names(
-            expr_read_names(expression),
-            &PythonUnknownCause::UnsupportedMutation,
-            origin,
-        );
-        evaluator.state.invalidate_names(
-            stale_aliases,
-            &PythonUnknownCause::UnsupportedMutation,
-            origin,
-        );
     }
-}
 
-fn apply_mutation_operation(
-    evaluator: &mut Evaluator<'_>,
-    call: &ast::ExprCall,
-    target: &MutationTarget<'_>,
-    operation: PythonMutationOperation,
-    origin: Origin,
-) -> bool {
-    if !call.arguments.keywords.is_empty()
-        || call
+    fn try_apply_mutation_call(
+        &mut self,
+        call: &ast::ExprCall,
+        target: &MutationTarget<'_>,
+        operation: PythonMutationOperation,
+        origin: Origin,
+    ) -> bool {
+        if !call.arguments.keywords.is_empty()
+            || call
+                .arguments
+                .args
+                .iter()
+                .any(|argument| matches!(argument, ast::Expr::Starred(_)))
+        {
+            return false;
+        }
+        let arguments = call
             .arguments
             .args
             .iter()
-            .any(|argument| matches!(argument, ast::Expr::Starred(_)))
-    {
-        return false;
-    }
-    let arguments = call
-        .arguments
-        .args
-        .iter()
-        .map(|argument| evaluator.evaluate_value(argument))
-        .collect::<Vec<_>>();
-    let mutation = match (operation, arguments.as_slice()) {
-        (PythonMutationOperation::Append, [argument]) => EvaluatedMutation::Append(argument),
-        (PythonMutationOperation::Extend, [extension]) => EvaluatedMutation::Extend(extension),
-        (PythonMutationOperation::Insert, [_, argument]) => {
-            let index = &call.arguments.args[0];
-            let index = if let Some(index) = index.non_negative_integer() {
-                InsertIndex::NonNegative(index)
-            } else if let Some(index) = index.negative_integer() {
-                InsertIndex::Negative(index)
-            } else {
-                return false;
-            };
-            EvaluatedMutation::Insert {
-                index,
-                value: argument,
+            .map(|argument| self.evaluate_value(argument))
+            .collect::<Vec<_>>();
+        let mutation = match (operation, arguments.as_slice()) {
+            (PythonMutationOperation::Append, [argument]) => EvaluatedMutation::Append(argument),
+            (PythonMutationOperation::Extend, [extension]) => EvaluatedMutation::Extend(extension),
+            (PythonMutationOperation::Insert, [_, argument]) => {
+                let index = &call.arguments.args[0];
+                let index = if let Some(index) = index.non_negative_integer() {
+                    InsertIndex::NonNegative(index)
+                } else if let Some(index) = index.negative_integer() {
+                    InsertIndex::Negative(index)
+                } else {
+                    return false;
+                };
+                EvaluatedMutation::Insert {
+                    index,
+                    value: argument,
+                }
             }
-        }
-        (PythonMutationOperation::Remove, [argument]) => {
-            let PythonValueKind::Str(needle) = &argument.kind else {
-                return false;
-            };
-            EvaluatedMutation::Remove(needle)
-        }
-        (
-            PythonMutationOperation::Append
-            | PythonMutationOperation::Extend
-            | PythonMutationOperation::Insert
-            | PythonMutationOperation::Remove,
-            _,
-        ) => return false,
-    };
-    mutate_target(&mut evaluator.state, target, origin, &mutation)
-}
-
-pub(super) fn extend_list_value(
-    value: &mut PythonValue,
-    extension: &PythonValue,
-    origin: Origin,
-) -> bool {
-    if !value.is_mutable_container() {
-        return false;
+            (PythonMutationOperation::Remove, [argument]) => {
+                let PythonValueKind::Str(needle) = &argument.kind else {
+                    return false;
+                };
+                EvaluatedMutation::Remove(needle)
+            }
+            (
+                PythonMutationOperation::Append
+                | PythonMutationOperation::Extend
+                | PythonMutationOperation::Insert
+                | PythonMutationOperation::Remove,
+                _,
+            ) => return false,
+        };
+        self.state.try_apply_mutation(target, &mutation, origin)
     }
-    let PythonValueKind::List(list) = &mut value.kind else {
-        return false;
-    };
-    match &extension.kind {
-        PythonValueKind::List(extension) => list.extend(extension, origin),
-        PythonValueKind::Unknown(unknown) => {
-            list.append(&PythonListItem::UnknownUnpack(unknown.clone()));
-        }
-        PythonValueKind::Str(_)
-        | PythonValueKind::Bool(_)
-        | PythonValueKind::Path(_)
-        | PythonValueKind::Dict(_) => return false,
-    }
-    true
-}
-
-fn list_is_authoritative(list: &PythonList) -> bool {
-    list.semantic_items()
-        .iter()
-        .all(|item| matches!(item, PythonListItem::Value(_)))
-}
-
-fn mutate_target(
-    state: &mut EvaluationState,
-    target: &MutationTarget<'_>,
-    origin: Origin,
-    mutation: &EvaluatedMutation<'_>,
-) -> bool {
-    let Some(binding) = state.bindings.get_mut(target.binding) else {
-        return false;
-    };
-    let Some(bound) = binding.single_bound_mut() else {
-        return false;
-    };
-    target
-        .path
-        .try_apply_exact(&mut bound.value, mutation, origin)
 }
 
 #[cfg(test)]

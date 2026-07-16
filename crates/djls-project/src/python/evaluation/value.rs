@@ -233,6 +233,35 @@ impl PythonValue {
         }
     }
 
+    pub(super) fn add(mut self, right: &Self, origin: Origin) -> Self {
+        if self.try_extend_from(right, origin) {
+            self.rebase_origin(origin);
+            self
+        } else {
+            Self::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin))
+        }
+    }
+
+    pub(super) fn try_extend_from(&mut self, extension: &Self, origin: Origin) -> bool {
+        if !self.is_mutable_container() {
+            return false;
+        }
+        let PythonValueKind::List(list) = &mut self.kind else {
+            return false;
+        };
+        match &extension.kind {
+            PythonValueKind::List(extension) => list.extend(extension, origin),
+            PythonValueKind::Unknown(unknown) => {
+                list.append(&PythonListItem::UnknownUnpack(unknown.clone()));
+            }
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::Dict(_) => return false,
+        }
+        true
+    }
+
     pub(crate) fn origins_with_constraints(
         &self,
     ) -> impl Iterator<Item = (Origin, &BranchConstraints)> {
@@ -388,7 +417,9 @@ impl PythonListAlternatives {
     fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
         for alternative in &mut self.exact {
             alternative.constraints = alternative.constraints.intersection(constraints);
-            constrain_list_item_evidence(&mut alternative.items, constraints);
+            for item in &mut alternative.items {
+                item.constrain_value_evidence(constraints);
+            }
         }
         if let Some(remainder) = &mut self.remainder {
             remainder.constraints = remainder.constraints.intersection(constraints);
@@ -508,7 +539,9 @@ impl PythonListAlternatives {
 
     fn normalize(&mut self, operation_origin: Option<Origin>) {
         for alternative in &mut self.exact {
-            normalize_list_items(&mut alternative.items);
+            for item in &mut alternative.items {
+                item.normalize();
+            }
         }
         self.exact
             .retain(|alternative| !alternative.constraints.is_impossible());
@@ -600,6 +633,12 @@ impl PythonList {
         &self.summary
     }
 
+    pub(super) fn is_authoritative(&self) -> bool {
+        self.summary
+            .iter()
+            .all(|item| matches!(item, PythonListItem::Value(_)))
+    }
+
     pub(crate) fn alternatives(&self) -> impl Iterator<Item = PythonListAlternativeRef<'_>> {
         self.alternatives
             .exact
@@ -617,7 +656,9 @@ impl PythonList {
     }
 
     fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
-        constrain_list_item_evidence(&mut self.summary, constraints);
+        for item in &mut self.summary {
+            item.constrain_value_evidence(constraints);
+        }
         self.alternatives.constrain_value_evidence(constraints);
         self.debug_assert_semantic_equivalence();
     }
@@ -670,7 +711,9 @@ impl PythonList {
     }
 
     fn normalize(&mut self, operation_origin: Option<Origin>) {
-        normalize_list_items(&mut self.summary);
+        for item in &mut self.summary {
+            item.normalize();
+        }
         self.alternatives.normalize(operation_origin);
         self.debug_assert_semantic_equivalence();
     }
@@ -687,26 +730,12 @@ impl PythonList {
 
     fn merge_semantically_equal(&mut self, incoming: Self, operation_origin: Option<Origin>) {
         debug_assert!(self.same_semantic_value(&incoming));
-        merge_semantically_equal_list_items(&mut self.summary, incoming.summary, operation_origin);
+        for (existing, incoming) in self.summary.iter_mut().zip(incoming.summary) {
+            existing.merge_semantically_equal(incoming, operation_origin);
+        }
         self.alternatives
             .merge(incoming.alternatives, operation_origin);
         self.debug_assert_semantic_equivalence();
-    }
-}
-
-fn constrain_list_item_evidence(items: &mut [PythonListItem], constraints: &BranchConstraints) {
-    for item in items {
-        if let PythonListItem::Value(value) = item {
-            value.constrain_value_evidence(constraints);
-        }
-    }
-}
-
-fn normalize_list_items(items: &mut [PythonListItem]) {
-    for item in items {
-        if let PythonListItem::Value(value) = item {
-            value.normalize();
-        }
     }
 }
 
@@ -715,43 +744,7 @@ fn list_items_same_semantic_value(left: &[PythonListItem], right: &[PythonListIt
         && left
             .iter()
             .zip(right)
-            .all(|(left, right)| match (left, right) {
-                (PythonListItem::Value(left), PythonListItem::Value(right)) => {
-                    left.same_semantic_value(right)
-                }
-                (PythonListItem::UnknownElement(left), PythonListItem::UnknownElement(right))
-                | (PythonListItem::UnknownUnpack(left), PythonListItem::UnknownUnpack(right)) => {
-                    left.cause == right.cause
-                }
-                (
-                    PythonListItem::Value(_)
-                    | PythonListItem::UnknownElement(_)
-                    | PythonListItem::UnknownUnpack(_),
-                    _,
-                ) => false,
-            })
-}
-
-fn merge_semantically_equal_list_items(
-    existing: &mut [PythonListItem],
-    incoming: Vec<PythonListItem>,
-    operation_origin: Option<Origin>,
-) {
-    for (existing, incoming) in existing.iter_mut().zip(incoming) {
-        match (existing, incoming) {
-            (PythonListItem::Value(existing), PythonListItem::Value(incoming)) => {
-                existing.merge_semantically_equal(incoming, operation_origin);
-            }
-            (
-                PythonListItem::UnknownElement(existing),
-                PythonListItem::UnknownElement(incoming),
-            )
-            | (PythonListItem::UnknownUnpack(existing), PythonListItem::UnknownUnpack(incoming)) => {
-                existing.origin = earliest_origin(existing.origin, incoming.origin);
-            }
-            _ => unreachable!("semantic equality requires matching list item variants"),
-        }
-    }
+            .all(|(left, right)| left.same_semantic_value(right))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -759,6 +752,43 @@ pub(crate) enum PythonListItem {
     Value(PythonValue),
     UnknownElement(PythonUnknown),
     UnknownUnpack(PythonUnknown),
+}
+
+impl PythonListItem {
+    fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
+        if let Self::Value(value) = self {
+            value.constrain_value_evidence(constraints);
+        }
+    }
+
+    fn normalize(&mut self) {
+        if let Self::Value(value) = self {
+            value.normalize();
+        }
+    }
+
+    fn same_semantic_value(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Value(left), Self::Value(right)) => left.same_semantic_value(right),
+            (Self::UnknownElement(left), Self::UnknownElement(right))
+            | (Self::UnknownUnpack(left), Self::UnknownUnpack(right)) => left.cause == right.cause,
+            (Self::Value(_) | Self::UnknownElement(_) | Self::UnknownUnpack(_), _) => false,
+        }
+    }
+
+    fn merge_semantically_equal(&mut self, incoming: Self, operation_origin: Option<Origin>) {
+        debug_assert!(self.same_semantic_value(&incoming));
+        match (self, incoming) {
+            (Self::Value(existing), Self::Value(incoming)) => {
+                existing.merge_semantically_equal(incoming, operation_origin);
+            }
+            (Self::UnknownElement(existing), Self::UnknownElement(incoming))
+            | (Self::UnknownUnpack(existing), Self::UnknownUnpack(incoming)) => {
+                existing.origin = earliest_origin(existing.origin, incoming.origin);
+            }
+            _ => unreachable!("semantic equality requires matching list item variants"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

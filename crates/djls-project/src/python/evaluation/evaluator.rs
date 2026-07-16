@@ -298,7 +298,7 @@ impl EvaluationState {
         for (name, binding) in &values.bindings {
             let prior = self.bindings.get(name).cloned();
             let mut binding = binding.clone();
-            rebase_cycle_unknowns(&mut binding, import_origin);
+            binding.rebase_cycle_unknowns(import_origin);
             self.bindings.insert(
                 name.clone(),
                 binding.replace_unbound_with(prior, import_origin),
@@ -359,7 +359,7 @@ impl EvaluationState {
             .cloned()
             .unwrap_or_else(PythonBinding::unbound)
             .rebase_binding_origin(origin);
-        rebase_cycle_unknowns(&mut binding, origin);
+        binding.rebase_cycle_unknowns(origin);
 
         let unbound_constraints = binding
             .alternatives_with_constraints()
@@ -500,22 +500,6 @@ impl EvaluationState {
         self.dependencies
             .imports
             .extend(dependencies.imports.iter().cloned());
-    }
-}
-
-fn rebase_cycle_unknowns(binding: &mut PythonBinding, origin: Origin) {
-    for state in binding.alternatives_mut() {
-        let PythonBindingState::Bound(bound) = state else {
-            continue;
-        };
-        let PythonValueKind::Unknown(unknown) = &mut bound.value.kind else {
-            continue;
-        };
-        if unknown.cause == PythonUnknownCause::Cycle {
-            unknown.origin = Some(origin);
-            bound.rebase_binding_origin(origin);
-            bound.value.rebase_origin(origin);
-        }
     }
 }
 

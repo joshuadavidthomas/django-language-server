@@ -138,6 +138,10 @@ impl PythonBinding {
         self.cases.iter_mut().map(|case| &mut case.state)
     }
 
+    pub(super) fn contains_mutable_value(&self) -> bool {
+        !self.reachable_mutable_origins().is_empty()
+    }
+
     pub(super) fn reachable_mutable_origins(&self) -> MutableOrigins {
         let mut origins = MutableOrigins::default();
         for state in self.alternatives() {
@@ -175,6 +179,22 @@ impl PythonBinding {
             return None;
         };
         Some(bound)
+    }
+
+    pub(super) fn rebase_cycle_unknowns(&mut self, origin: Origin) {
+        for state in self.alternatives_mut() {
+            let PythonBindingState::Bound(bound) = state else {
+                continue;
+            };
+            let PythonValueKind::Unknown(unknown) = &mut bound.value.kind else {
+                continue;
+            };
+            if unknown.cause == PythonUnknownCause::Cycle {
+                unknown.origin = Some(origin);
+                bound.rebase_binding_origin(origin);
+                bound.value.rebase_origin(origin);
+            }
+        }
     }
 
     pub(super) fn rebase_binding_origin(mut self, origin: Origin) -> Self {

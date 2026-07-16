@@ -58,7 +58,7 @@ impl Evaluator<'_> {
                 &self.evaluate_binding(&binary.left),
                 &self.evaluate_binding(&binary.right),
                 origin,
-                |left, right| add_values(left, &right, origin),
+                |left, right| left.add(&right, origin),
             ),
             ast::Expr::Dict(dict) => self.evaluate_dict_binding(dict, origin),
             _ => PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
@@ -246,17 +246,4 @@ fn combine_bindings(
     result.unwrap_or_else(|| {
         PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
     })
-}
-
-pub(super) fn add_values(
-    mut left: PythonValue,
-    right: &PythonValue,
-    origin: Origin,
-) -> PythonValue {
-    if super::super::mutation::extend_list_value(&mut left, right, origin) {
-        left.rebase_origin(origin);
-        left
-    } else {
-        PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin))
-    }
 }

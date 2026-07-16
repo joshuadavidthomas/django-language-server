@@ -4,13 +4,9 @@ use djls_source::Span;
 use ruff_python_ast as ast;
 
 use super::super::PythonBinding;
-use super::super::PythonBindingState;
-use super::super::PythonListItem;
 use super::super::PythonMutationOperation;
 use super::super::PythonUnknownCause;
 use super::super::PythonValue;
-use super::super::PythonValueKind;
-use super::super::mutation;
 use super::super::mutation::MutationTarget;
 use super::super::touched_names::first_import_segment;
 use super::super::touched_names::pattern_bound_names;
@@ -32,7 +28,7 @@ impl Evaluator<'_> {
             ast::Stmt::Assign(assign) => self.walk_assign(assign),
             ast::Stmt::AnnAssign(assign) => self.walk_ann_assign(assign),
             ast::Stmt::AugAssign(assign) => self.walk_aug_assign(assign),
-            ast::Stmt::Expr(expr) => mutation::walk_expr(self, &expr.value),
+            ast::Stmt::Expr(expr) => self.evaluate_expression_statement(&expr.value),
             ast::Stmt::Import(import) => self.walk_import(import),
             ast::Stmt::ImportFrom(import) => self.evaluate_import_from(import),
             ast::Stmt::If(stmt_if) => self.walk_if(stmt_if),
@@ -192,8 +188,7 @@ impl Evaluator<'_> {
 
     fn walk_assign(&mut self, assign: &ast::StmtAssign) {
         let value = self.evaluate_binding(&assign.value);
-        let aliases_mutable_value =
-            assign.targets.len() > 1 && binding_contains_mutable_value(&value);
+        let aliases_mutable_value = assign.targets.len() > 1 && value.contains_mutable_value();
         if aliases_mutable_value {
             let cause = PythonUnknownCause::UnsupportedExpression;
             let aliased_names = self.state.mutable_alias_names(&value);
@@ -228,7 +223,7 @@ impl Evaluator<'_> {
             let aliases = self.state.stale_alias_names_after_mutation(name, &path);
             let right = self.evaluate_value(&assign.value);
             let mut value = left;
-            let alias_cause = if mutation::extend_list_value(&mut value, &right, origin) {
+            let alias_cause = if value.try_extend_from(&right, origin) {
                 value.record_origin(origin);
                 PythonUnknownCause::UnsupportedExpression
             } else {
@@ -250,7 +245,7 @@ impl Evaluator<'_> {
             && let Some(target) = MutationTarget::from_expr(&assign.target)
         {
             let extension = self.evaluate_value(&assign.value);
-            mutation::apply_augmented_add(&mut self.state, target, &extension, origin);
+            self.state.apply_augmented_add(target, &extension, origin);
             return;
         }
 
@@ -385,28 +380,6 @@ impl Evaluator<'_> {
 
     fn test_truthiness(&self, expression: &ast::Expr) -> Truthiness {
         Truthiness::of_expr(expression, &|name| self.state.bool_value(name))
-    }
-}
-
-fn binding_contains_mutable_value(binding: &PythonBinding) -> bool {
-    binding.alternatives().any(|state| {
-        matches!(state, PythonBindingState::Bound(bound) if value_contains_mutable_value(&bound.value))
-    })
-}
-
-fn value_contains_mutable_value(value: &PythonValue) -> bool {
-    if value.is_mutable_container() {
-        return true;
-    }
-    match &value.kind {
-        PythonValueKind::List(list) => list.semantic_items().iter().any(|item| {
-            matches!(item, PythonListItem::Value(value) if value_contains_mutable_value(value))
-        }),
-        PythonValueKind::Unknown(_)
-        | PythonValueKind::Str(_)
-        | PythonValueKind::Bool(_)
-        | PythonValueKind::Path(_)
-        | PythonValueKind::Dict(_) => false,
     }
 }
 
