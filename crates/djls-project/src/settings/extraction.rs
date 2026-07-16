@@ -1346,7 +1346,10 @@ fn setting_accepts_mutation(setting: KnownSetting, mutation: &PythonMutation) ->
         KnownSetting::Templates => {
             matches!(
                 mutation.operation,
-                PythonMutationOperation::Append | PythonMutationOperation::Extend
+                PythonMutationOperation::Append
+                    | PythonMutationOperation::Extend
+                    | PythonMutationOperation::Insert
+                    | PythonMutationOperation::Remove
             ) && matches!(mutation.path.as_slice(), [PythonMutationPathSegment::Index(_), PythonMutationPathSegment::Key(key)] if key == "DIRS")
         }
         KnownSetting::StaticUrl | KnownSetting::StaticRoot | KnownSetting::StaticFilesDirs => false,

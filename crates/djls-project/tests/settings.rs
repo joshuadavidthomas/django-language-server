@@ -1553,6 +1553,31 @@ fn template_dirs_resolve_settings_module_file() {
 }
 
 #[test]
+fn template_dirs_follow_supported_nested_insert_and_remove_mutations() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[(
+            "/proj/myproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/first', '/proj/removed'], 'APP_DIRS': False}]
+TEMPLATES[0]['DIRS'].insert(1, '/proj/inserted')
+TEMPLATES[0]['DIRS'].remove('/proj/removed')",
+        )],
+    );
+
+    let dirs = complete_template_dirs(&db, project);
+
+    assert_eq!(
+        dirs,
+        [
+            Utf8PathBuf::from("/proj/first"),
+            Utf8PathBuf::from("/proj/inserted"),
+        ]
+    );
+}
+
+#[test]
 fn template_dirs_merge_equivalent_explicit_backend_branches() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(

@@ -2893,6 +2893,23 @@ fn nested_template_dirs_append_and_extend_are_supported() {
 }
 
 #[test]
+fn nested_template_dirs_insert_and_remove_are_supported() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a', '/c', '/removed']}]
+TEMPLATES[0]['DIRS'].insert(1, '/b')
+TEMPLATES[0]['DIRS'].remove('/removed')",
+    );
+    let cases = cases(&settings, "/templates/cases");
+    let dirs = cases[0]["known"]["backends"][0]["dirs"].as_array().unwrap();
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert_eq!(dirs.len(), 3, "{settings:#}");
+    assert_eq!(dirs[0]["value"]["resolved"], "/a");
+    assert_eq!(dirs[1]["value"]["resolved"], "/b");
+    assert_eq!(dirs[2]["value"]["resolved"], "/c");
+}
+
+#[test]
 fn nested_template_dirs_mutation_updates_all_correlated_equal_lists() {
     let settings = extract(
         "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'].append('/b')",
