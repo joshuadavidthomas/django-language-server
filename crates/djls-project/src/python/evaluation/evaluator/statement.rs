@@ -209,7 +209,7 @@ impl Evaluator<'_> {
         {
             let right = self.evaluate_value(&assign.value);
             self.state
-                .assign_value(name, expression::add_values(left, right, origin), origin);
+                .assign_value(name, expression::add_values(left, &right, origin), origin);
             let target = MutationTarget::from_expr(&assign.target)
                 .expect("a name target is a supported mutation target");
             self.state

@@ -282,7 +282,11 @@ fn apply_mutation_operation(
     mutate_target(&mut evaluator.state, target, origin, &mutation)
 }
 
-fn extend_list_value(value: &mut PythonValue, extension: &PythonValue, origin: Origin) -> bool {
+pub(super) fn extend_list_value(
+    value: &mut PythonValue,
+    extension: &PythonValue,
+    origin: Origin,
+) -> bool {
     let PythonValueKind::List(list) = &mut value.kind else {
         return false;
     };

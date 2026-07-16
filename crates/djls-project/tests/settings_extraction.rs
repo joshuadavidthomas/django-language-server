@@ -2749,6 +2749,42 @@ fn installed_apps_augmented_assignment_remains_exact() {
 }
 
 #[test]
+fn dynamic_list_additions_preserve_known_installed_apps_prefix() {
+    for source in [
+        "INSTALLED_APPS = ['first']\nINSTALLED_APPS += EXTRA_APPS",
+        "INSTALLED_APPS = ['first'] + EXTRA_APPS",
+    ] {
+        let settings = extract(source);
+        let cases = cases(&settings, "/installed_apps/cases");
+
+        assert_eq!(cases.len(), 1, "{source}");
+        let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+        assert_eq!(evidence.len(), 2, "{source}");
+        assert_eq!(evidence[0]["known"]["value"], "first", "{source}");
+        assert_eq!(evidence[1]["issue"]["kind"], "unknown_unpack", "{source}");
+    }
+}
+
+#[test]
+fn invalid_list_additions_do_not_preserve_stale_installed_apps() {
+    for source in [
+        "INSTALLED_APPS = ['stale']\nINSTALLED_APPS += 'invalid'",
+        "INSTALLED_APPS = ['stale'] + 'invalid'",
+    ] {
+        let settings = extract(source);
+        let cases = cases(&settings, "/installed_apps/cases");
+
+        assert_eq!(cases.len(), 1, "{source}");
+        assert!(cases[0].get("known").is_none(), "{source}");
+        assert_eq!(
+            cases[0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
+            "{source}"
+        );
+        assert!(!cases[0].to_string().contains("stale"), "{source}");
+    }
+}
+
+#[test]
 fn exact_assignment_after_unsupported_mutation_restores_known_setting() {
     for mutation in [
         "STATICFILES_DIRS += ['/discarded']",

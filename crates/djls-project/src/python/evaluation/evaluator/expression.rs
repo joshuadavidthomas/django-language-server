@@ -49,7 +49,7 @@ impl Evaluator<'_> {
                 &self.evaluate_binding(&binary.left),
                 &self.evaluate_binding(&binary.right),
                 origin,
-                |left, right| add_values(left, right, origin),
+                |left, right| add_values(left, &right, origin),
             ),
             ast::Expr::Dict(dict) => self.evaluate_dict_binding(dict, origin),
             _ => PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
@@ -237,20 +237,15 @@ fn combine_bindings(
     })
 }
 
-pub(super) fn add_values(left: PythonValue, right: PythonValue, origin: Origin) -> PythonValue {
-    match (left.kind, right.kind) {
-        (PythonValueKind::List(mut left), PythonValueKind::List(right)) => {
-            left.extend(&right, origin);
-            PythonValue::known(PythonValueKind::List(left), origin)
-        }
-        (
-            PythonValueKind::Str(_)
-            | PythonValueKind::Bool(_)
-            | PythonValueKind::Path(_)
-            | PythonValueKind::List(_)
-            | PythonValueKind::Dict(_)
-            | PythonValueKind::Unknown(_),
-            _,
-        ) => PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin)),
+pub(super) fn add_values(
+    mut left: PythonValue,
+    right: &PythonValue,
+    origin: Origin,
+) -> PythonValue {
+    if super::super::mutation::extend_list_value(&mut left, right, origin) {
+        left.rebase_origin(origin);
+        left
+    } else {
+        PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin))
     }
 }
