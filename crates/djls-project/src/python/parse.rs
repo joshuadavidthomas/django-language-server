@@ -35,21 +35,14 @@ impl<'db> RecoveredPythonModule<'db> {
     pub(crate) fn body(self, db: &'db dyn djls_source::Db) -> &'db [Stmt] {
         self.parse.body(db)
     }
-}
 
-#[derive(Clone, PartialEq, Eq, salsa::Update)]
-pub(crate) enum RecoveredPythonModuleResult<'db> {
-    Module(RecoveredPythonModule<'db>),
-    NotPython,
-    Unreadable(FileReadError),
-}
+    pub(crate) fn syntax_errors(self, db: &'db dyn djls_source::Db) -> &'db [PythonSyntaxError] {
+        self.parse.syntax_errors(db)
+    }
 
-#[derive(Clone, PartialEq, Eq, salsa::Update)]
-pub(crate) enum ExactPythonModule<'db> {
-    Ready(RecoveredPythonModule<'db>),
-    OrdinarySyntaxErrors,
-    NotPython,
-    Unreadable(FileReadError),
+    pub(crate) fn has_ordinary_syntax_errors(self, db: &'db dyn djls_source::Db) -> bool {
+        has_ordinary_syntax_errors(self.syntax_errors(db))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -102,33 +95,18 @@ fn parse_python_source(source: &str) -> PythonParseOutput {
 pub(crate) fn recovered_python_module(
     db: &dyn djls_source::Db,
     file: File,
-) -> RecoveredPythonModuleResult<'_> {
+) -> Result<Option<RecoveredPythonModule<'_>>, FileReadError> {
     match parse_python_file(db, file) {
-        PythonParseResult::Parsed(parse) => {
-            RecoveredPythonModuleResult::Module(RecoveredPythonModule { parse })
-        }
-        PythonParseResult::NotPython => RecoveredPythonModuleResult::NotPython,
-        PythonParseResult::Unreadable(error) => RecoveredPythonModuleResult::Unreadable(error),
-    }
-}
-
-pub(crate) fn exact_python_module(db: &dyn djls_source::Db, file: File) -> ExactPythonModule<'_> {
-    match parse_python_file(db, file) {
-        PythonParseResult::Parsed(parse) if has_ordinary_syntax_errors(parse.syntax_errors(db)) => {
-            ExactPythonModule::OrdinarySyntaxErrors
-        }
-        PythonParseResult::Parsed(parse) => {
-            ExactPythonModule::Ready(RecoveredPythonModule { parse })
-        }
-        PythonParseResult::NotPython => ExactPythonModule::NotPython,
-        PythonParseResult::Unreadable(error) => ExactPythonModule::Unreadable(error),
+        PythonParseResult::Parsed(parse) => Ok(Some(RecoveredPythonModule { parse })),
+        PythonParseResult::NotPython => Ok(None),
+        PythonParseResult::Unreadable(error) => Err(error),
     }
 }
 
 pub(crate) fn python_syntax_errors(
     db: &dyn djls_source::Db,
     file: File,
-) -> Option<&Vec<PythonSyntaxError>> {
+) -> Option<&[PythonSyntaxError]> {
     match parse_python_file(db, file) {
         PythonParseResult::Parsed(parse) => Some(parse.syntax_errors(db)),
         PythonParseResult::NotPython | PythonParseResult::Unreadable(_) => None,

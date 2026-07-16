@@ -24,7 +24,6 @@ pub(crate) use self::result::PythonImportOutcome;
 pub(crate) use self::result::PythonModuleDependencies;
 pub(crate) use self::result::PythonModuleEvaluation;
 pub(crate) use self::result::PythonModuleValues;
-pub(crate) use self::result::PythonModuleValuesOutcome;
 pub(crate) use self::result::PythonNamespaceCause;
 pub(crate) use self::result::PythonNamespaceRemainder;
 pub(crate) use self::result::PythonSyntaxImpact;

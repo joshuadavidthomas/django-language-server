@@ -3,7 +3,6 @@ use djls_source::File;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
-use crate::python::evaluation::PythonModuleValuesOutcome;
 use crate::python::evaluation::python_module_dependencies;
 use crate::python::evaluation::python_module_values;
 use crate::settings::DjangoSettings;
@@ -16,8 +15,8 @@ pub(super) fn django_settings_from_module(
 ) -> DjangoSettings {
     let file = module.file();
     match python_module_values(db, project, module) {
-        PythonModuleValuesOutcome::Readable(values) => settings_from_values(db, file, values),
-        PythonModuleValuesOutcome::Unreadable(_) => DjangoSettings::unreadable(),
+        Ok(values) => settings_from_values(db, file, values),
+        Err(_) => DjangoSettings::unreadable(),
     }
 }
 

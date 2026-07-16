@@ -105,10 +105,12 @@ pub(crate) struct PythonImportRequest<'a> {
     pub(crate) importer: &'a PythonModule,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum PythonImportResolution {
-    Found(PythonModule),
-    Missing(PythonModuleName),
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(crate) enum PythonImportResolutionError {
+    #[error(transparent)]
+    Invalid(#[from] PythonImportError),
+    #[error("Python module `{0}` was not found")]
+    NotFound(PythonModuleName),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -382,12 +384,12 @@ impl PythonModule {
         db: &dyn ProjectDb,
         project: Project,
         import: PythonImportRequest<'_>,
-    ) -> Result<PythonImportResolution, PythonImportError> {
+    ) -> Result<PythonModule, PythonImportResolutionError> {
         let name = if import.level == 0 {
             let module = import
                 .module
                 .ok_or(PythonImportError::EmptyAbsoluteImport)?;
-            PythonModuleName::parse(module)?
+            PythonModuleName::parse(module).map_err(PythonImportError::from)?
         } else {
             let mut module_parts: Vec<String> = import
                 .importer
@@ -396,7 +398,7 @@ impl PythonModule {
                 .map(|package| package.as_str().split('.').map(str::to_string).collect())
                 .unwrap_or_default();
             if import.level as usize > module_parts.len() {
-                return Err(PythonImportError::TooManyDots);
+                return Err(PythonImportError::TooManyDots.into());
             }
             for _ in 1..import.level {
                 module_parts.pop().ok_or(PythonImportError::TooManyDots)?;
@@ -411,13 +413,10 @@ impl PythonModule {
                 );
             }
 
-            PythonModuleName::parse(&module_parts.join("."))?
+            PythonModuleName::parse(&module_parts.join(".")).map_err(PythonImportError::from)?
         };
 
-        Ok(match Self::resolve(db, project, name.clone()) {
-            Some(module) => PythonImportResolution::Found(module),
-            None => PythonImportResolution::Missing(name),
-        })
+        Self::resolve(db, project, name.clone()).ok_or(PythonImportResolutionError::NotFound(name))
     }
 
     #[must_use]

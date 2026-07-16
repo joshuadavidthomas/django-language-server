@@ -40,7 +40,7 @@ pub fn python_syntax_errors(
     db: &dyn djls_source::Db,
     file: djls_source::File,
 ) -> Option<Vec<PythonSyntaxError>> {
-    crate::python::python_syntax_errors(db, file).cloned()
+    crate::python::python_syntax_errors(db, file).map(<[PythonSyntaxError]>::to_vec)
 }
 
 pub fn extract_model_graph(

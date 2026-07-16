@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use djls_source::FileReadError;
 use rustc_hash::FxHashSet;
 
 use super::PythonBinding;
@@ -9,7 +10,6 @@ use super::PythonImportOutcome;
 use super::PythonModuleDependencies;
 use super::PythonModuleEvaluation;
 use super::PythonModuleValues;
-use super::PythonModuleValuesOutcome;
 use super::PythonNamespaceCause;
 use super::PythonNamespaceRemainder;
 use super::PythonUnknown;
@@ -18,8 +18,6 @@ use super::UniqueVec;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
-use crate::python::RecoveredPythonModuleResult;
-use crate::python::python_syntax_errors;
 use crate::python::recovered_python_module;
 
 // Salsa tracked-query keys are by-value; `module` is a key, not a borrow.
@@ -34,24 +32,25 @@ pub(crate) fn evaluate_python_module(
     module: PythonModule,
 ) -> PythonModuleEvaluation {
     let file = module.file();
-    let body = match recovered_python_module(db, file) {
-        RecoveredPythonModuleResult::Module(module) => module.body(db),
-        RecoveredPythonModuleResult::Unreadable(error) => {
+    let parsed = match recovered_python_module(db, file) {
+        Ok(Some(parsed)) => parsed,
+        Err(error) => {
             return PythonModuleEvaluation::evaluated(
-                PythonModuleValuesOutcome::Unreadable(error),
+                Err(error),
                 PythonModuleDependencies::rooted(file),
             );
         }
-        RecoveredPythonModuleResult::NotPython => {
+        Ok(None) => {
             return PythonModuleEvaluation::evaluated(
-                PythonModuleValuesOutcome::Readable(PythonModuleValues::default()),
+                Ok(PythonModuleValues::default()),
                 PythonModuleDependencies::rooted(file),
             );
         }
     };
+    let body = parsed.body(db);
     let mut evaluation = super::evaluator::evaluate_body(db, project, module.clone(), body);
-    if let PythonModuleValuesOutcome::Readable(values) = &mut evaluation.values {
-        values.syntax_errors = python_syntax_errors(db, file).cloned().unwrap_or_default();
+    if let Ok(values) = &mut evaluation.values {
+        values.syntax_errors = parsed.syntax_errors(db).to_vec();
         values.syntax_impacts =
             super::touched_names::collect_syntax_impacts(body, &values.syntax_errors);
     }
@@ -66,7 +65,7 @@ pub(crate) fn python_module_values(
     db: &dyn ProjectDb,
     project: Project,
     module: PythonModule,
-) -> PythonModuleValuesOutcome {
+) -> Result<PythonModuleValues, FileReadError> {
     evaluate_python_module(db, project, module).values.clone()
 }
 
@@ -119,7 +118,7 @@ fn normalize_cycle_evaluation(evaluation: &mut PythonModuleEvaluation, root: &Py
     let root_is_in_cycle =
         root_participates_in_import_cycle(evaluation.dependencies.imports.as_slice(), root);
     let root_file = root.file();
-    if let PythonModuleValuesOutcome::Readable(values) = &mut evaluation.values {
+    if let Ok(values) = &mut evaluation.values {
         values
             .mutations
             .sort_by_key(|mutation| format!("{mutation:?}"));
@@ -145,10 +144,7 @@ fn widen_cycle_evaluation(
     root: &PythonModule,
 ) -> PythonModuleEvaluation {
     match (&previous.values, &mut computed.values) {
-        (
-            PythonModuleValuesOutcome::Readable(previous_values),
-            PythonModuleValuesOutcome::Readable(computed_values),
-        ) => {
+        (Ok(previous_values), Ok(computed_values)) => {
             let names = previous_values
                 .bindings
                 .keys()
@@ -177,15 +173,7 @@ fn widen_cycle_evaluation(
                 .mutations
                 .sort_by_key(|mutation| format!("{mutation:?}"));
         }
-        (
-            PythonModuleValuesOutcome::Unreadable(previous),
-            PythonModuleValuesOutcome::Unreadable(current),
-        ) if previous == current => {}
-        (
-            PythonModuleValuesOutcome::Readable(_) | PythonModuleValuesOutcome::Unreadable(_),
-            PythonModuleValuesOutcome::Unreadable(_),
-        )
-        | (PythonModuleValuesOutcome::Unreadable(_), PythonModuleValuesOutcome::Readable(_)) => {}
+        (Ok(_) | Err(_), Err(_)) | (Err(_), Ok(_)) => {}
     }
 
     if previous.dependencies != computed.dependencies {

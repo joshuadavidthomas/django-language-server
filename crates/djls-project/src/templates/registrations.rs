@@ -24,9 +24,6 @@ use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
-use crate::python::ExactPythonModule;
-use crate::python::RecoveredPythonModuleResult;
-use crate::python::exact_python_module;
 use crate::python::recovered_python_module;
 
 /// Decorator helper names on `django.template.Library` that register filters.
@@ -498,18 +495,13 @@ fn template_library_source_analysis(
     let Some(file) = key.file(db) else {
         return TemplateLibrarySourceAnalysis::failed();
     };
-    let (module, source) = match exact_python_module(db, file) {
-        ExactPythonModule::Ready(module) => (module, TemplateLibrarySource::Exact),
-        ExactPythonModule::OrdinarySyntaxErrors => {
-            let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file)
-            else {
-                return TemplateLibrarySourceAnalysis::failed();
-            };
-            (module, TemplateLibrarySource::Recovered)
-        }
-        ExactPythonModule::NotPython | ExactPythonModule::Unreadable(_) => {
-            return TemplateLibrarySourceAnalysis::failed();
-        }
+    let Ok(Some(module)) = recovered_python_module(db, file) else {
+        return TemplateLibrarySourceAnalysis::failed();
+    };
+    let source = if module.has_ordinary_syntax_errors(db) {
+        TemplateLibrarySource::Recovered
+    } else {
+        TemplateLibrarySource::Exact
     };
 
     let mut tags = BTreeMap::new();

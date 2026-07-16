@@ -16,7 +16,6 @@ use crate::models::extract::extract_models_impl;
 use crate::models::resolve::resolve_deferred_models;
 use crate::project::Project;
 use crate::python::PythonModuleName;
-use crate::python::RecoveredPythonModuleResult;
 use crate::python::import_bindings;
 use crate::python::recovered_python_module;
 
@@ -72,7 +71,7 @@ pub fn extract_models(
     file: File,
     module_name: PythonModuleName,
 ) -> ModelExtraction {
-    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file) else {
+    let Ok(Some(module)) = recovered_python_module(db, file) else {
         return ModelExtraction::default();
     };
 

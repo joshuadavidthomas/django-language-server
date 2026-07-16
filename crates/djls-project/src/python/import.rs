@@ -8,7 +8,6 @@ use ruff_python_ast::Stmt;
 use crate::ast::AliasExt;
 use crate::ast::RangedExt;
 use crate::python::PythonModuleName;
-use crate::python::RecoveredPythonModuleResult;
 use crate::python::recovered_python_module;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -70,7 +69,7 @@ pub(crate) fn import_bindings(
     file: File,
     module_name: PythonModuleName,
 ) -> ImportBindings {
-    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file) else {
+    let Ok(Some(module)) = recovered_python_module(db, file) else {
         return ImportBindings::default();
     };
 

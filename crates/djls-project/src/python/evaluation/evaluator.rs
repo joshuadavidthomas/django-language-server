@@ -21,7 +21,6 @@ use super::PythonListItem;
 use super::PythonModuleDependencies;
 use super::PythonModuleEvaluation;
 use super::PythonModuleValues;
-use super::PythonModuleValuesOutcome;
 use super::PythonMutation;
 use super::PythonMutationOperation;
 use super::PythonMutationPathSegment;
@@ -119,7 +118,7 @@ impl EvaluationState {
 
     fn finish(self) -> PythonModuleEvaluation {
         PythonModuleEvaluation::evaluated(
-            PythonModuleValuesOutcome::Readable(PythonModuleValues {
+            Ok(PythonModuleValues {
                 bindings: self.bindings,
                 namespace_remainder: (!self.namespace_causes.is_empty())
                     .then(|| PythonNamespaceRemainder::new(self.namespace_causes)),

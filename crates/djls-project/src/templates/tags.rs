@@ -15,7 +15,6 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::python::RecoveredPythonModuleResult;
 use crate::python::recovered_python_module;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
@@ -69,8 +68,7 @@ pub(crate) struct HelperCall<'db> {
     cycle_fn=analyze_helper_cycle_recover,
 )]
 pub(crate) fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> AbstractValue {
-    let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, call.file(db))
-    else {
+    let Ok(Some(module)) = recovered_python_module(db, call.file(db)) else {
         return AbstractValue::Unknown;
     };
 

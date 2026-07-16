@@ -7,7 +7,6 @@ use super::Origin;
 use super::PythonImportOutcome;
 use super::PythonModuleDependencies;
 use super::PythonModuleValues;
-use super::PythonModuleValuesOutcome;
 use super::PythonNamespaceCause;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
@@ -16,66 +15,63 @@ use crate::python::PythonImportError;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
 use crate::python::module::PythonImportRequest;
-use crate::python::module::PythonImportResolution;
+use crate::python::module::PythonImportResolutionError;
 use crate::python::module::PythonModule;
 
 impl Evaluator<'_> {
     pub(super) fn evaluate_import_from(&mut self, statement: &ast::StmtImportFrom) {
         let import = FromImport::lower(self, statement);
-        let result = match self.resolve_import(&import) {
-            Ok(module) => self.evaluate_imported_module(module),
-            Err(failure) => FromImportResult::Failed(failure.into()),
-        };
+        let result = self
+            .resolve_import(&import)
+            .and_then(|module| self.evaluate_imported_module(module));
         self.state.apply_import(&import, result);
     }
 
-    fn resolve_import(
-        &self,
-        import: &FromImport<'_>,
-    ) -> Result<PythonModule, ImportResolutionFailure> {
+    fn resolve_import(&self, import: &FromImport<'_>) -> Result<PythonModule, ImportFailure> {
         let request = PythonImportRequest {
             level: import.level,
             module: import.module,
             importer: &import.importer,
         };
         let module = match PythonModule::resolve_import(self.db, self.project, request) {
-            Err(error) => return Err(ImportResolutionFailure::Invalid(error)),
-            Ok(PythonImportResolution::Missing(module)) => {
-                return Err(ImportResolutionFailure::NotFound(module));
+            Ok(module) => module,
+            Err(PythonImportResolutionError::Invalid(error)) => {
+                return Err(ImportFailure::Invalid(error));
             }
-            Ok(PythonImportResolution::Found(module)) => module,
+            Err(PythonImportResolutionError::NotFound(module)) => {
+                return Err(ImportFailure::NotFound(module));
+            }
         };
         if matches!(import.selection, ImportSelection::Named(_))
             && !module.search_path().is_first_party()
         {
-            return Err(ImportResolutionFailure::SkippedExternal(
-                module.name().clone(),
-            ));
+            return Err(ImportFailure::SkippedExternal(module.name().clone()));
         }
         Ok(module)
     }
 
-    fn evaluate_imported_module(&self, module: PythonModule) -> FromImportResult {
+    fn evaluate_imported_module(
+        &self,
+        module: PythonModule,
+    ) -> Result<LoadedImport, ImportFailure> {
         let evaluation =
             super::super::query::evaluate_python_module(self.db, self.project, module.clone());
         if evaluation.is_cycle_seed() {
-            return FromImportResult::Failed(ImportFailure::Cycle { module });
+            return Err(ImportFailure::Cycle { module });
         }
 
         let dependencies = evaluation.dependencies;
         match evaluation.values {
-            PythonModuleValuesOutcome::Unreadable(error) => {
-                FromImportResult::Failed(ImportFailure::Unreadable {
-                    module,
-                    error,
-                    dependencies,
-                })
-            }
-            PythonModuleValuesOutcome::Readable(values) => FromImportResult::Loaded {
+            Ok(values) => Ok(LoadedImport {
                 module,
                 values,
                 dependencies,
-            },
+            }),
+            Err(error) => Err(ImportFailure::Unreadable(Box::new(UnreadableImport {
+                module,
+                error,
+                dependencies,
+            }))),
         }
     }
 }
@@ -136,54 +132,39 @@ struct ImportedBinding<'ast> {
     origin: Origin,
 }
 
-enum FromImportResult {
-    Failed(ImportFailure),
-    Loaded {
-        module: PythonModule,
-        values: PythonModuleValues,
-        dependencies: PythonModuleDependencies,
-    },
+struct LoadedImport {
+    module: PythonModule,
+    values: PythonModuleValues,
+    dependencies: PythonModuleDependencies,
 }
 
-enum ImportResolutionFailure {
-    Invalid(PythonImportError),
-    NotFound(crate::python::PythonModuleName),
-    SkippedExternal(crate::python::PythonModuleName),
-}
-
-impl From<ImportResolutionFailure> for ImportFailure {
-    fn from(failure: ImportResolutionFailure) -> Self {
-        match failure {
-            ImportResolutionFailure::Invalid(error) => Self::Invalid(error),
-            ImportResolutionFailure::NotFound(module) => Self::NotFound(module),
-            ImportResolutionFailure::SkippedExternal(module) => Self::SkippedExternal(module),
-        }
-    }
+struct UnreadableImport {
+    module: PythonModule,
+    error: FileReadError,
+    dependencies: PythonModuleDependencies,
 }
 
 enum ImportFailure {
     Invalid(PythonImportError),
     NotFound(crate::python::PythonModuleName),
     SkippedExternal(crate::python::PythonModuleName),
-    Cycle {
-        module: PythonModule,
-    },
-    Unreadable {
-        module: PythonModule,
-        error: FileReadError,
-        dependencies: PythonModuleDependencies,
-    },
+    Cycle { module: PythonModule },
+    Unreadable(Box<UnreadableImport>),
 }
 
 impl EvaluationState {
-    fn apply_import(&mut self, import: &FromImport<'_>, result: FromImportResult) {
+    fn apply_import(
+        &mut self,
+        import: &FromImport<'_>,
+        result: Result<LoadedImport, ImportFailure>,
+    ) {
         match result {
-            FromImportResult::Failed(failure) => self.apply_import_failure(import, failure),
-            FromImportResult::Loaded {
+            Err(failure) => self.apply_import_failure(import, failure),
+            Ok(LoadedImport {
                 module,
                 values,
                 dependencies,
-            } => {
+            }) => {
                 self.dependencies.files.insert(module.file());
                 self.absorb_dependencies(&dependencies);
                 let edge = PythonImportEdge {
@@ -254,23 +235,19 @@ impl EvaluationState {
                     PythonUnknownCause::Cycle,
                 )
             }
-            ImportFailure::Unreadable {
-                module,
-                error,
-                dependencies,
-            } => {
-                self.dependencies.files.insert(module.file());
-                self.absorb_dependencies(&dependencies);
+            ImportFailure::Unreadable(unreadable) => {
+                self.dependencies.files.insert(unreadable.module.file());
+                self.absorb_dependencies(&unreadable.dependencies);
                 (
                     PythonImportOutcome::Unreadable {
                         edge: PythonImportEdge {
                             origin: import.origin,
                             importer: import.importer.clone(),
-                            imported: module,
+                            imported: unreadable.module,
                         },
-                        error: error.clone(),
+                        error: unreadable.error.clone(),
                     },
-                    PythonUnknownCause::Unreadable(error),
+                    PythonUnknownCause::Unreadable(unreadable.error),
                 )
             }
         };

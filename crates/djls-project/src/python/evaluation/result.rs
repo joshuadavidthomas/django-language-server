@@ -15,12 +15,6 @@ use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PythonModuleValuesOutcome {
-    Readable(PythonModuleValues),
-    Unreadable(FileReadError),
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct PythonModuleValues {
     pub(crate) bindings: BTreeMap<String, PythonBinding>,
@@ -99,14 +93,14 @@ impl PythonNamespaceRemainder {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonModuleEvaluation {
-    pub(super) values: PythonModuleValuesOutcome,
+    pub(super) values: Result<PythonModuleValues, FileReadError>,
     pub(super) dependencies: PythonModuleDependencies,
     cycle_seed: bool,
 }
 
 impl PythonModuleEvaluation {
     pub(super) fn evaluated(
-        values: PythonModuleValuesOutcome,
+        values: Result<PythonModuleValues, FileReadError>,
         dependencies: PythonModuleDependencies,
     ) -> Self {
         Self {
@@ -118,7 +112,7 @@ impl PythonModuleEvaluation {
 
     pub(super) fn cycle_seed() -> Self {
         Self {
-            values: PythonModuleValuesOutcome::Readable(PythonModuleValues::default()),
+            values: Ok(PythonModuleValues::default()),
             dependencies: PythonModuleDependencies::default(),
             cycle_seed: true,
         }

@@ -199,7 +199,7 @@ pub fn python_module_evaluation_for_module(
     let values = evaluation::python_module_values(db, project, module.clone()).clone();
     let dependencies = evaluation::python_module_dependencies(db, project, module).clone();
     let (bindings, namespace_unknowns, syntax_errors, mutations, read_error) = match values {
-        evaluation::PythonModuleValuesOutcome::Readable(values) => (
+        Ok(values) => (
             values
                 .bindings
                 .into_iter()
@@ -234,7 +234,7 @@ pub fn python_module_evaluation_for_module(
                 .collect(),
             None,
         ),
-        evaluation::PythonModuleValuesOutcome::Unreadable(error) => (
+        Err(error) => (
             Vec::new(),
             Vec::new(),
             Vec::new(),
