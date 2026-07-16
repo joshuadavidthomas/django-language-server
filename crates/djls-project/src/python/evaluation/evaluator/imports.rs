@@ -14,8 +14,8 @@ use super::ast;
 use crate::python::PythonImportError;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
-use crate::python::evaluation::PythonModuleEvaluation;
 use crate::python::evaluation::result::CycleMembership;
+use crate::python::evaluation::result::PythonModuleEvaluation;
 use crate::python::module::PythonImportRequest;
 use crate::python::module::PythonImportResolutionError;
 use crate::python::module::PythonModule;
@@ -56,21 +56,21 @@ impl Evaluator<'_> {
     ) -> Result<LoadedImport, ImportFailure> {
         match super::super::query::evaluate_python_module(self.db, self.project, module.clone()) {
             PythonModuleEvaluation::CycleSeed => Err(ImportFailure::Cycle { module }),
-            PythonModuleEvaluation::Evaluated {
-                values,
-                dependencies,
-            } => match values {
-                Ok(values) => Ok(LoadedImport {
-                    module,
-                    values,
-                    dependencies,
-                }),
-                Err(error) => Err(ImportFailure::Unreadable(Box::new(UnreadableImport {
-                    module,
-                    error,
-                    dependencies,
-                }))),
-            },
+            PythonModuleEvaluation::Evaluated(evaluated) => {
+                let (values, dependencies) = evaluated.into_parts();
+                match values {
+                    Ok(values) => Ok(LoadedImport {
+                        module,
+                        values,
+                        dependencies,
+                    }),
+                    Err(error) => Err(ImportFailure::Unreadable(Box::new(UnreadableImport {
+                        module,
+                        error,
+                        dependencies,
+                    }))),
+                }
+            }
         }
     }
 }

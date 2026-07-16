@@ -134,7 +134,7 @@ impl PythonBinding {
             .map(|case| (&case.state, &case.constraints))
     }
 
-    pub(super) fn alternatives_mut(&mut self) -> impl Iterator<Item = &mut PythonBindingState> {
+    fn alternatives_mut(&mut self) -> impl Iterator<Item = &mut PythonBindingState> {
         self.cases.iter_mut().map(|case| &mut case.state)
     }
 
@@ -423,7 +423,7 @@ impl PythonBoundValue {
         self.binding_origins.first()
     }
 
-    pub(super) fn rebase_binding_origin(&mut self, origin: Origin) {
+    fn rebase_binding_origin(&mut self, origin: Origin) {
         self.binding_origins.rebase(origin);
     }
 

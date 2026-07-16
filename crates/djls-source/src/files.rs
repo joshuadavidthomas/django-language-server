@@ -97,6 +97,11 @@ pub struct FileReadError {
 
 impl FileReadError {
     #[must_use]
+    pub fn new(path: Utf8PathBuf, kind: std::io::ErrorKind) -> Self {
+        Self { path, kind }
+    }
+
+    #[must_use]
     pub fn path(&self) -> &Utf8Path {
         &self.path
     }
@@ -473,10 +478,7 @@ pub(crate) fn sync_known_paths(db: &mut dyn Db) {
 fn read_source(db: &dyn Db, path: &Utf8Path) -> Result<SourceText, FileReadError> {
     db.read_file(path)
         .map(|source| SourceText::new(path, source))
-        .map_err(|error| FileReadError {
-            path: path.to_owned(),
-            kind: error.kind(),
-        })
+        .map_err(|error| FileReadError::new(path.to_owned(), error.kind()))
 }
 
 fn sync_file(db: &mut dyn Db, path: &Utf8Path) {

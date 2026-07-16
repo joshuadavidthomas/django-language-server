@@ -155,7 +155,7 @@ pub(crate) enum ImportPathResolutionError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ModuleKind {
+enum ModuleKind {
     Module,
     PackageInit,
 }
@@ -181,7 +181,7 @@ pub(crate) fn import_bindings(
 }
 
 #[cfg(test)]
-pub(crate) fn extract_import_bindings_for_source(
+fn extract_import_bindings_for_source(
     source: &str,
     module_name: &PythonModuleName,
     module_kind: ModuleKind,
