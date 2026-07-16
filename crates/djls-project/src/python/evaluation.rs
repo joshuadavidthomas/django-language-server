@@ -5,6 +5,7 @@ mod binding;
 mod constraints;
 mod evaluator;
 mod mutation;
+mod name_analysis;
 mod query;
 mod result;
 mod touched_names;

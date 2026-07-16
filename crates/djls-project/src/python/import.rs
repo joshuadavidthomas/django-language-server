@@ -77,7 +77,7 @@ impl ImportBindings {
                     asname.span(),
                 )
             } else {
-                let local_name = imported_name.split('.').next().unwrap_or(imported_name);
+                let local_name = first_import_segment(imported_name);
                 (
                     local_name.to_string(),
                     local_name.to_string(),
@@ -192,6 +192,10 @@ pub(crate) fn extract_import_bindings_for_source(
 
     let module = parsed.into_syntax();
     ImportBindings::from_statements(&module.body, module_name, module_kind)
+}
+
+pub(super) fn first_import_segment(name: &str) -> &str {
+    name.split('.').next().unwrap_or(name)
 }
 
 fn import_from_base(

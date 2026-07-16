@@ -9,7 +9,7 @@ use super::PythonValue;
 use super::PythonValueKind;
 use super::evaluator::EvaluationState;
 use super::evaluator::Evaluator;
-use super::touched_names::expr_read_names;
+use super::name_analysis::expr_read_names;
 use crate::ast::ExprExt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

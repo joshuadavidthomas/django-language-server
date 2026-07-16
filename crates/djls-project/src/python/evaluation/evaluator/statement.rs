@@ -8,13 +8,13 @@ use super::super::PythonMutationOperation;
 use super::super::PythonUnknownCause;
 use super::super::PythonValue;
 use super::super::mutation::MutationTarget;
-use super::super::touched_names::first_import_segment;
-use super::super::touched_names::pattern_bound_names;
-use super::super::touched_names::target_write_names;
+use super::super::name_analysis::pattern_bound_names;
+use super::super::name_analysis::target_write_names;
 use super::super::truthiness::Truthiness;
 use super::Evaluator;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
+use crate::python::import::first_import_segment;
 
 impl Evaluator<'_> {
     pub(super) fn evaluate_body(&mut self, body: &[ast::Stmt]) {
