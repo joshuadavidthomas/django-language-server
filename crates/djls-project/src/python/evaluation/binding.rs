@@ -2,6 +2,7 @@ use djls_source::Origin;
 
 use super::BranchConstraints;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
+use super::MutableOrigins;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
@@ -135,6 +136,27 @@ impl PythonBinding {
 
     pub(super) fn alternatives_mut(&mut self) -> impl Iterator<Item = &mut PythonBindingState> {
         self.cases.iter_mut().map(|case| &mut case.state)
+    }
+
+    pub(super) fn reachable_mutable_origins(&self) -> MutableOrigins {
+        let mut origins = MutableOrigins::default();
+        for state in self.alternatives() {
+            if let PythonBindingState::Bound(bound) = state {
+                origins.extend(bound.value.reachable_mutable_origins().iter());
+            }
+        }
+        origins
+    }
+
+    pub(super) fn mutable_origin_occurrences(&self, wanted: &MutableOrigins) -> usize {
+        self.alternatives()
+            .filter_map(|state| match state {
+                PythonBindingState::Bound(bound) => {
+                    Some(bound.value.mutable_origin_occurrences(wanted))
+                }
+                PythonBindingState::Unbound => None,
+            })
+            .sum()
     }
 
     pub(super) fn single_bound(&self) -> Option<&PythonBoundValue> {

@@ -1,6 +1,7 @@
 use djls_source::Origin;
 use ruff_python_ast as ast;
 
+use super::MutableOrigins;
 use super::PythonDictItem;
 use super::PythonList;
 use super::PythonListItem;
@@ -15,7 +16,7 @@ use crate::ast::ExprExt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonMutation {
     pub(crate) binding: String,
-    pub(crate) path: Vec<PythonMutationPathSegment>,
+    pub(crate) path: PythonMutationPath,
     pub(crate) operation: PythonMutationOperation,
     pub(crate) origin: Origin,
 }
@@ -24,6 +25,11 @@ pub(crate) struct PythonMutation {
 pub(crate) enum PythonMutationPathSegment {
     Index(usize),
     Key(String),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PythonMutationPath {
+    segments: Vec<PythonMutationPathSegment>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +66,169 @@ enum EvaluatedMutation<'a> {
         value: &'a PythonValue,
     },
     Remove(&'a str),
+}
+
+impl PythonMutationPath {
+    fn from_expr(expr: &ast::Expr) -> Option<(&str, Self)> {
+        if let Some(binding) = expr.name_target() {
+            return Some((binding, Self::default()));
+        }
+
+        let ast::Expr::Subscript(subscript) = expr else {
+            return None;
+        };
+        let segment = if let Some(index) = subscript.slice.non_negative_integer() {
+            PythonMutationPathSegment::Index(index)
+        } else if let Some(key) = subscript.slice.string_literal() {
+            PythonMutationPathSegment::Key(key.to_string())
+        } else {
+            return None;
+        };
+        let (binding, mut path) = Self::from_expr(&subscript.value)?;
+        path.segments.push(segment);
+        Some((binding, path))
+    }
+
+    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = &PythonMutationPathSegment> {
+        self.segments.iter()
+    }
+
+    pub(crate) fn as_slice(&self) -> &[PythonMutationPathSegment] {
+        &self.segments
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.segments.is_empty()
+    }
+
+    pub(super) fn possible_target_origins(&self, value: &PythonValue) -> MutableOrigins {
+        fn collect(
+            value: &PythonValue,
+            path: &[PythonMutationPathSegment],
+            origins: &mut MutableOrigins,
+        ) {
+            let Some((segment, remaining)) = path.split_first() else {
+                if matches!(
+                    &value.kind,
+                    PythonValueKind::List(_) | PythonValueKind::Dict(_)
+                ) {
+                    origins.extend(value.mutable_origins());
+                }
+                return;
+            };
+            match segment {
+                PythonMutationPathSegment::Index(index) => {
+                    let PythonValueKind::List(list) = &value.kind else {
+                        return;
+                    };
+                    if let Some(PythonListItem::Value(value)) = list.semantic_items().get(*index) {
+                        collect(value, remaining, origins);
+                    }
+                }
+                PythonMutationPathSegment::Key(key) => {
+                    let PythonValueKind::Dict(dict) = &value.kind else {
+                        return;
+                    };
+                    for item in dict.items.iter().rev() {
+                        let PythonDictItem::Entry {
+                            key: candidate,
+                            value,
+                        } = item
+                        else {
+                            continue;
+                        };
+                        match &candidate.kind {
+                            PythonValueKind::Str(candidate) if candidate == key => {
+                                collect(value, remaining, origins);
+                                return;
+                            }
+                            PythonValueKind::Str(_) => {}
+                            PythonValueKind::Unknown(_)
+                            | PythonValueKind::Bool(_)
+                            | PythonValueKind::Path(_)
+                            | PythonValueKind::List(_)
+                            | PythonValueKind::Dict(_) => {
+                                collect(value, remaining, origins);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut origins = MutableOrigins::default();
+        collect(value, self.as_slice(), &mut origins);
+        origins
+    }
+
+    fn try_apply_exact(
+        &self,
+        value: &mut PythonValue,
+        mutation: &EvaluatedMutation<'_>,
+        origin: Origin,
+    ) -> bool {
+        fn apply(
+            value: &mut PythonValue,
+            path: &[PythonMutationPathSegment],
+            mutation: &EvaluatedMutation<'_>,
+            origin: Origin,
+        ) -> bool {
+            let Some((next_segment, remaining)) = path.split_first() else {
+                if !mutation.apply(value, origin) {
+                    return false;
+                }
+                value.record_origin(origin);
+                return true;
+            };
+
+            let supported = match next_segment {
+                PythonMutationPathSegment::Index(index) => {
+                    let PythonValueKind::List(list) = &mut value.kind else {
+                        return false;
+                    };
+                    list.try_mutate_indexed_value(*index, |next| {
+                        apply(next, remaining, mutation, origin)
+                    })
+                }
+                PythonMutationPathSegment::Key(key) => {
+                    let PythonValueKind::Dict(dict) = &mut value.kind else {
+                        return false;
+                    };
+                    let mut selected = None;
+                    for item in dict.items.iter_mut().rev() {
+                        match item {
+                            PythonDictItem::Entry {
+                                key: candidate,
+                                value,
+                            } => match &candidate.kind {
+                                PythonValueKind::Str(candidate) if candidate == key => {
+                                    selected = Some(value);
+                                    break;
+                                }
+                                PythonValueKind::Str(_) => {}
+                                PythonValueKind::Unknown(_)
+                                | PythonValueKind::Bool(_)
+                                | PythonValueKind::Path(_)
+                                | PythonValueKind::List(_)
+                                | PythonValueKind::Dict(_) => return false,
+                            },
+                            PythonDictItem::UnknownUnpack(_) => return false,
+                        }
+                    }
+                    let Some(next) = selected else {
+                        return false;
+                    };
+                    apply(next, remaining, mutation, origin)
+                }
+            };
+            if supported {
+                value.record_origin(origin);
+            }
+            supported
+        }
+
+        apply(value, self.as_slice(), mutation, origin)
+    }
 }
 
 impl EvaluatedMutation<'_> {
@@ -120,14 +289,12 @@ impl EvaluatedMutation<'_> {
 
 pub(super) struct MutationTarget<'a> {
     pub(super) binding: &'a str,
-    path: Vec<PythonMutationPathSegment>,
+    path: PythonMutationPath,
 }
 
 impl<'a> MutationTarget<'a> {
     pub(super) fn from_expr(expr: &'a ast::Expr) -> Option<Self> {
-        let mut path = Vec::new();
-        let binding = collect_mutation_target(expr, &mut path)?;
-        path.reverse();
+        let (binding, path) = PythonMutationPath::from_expr(expr)?;
         Some(Self { binding, path })
     }
 
@@ -143,29 +310,6 @@ impl<'a> MutationTarget<'a> {
             origin,
         }
     }
-}
-
-fn collect_mutation_target<'a>(
-    expr: &'a ast::Expr,
-    path: &mut Vec<PythonMutationPathSegment>,
-) -> Option<&'a str> {
-    if let Some(name) = expr.name_target() {
-        return Some(name);
-    }
-
-    let ast::Expr::Subscript(subscript) = expr else {
-        return None;
-    };
-
-    if let Some(index) = subscript.slice.non_negative_integer() {
-        path.push(PythonMutationPathSegment::Index(index));
-    } else if let Some(key) = subscript.slice.string_literal() {
-        path.push(PythonMutationPathSegment::Key(key.to_string()));
-    } else {
-        return None;
-    }
-
-    collect_mutation_target(&subscript.value, path)
 }
 
 pub(super) fn apply_augmented_add(
@@ -377,65 +521,50 @@ fn mutate_target(
     let Some(bound) = binding.single_bound_mut() else {
         return false;
     };
-    mutate_at_path(&mut bound.value, &target.path, origin, mutation)
+    target
+        .path
+        .try_apply_exact(&mut bound.value, mutation, origin)
 }
 
-fn mutate_at_path(
-    value: &mut PythonValue,
-    path: &[PythonMutationPathSegment],
-    origin: Origin,
-    mutation: &EvaluatedMutation<'_>,
-) -> bool {
-    let Some((next_segment, remaining)) = path.split_first() else {
-        if !mutation.apply(value, origin) {
-            return false;
-        }
-        value.record_origin(origin);
-        return true;
-    };
+#[cfg(test)]
+mod tests {
+    use super::MutationTarget;
+    use super::PythonMutationPathSegment;
+    use super::ast;
 
-    let supported = match next_segment {
-        PythonMutationPathSegment::Index(index) => {
-            let PythonValueKind::List(list) = &mut value.kind else {
-                return false;
-            };
-            list.try_mutate_indexed_value(*index, |next| {
-                mutate_at_path(next, remaining, origin, mutation)
-            })
-        }
-        PythonMutationPathSegment::Key(key) => {
-            let PythonValueKind::Dict(dict) = &mut value.kind else {
-                return false;
-            };
-            let mut selected = None;
-            for item in dict.items.iter_mut().rev() {
-                match item {
-                    PythonDictItem::Entry {
-                        key: candidate,
-                        value,
-                    } => match &candidate.kind {
-                        PythonValueKind::Str(candidate) if candidate == key => {
-                            selected = Some(value);
-                            break;
-                        }
-                        PythonValueKind::Str(_) => {}
-                        PythonValueKind::Unknown(_)
-                        | PythonValueKind::Bool(_)
-                        | PythonValueKind::Path(_)
-                        | PythonValueKind::List(_)
-                        | PythonValueKind::Dict(_) => return false,
-                    },
-                    PythonDictItem::UnknownUnpack(_) => return false,
-                }
-            }
-            let Some(next) = selected else {
-                return false;
-            };
-            mutate_at_path(next, remaining, origin, mutation)
-        }
-    };
-    if supported {
-        value.record_origin(origin);
+    fn target(source: &str) -> Option<(String, Vec<PythonMutationPathSegment>)> {
+        let parsed =
+            ruff_python_parser::parse_module(source).expect("test expression should parse");
+        let module = parsed.into_syntax();
+        let [ast::Stmt::Expr(statement)] = module.body.as_slice() else {
+            panic!("test source should contain one expression statement");
+        };
+        MutationTarget::from_expr(&statement.value).map(|target| {
+            (
+                target.binding.to_string(),
+                target.path.iter().cloned().collect(),
+            )
+        })
     }
-    supported
+
+    #[test]
+    fn mutation_path_is_root_to_leaf_by_construction() {
+        assert_eq!(target("ROOT"), Some(("ROOT".to_string(), Vec::new())));
+        assert_eq!(
+            target("ROOT[0]['apps']"),
+            Some((
+                "ROOT".to_string(),
+                vec![
+                    PythonMutationPathSegment::Index(0),
+                    PythonMutationPathSegment::Key("apps".to_string()),
+                ],
+            )),
+        );
+    }
+
+    #[test]
+    fn mutation_path_rejects_dynamic_indexes_and_keys() {
+        assert_eq!(target("ROOT[index]"), None);
+        assert_eq!(target("ROOT[key]"), None);
+    }
 }

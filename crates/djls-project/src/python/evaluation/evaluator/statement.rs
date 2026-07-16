@@ -224,7 +224,8 @@ impl Evaluator<'_> {
             && let Some(name) = assign.target.name_target()
             && let Some(left) = self.state.value_for_name(name)
         {
-            let aliases = self.state.stale_alias_names_after_mutation(name, &[]);
+            let path = super::PythonMutationPath::default();
+            let aliases = self.state.stale_alias_names_after_mutation(name, &path);
             let right = self.evaluate_value(&assign.value);
             let mut value = left;
             let alias_cause = if mutation::extend_list_value(&mut value, &right, origin) {

@@ -22,6 +22,7 @@ use super::PythonModuleDependencies;
 use super::PythonModuleValues;
 use super::PythonMutation;
 use super::PythonMutationOperation;
+use super::PythonMutationPath;
 use super::PythonMutationPathSegment;
 use super::PythonNamespaceCause;
 use super::PythonNamespaceRemainder;
@@ -168,11 +169,13 @@ impl EvaluationState {
     }
 
     fn mutable_alias_names(&self, binding: &PythonBinding) -> Vec<String> {
-        let mut wanted = Vec::new();
-        collect_mutable_value_origins_from_binding(binding, &mut wanted);
+        let wanted = binding.reachable_mutable_origins();
+        if wanted.is_empty() {
+            return Vec::new();
+        }
         self.bindings
             .iter()
-            .filter(|(_name, candidate)| binding_contains_mutable_origin(candidate, &wanted))
+            .filter(|(_name, candidate)| candidate.reachable_mutable_origins().intersects(&wanted))
             .map(|(name, _binding)| name.clone())
             .collect()
     }
@@ -180,9 +183,9 @@ impl EvaluationState {
     pub(super) fn stale_alias_names_after_mutation(
         &self,
         name: &str,
-        path: &[PythonMutationPathSegment],
+        path: &PythonMutationPath,
     ) -> Vec<String> {
-        let mut wanted = Vec::new();
+        let mut wanted = super::MutableOrigins::default();
         let Some(binding) = self.binding(name) else {
             return Vec::new();
         };
@@ -190,12 +193,15 @@ impl EvaluationState {
             let PythonBindingState::Bound(bound) = state else {
                 continue;
             };
-            collect_mutation_target_origins(&bound.value, path, &mut wanted);
+            wanted.extend(path.possible_target_origins(&bound.value).iter());
+        }
+        if wanted.is_empty() {
+            return Vec::new();
         }
         self.bindings
             .iter()
             .filter(|(candidate_name, candidate)| {
-                let occurrences = binding_mutable_origin_count(candidate, &wanted);
+                let occurrences = candidate.mutable_origin_occurrences(&wanted);
                 occurrences > usize::from(candidate_name.as_str() == name)
             })
             .map(|(name, _binding)| name.clone())
@@ -513,140 +519,6 @@ fn rebase_cycle_unknowns(binding: &mut PythonBinding, origin: Origin) {
     }
 }
 
-fn collect_mutation_target_origins(
-    value: &PythonValue,
-    path: &[PythonMutationPathSegment],
-    origins: &mut Vec<Origin>,
-) {
-    let Some((segment, remaining)) = path.split_first() else {
-        if matches!(
-            &value.kind,
-            PythonValueKind::List(_) | PythonValueKind::Dict(_)
-        ) {
-            origins.extend(value.mutable_origins());
-        }
-        return;
-    };
-    match segment {
-        PythonMutationPathSegment::Index(index) => {
-            let PythonValueKind::List(list) = &value.kind else {
-                return;
-            };
-            if let Some(PythonListItem::Value(value)) = list.semantic_items().get(*index) {
-                collect_mutation_target_origins(value, remaining, origins);
-            }
-        }
-        PythonMutationPathSegment::Key(key) => {
-            let PythonValueKind::Dict(dict) = &value.kind else {
-                return;
-            };
-            for item in dict.items.iter().rev() {
-                let PythonDictItem::Entry {
-                    key: candidate,
-                    value,
-                } = item
-                else {
-                    continue;
-                };
-                match &candidate.kind {
-                    PythonValueKind::Str(candidate) if candidate == key => {
-                        collect_mutation_target_origins(value, remaining, origins);
-                        return;
-                    }
-                    PythonValueKind::Str(_) => {}
-                    PythonValueKind::Unknown(_)
-                    | PythonValueKind::Bool(_)
-                    | PythonValueKind::Path(_)
-                    | PythonValueKind::List(_)
-                    | PythonValueKind::Dict(_) => {
-                        collect_mutation_target_origins(value, remaining, origins);
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn collect_mutable_value_origins_from_binding(binding: &PythonBinding, origins: &mut Vec<Origin>) {
-    for state in binding.alternatives() {
-        if let PythonBindingState::Bound(bound) = state {
-            collect_mutable_value_origins(&bound.value, origins);
-        }
-    }
-}
-
-fn collect_mutable_value_origins(value: &PythonValue, origins: &mut Vec<Origin>) {
-    match &value.kind {
-        PythonValueKind::List(list) => {
-            origins.extend(value.mutable_origins());
-            for item in list.semantic_items() {
-                if let PythonListItem::Value(value) = item {
-                    collect_mutable_value_origins(value, origins);
-                }
-            }
-        }
-        PythonValueKind::Dict(dict) => {
-            origins.extend(value.mutable_origins());
-            for item in &dict.items {
-                if let PythonDictItem::Entry { key, value } = item {
-                    collect_mutable_value_origins(key, origins);
-                    collect_mutable_value_origins(value, origins);
-                }
-            }
-        }
-        PythonValueKind::Unknown(_)
-        | PythonValueKind::Str(_)
-        | PythonValueKind::Bool(_)
-        | PythonValueKind::Path(_) => {}
-    }
-}
-
-fn binding_contains_mutable_origin(binding: &PythonBinding, wanted: &[Origin]) -> bool {
-    binding_mutable_origin_count(binding, wanted) > 0
-}
-
-fn binding_mutable_origin_count(binding: &PythonBinding, wanted: &[Origin]) -> usize {
-    binding
-        .alternatives()
-        .filter_map(|state| match state {
-            PythonBindingState::Bound(bound) => Some(mutable_origin_count(&bound.value, wanted)),
-            PythonBindingState::Unbound => None,
-        })
-        .sum()
-}
-
-fn mutable_origin_count(value: &PythonValue, wanted: &[Origin]) -> usize {
-    let own = usize::from(
-        value
-            .mutable_origins()
-            .any(|origin| wanted.contains(&origin)),
-    );
-    own + match &value.kind {
-        PythonValueKind::List(list) => list
-            .semantic_items()
-            .iter()
-            .filter_map(|item| match item {
-                PythonListItem::Value(value) => Some(mutable_origin_count(value, wanted)),
-                PythonListItem::UnknownElement(_) | PythonListItem::UnknownUnpack(_) => None,
-            })
-            .sum::<usize>(),
-        PythonValueKind::Dict(dict) => dict
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                PythonDictItem::Entry { key, value } => {
-                    Some(mutable_origin_count(key, wanted) + mutable_origin_count(value, wanted))
-                }
-                PythonDictItem::UnknownUnpack(_) => None,
-            })
-            .sum(),
-        PythonValueKind::Unknown(_)
-        | PythonValueKind::Str(_)
-        | PythonValueKind::Bool(_)
-        | PythonValueKind::Path(_) => 0,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use djls_source::File;
@@ -660,6 +532,7 @@ mod tests {
     use super::PythonImportOutcome;
     use super::PythonMutation;
     use super::PythonMutationOperation;
+    use super::PythonMutationPath;
     use super::PythonNamespaceCause;
     use super::PythonUnknown;
     use super::PythonUnknownCause;
@@ -691,7 +564,7 @@ mod tests {
     fn mutation(operation: PythonMutationOperation, start: usize) -> PythonMutation {
         PythonMutation {
             binding: "VALUE".to_string(),
-            path: Vec::new(),
+            path: PythonMutationPath::default(),
             operation,
             origin: origin(start),
         }

@@ -225,7 +225,8 @@ pub fn python_module_evaluation_for_module(
                     binding: mutation.binding,
                     path: mutation
                         .path
-                        .into_iter()
+                        .iter()
+                        .cloned()
                         .map(mutation_path_segment_view)
                         .collect(),
                     operation: mutation_operation_view(mutation.operation),

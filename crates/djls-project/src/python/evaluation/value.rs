@@ -4,6 +4,7 @@ use djls_source::Origin;
 
 use super::BranchConstraints;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
+use super::MutableOrigins;
 use super::origin_sort_key;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
@@ -169,6 +170,67 @@ impl PythonValue {
 
     pub(super) fn is_mutable_container(&self) -> bool {
         self.mutable_origins().next().is_some()
+    }
+
+    pub(super) fn reachable_mutable_origins(&self) -> MutableOrigins {
+        let mut origins = MutableOrigins::default();
+        for origin in self.mutable_origins() {
+            origins.insert(origin);
+        }
+        match &self.kind {
+            PythonValueKind::List(list) => {
+                for item in list.semantic_items() {
+                    if let PythonListItem::Value(value) = item {
+                        origins.extend(value.reachable_mutable_origins().iter());
+                    }
+                }
+            }
+            PythonValueKind::Dict(dict) => {
+                for item in &dict.items {
+                    if let PythonDictItem::Entry { key, value } = item {
+                        origins.extend(key.reachable_mutable_origins().iter());
+                        origins.extend(value.reachable_mutable_origins().iter());
+                    }
+                }
+            }
+            PythonValueKind::Unknown(_)
+            | PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_) => {}
+        }
+        origins
+    }
+
+    pub(super) fn mutable_origin_occurrences(&self, wanted: &MutableOrigins) -> usize {
+        let own = usize::from(
+            self.mutable_origins()
+                .any(|origin| wanted.contains(&origin)),
+        );
+        own + match &self.kind {
+            PythonValueKind::List(list) => list
+                .semantic_items()
+                .iter()
+                .filter_map(|item| match item {
+                    PythonListItem::Value(value) => Some(value.mutable_origin_occurrences(wanted)),
+                    PythonListItem::UnknownElement(_) | PythonListItem::UnknownUnpack(_) => None,
+                })
+                .sum::<usize>(),
+            PythonValueKind::Dict(dict) => dict
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    PythonDictItem::Entry { key, value } => Some(
+                        key.mutable_origin_occurrences(wanted)
+                            + value.mutable_origin_occurrences(wanted),
+                    ),
+                    PythonDictItem::UnknownUnpack(_) => None,
+                })
+                .sum(),
+            PythonValueKind::Unknown(_)
+            | PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_) => 0,
+        }
     }
 
     pub(crate) fn origins_with_constraints(
