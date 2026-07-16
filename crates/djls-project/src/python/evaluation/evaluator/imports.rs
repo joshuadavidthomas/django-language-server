@@ -15,6 +15,7 @@ use crate::python::PythonImportError;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
 use crate::python::evaluation::PythonModuleEvaluation;
+use crate::python::evaluation::result::CycleMembership;
 use crate::python::module::PythonImportRequest;
 use crate::python::module::PythonImportResolutionError;
 use crate::python::module::PythonModule;
@@ -170,11 +171,10 @@ impl EvaluationState {
                     importer: import.importer.clone(),
                     imported: module,
                 };
-                let status = if values.syntax_errors.is_empty() {
-                    PythonImportEvaluationStatus::Resolved
-                } else {
-                    PythonImportEvaluationStatus::SyntaxErrors(values.syntax_errors.clone())
-                };
+                let status = PythonImportEvaluationStatus::from_syntax_errors(
+                    values.syntax_errors.clone(),
+                    CycleMembership::Acyclic,
+                );
                 let outcome = PythonImportOutcome::Evaluated { edge, status };
                 self.record_import(outcome);
                 match &import.selection {

@@ -6,6 +6,7 @@ impl<T> UniqueVec<T> {
         Self(Vec::new())
     }
 
+    #[cfg(test)]
     pub(crate) fn as_slice(&self) -> &[T] {
         &self.0
     }

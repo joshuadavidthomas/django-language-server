@@ -122,6 +122,23 @@ pub(crate) struct PythonImportEdge {
     pub(crate) imported: PythonModule,
 }
 
+impl PythonImportEdge {
+    pub(super) fn canonical_sort_key(&self) -> (String, u32, u32, String) {
+        (
+            format!("{:?}", self.importer),
+            self.origin.span.start(),
+            self.origin.span.length(),
+            format!("{:?}", self.imported),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CycleMembership {
+    Acyclic,
+    Cycle,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PythonImportEvaluationStatus {
     Resolved,
@@ -129,6 +146,45 @@ pub(crate) enum PythonImportEvaluationStatus {
     Cycle {
         syntax_errors: Vec<PythonSyntaxError>,
     },
+}
+
+impl PythonImportEvaluationStatus {
+    fn into_syntax_errors(self) -> Vec<PythonSyntaxError> {
+        match self {
+            Self::Resolved => Vec::new(),
+            Self::SyntaxErrors(errors)
+            | Self::Cycle {
+                syntax_errors: errors,
+            } => errors,
+        }
+    }
+
+    pub(super) fn from_syntax_errors(
+        errors: Vec<PythonSyntaxError>,
+        membership: CycleMembership,
+    ) -> Self {
+        match (membership, errors.is_empty()) {
+            (CycleMembership::Cycle, _) => Self::Cycle {
+                syntax_errors: errors,
+            },
+            (CycleMembership::Acyclic, true) => Self::Resolved,
+            (CycleMembership::Acyclic, false) => Self::SyntaxErrors(errors),
+        }
+    }
+
+    pub(super) fn with_cycle_membership(self, membership: CycleMembership) -> Self {
+        Self::from_syntax_errors(self.into_syntax_errors(), membership)
+    }
+
+    pub(super) fn merged(self, other: Self, membership: CycleMembership) -> Self {
+        let mut errors = self.into_syntax_errors();
+        for error in other.into_syntax_errors() {
+            if !errors.contains(&error) {
+                errors.push(error);
+            }
+        }
+        Self::from_syntax_errors(errors, membership)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,4 +209,77 @@ pub(crate) enum PythonImportOutcome {
         edge: PythonImportEdge,
         error: FileReadError,
     },
+}
+
+impl PythonImportOutcome {
+    pub(super) fn edge(&self) -> Option<&PythonImportEdge> {
+        match self {
+            Self::Evaluated { edge, .. } | Self::Unreadable { edge, .. } => Some(edge),
+            Self::InvalidImport { .. } | Self::NotFound { .. } | Self::SkippedExternal { .. } => {
+                None
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use djls_source::Span;
+
+    use super::*;
+    use crate::python::PythonSyntaxErrorClass;
+
+    fn syntax_error(message: &str) -> PythonSyntaxError {
+        PythonSyntaxError {
+            class: PythonSyntaxErrorClass::Ordinary,
+            span: Span::new(0, 0),
+            message: message.to_string(),
+        }
+    }
+
+    #[test]
+    fn import_status_cycle_membership_matrix() {
+        let error = syntax_error("broken");
+
+        assert_eq!(
+            PythonImportEvaluationStatus::Resolved.with_cycle_membership(CycleMembership::Acyclic),
+            PythonImportEvaluationStatus::Resolved
+        );
+        assert_eq!(
+            PythonImportEvaluationStatus::SyntaxErrors(vec![error.clone()])
+                .with_cycle_membership(CycleMembership::Acyclic),
+            PythonImportEvaluationStatus::SyntaxErrors(vec![error.clone()])
+        );
+        assert_eq!(
+            PythonImportEvaluationStatus::Resolved.with_cycle_membership(CycleMembership::Cycle),
+            PythonImportEvaluationStatus::Cycle {
+                syntax_errors: Vec::new(),
+            }
+        );
+        assert_eq!(
+            PythonImportEvaluationStatus::SyntaxErrors(vec![error.clone()])
+                .with_cycle_membership(CycleMembership::Cycle),
+            PythonImportEvaluationStatus::Cycle {
+                syntax_errors: vec![error],
+            }
+        );
+    }
+
+    #[test]
+    fn merged_import_status_preserves_unique_error_order() {
+        let first = syntax_error("first");
+        let second = syntax_error("second");
+
+        assert_eq!(
+            PythonImportEvaluationStatus::SyntaxErrors(vec![first.clone(), second.clone()]).merged(
+                PythonImportEvaluationStatus::Cycle {
+                    syntax_errors: vec![second, first.clone()],
+                },
+                CycleMembership::Cycle,
+            ),
+            PythonImportEvaluationStatus::Cycle {
+                syntax_errors: vec![first, syntax_error("second")],
+            }
+        );
+    }
 }
