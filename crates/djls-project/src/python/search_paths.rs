@@ -52,6 +52,10 @@ impl SearchPath {
         matches!(self, Self::FirstParty(_))
     }
 
+    pub(crate) fn is_project_code(&self) -> bool {
+        matches!(self, Self::FirstParty(_) | Self::Extra(_))
+    }
+
     pub(crate) fn root_kind(&self) -> FileRootKind {
         match self {
             // Extra pythonpath entries are user-edited code, so they get the

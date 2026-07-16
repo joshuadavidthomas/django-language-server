@@ -42,9 +42,7 @@ impl Evaluator<'_> {
                 return Err(ImportFailure::NotFound(module));
             }
         };
-        if matches!(import.selection, ImportSelection::Named(_))
-            && !module.search_path().is_first_party()
-        {
+        if !module.search_path().is_project_code() {
             return Err(ImportFailure::SkippedExternal(module.name().clone()));
         }
         Ok(module)

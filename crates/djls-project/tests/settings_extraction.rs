@@ -1070,6 +1070,35 @@ fn python_module_evaluation_reports_invalid_import_with_typed_cause() {
 }
 
 #[test]
+fn python_module_evaluation_follows_named_and_star_imports_from_extra_roots() {
+    for source in ["from shared import VALUE\n", "from shared import *\n"] {
+        let db = TestDatabase::new();
+        db.add_file("/vendor/shared.py", "VALUE = 'extra'\n");
+        db.add_file("/project/settings.py", source);
+        let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/vendor")]);
+        let settings = db.file(Utf8Path::new("/project/settings.py"));
+        let shared = db.file(Utf8Path::new("/vendor/shared.py"));
+        let evaluation = python_module_evaluation(&db, project, settings);
+
+        assert!(matches!(
+            evaluation.imports.as_slice(),
+            [PythonImportOutcomeView::Resolved { file, .. }] if *file == shared
+        ));
+        assert_eq!(evaluation.dependency_files, [settings, shared]);
+        assert!(matches!(
+            evaluation.binding("VALUE").unwrap().alternatives.as_slice(),
+            [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: djls_project::testing::PythonValueView {
+                    kind: PythonValueKindView::Str(value),
+                    ..
+                },
+                ..
+            })] if value == "extra"
+        ));
+    }
+}
+
+#[test]
 fn python_module_evaluation_reports_skipped_external_import() {
     let db = TestDatabase::new();
     db.add_file("/vendor/site-packages/external.py", "VALUE = 'external'\n");
@@ -1097,6 +1126,50 @@ fn python_module_evaluation_reports_skipped_external_import() {
             ..
         })] if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module) if module.as_str() == "external")
     ));
+}
+
+#[test]
+fn python_module_evaluation_skips_external_star_import() {
+    let db = TestDatabase::new();
+    db.add_file("/vendor/site-packages/external.py", "VALUE = 'external'\n");
+    let source = "from external import *\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/vendor/site-packages")]);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::SkippedExternal { origin, module }]
+            if origin.file == settings && module.as_str() == "external"
+    ));
+    assert!(evaluation.binding("VALUE").is_none());
+    assert_eq!(evaluation.dependency_files, [settings]);
+    assert!(matches!(
+        evaluation.namespace_unknowns.as_slice(),
+        [unknown]
+            if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module) if module.as_str() == "external")
+    ));
+}
+
+#[test]
+fn python_module_evaluation_skips_named_and_star_imports_from_editable_roots() {
+    for source in ["from external import VALUE\n", "from external import *\n"] {
+        let db = TestDatabase::new();
+        db.add_file("/vendor/site-packages/project.pth", "/editable-package\n");
+        db.add_file("/editable-package/external.py", "VALUE = 'external'\n");
+        db.add_file("/project/settings.py", source);
+        let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/vendor/site-packages")]);
+        let settings = db.file(Utf8Path::new("/project/settings.py"));
+        let evaluation = python_module_evaluation(&db, project, settings);
+
+        assert!(matches!(
+            evaluation.imports.as_slice(),
+            [PythonImportOutcomeView::SkippedExternal { origin, module }]
+                if origin.file == settings && module.as_str() == "external"
+        ));
+        assert_eq!(evaluation.dependency_files, [settings]);
+    }
 }
 
 #[test]
