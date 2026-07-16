@@ -2881,6 +2881,155 @@ fn exact_assignment_after_unsupported_mutation_restores_known_setting() {
 }
 
 #[test]
+fn simple_mutable_alias_mutation_keeps_source_setting_conservative() {
+    let settings = extract("INSTALLED_APPS = []\nAPPS = INSTALLED_APPS\nAPPS.append('blog')");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn mutating_a_container_preserves_unmodified_nested_settings() {
+    let settings = extract(
+        "INSTALLED_APPS = ['kept']\nWRAPPER = [INSTALLED_APPS]\nWRAPPER.append('unrelated')",
+    );
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+
+    assert_eq!(apps.len(), 1, "{settings:#}");
+    assert_eq!(apps[0]["value"], "kept");
+}
+
+#[test]
+fn nested_augmented_assignment_invalidates_mutable_aliases() {
+    let settings = extract(
+        "INSTALLED_APPS = []\nWRAPPER = {'apps': INSTALLED_APPS}\nWRAPPER['apps'] += ['blog']",
+    );
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn repeated_nested_aliases_in_the_mutated_root_become_conservative() {
+    let settings = extract(
+        "DIRS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': DIRS},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': DIRS},\n]\nTEMPLATES[0]['DIRS'].append('/shared')",
+    );
+    let cases = cases(&settings, "/templates/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn mutating_multi_case_bindings_invalidates_their_aliases() {
+    let settings = extract(
+        "if FLAG:\n    BASE = ['first']\nelse:\n    BASE = ['second']\nINSTALLED_APPS = BASE\nBASE.append('blog')",
+    );
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert!(!cases.is_empty(), "{settings:#}");
+    assert!(
+        cases.iter().all(|case| case.get("dynamic").is_some()),
+        "{settings:#}"
+    );
+    assert!(
+        cases.iter().all(|case| case.get("known").is_none()),
+        "{settings:#}"
+    );
+}
+
+#[test]
+fn arbitrary_calls_degrade_mutable_aliases() {
+    let settings = extract("INSTALLED_APPS = []\nAPPS = INSTALLED_APPS\nconfigure(APPS)");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 2, "{settings:#}");
+    assert!(
+        cases.iter().any(|case| case.get("dynamic").is_some()),
+        "{settings:#}"
+    );
+}
+
+#[test]
+fn uncertain_dictionary_overrides_invalidate_possible_mutation_aliases() {
+    let settings = extract(
+        "INSTALLED_APPS = []\nEXTRA = make_mapping()\nWRAPPER = {'apps': INSTALLED_APPS, **EXTRA}\nWRAPPER['apps'].append('blog')",
+    );
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert!(!cases.is_empty(), "{settings:#}");
+    assert!(
+        cases.iter().all(|case| case.get("dynamic").is_some()),
+        "{settings:#}"
+    );
+    assert!(
+        cases.iter().all(|case| case.get("known").is_none()),
+        "{settings:#}"
+    );
+}
+
+#[test]
+fn tuple_mutation_is_not_treated_as_a_supported_list_mutation() {
+    let settings = extract("INSTALLED_APPS = ('first',)\nINSTALLED_APPS.append('second')");
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+}
+
+#[test]
+fn failed_recognized_mutations_degrade_argument_aliases() {
+    let settings = extract(
+        "INSTALLED_APPS = []\nAPPS = INSTALLED_APPS\nHANDLER = factory()\nHANDLER.append(APPS)",
+    );
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert!(
+        cases.iter().any(|case| case.get("dynamic").is_some()),
+        "{settings:#}"
+    );
+}
+
+#[test]
+fn mutation_calls_with_keywords_or_starred_arguments_are_not_applied() {
+    for source in [
+        "INSTALLED_APPS = []\nINSTALLED_APPS.append('blog', unexpected=True)",
+        "INSTALLED_APPS = []\nAPPS = ['blog']\nINSTALLED_APPS.append(*APPS)",
+    ] {
+        let settings = extract(source);
+        let cases = cases(&settings, "/installed_apps/cases");
+
+        assert!(
+            cases.iter().any(|case| case.get("dynamic").is_some()),
+            "{source}\n{settings:#}"
+        );
+        assert!(
+            cases.iter().all(|case| case.get("known").is_none()),
+            "{source}\n{settings:#}"
+        );
+    }
+}
+
+#[test]
+fn simple_mutable_alias_mutation_preserves_mutated_setting() {
+    let settings = extract("APPS = []\nINSTALLED_APPS = APPS\nINSTALLED_APPS.append('blog')");
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+
+    assert_eq!(apps.len(), 1, "{settings:#}");
+    assert_eq!(apps[0]["value"], "blog");
+}
+
+#[test]
 fn chained_immutable_assignment_remains_exact() {
     let settings = extract("STATIC_URL = URL = '/static/'");
     let cases = cases(&settings, "/staticfiles/static_url/cases");

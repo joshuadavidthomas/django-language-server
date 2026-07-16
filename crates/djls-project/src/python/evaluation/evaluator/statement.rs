@@ -1,12 +1,10 @@
 use std::collections::BTreeSet;
 
-use djls_source::Origin;
 use djls_source::Span;
 use ruff_python_ast as ast;
 
 use super::super::PythonBinding;
 use super::super::PythonBindingState;
-use super::super::PythonDictItem;
 use super::super::PythonListItem;
 use super::super::PythonMutationOperation;
 use super::super::PythonUnknownCause;
@@ -194,24 +192,11 @@ impl Evaluator<'_> {
 
     fn walk_assign(&mut self, assign: &ast::StmtAssign) {
         let value = self.evaluate_binding(&assign.value);
-        let aliases_mutable_value = assign.targets.len() > 1
-            && if matches!(assign.value.as_ref(), ast::Expr::Tuple(_)) {
-                binding_contains_nested_mutable_value(&value)
-            } else {
-                binding_contains_mutable_value(&value)
-            };
+        let aliases_mutable_value =
+            assign.targets.len() > 1 && binding_contains_mutable_value(&value);
         if aliases_mutable_value {
             let cause = PythonUnknownCause::UnsupportedExpression;
-            let mutable_origins = mutable_value_origins(&value);
-            let aliased_names = self
-                .state
-                .bindings
-                .iter()
-                .filter(|(_name, binding)| {
-                    binding_contains_mutable_origin(binding, &mutable_origins)
-                })
-                .map(|(name, _binding)| name.clone())
-                .collect::<Vec<_>>();
+            let aliased_names = self.state.mutable_alias_names(&value);
             for name in aliased_names {
                 self.state
                     .bind_unknown(&name, &cause, self.origin(assign.value.as_ref()));
@@ -239,15 +224,19 @@ impl Evaluator<'_> {
             && let Some(name) = assign.target.name_target()
             && let Some(left) = self.state.value_for_name(name)
         {
+            let aliases = self.state.stale_alias_names_after_mutation(name, &[]);
             let right = self.evaluate_value(&assign.value);
             let mut value = left;
-            if mutation::extend_list_value(&mut value, &right, origin) {
+            let alias_cause = if mutation::extend_list_value(&mut value, &right, origin) {
                 value.record_origin(origin);
+                PythonUnknownCause::UnsupportedExpression
             } else {
                 value =
                     PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin));
-            }
+                PythonUnknownCause::UnsupportedMutation
+            };
             self.state.assign_value(name, value, origin);
+            self.state.invalidate_names(aliases, &alias_cause, origin);
             let target = MutationTarget::from_expr(&assign.target)
                 .expect("a name target is a supported mutation target");
             self.state
@@ -400,91 +389,24 @@ impl Evaluator<'_> {
 
 fn binding_contains_mutable_value(binding: &PythonBinding) -> bool {
     binding.alternatives().any(|state| {
-        matches!(
-            state,
-            PythonBindingState::Bound(bound)
-                if matches!(&bound.value.kind, PythonValueKind::List(_) | PythonValueKind::Dict(_))
-        )
-    })
-}
-
-fn binding_contains_nested_mutable_value(binding: &PythonBinding) -> bool {
-    binding.alternatives().any(|state| {
-        let PythonBindingState::Bound(bound) = state else {
-            return false;
-        };
-        let PythonValueKind::List(list) = &bound.value.kind else {
-            return false;
-        };
-        list.semantic_items().iter().any(|item| {
-            matches!(item, PythonListItem::Value(value) if value_contains_mutable_value(value))
-        })
+        matches!(state, PythonBindingState::Bound(bound) if value_contains_mutable_value(&bound.value))
     })
 }
 
 fn value_contains_mutable_value(value: &PythonValue) -> bool {
+    if value.is_mutable_container() {
+        return true;
+    }
     match &value.kind {
-        PythonValueKind::List(_) | PythonValueKind::Dict(_) => true,
+        PythonValueKind::List(list) => list.semantic_items().iter().any(|item| {
+            matches!(item, PythonListItem::Value(value) if value_contains_mutable_value(value))
+        }),
         PythonValueKind::Unknown(_)
         | PythonValueKind::Str(_)
         | PythonValueKind::Bool(_)
-        | PythonValueKind::Path(_) => false,
+        | PythonValueKind::Path(_)
+        | PythonValueKind::Dict(_) => false,
     }
-}
-
-fn mutable_value_origins(binding: &PythonBinding) -> Vec<Origin> {
-    let mut origins = Vec::new();
-    for state in binding.alternatives() {
-        if let PythonBindingState::Bound(bound) = state {
-            collect_mutable_value_origins(&bound.value, &mut origins);
-        }
-    }
-    origins.sort_by_key(|origin| {
-        (
-            format!("{:?}", origin.file),
-            origin.span.start(),
-            origin.span.length(),
-        )
-    });
-    origins.dedup();
-    origins
-}
-
-fn collect_mutable_value_origins(value: &PythonValue, origins: &mut Vec<Origin>) {
-    match &value.kind {
-        PythonValueKind::List(list) => {
-            origins.extend(value.origins());
-            for item in list.semantic_items() {
-                if let PythonListItem::Value(value) = item {
-                    collect_mutable_value_origins(value, origins);
-                }
-            }
-        }
-        PythonValueKind::Dict(dict) => {
-            origins.extend(value.origins());
-            for item in &dict.items {
-                if let PythonDictItem::Entry { key, value } = item {
-                    collect_mutable_value_origins(key, origins);
-                    collect_mutable_value_origins(value, origins);
-                }
-            }
-        }
-        PythonValueKind::Unknown(_)
-        | PythonValueKind::Str(_)
-        | PythonValueKind::Bool(_)
-        | PythonValueKind::Path(_) => {}
-    }
-}
-
-fn binding_contains_mutable_origin(binding: &PythonBinding, wanted: &[Origin]) -> bool {
-    binding.alternatives().any(|state| {
-        let PythonBindingState::Bound(bound) = state else {
-            return false;
-        };
-        let mut origins = Vec::new();
-        collect_mutable_value_origins(&bound.value, &mut origins);
-        origins.iter().any(|origin| wanted.contains(origin))
-    })
 }
 
 fn is_irrefutable_match_case(case: &ast::MatchCase) -> bool {

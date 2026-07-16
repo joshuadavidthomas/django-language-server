@@ -12,6 +12,7 @@ use crate::python::module::PythonImportError;
 struct PythonValueEvidence {
     origin: Origin,
     constraints: BranchConstraints,
+    is_mutable_identity: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,22 +30,39 @@ impl PythonValue {
                 .map(|origin| PythonValueEvidence {
                     origin,
                     constraints: BranchConstraints::unconstrained(),
+                    is_mutable_identity: false,
                 })
                 .collect(),
         }
     }
 
     pub(super) fn known(kind: PythonValueKind, origin: Origin) -> Self {
+        let is_mutable_identity =
+            matches!(&kind, PythonValueKind::List(_) | PythonValueKind::Dict(_));
         Self {
             kind,
             evidence: vec![PythonValueEvidence {
                 origin,
                 constraints: BranchConstraints::unconstrained(),
+                is_mutable_identity,
+            }],
+        }
+    }
+
+    pub(super) fn known_tuple(list: PythonList, origin: Origin) -> Self {
+        Self {
+            kind: PythonValueKind::List(list),
+            evidence: vec![PythonValueEvidence {
+                origin,
+                constraints: BranchConstraints::unconstrained(),
+                is_mutable_identity: false,
             }],
         }
     }
 
     pub(super) fn with_evidence(kind: PythonValueKind, origins: Vec<Origin>) -> Self {
+        let is_mutable_identity =
+            matches!(&kind, PythonValueKind::List(_) | PythonValueKind::Dict(_));
         Self {
             kind,
             evidence: origins
@@ -52,6 +70,7 @@ impl PythonValue {
                 .map(|origin| PythonValueEvidence {
                     origin,
                     constraints: BranchConstraints::unconstrained(),
+                    is_mutable_identity,
                 })
                 .collect(),
         }
@@ -59,6 +78,17 @@ impl PythonValue {
 
     pub(crate) fn origins(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
         self.evidence.iter().map(|evidence| evidence.origin)
+    }
+
+    pub(super) fn mutable_origins(&self) -> impl Iterator<Item = Origin> + '_ {
+        self.evidence
+            .iter()
+            .filter(|evidence| evidence.is_mutable_identity)
+            .map(|evidence| evidence.origin)
+    }
+
+    pub(super) fn is_mutable_container(&self) -> bool {
+        self.mutable_origins().next().is_some()
     }
 
     pub(crate) fn origins_with_constraints(
@@ -70,9 +100,11 @@ impl PythonValue {
     }
 
     pub(super) fn rebase_origin(&mut self, origin: Origin) {
+        let is_mutable_identity = self.is_mutable_container();
         self.evidence = vec![PythonValueEvidence {
             origin,
             constraints: BranchConstraints::unconstrained(),
+            is_mutable_identity,
         }];
     }
 
@@ -80,6 +112,7 @@ impl PythonValue {
         self.evidence.push(PythonValueEvidence {
             origin,
             constraints: BranchConstraints::unconstrained(),
+            is_mutable_identity: false,
         });
         normalize_value_evidence(&mut self.evidence);
     }
@@ -744,6 +777,7 @@ fn normalize_value_evidence(evidence: &mut Vec<PythonValueEvidence>) {
             .find(|existing| existing.origin == evidence.origin)
         {
             existing.constraints.merge(evidence.constraints);
+            existing.is_mutable_identity |= evidence.is_mutable_identity;
         } else {
             normalized.push(evidence);
         }

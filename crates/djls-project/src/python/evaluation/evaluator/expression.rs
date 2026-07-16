@@ -43,8 +43,16 @@ impl Evaluator<'_> {
             return binding.clone();
         }
         match expression {
-            ast::Expr::List(list) => self.evaluate_list_binding(&list.elts, origin),
-            ast::Expr::Tuple(tuple) => self.evaluate_list_binding(&tuple.elts, origin),
+            ast::Expr::List(list) => self.evaluate_sequence_binding(
+                &list.elts,
+                PythonValue::known(PythonValueKind::List(PythonList::new(Vec::new())), origin),
+                origin,
+            ),
+            ast::Expr::Tuple(tuple) => self.evaluate_sequence_binding(
+                &tuple.elts,
+                PythonValue::known_tuple(PythonList::new(Vec::new()), origin),
+                origin,
+            ),
             ast::Expr::BinOp(binary) if binary.op == ast::Operator::Add => combine_bindings(
                 &self.evaluate_binding(&binary.left),
                 &self.evaluate_binding(&binary.right),
@@ -69,11 +77,13 @@ impl Evaluator<'_> {
             )
     }
 
-    fn evaluate_list_binding(&self, elements: &[ast::Expr], origin: Origin) -> PythonBinding {
-        let mut lists = PythonBinding::bound(
-            PythonValue::known(PythonValueKind::List(PythonList::new(Vec::new())), origin),
-            origin,
-        );
+    fn evaluate_sequence_binding(
+        &self,
+        elements: &[ast::Expr],
+        sequence: PythonValue,
+        origin: Origin,
+    ) -> PythonBinding {
+        let mut lists = PythonBinding::bound(sequence, origin);
         for element in elements {
             let element_origin = self.origin(element);
             let (expression, starred) = match element {

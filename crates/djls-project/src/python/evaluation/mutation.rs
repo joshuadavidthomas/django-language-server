@@ -64,6 +64,9 @@ enum EvaluatedMutation<'a> {
 
 impl EvaluatedMutation<'_> {
     fn apply(&self, value: &mut PythonValue, origin: Origin) -> bool {
+        if !value.is_mutable_container() {
+            return false;
+        }
         match self {
             Self::Append(argument) => {
                 let PythonValueKind::List(list) = &mut value.kind else {
@@ -171,18 +174,32 @@ pub(super) fn apply_augmented_add(
     extension: &PythonValue,
     origin: Origin,
 ) {
+    let binding = target.binding.to_string();
+    let mut stale_aliases = state.stale_alias_names_after_mutation(target.binding, &target.path);
     let supported = mutate_target(
         state,
         &target,
         origin,
         &EvaluatedMutation::Extend(extension),
     );
-    let binding = target.binding.to_string();
     state
         .mutations
         .insert(target.into_fact(PythonMutationOperation::Extend, origin));
-    if !supported {
-        state.degrade_names([binding], &PythonUnknownCause::UnsupportedMutation, origin);
+    if supported {
+        state.invalidate_names(
+            stale_aliases,
+            &PythonUnknownCause::UnsupportedExpression,
+            origin,
+        );
+    } else {
+        if !stale_aliases.contains(&binding) {
+            stale_aliases.push(binding);
+        }
+        state.degrade_names(
+            stale_aliases,
+            &PythonUnknownCause::UnsupportedMutation,
+            origin,
+        );
     }
 }
 
@@ -213,22 +230,49 @@ pub(super) fn walk_expr(evaluator: &mut Evaluator<'_>, expression: &ast::Expr) {
     };
     let origin = evaluator.origin(call);
     let Some(operation) = PythonMutationOperation::from_method(attribute.attr.as_str()) else {
+        let mut receiver_aliases = evaluator
+            .state
+            .stale_alias_names_after_mutation(target.binding, &target.path);
+        if !receiver_aliases.iter().any(|name| name == target.binding) {
+            receiver_aliases.push(target.binding.to_string());
+        }
+        evaluator.state.degrade_names(
+            expr_read_names(expression),
+            &PythonUnknownCause::UnsupportedMutation,
+            origin,
+        );
         evaluator.state.invalidate_names(
-            [target.binding.to_string()],
+            receiver_aliases,
             &PythonUnknownCause::UnsupportedMutation,
             origin,
         );
         return;
     };
+    let mut stale_aliases = evaluator
+        .state
+        .stale_alias_names_after_mutation(target.binding, &target.path);
     let supported = apply_mutation_operation(evaluator, call, &target, operation, origin);
     if supported {
+        evaluator.state.invalidate_names(
+            stale_aliases,
+            &PythonUnknownCause::UnsupportedExpression,
+            origin,
+        );
         evaluator
             .state
             .mutations
             .insert(target.into_fact(operation, origin));
     } else {
+        if !stale_aliases.iter().any(|name| name == target.binding) {
+            stale_aliases.push(target.binding.to_string());
+        }
+        evaluator.state.degrade_names(
+            expr_read_names(expression),
+            &PythonUnknownCause::UnsupportedMutation,
+            origin,
+        );
         evaluator.state.invalidate_names(
-            [target.binding.to_string()],
+            stale_aliases,
             &PythonUnknownCause::UnsupportedMutation,
             origin,
         );
@@ -242,6 +286,15 @@ fn apply_mutation_operation(
     operation: PythonMutationOperation,
     origin: Origin,
 ) -> bool {
+    if !call.arguments.keywords.is_empty()
+        || call
+            .arguments
+            .args
+            .iter()
+            .any(|argument| matches!(argument, ast::Expr::Starred(_)))
+    {
+        return false;
+    }
     let arguments = call
         .arguments
         .args
@@ -287,6 +340,9 @@ pub(super) fn extend_list_value(
     extension: &PythonValue,
     origin: Origin,
 ) -> bool {
+    if !value.is_mutable_container() {
+        return false;
+    }
     let PythonValueKind::List(list) = &mut value.kind else {
         return false;
     };
@@ -351,14 +407,28 @@ fn mutate_at_path(
             let PythonValueKind::Dict(dict) = &mut value.kind else {
                 return false;
             };
-            let Some(next) = dict.items.iter_mut().rev().find_map(|item| match item {
-                PythonDictItem::Entry { key: candidate, value }
-                    if matches!(&candidate.kind, PythonValueKind::Str(candidate) if candidate == key) =>
-                {
-                    Some(value)
+            let mut selected = None;
+            for item in dict.items.iter_mut().rev() {
+                match item {
+                    PythonDictItem::Entry {
+                        key: candidate,
+                        value,
+                    } => match &candidate.kind {
+                        PythonValueKind::Str(candidate) if candidate == key => {
+                            selected = Some(value);
+                            break;
+                        }
+                        PythonValueKind::Str(_) => {}
+                        PythonValueKind::Unknown(_)
+                        | PythonValueKind::Bool(_)
+                        | PythonValueKind::Path(_)
+                        | PythonValueKind::List(_)
+                        | PythonValueKind::Dict(_) => return false,
+                    },
+                    PythonDictItem::UnknownUnpack(_) => return false,
                 }
-                PythonDictItem::Entry { .. } | PythonDictItem::UnknownUnpack(_) => None,
-            }) else {
+            }
+            let Some(next) = selected else {
                 return false;
             };
             mutate_at_path(next, remaining, origin, mutation)
