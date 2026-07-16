@@ -547,14 +547,16 @@ enum KnowledgeState {
 }
 
 impl KnowledgeState {
+    const fn open_if(condition: bool) -> Self {
+        if condition {
+            Self::Open
+        } else {
+            Self::Complete
+        }
+    }
+
     const fn is_open(self) -> bool {
         matches!(self, Self::Open)
-    }
-}
-
-impl From<bool> for KnowledgeState {
-    fn from(open: bool) -> Self {
-        if open { Self::Open } else { Self::Complete }
     }
 }
 
@@ -2051,14 +2053,16 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
                     );
                 }
             }
-            backend.apps_state = (*app_remainder).into();
-            backend.discovery_state = (*discovery_remainder).into();
+            backend.apps_state = KnowledgeState::open_if(*app_remainder);
+            backend.discovery_state = KnowledgeState::open_if(*discovery_remainder);
             backend
                 .app_names_after_remainder
                 .clone_from(app_names_after_remainder);
         }
         configurations.push(backend_configuration);
-        configuration_guidance_states.push((*app_remainder || *discovery_remainder).into());
+        configuration_guidance_states.push(KnowledgeState::open_if(
+            *app_remainder || *discovery_remainder,
+        ));
     }
     libraries.configurations.replace_known(configurations);
     libraries.configuration_guidance_states = configuration_guidance_states;
@@ -2143,11 +2147,13 @@ fn insert_partial_backend_libraries(
         app_libraries,
         libraries,
     );
-    result.backend_state = (!backend.backend.issues.is_empty()).into();
-    result.loadables_state =
-        (!backend.options.issues.is_empty() || !backend.libraries.issues.is_empty()).into();
-    result.builtins_state =
-        (!backend.options.issues.is_empty() || !backend.builtins.issues.is_empty()).into();
+    result.backend_state = KnowledgeState::open_if(!backend.backend.issues.is_empty());
+    result.loadables_state = KnowledgeState::open_if(
+        !backend.options.issues.is_empty() || !backend.libraries.issues.is_empty(),
+    );
+    result.builtins_state = KnowledgeState::open_if(
+        !backend.options.issues.is_empty() || !backend.builtins.issues.is_empty(),
+    );
     result
 }
 
