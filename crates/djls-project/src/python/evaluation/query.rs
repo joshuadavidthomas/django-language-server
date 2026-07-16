@@ -35,27 +35,30 @@ pub(crate) fn evaluate_python_module(
     let parsed = match recovered_python_module(db, file) {
         Ok(Some(parsed)) => parsed,
         Err(error) => {
-            return PythonModuleEvaluation::evaluated(
-                Err(error),
-                PythonModuleDependencies::rooted(file),
-            );
+            return PythonModuleEvaluation::Evaluated {
+                values: Err(error),
+                dependencies: PythonModuleDependencies::rooted(file),
+            };
         }
         Ok(None) => {
-            return PythonModuleEvaluation::evaluated(
-                Ok(PythonModuleValues::default()),
-                PythonModuleDependencies::rooted(file),
-            );
+            return PythonModuleEvaluation::Evaluated {
+                values: Ok(PythonModuleValues::default()),
+                dependencies: PythonModuleDependencies::rooted(file),
+            };
         }
     };
     let body = parsed.body(db);
-    let mut evaluation = super::evaluator::evaluate_body(db, project, module.clone(), body);
-    if let Ok(values) = &mut evaluation.values {
-        values.syntax_errors = parsed.syntax_errors(db).to_vec();
-        values.syntax_impacts =
-            super::touched_names::collect_syntax_impacts(body, &values.syntax_errors);
+    let (mut module_values, mut dependencies) =
+        super::evaluator::evaluate_body(db, project, module.clone(), body);
+    module_values.syntax_errors = parsed.syntax_errors(db).to_vec();
+    module_values.syntax_impacts =
+        super::touched_names::collect_syntax_impacts(body, &module_values.syntax_errors);
+    let mut values = Ok(module_values);
+    normalize_cycle_evaluation(&mut values, &mut dependencies, &module);
+    PythonModuleEvaluation::Evaluated {
+        values,
+        dependencies,
     }
-    normalize_cycle_evaluation(&mut evaluation, &module);
-    evaluation
 }
 
 // This projection gives value consumers an independent red-green cutoff when only dependencies
@@ -66,7 +69,12 @@ pub(crate) fn python_module_values(
     project: Project,
     module: PythonModule,
 ) -> Result<PythonModuleValues, FileReadError> {
-    evaluate_python_module(db, project, module).values.clone()
+    match evaluate_python_module(db, project, module) {
+        PythonModuleEvaluation::CycleSeed => {
+            unreachable!("cycle seed escaped Python module evaluation")
+        }
+        PythonModuleEvaluation::Evaluated { values, .. } => values.clone(),
+    }
 }
 
 // This projection gives dependency consumers an independent red-green cutoff when only values
@@ -77,9 +85,12 @@ pub(crate) fn python_module_dependencies(
     project: Project,
     module: PythonModule,
 ) -> PythonModuleDependencies {
-    evaluate_python_module(db, project, module)
-        .dependencies
-        .clone()
+    match evaluate_python_module(db, project, module) {
+        PythonModuleEvaluation::CycleSeed => {
+            unreachable!("cycle seed escaped Python module evaluation")
+        }
+        PythonModuleEvaluation::Evaluated { dependencies, .. } => dependencies.clone(),
+    }
 }
 
 fn evaluate_python_module_cycle_initial(
@@ -88,7 +99,7 @@ fn evaluate_python_module_cycle_initial(
     _project: Project,
     _module: PythonModule,
 ) -> PythonModuleEvaluation {
-    PythonModuleEvaluation::cycle_seed()
+    PythonModuleEvaluation::CycleSeed
 }
 
 // Salsa requires cycle recovery callbacks to accept the tracked-query keys by value.
@@ -105,20 +116,43 @@ fn evaluate_python_module_cycle_recover(
         cycle.iteration() < 12,
         "Python module cycle should converge within twelve iterations"
     );
-    let mut recovered = if previous.is_cycle_seed() || previous == &computed {
-        computed
-    } else {
-        widen_cycle_evaluation(previous, computed, &module)
+    let unchanged = previous == &computed;
+    let PythonModuleEvaluation::Evaluated {
+        mut values,
+        mut dependencies,
+    } = computed
+    else {
+        unreachable!("cycle seed cannot be a computed evaluation")
     };
-    normalize_cycle_evaluation(&mut recovered, &module);
-    recovered
+    match previous {
+        PythonModuleEvaluation::CycleSeed => {}
+        PythonModuleEvaluation::Evaluated { .. } if unchanged => {}
+        PythonModuleEvaluation::Evaluated {
+            values: previous_values,
+            dependencies: previous_dependencies,
+        } => widen_cycle_evaluation(
+            previous_values,
+            previous_dependencies,
+            &mut values,
+            &mut dependencies,
+            &module,
+        ),
+    }
+    normalize_cycle_evaluation(&mut values, &mut dependencies, &module);
+    PythonModuleEvaluation::Evaluated {
+        values,
+        dependencies,
+    }
 }
 
-fn normalize_cycle_evaluation(evaluation: &mut PythonModuleEvaluation, root: &PythonModule) {
-    let root_is_in_cycle =
-        root_participates_in_import_cycle(evaluation.dependencies.imports.as_slice(), root);
+fn normalize_cycle_evaluation(
+    values: &mut Result<PythonModuleValues, FileReadError>,
+    dependencies: &mut PythonModuleDependencies,
+    root: &PythonModule,
+) {
+    let root_is_in_cycle = root_participates_in_import_cycle(dependencies.imports.as_slice(), root);
     let root_file = root.file();
-    if let Ok(values) = &mut evaluation.values {
+    if let Ok(values) = values {
         values
             .mutations
             .sort_by_key(|mutation| format!("{mutation:?}"));
@@ -131,19 +165,20 @@ fn normalize_cycle_evaluation(evaluation: &mut PythonModuleEvaluation, root: &Py
             *remainder = PythonNamespaceRemainder::new(remainder.causes.clone());
         }
     }
-    normalize_cycle_edges(&mut evaluation.dependencies.imports);
-    evaluation
-        .dependencies
+    normalize_cycle_edges(&mut dependencies.imports);
+    dependencies
         .files
         .sort_by_key(|file| (usize::from(*file != root_file), format!("{file:?}")));
 }
 
 fn widen_cycle_evaluation(
-    previous: &PythonModuleEvaluation,
-    mut computed: PythonModuleEvaluation,
+    previous_values: &Result<PythonModuleValues, FileReadError>,
+    previous_dependencies: &PythonModuleDependencies,
+    computed_values: &mut Result<PythonModuleValues, FileReadError>,
+    computed_dependencies: &mut PythonModuleDependencies,
     root: &PythonModule,
-) -> PythonModuleEvaluation {
-    match (&previous.values, &mut computed.values) {
+) {
+    match (previous_values, computed_values) {
         (Ok(previous_values), Ok(computed_values)) => {
             let names = previous_values
                 .bindings
@@ -176,11 +211,10 @@ fn widen_cycle_evaluation(
         (Ok(_) | Err(_), Err(_)) | (Err(_), Ok(_)) => {}
     }
 
-    if previous.dependencies != computed.dependencies {
-        computed.dependencies =
-            widen_cycle_dependencies(&previous.dependencies, &computed.dependencies, root);
+    if previous_dependencies != computed_dependencies {
+        *computed_dependencies =
+            widen_cycle_dependencies(previous_dependencies, computed_dependencies, root);
     }
-    computed
 }
 
 fn widen_cycle_dependencies(

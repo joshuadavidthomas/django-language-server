@@ -92,35 +92,12 @@ impl PythonNamespaceRemainder {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PythonModuleEvaluation {
-    pub(super) values: Result<PythonModuleValues, FileReadError>,
-    pub(super) dependencies: PythonModuleDependencies,
-    cycle_seed: bool,
-}
-
-impl PythonModuleEvaluation {
-    pub(super) fn evaluated(
+pub(crate) enum PythonModuleEvaluation {
+    CycleSeed,
+    Evaluated {
         values: Result<PythonModuleValues, FileReadError>,
         dependencies: PythonModuleDependencies,
-    ) -> Self {
-        Self {
-            values,
-            dependencies,
-            cycle_seed: false,
-        }
-    }
-
-    pub(super) fn cycle_seed() -> Self {
-        Self {
-            values: Ok(PythonModuleValues::default()),
-            dependencies: PythonModuleDependencies::default(),
-            cycle_seed: true,
-        }
-    }
-
-    pub(super) const fn is_cycle_seed(&self) -> bool {
-        self.cycle_seed
-    }
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

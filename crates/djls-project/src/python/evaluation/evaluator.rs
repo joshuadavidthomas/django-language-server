@@ -19,7 +19,6 @@ use super::PythonImportOutcome;
 use super::PythonList;
 use super::PythonListItem;
 use super::PythonModuleDependencies;
-use super::PythonModuleEvaluation;
 use super::PythonModuleValues;
 use super::PythonMutation;
 use super::PythonMutationOperation;
@@ -44,7 +43,7 @@ pub(super) fn evaluate_body(
     project: Project,
     module: PythonModule,
     body: &[ast::Stmt],
-) -> PythonModuleEvaluation {
+) -> (PythonModuleValues, PythonModuleDependencies) {
     let mut evaluator = Evaluator::new(db, project, module);
     evaluator.evaluate_body(body);
     evaluator.finish()
@@ -85,7 +84,7 @@ impl<'db> Evaluator<'db> {
         self.state = EvaluationState::join_branches(self.state.clone(), &branches, origin);
     }
 
-    fn finish(self) -> PythonModuleEvaluation {
+    fn finish(self) -> (PythonModuleValues, PythonModuleDependencies) {
         self.state.finish()
     }
 
@@ -116,16 +115,16 @@ impl EvaluationState {
         }
     }
 
-    fn finish(self) -> PythonModuleEvaluation {
-        PythonModuleEvaluation::evaluated(
-            Ok(PythonModuleValues {
+    fn finish(self) -> (PythonModuleValues, PythonModuleDependencies) {
+        (
+            PythonModuleValues {
                 bindings: self.bindings,
                 namespace_remainder: (!self.namespace_causes.is_empty())
                     .then(|| PythonNamespaceRemainder::new(self.namespace_causes)),
                 syntax_errors: Vec::new(),
                 syntax_impacts: Vec::new(),
                 mutations: self.mutations,
-            }),
+            },
             self.dependencies,
         )
     }
