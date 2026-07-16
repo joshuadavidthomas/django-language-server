@@ -240,6 +240,85 @@ fn goto_definition_returns_none_for_originless_inconclusive_search() {
 }
 
 #[test]
+fn find_references_resolves_extends_with_the_source_origin_skipped() {
+    let mut db = TestDatabase::new();
+    let source = r#"{% extends "base.html" %}"#;
+    let child_path = "/test/project/first/base.html";
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/first', '/test/project/second'], 'APP_DIRS': False}]\n",
+        )
+        .file(child_path, source)
+        .file(
+            "/test/project/first/include.html",
+            r#"{% include "base.html" %}"#,
+        )
+        .file("/test/project/second/base.html", "parent")
+        .install(&mut db);
+
+    let file = db.file(Utf8Path::new(child_path));
+    let locations = find_references(
+        &db,
+        file,
+        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+    )
+    .expect("the shadowing template should reference the next origin");
+
+    assert_eq!(
+        locations,
+        [ls_types::Location {
+            uri: "file:///test/project/first/base.html"
+                .parse()
+                .expect("test URI should parse"),
+            range: ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 21),
+            ),
+        }]
+    );
+}
+
+#[test]
+fn find_references_skips_the_source_file_across_template_name_aliases() {
+    let mut db = TestDatabase::new();
+    let source = r#"{% extends "alias/base.html" %}"#;
+    let source_path = "/test/project/templates/alias/base.html";
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias', '/test/project/fallback'], 'APP_DIRS': False}]\n",
+        )
+        .file(source_path, source)
+        .file(
+            "/test/project/templates/include.html",
+            r#"{% include "alias/base.html" %}"#,
+        )
+        .file("/test/project/fallback/alias/base.html", "parent")
+        .install(&mut db);
+
+    let file = db.file(Utf8Path::new(source_path));
+    let locations = find_references(
+        &db,
+        file,
+        Offset::new(u32::try_from(source.find("alias").unwrap()).unwrap()),
+    )
+    .expect("every source alias should resolve the extends reference to the parent");
+
+    assert_eq!(locations.len(), 1);
+    assert_eq!(
+        locations[0].uri,
+        "file:///test/project/templates/alias/base.html"
+            .parse()
+            .expect("test URI should parse")
+    );
+}
+
+#[test]
 fn find_references_reports_template_name_interior_range() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;

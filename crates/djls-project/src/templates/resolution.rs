@@ -543,9 +543,10 @@ impl<'db> TemplateResolution<'db> {
         excluded: &[TemplateOrigin<'db>],
         scope: &TemplateBackendScope,
     ) -> FindTemplateResult<'db> {
+        // Django's skip set follows loader origin identity, not the Template Name alias used to
+        // reach that origin. A physical source must therefore stay excluded across all aliases.
         let excluded_files = excluded
             .iter()
-            .filter(|origin| origin.template_name(db) == name)
             .map(|origin| origin.file(db))
             .collect::<Vec<_>>();
         self.resolve_excluding_in_scope(db, name, &excluded_files, scope)

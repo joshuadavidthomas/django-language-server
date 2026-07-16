@@ -51,12 +51,11 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
 
     for source in resolution.origins(db) {
         for reference in template_references_in_file(db, project, source.file(db)).as_slice(db) {
-            let Some(scoped) = resolution.resolve_reference_from_origin(
+            let Some(scoped) = reference.kind.resolve_from_origin(
                 db,
+                resolution,
                 source,
                 reference.target_template_name,
-                &[],
-                reference.kind.allow_self(),
             ) else {
                 continue;
             };
@@ -154,6 +153,20 @@ impl TemplateReferenceKind {
             Self::Include => true,
         }
     }
+
+    fn resolve_from_origin<'db>(
+        self,
+        db: &'db dyn SemanticDb,
+        resolution: TemplateResolution<'db>,
+        source: TemplateOrigin<'db>,
+        raw_name: TemplateName<'db>,
+    ) -> Option<ScopedTemplateReferenceResolution<'db>> {
+        let excluded = match self {
+            Self::Extends => std::slice::from_ref(&source),
+            Self::Include => &[],
+        };
+        resolution.resolve_reference_from_origin(db, source, raw_name, excluded, self.allow_self())
+    }
 }
 
 /// Per-origin normalization and backend-scoped resolution of one raw file reference.
@@ -169,9 +182,7 @@ pub fn resolve_reference_origins<'db>(
         .iter()
         .flat_map(|name| resolution.origins_for_name(db, *name))
         .filter(|origin| origin.file(db) == file)
-        .filter_map(|origin| {
-            resolution.resolve_reference_from_origin(db, *origin, raw_name, &[], kind.allow_self())
-        })
+        .filter_map(|origin| kind.resolve_from_origin(db, resolution, *origin, raw_name))
         .collect()
 }
 
@@ -344,7 +355,7 @@ pub struct TemplateReference<'db> {
 }
 
 impl<'db> TemplateReference<'db> {
-    pub fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
+    fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
         self.source_origin(db)
     }
 
@@ -352,12 +363,25 @@ impl<'db> TemplateReference<'db> {
         self.source(db).file(db)
     }
 
-    pub fn target_template_name(self, db: &'db dyn SemanticDb) -> TemplateName<'db> {
+    fn target_template_name(self, db: &'db dyn SemanticDb) -> TemplateName<'db> {
         self.target_name(db)
     }
 
     pub fn kind(self, db: &dyn SemanticDb) -> TemplateReferenceKind {
         self.reference_kind(db)
+    }
+
+    pub fn resolve(
+        self,
+        db: &'db dyn SemanticDb,
+        resolution: TemplateResolution<'db>,
+    ) -> Option<ScopedTemplateReferenceResolution<'db>> {
+        self.kind(db).resolve_from_origin(
+            db,
+            resolution,
+            self.source(db),
+            self.target_template_name(db),
+        )
     }
 
     pub fn span(self, db: &dyn SemanticDb) -> Span {

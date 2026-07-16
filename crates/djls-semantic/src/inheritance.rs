@@ -156,7 +156,7 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
                         scope,
                     )
                     .is_some_and(|without_exclusions| {
-                        matches!(without_exclusions.result, FindTemplateResult::Found(origin) if excluded.contains(&origin))
+                        matches!(without_exclusions.result, FindTemplateResult::Found(origin) if excluded.iter().any(|excluded| excluded.file(db) == origin.file(db)))
                     })
             });
             break if cycle {

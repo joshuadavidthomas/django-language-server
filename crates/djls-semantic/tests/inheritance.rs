@@ -723,6 +723,41 @@ fn template_inheritance_preserves_cycle_detection() {
 }
 
 #[test]
+fn template_inheritance_detects_a_cycle_through_a_template_name_alias() {
+    let db = TestDatabase::new();
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates", "/test/project/templates/alias"],
+        vec![
+            (
+                "/test/project/templates/start.html",
+                "{% extends 'alias/b.html' %}",
+            ),
+            (
+                "/test/project/templates/alias/b.html",
+                "{% extends 'c.html' %}",
+            ),
+            (
+                "/test/project/templates/alias/c.html",
+                "{% extends 'b.html' %}",
+            ),
+        ],
+    );
+    let start = db.file(Utf8Path::new("/test/project/templates/start.html"));
+
+    let (ancestors, end) = inheritance_summary(&db, project, start);
+
+    assert_eq!(
+        ancestors,
+        [
+            "/test/project/templates/alias/b.html",
+            "/test/project/templates/alias/c.html",
+        ]
+    );
+    assert_eq!(end, ChainEnd::Cycle);
+}
+
+#[test]
 fn extracts_blocks_and_extends_by_role_not_builtin_names() {
     let mut specs = builtin_tag_specs();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([

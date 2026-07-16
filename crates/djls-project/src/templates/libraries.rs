@@ -744,7 +744,7 @@ impl<'a> AlternativeView<'a> {
     }
 
     const fn has_omissions(self) -> bool {
-        self.libraries.configurations.has_omissions()
+        self.selections.is_none() && self.libraries.configurations.has_omissions()
     }
 }
 
@@ -889,7 +889,7 @@ impl TemplateLibraries {
                 .all(|(matches, absent)| !*absent && matches.as_slice() == [index])
         });
 
-        if self.configurations.has_omissions()
+        if view.has_omissions()
             || unresolved
             || (records.is_empty()
                 && self.issues.iter().any(|issue| match issue {
@@ -2333,4 +2333,65 @@ fn same_available_library(left: &TemplateLibrary, right: &TemplateLibrary) -> bo
     };
 
     left_app == right_app && left.module_name_str() == right.module_name_str()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::templates::resolution::BackendSelection;
+
+    #[test]
+    fn scoped_lookup_ignores_unselected_configuration_omissions() {
+        let libraries = TemplateLibraries {
+            configurations: TemplateLibraryConfigurations::WithOmissions {
+                known: vec![vec![TemplateBackendLibraries::default()]],
+                omissions: vec![TemplateConfigurationOmission::Settings],
+            },
+            configuration_guidance_states: vec![KnowledgeState::Complete],
+            ..TemplateLibraries::default()
+        };
+        let name = LibraryName::parse("missing").unwrap();
+        let scoped = TemplateEnvironmentScope::BackendSelections(vec![BackendSelection::Known {
+            configuration: 0,
+            backend: 0,
+        }]);
+
+        assert_eq!(
+            libraries.loadable_library_in_scope(&scoped, &name),
+            LoadableLibraryLookup::Absent
+        );
+        assert_eq!(
+            libraries.environment_symbol_lookup_in_scope(
+                &scoped,
+                "missing",
+                TemplateSymbolKind::Tag,
+            ),
+            EnvironmentSymbolLookup::Absent
+        );
+        assert_eq!(
+            libraries.template_symbol_lookup_in_scope(&scoped, "missing", TemplateSymbolKind::Tag,),
+            TemplateSymbolLookup::Absent
+        );
+        assert_eq!(
+            libraries.missing_library_lookup_in_scope(&scoped, &name),
+            MissingLibraryLookup::Absent
+        );
+        assert_eq!(
+            libraries.effective_definition_libraries_in_scope(
+                &scoped,
+                "missing",
+                TemplateSymbolKind::Tag,
+                &[],
+            ),
+            [EffectiveDefinitionLibrary::Known(None)]
+        );
+        let chains = libraries.contextual_library_chains_in_scope(&scoped, &[]);
+        assert_eq!(chains.len(), 1);
+        assert!(chains[0].steps().is_empty());
+        assert_eq!(
+            libraries
+                .loadable_library_in_scope(&TemplateEnvironmentScope::ProjectInventory, &name,),
+            LoadableLibraryLookup::Inconclusive(Vec::new())
+        );
+    }
 }

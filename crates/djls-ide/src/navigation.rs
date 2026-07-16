@@ -144,14 +144,7 @@ pub fn find_references(
             for target_name in target_names {
                 for reference in references_to_template_name(db, project, target_name) {
                     let ref_file = reference.source_file(db);
-                    let source = reference.source(db);
-                    let Some(outcome) = resolution.resolve_reference_from_origin(
-                        db,
-                        source,
-                        reference.target_template_name(db),
-                        &[],
-                        true,
-                    ) else {
+                    let Some(outcome) = reference.resolve(db, resolution) else {
                         continue;
                     };
                     if !matches!(
