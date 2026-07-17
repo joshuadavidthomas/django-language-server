@@ -17,12 +17,14 @@ use djls_project::testing::PythonBindingAlternativeView;
 use djls_project::testing::PythonBoundValueView;
 use djls_project::testing::PythonImportErrorView;
 use djls_project::testing::PythonImportOutcomeView;
-use djls_project::testing::PythonListItemView;
+use djls_project::testing::PythonModuleEvaluationView;
 use djls_project::testing::PythonMutationOperationView;
 use djls_project::testing::PythonMutationPathSegmentView;
+use djls_project::testing::PythonSequenceItemView;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::PythonUnknownCauseView;
 use djls_project::testing::PythonValueKindView;
+use djls_project::testing::PythonValueView;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::django_settings;
 use djls_project::testing::python_module_evaluation;
@@ -322,7 +324,7 @@ fn python_binding_normalizes_nested_unknowns_and_merges_their_evidence() {
     let PythonValueKindView::List(items) = &bound.value.kind else {
         panic!("VALUE should remain a list");
     };
-    let [PythonListItemView::UnknownElement(unknown)] = items.as_slice() else {
+    let [PythonSequenceItemView::UnknownElement(unknown)] = items.as_slice() else {
         panic!("the list should contain one typed unknown element");
     };
     assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression);
@@ -877,6 +879,525 @@ fn ambiguous_branch_reassignment_clears_prior_mutation_evidence() {
     );
 }
 
+fn evaluate_module(source: &str) -> (djls_source::File, PythonModuleEvaluationView) {
+    let db = TestDatabase::new();
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let file = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, file);
+    (file, evaluation)
+}
+
+fn bound_value<'a>(
+    evaluation: &'a PythonModuleEvaluationView,
+    name: &str,
+) -> &'a PythonBoundValueView {
+    let binding = evaluation
+        .binding(name)
+        .unwrap_or_else(|| panic!("{name} should be bound"));
+    let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+        panic!("{name} should have exactly one bound alternative");
+    };
+    bound
+}
+
+fn has_unknown_alternative(evaluation: &PythonModuleEvaluationView, name: &str) -> bool {
+    evaluation.binding(name).is_some_and(|binding| {
+        binding.alternatives.iter().any(|alternative| {
+            matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(_),
+                        ..
+                    },
+                    ..
+                })
+            )
+        })
+    })
+}
+
+fn string_list_items(value: &PythonValueView) -> Vec<String> {
+    let (PythonValueKindView::List(items) | PythonValueKindView::Tuple(items)) = &value.kind else {
+        panic!("expected a sequence value");
+    };
+    items
+        .iter()
+        .map(|item| match item {
+            PythonSequenceItemView::Value(PythonValueView {
+                kind: PythonValueKindView::Str(text),
+                ..
+            }) => format!("str:{text}"),
+            PythonSequenceItemView::Value(_) => "value".to_string(),
+            PythonSequenceItemView::UnknownElement(_) => "element".to_string(),
+            PythonSequenceItemView::UnknownUnpack(_) => "unpack".to_string(),
+        })
+        .collect()
+}
+
+fn nested_list_at_index0(value: &PythonValueView) -> &PythonValueView {
+    let PythonValueKindView::Tuple(items) = &value.kind else {
+        panic!("expected a tuple value");
+    };
+    let [PythonSequenceItemView::Value(nested)] = items.as_slice() else {
+        panic!("expected one nested value in the tuple");
+    };
+    nested
+}
+
+#[test]
+fn tuple_index_augmented_add_mutates_nested_list_transactionally() {
+    // ROOT is an immutable tuple, but tuple indexing reaches the nested mutable
+    // list, so `ROOT[0] += [...]` mutates that list in place while the tuple
+    // structure is preserved.
+    let source = "ROOT = ([],)\nROOT[0] += ['a']\n";
+    let (file, evaluation) = evaluate_module(source);
+    let bound = bound_value(&evaluation, "ROOT");
+    let nested = nested_list_at_index0(&bound.value);
+
+    assert_eq!(string_list_items(nested), vec!["str:a"]);
+    // Ancestor provenance: the operation origin is recorded up the path onto
+    // the root tuple value.
+    let op_origin = djls_source::Origin::new(file, expected_span(source, "ROOT[0] += ['a']"));
+    assert!(
+        bound.value.origins.contains(&op_origin),
+        "the augmented-add origin should be recorded on the tuple ancestor",
+    );
+    // A single `Extend` mutation fact rooted at ROOT with an Index(0) path.
+    assert!(matches!(
+        evaluation.mutations.as_slice(),
+        [mutation]
+            if mutation.binding == "ROOT"
+                && mutation.operation == PythonMutationOperationView::Extend
+                && mutation.path == vec![PythonMutationPathSegmentView::Index(0)]
+    ));
+}
+
+#[test]
+fn tuple_index_extend_mutates_nested_list_and_invalidates_stale_alias() {
+    // INNER and ROOT[0] name the same nested list allocation. Extending through
+    // the tuple index mutates it in place and conservatively invalidates the
+    // stale `INNER` alias.
+    let source = "INNER = []\nROOT = (INNER,)\nROOT[0].extend(['a'])\n";
+    let (_file, evaluation) = evaluate_module(source);
+    let bound = bound_value(&evaluation, "ROOT");
+    let nested = nested_list_at_index0(&bound.value);
+
+    assert_eq!(string_list_items(nested), vec!["str:a"]);
+    assert!(
+        has_unknown_alternative(&evaluation, "INNER"),
+        "the stale alias should be conservatively invalidated",
+    );
+    assert!(matches!(
+        evaluation.mutations.as_slice(),
+        [mutation]
+            if mutation.binding == "ROOT"
+                && mutation.operation == PythonMutationOperationView::Extend
+                && mutation.path == vec![PythonMutationPathSegmentView::Index(0)]
+    ));
+}
+
+#[test]
+fn tuple_index_augmented_add_bool_failure_degrades_root_and_alias() {
+    // A definitely non-iterable source through a nested list fails: the root
+    // and its reachable aliases degrade, RHS bindings are untouched, and the
+    // attempted `Extend` fact is still recorded.
+    let source = "INNER = []\nROOT = (INNER,)\nROOT[0] += True\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    assert!(
+        has_unknown_alternative(&evaluation, "ROOT"),
+        "a failed nested mutation degrades the root binding",
+    );
+    assert!(
+        has_unknown_alternative(&evaluation, "INNER"),
+        "a failed nested mutation degrades reachable aliases",
+    );
+    assert!(
+        evaluation.mutations.iter().any(|mutation| {
+            mutation.binding == "ROOT"
+                && mutation.operation == PythonMutationOperationView::Extend
+                && mutation.path == vec![PythonMutationPathSegmentView::Index(0)]
+        }),
+        "the attempted mutation fact is recorded even on failure",
+    );
+}
+
+#[test]
+fn nested_augmented_add_failure_joins_prior_values_with_mutation_unknowns() {
+    let source = "INNER = []\nROOT = (INNER,)\nROOT[0] += True\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    let root = evaluation.binding("ROOT").expect("ROOT should be bound");
+    assert_eq!(root.alternatives.len(), 2);
+    assert!(root.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Tuple(_),
+                ..
+            },
+            ..
+        })
+    )));
+    assert!(root.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+    )));
+
+    let inner = evaluation.binding("INNER").expect("INNER should be bound");
+    assert_eq!(inner.alternatives.len(), 2);
+    assert!(inner.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::List(_),
+                ..
+            },
+            ..
+        })
+    )));
+    assert!(inner.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+    )));
+    assert!(matches!(
+        evaluation.mutations.as_slice(),
+        [mutation]
+            if mutation.binding == "ROOT"
+                && mutation.operation == PythonMutationOperationView::Extend
+    ));
+}
+
+#[test]
+fn repeated_tuple_alias_invalidation_retains_augmented_add_fact() {
+    let source = "INNER = []\nROOT = (INNER, INNER)\nROOT[0] += ['x']\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    assert!(matches!(
+        evaluation.mutations.as_slice(),
+        [mutation]
+            if mutation.binding == "ROOT"
+                && mutation.operation == PythonMutationOperationView::Extend
+                && mutation.path == vec![PythonMutationPathSegmentView::Index(0)]
+    ));
+    let root = evaluation.binding("ROOT").expect("ROOT should be bound");
+    assert!(matches!(
+        root.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if unknown.cause == PythonUnknownCauseView::UnsupportedExpression
+    ));
+}
+
+#[test]
+fn name_target_list_augmented_add_preserves_prior_append_fact() {
+    // A successful name-target list `+=` updates the binding in place without
+    // clearing prior mutation facts, so the `Append` and `Extend` facts remain
+    // in order.
+    let source = "VALUES = []\nVALUES.append('a')\nVALUES += ['b']\n";
+    let (file, evaluation) = evaluate_module(source);
+    let bound = bound_value(&evaluation, "VALUES");
+
+    assert_eq!(string_list_items(&bound.value), vec!["str:a", "str:b"]);
+    assert_eq!(
+        bound.binding_origins,
+        vec![djls_source::Origin::new(file, expected_span(source, "[]"))],
+        "in-place `+=` preserves the original assignment origin",
+    );
+    let operations = evaluation
+        .mutations
+        .iter()
+        .filter(|mutation| mutation.binding == "VALUES")
+        .map(|mutation| mutation.operation.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        operations,
+        vec![
+            PythonMutationOperationView::Append,
+            PythonMutationOperationView::Extend,
+        ],
+        "a successful in-place `+=` keeps the prior append fact and appends extend",
+    );
+}
+
+#[test]
+fn name_target_list_augmented_add_failure_rebinds_and_clears_prior_facts() {
+    // A failed name-target list `+=` rebinds the target to an unknown, which is
+    // permitted to clear the prior mutation history; only the attempted
+    // `Extend` fact remains.
+    let source = "VALUES = []\nVALUES.append('a')\nVALUES += True\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    assert!(has_unknown_alternative(&evaluation, "VALUES"));
+    let operations = evaluation
+        .mutations
+        .iter()
+        .filter(|mutation| mutation.binding == "VALUES")
+        .map(|mutation| mutation.operation.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(operations, vec![PythonMutationOperationView::Extend]);
+}
+
+#[test]
+fn augmented_add_and_extend_bool_failures_differ_on_mutation_facts() {
+    // Name-target `+= bool` records an attempted `Extend` fact; a `.extend()`
+    // call whose RHS is definitely non-iterable records no fact. Both degrade
+    // the receiver.
+    let (_file, augmented) = evaluate_module("VALUES = []\nVALUES += True\n");
+    assert!(has_unknown_alternative(&augmented, "VALUES"));
+    assert!(
+        augmented
+            .mutations
+            .iter()
+            .any(|mutation| mutation.binding == "VALUES"
+                && mutation.operation == PythonMutationOperationView::Extend),
+        "name-target `+= bool` records an attempted extend fact",
+    );
+
+    let (_file, extended) = evaluate_module("FLAG = True\nVALUES = []\nVALUES.extend(FLAG)\n");
+    assert!(has_unknown_alternative(&extended, "VALUES"));
+    assert!(
+        extended.mutations.is_empty(),
+        "a non-iterable `.extend()` call records no mutation fact",
+    );
+    assert!(
+        has_unknown_alternative(&extended, "FLAG"),
+        "the named RHS is degraded by the failed call",
+    );
+}
+
+#[test]
+fn failed_extend_replaces_root_but_only_joins_rhs_degradation() {
+    let source = "FLAG = True\nVALUES = []\nVALUES.extend(FLAG)\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    let values = evaluation
+        .binding("VALUES")
+        .expect("VALUES should be bound");
+    assert!(matches!(
+        values.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+    ));
+
+    let flag = evaluation.binding("FLAG").expect("FLAG should be bound");
+    assert_eq!(flag.alternatives.len(), 2);
+    assert!(flag.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Bool(true),
+                ..
+            },
+            ..
+        })
+    )));
+    assert!(flag.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+    )));
+    assert!(evaluation.mutations.is_empty());
+}
+
+#[test]
+fn failed_self_aliasing_name_augmented_add_keeps_direct_target_cause() {
+    let source = "VALUES = []\nVALUES.append(VALUES)\nVALUES += True\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    let values = evaluation
+        .binding("VALUES")
+        .expect("VALUES should be bound");
+    assert!(matches!(
+        values.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if unknown.cause == PythonUnknownCauseView::UnsupportedExpression
+    ));
+    assert!(matches!(
+        evaluation.mutations.as_slice(),
+        [mutation] if mutation.operation == PythonMutationOperationView::Extend
+    ));
+}
+
+#[test]
+fn failed_name_augmented_add_preserves_rhs_only_binding_exactly() {
+    let source = "FLAG = True\nVALUES = []\nVALUES += FLAG\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    let values = evaluation
+        .binding("VALUES")
+        .expect("VALUES should be bound");
+    assert!(matches!(
+        values.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        })] if unknown.cause == PythonUnknownCauseView::UnsupportedExpression
+    ));
+    let flag = bound_value(&evaluation, "FLAG");
+    assert!(matches!(flag.value.kind, PythonValueKindView::Bool(true)));
+    assert!(matches!(
+        evaluation.mutations.as_slice(),
+        [mutation] if mutation.operation == PythonMutationOperationView::Extend
+    ));
+}
+
+#[test]
+fn successful_augmented_add_preserves_rhs_only_binding() {
+    // A named RHS that is not itself an alias of the target is preserved as-is
+    // by a successful `+=`.
+    let source = "SRC = ['x']\nVALUES = []\nVALUES += SRC\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    let src = bound_value(&evaluation, "SRC");
+    assert_eq!(string_list_items(&src.value), vec!["str:x"]);
+    let values = bound_value(&evaluation, "VALUES");
+    assert_eq!(string_list_items(&values.value), vec!["str:x"]);
+}
+
+#[test]
+fn failed_extend_alias_rhs_degradation_takes_precedence_over_preservation() {
+    // The RHS `ALIAS` aliases the failing dictionary receiver `ROOT`. Because
+    // it is selected by the mutation-failure alias set, its degradation takes
+    // precedence over RHS-only preservation.
+    let source = "ROOT = {}\nALIAS = ROOT\nROOT.extend(ALIAS)\n";
+    let (_file, evaluation) = evaluate_module(source);
+
+    for name in ["ROOT", "ALIAS"] {
+        let binding = evaluation
+            .binding(name)
+            .unwrap_or_else(|| panic!("{name} should be bound"));
+        assert!(matches!(
+            binding.alternatives.as_slice(),
+            [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::Unknown(unknown),
+                    ..
+                },
+                ..
+            })] if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+        ));
+    }
+    assert!(
+        evaluation.mutations.is_empty(),
+        "a failed non-list `.extend()` records no mutation fact",
+    );
+}
+
+#[test]
+fn name_target_augmented_add_unsupported_receiver_categories_fallback() {
+    // Every non-list/tuple/string receiver category rebinds the target to an
+    // unknown and records the attempted `Extend` fact.
+    for receiver in ["{}", "Path('/x')", "True", "MISSING"] {
+        let source = format!("from pathlib import Path\nTARGET = {receiver}\nTARGET += ['a']\n");
+        let (_file, evaluation) = evaluate_module(&source);
+        assert!(
+            has_unknown_alternative(&evaluation, "TARGET"),
+            "receiver `{receiver}` should degrade the target",
+        );
+        assert!(
+            evaluation
+                .mutations
+                .iter()
+                .any(|mutation| mutation.binding == "TARGET"
+                    && mutation.operation == PythonMutationOperationView::Extend),
+            "receiver `{receiver}` should record the attempted extend fact",
+        );
+    }
+
+    // A dict target with a mutable alias degrades that alias too.
+    let source = "D = {}\nALIAS = D\nD += ['a']\n";
+    let (_file, evaluation) = evaluate_module(source);
+    assert!(has_unknown_alternative(&evaluation, "D"));
+    assert!(
+        has_unknown_alternative(&evaluation, "ALIAS"),
+        "the dict alias should be degraded by the unsupported `+=`",
+    );
+}
+
+#[test]
+fn nested_augmented_add_non_list_target_categories_fallback() {
+    // Every nested target category other than list cannot be extended: the
+    // root degrades and the attempted `Extend` fact is kept.
+    for source in [
+        "ROOT = ['x']\nROOT[0] += ['a']\n",
+        "ROOT = ((),)\nROOT[0] += ['a']\n",
+        "ROOT = ({},)\nROOT[0] += ['a']\n",
+        "from pathlib import Path\nROOT = (Path('/x'),)\nROOT[0] += ['a']\n",
+        "ROOT = (True,)\nROOT[0] += ['a']\n",
+        "ROOT = (MISSING,)\nROOT[0] += ['a']\n",
+    ] {
+        let (_file, evaluation) = evaluate_module(source);
+        assert!(
+            has_unknown_alternative(&evaluation, "ROOT"),
+            "{source}: a non-list nested target degrades the root",
+        );
+        assert!(
+            evaluation
+                .mutations
+                .iter()
+                .any(|mutation| mutation.binding == "ROOT"
+                    && mutation.operation == PythonMutationOperationView::Extend),
+            "{source}: the attempted extend fact is recorded",
+        );
+    }
+}
+
+#[test]
+fn extend_non_list_receiver_categories_fallback() {
+    // `.extend()` on every non-list receiver category is an unsupported-mutation
+    // call: the receiver degrades and no mutation fact is recorded.
+    for receiver in ["()", "'text'", "{}", "Path('/x')", "True", "MISSING"] {
+        let source =
+            format!("from pathlib import Path\nRECEIVER = {receiver}\nRECEIVER.extend(['a'])\n");
+        let (_file, evaluation) = evaluate_module(&source);
+        assert!(
+            has_unknown_alternative(&evaluation, "RECEIVER"),
+            "receiver `{receiver}` should degrade",
+        );
+        assert!(
+            evaluation.mutations.is_empty(),
+            "receiver `{receiver}` should record no mutation fact",
+        );
+    }
+}
+
 #[test]
 fn ambiguous_branch_noop_extend_retains_mutation_evidence() {
     let db = TestDatabase::new();
@@ -1377,7 +1898,7 @@ fn python_module_evaluation_discards_facts_after_unsupported_mutation() {
 }
 
 #[test]
-fn python_module_evaluation_records_and_degrades_unsupported_nested_augmented_add() {
+fn python_module_evaluation_records_nested_string_augmented_add_as_iterable_extension() {
     let db = TestDatabase::new();
     let source = "TEMPLATES = [{'DIRS': []}]\nTEMPLATES[0]['DIRS'].append('/one')\nTEMPLATES[0]['DIRS'] += 'invalid'\n";
     db.add_file("/project/settings.py", source);
@@ -1393,10 +1914,13 @@ fn python_module_evaluation_records_and_degrades_unsupported_nested_augmented_ad
     assert_eq!(append.binding, "TEMPLATES");
     assert_eq!(augmented_add.binding, "TEMPLATES");
 
+    // A nested `list += str` consumes a known-but-imprecise iterable in place:
+    // the receiver stays a list rather than degrading to an unsupported-mutation
+    // unknown.
     let binding = evaluation
         .binding("TEMPLATES")
-        .expect("the degraded binding should remain observable");
-    assert!(binding.alternatives.iter().any(|alternative| {
+        .expect("the mutated binding should remain observable");
+    assert!(binding.alternatives.iter().all(|alternative| {
         matches!(
             alternative,
             PythonBindingAlternativeView::Bound(PythonBoundValueView {
@@ -1406,22 +1930,6 @@ fn python_module_evaluation_records_and_degrades_unsupported_nested_augmented_ad
                 },
                 ..
             })
-        )
-    }));
-    assert!(binding.alternatives.iter().any(|alternative| {
-        matches!(
-            alternative,
-            PythonBindingAlternativeView::Bound(PythonBoundValueView {
-                value: djls_project::testing::PythonValueView {
-                    kind: PythonValueKindView::Unknown(unknown),
-                    ..
-                },
-                ..
-            }) if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
-                && unknown.origin == Some(djls_source::Origin::new(
-                    settings,
-                    expected_span(source, "TEMPLATES[0]['DIRS'] += 'invalid'"),
-                ))
         )
     }));
 }
@@ -2842,22 +3350,35 @@ fn dynamic_list_additions_preserve_known_installed_apps_prefix() {
 }
 
 #[test]
-fn invalid_list_additions_do_not_preserve_stale_installed_apps() {
-    for source in [
-        "INSTALLED_APPS = ['stale']\nINSTALLED_APPS += 'invalid'",
-        "INSTALLED_APPS = ['stale'] + 'invalid'",
-    ] {
-        let settings = extract(source);
-        let cases = cases(&settings, "/installed_apps/cases");
+fn binary_list_plus_string_does_not_preserve_stale_installed_apps() {
+    // Binary `+` never delegates to iterable extension: a list-plus-string is a
+    // wholly unsupported expression, so no known prefix survives.
+    let source = "INSTALLED_APPS = ['stale'] + 'invalid'";
+    let settings = extract(source);
+    let cases = cases(&settings, "/installed_apps/cases");
 
-        assert_eq!(cases.len(), 1, "{source}");
-        assert!(cases[0].get("known").is_none(), "{source}");
-        assert_eq!(
-            cases[0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
-            "{source}"
-        );
-        assert!(!cases[0].to_string().contains("stale"), "{source}");
-    }
+    assert_eq!(cases.len(), 1, "{source}");
+    assert!(cases[0].get("known").is_none(), "{source}");
+    assert_eq!(
+        cases[0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
+        "{source}"
+    );
+    assert!(!cases[0].to_string().contains("stale"), "{source}");
+}
+
+#[test]
+fn list_augmented_add_string_preserves_prefix_and_unknown_remainder() {
+    // `list += str` recognizes a known-but-imprecise iterable: the known prefix
+    // survives and the string contributes a typed unknown-unpack remainder.
+    let source = "INSTALLED_APPS = ['stale']\nINSTALLED_APPS += 'invalid'";
+    let settings = extract(source);
+    let cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(cases.len(), 1, "{source}");
+    let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+    assert_eq!(evidence.len(), 2, "{source}");
+    assert_eq!(evidence[0]["known"]["value"], "stale", "{source}");
+    assert_eq!(evidence[1]["issue"]["kind"], "unknown_unpack", "{source}");
 }
 
 #[test]
@@ -3048,6 +3569,276 @@ fn chained_immutable_tuple_assignment_remains_exact() {
     assert_eq!(apps.len(), 2, "{settings:#}");
     assert_eq!(apps[0]["value"], "first");
     assert_eq!(apps[1]["value"], "second");
+}
+
+#[test]
+fn tuple_installed_apps_are_accepted_like_lists() {
+    let settings = extract("INSTALLED_APPS = ('first', 'second')");
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+
+    assert_eq!(apps.len(), 2, "{settings:#}");
+    assert_eq!(apps[0]["value"], "first");
+    assert_eq!(apps[1]["value"], "second");
+}
+
+#[test]
+fn string_installed_apps_are_not_accepted_as_a_collection() {
+    let settings = extract("INSTALLED_APPS = 'blog'");
+    let case = &cases(&settings, "/installed_apps/cases")[0];
+
+    assert!(
+        case.get("known").is_none(),
+        "a bare string is not a collection: {settings:#}"
+    );
+    assert!(case.get("malformed").is_some(), "{settings:#}");
+}
+
+#[test]
+fn tuple_collection_shaped_template_and_static_settings_are_accepted() {
+    let settings = extract(
+        "TEMPLATES = ({'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ('/templates',), 'OPTIONS': {'context_processors': ('app.context.processor',), 'builtins': ('app.builtins',)}},)\nSTATICFILES_DIRS = ('/assets',)",
+    );
+
+    let backend = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0];
+    assert_eq!(backend["dirs"][0]["value"]["resolved"], "/templates");
+
+    let static_dirs = &cases(&settings, "/staticfiles/staticfiles_dirs/cases")[0]["known"]["dirs"];
+    assert_eq!(static_dirs.as_array().unwrap().len(), 1, "{settings:#}");
+}
+
+#[test]
+fn binary_tuple_plus_tuple_preserves_exact_installed_apps() {
+    let settings = extract("INSTALLED_APPS = ('alpha',) + ('beta',)");
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+    assert_eq!(apps.len(), 2, "{settings:#}");
+    assert_eq!(apps[0]["value"], "alpha");
+    assert_eq!(apps[1]["value"], "beta");
+}
+
+#[test]
+fn binary_string_plus_string_is_exact() {
+    let settings = extract("STATIC_URL = '/sta' + 'tic/'");
+    let cases = cases(&settings, "/staticfiles/static_url/cases");
+    assert_eq!(cases[0]["known"]["value"], "/static/", "{settings:#}");
+}
+
+#[test]
+fn binary_cross_kind_list_and_tuple_is_unsupported() {
+    for source in [
+        "INSTALLED_APPS = ['alpha'] + ('beta',)",
+        "INSTALLED_APPS = ('alpha',) + ['beta']",
+    ] {
+        let settings = extract(source);
+        let cases = cases(&settings, "/installed_apps/cases");
+        assert_eq!(cases.len(), 1, "{source}");
+        assert!(cases[0].get("known").is_none(), "{source}");
+        assert!(!cases[0].to_string().contains("alpha"), "{source}");
+    }
+}
+
+#[test]
+fn name_target_tuple_augmented_add_tuple_is_exact() {
+    let settings = extract("INSTALLED_APPS = ('alpha',)\nINSTALLED_APPS += ('beta',)");
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+    assert_eq!(apps.len(), 2, "{settings:#}");
+    assert_eq!(apps[0]["value"], "alpha");
+    assert_eq!(apps[1]["value"], "beta");
+}
+
+#[test]
+fn name_target_tuple_augmented_add_unknown_keeps_prefix() {
+    let settings = extract("INSTALLED_APPS = ('alpha',)\nINSTALLED_APPS += EXTRA");
+    let cases = cases(&settings, "/installed_apps/cases");
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+    assert_eq!(evidence[0]["known"]["value"], "alpha");
+    assert_eq!(evidence[1]["issue"]["kind"], "unknown_unpack");
+}
+
+#[test]
+fn list_augmented_add_tuple_preserves_exact_order() {
+    let settings = extract("INSTALLED_APPS = ['alpha']\nINSTALLED_APPS += ('beta',)");
+    let apps = cases(&settings, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|app| app["value"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(apps, ["alpha", "beta"], "{settings:#}");
+}
+
+#[test]
+fn list_augmented_add_bool_discards_prefix() {
+    let settings = extract("INSTALLED_APPS = ['alpha']\nINSTALLED_APPS += True");
+    let cases = cases(&settings, "/installed_apps/cases");
+    assert_eq!(cases.len(), 1, "{settings:#}");
+    assert!(cases[0].get("known").is_none(), "{settings:#}");
+    assert!(!cases[0].to_string().contains("alpha"), "{settings:#}");
+}
+
+#[test]
+fn list_extend_tuple_is_exact_but_extend_bool_degrades() {
+    let exact = extract("INSTALLED_APPS = ['alpha']\nINSTALLED_APPS.extend(('beta',))");
+    let apps = cases(&exact, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+    assert_eq!(apps.len(), 2, "{exact:#}");
+
+    let degraded = extract("INSTALLED_APPS = ['alpha']\nINSTALLED_APPS.extend(True)");
+    let cases = cases(&degraded, "/installed_apps/cases");
+    assert!(cases[0].get("known").is_none(), "{degraded:#}");
+    assert!(!cases[0].to_string().contains("alpha"), "{degraded:#}");
+}
+
+#[test]
+fn starred_construction_follows_iterable_matrix() {
+    let exact = extract("INSTALLED_APPS = [*('alpha', 'beta')]");
+    let apps = cases(&exact, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+    assert_eq!(apps.len(), 2, "{exact:#}");
+
+    let imprecise = extract("INSTALLED_APPS = ['alpha', *'xy']");
+    let imprecise_cases = cases(&imprecise, "/installed_apps/cases");
+    assert!(imprecise_cases[0].get("known").is_none(), "{imprecise:#}");
+    assert!(
+        imprecise_cases[0].to_string().contains("unknown_unpack"),
+        "{imprecise:#}"
+    );
+
+    let bool_source = extract("INSTALLED_APPS = ['alpha', *True]");
+    let bool_cases = cases(&bool_source, "/installed_apps/cases");
+    assert!(bool_cases[0].get("known").is_none(), "{bool_source:#}");
+    assert!(
+        !bool_cases[0].to_string().contains("alpha"),
+        "{bool_source:#}"
+    );
+}
+
+#[test]
+fn starred_tuple_construction_follows_iterable_matrix() {
+    let exact = extract("INSTALLED_APPS = (*('alpha', 'beta'),)");
+    let apps = cases(&exact, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+    assert_eq!(apps.len(), 2, "{exact:#}");
+
+    for rhs in ["''", "{}", "EXTRA", "Path('/x')"] {
+        let source = format!("from pathlib import Path\nINSTALLED_APPS = ('alpha', *{rhs})");
+        let settings = extract(&source);
+        let case = &cases(&settings, "/installed_apps/cases")[0];
+        assert!(case.get("known").is_none(), "{source}: {settings:#}");
+        assert!(case.to_string().contains("unknown_unpack"), "{source}");
+    }
+
+    let invalid = extract("INSTALLED_APPS = ('alpha', *True)");
+    let case = &cases(&invalid, "/installed_apps/cases")[0];
+    assert!(!case.to_string().contains("alpha"), "{invalid:#}");
+}
+
+#[test]
+fn name_target_string_augmented_add_is_exact_or_degrades() {
+    let exact = extract("STATIC_URL = '/sta'\nSTATIC_URL += 'tic/'");
+    assert_eq!(
+        cases(&exact, "/staticfiles/static_url/cases")[0]["known"]["value"],
+        "/static/",
+        "{exact:#}"
+    );
+
+    for source in [
+        "STATIC_URL = '/static/'\nSTATIC_URL += EXTRA",
+        "from pathlib import Path\nSTATIC_URL = '/static/'\nSTATIC_URL += Path('/x')",
+    ] {
+        let degraded = extract(source);
+        let degraded_cases = cases(&degraded, "/staticfiles/static_url/cases");
+        assert!(degraded_cases[0].get("known").is_none(), "{degraded:#}");
+        assert!(degraded_cases[0].get("dynamic").is_some(), "{degraded:#}");
+    }
+}
+
+#[test]
+fn name_target_tuple_augmented_add_incompatible_kinds_degrade() {
+    for rhs in ["['beta']", "'beta'", "True", "{'beta': 1}", "Path('/x')"] {
+        let source = format!(
+            "from pathlib import Path\nINSTALLED_APPS = ('alpha',)\nINSTALLED_APPS += {rhs}"
+        );
+        let settings = extract(&source);
+        let cases = cases(&settings, "/installed_apps/cases");
+        assert_eq!(cases.len(), 1, "{source}");
+        assert!(cases[0].get("known").is_none(), "{source}: {settings:#}");
+        assert!(
+            !cases[0].to_string().contains("alpha"),
+            "{source}: {settings:#}"
+        );
+    }
+}
+
+#[test]
+fn list_augmented_add_imprecise_and_indeterminate_sources_keep_prefix() {
+    for rhs in ["''", "{'k': 'v'}", "{}", "EXTRA", "Path('/x')"] {
+        let source = format!(
+            "from pathlib import Path\nINSTALLED_APPS = ['alpha']\nINSTALLED_APPS += {rhs}"
+        );
+        let settings = extract(&source);
+        let cases = cases(&settings, "/installed_apps/cases");
+        assert_eq!(cases.len(), 1, "{source}");
+        let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+        assert_eq!(
+            evidence[0]["known"]["value"], "alpha",
+            "{source}: {settings:#}"
+        );
+        assert_eq!(
+            evidence[1]["issue"]["kind"], "unknown_unpack",
+            "{source}: {settings:#}"
+        );
+    }
+}
+
+#[test]
+fn list_extend_imprecise_and_indeterminate_sources_keep_prefix() {
+    for rhs in ["'xy'", "''", "{'k': 'v'}", "{}", "EXTRA", "Path('/x')"] {
+        let source = format!(
+            "from pathlib import Path\nINSTALLED_APPS = ['alpha']\nINSTALLED_APPS.extend({rhs})"
+        );
+        let settings = extract(&source);
+        let cases = cases(&settings, "/installed_apps/cases");
+        assert_eq!(cases.len(), 1, "{source}");
+        let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+        assert_eq!(
+            evidence[0]["known"]["value"], "alpha",
+            "{source}: {settings:#}"
+        );
+        assert_eq!(
+            evidence[1]["issue"]["kind"], "unknown_unpack",
+            "{source}: {settings:#}"
+        );
+    }
+}
+
+#[test]
+fn starred_construction_covers_list_mapping_and_indeterminate_sources() {
+    let list = extract("INSTALLED_APPS = [*['alpha', 'beta']]");
+    let apps = cases(&list, "/installed_apps/cases")[0]["known"]["apps"]
+        .as_array()
+        .unwrap();
+    assert_eq!(apps.len(), 2, "{list:#}");
+
+    for rhs in ["''", "{'k': 'v'}", "{}", "EXTRA", "Path('/x')"] {
+        let source = format!("from pathlib import Path\nINSTALLED_APPS = ['alpha', *{rhs}]");
+        let settings = extract(&source);
+        let cases = cases(&settings, "/installed_apps/cases");
+        assert!(cases[0].get("known").is_none(), "{source}: {settings:#}");
+        assert!(
+            cases[0].to_string().contains("unknown_unpack"),
+            "{source}: {settings:#}"
+        );
+    }
 }
 
 #[test]

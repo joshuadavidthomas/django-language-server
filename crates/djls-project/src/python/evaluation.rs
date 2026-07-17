@@ -1,22 +1,30 @@
 use djls_source::Origin;
-use rustc_hash::FxHashSet;
 
+mod allocation;
 mod binding;
 mod constraints;
 mod evaluator;
+mod mapping;
 mod mutation;
 mod name_analysis;
 mod query;
 mod result;
+mod sequence;
 mod touched_names;
 mod truthiness;
 mod unique_vec;
 mod value;
 
+pub(crate) use self::allocation::ReachableAllocationSites;
 pub(crate) use self::binding::PythonBinding;
 pub(crate) use self::binding::PythonBindingState;
 pub(crate) use self::binding::PythonBoundValue;
 pub(crate) use self::constraints::BranchConstraints;
+pub(crate) use self::mapping::MappingOverride;
+pub(crate) use self::mapping::MappingProjection;
+pub(crate) use self::mapping::MappingStringEntry;
+pub(crate) use self::mapping::PythonDict;
+pub(crate) use self::mapping::PythonMapping;
 pub(crate) use self::mutation::PythonMutation;
 pub(crate) use self::mutation::PythonMutationOperation;
 pub(crate) use self::mutation::PythonMutationPath;
@@ -31,12 +39,13 @@ pub(crate) use self::result::PythonModuleValues;
 pub(crate) use self::result::PythonNamespaceCause;
 pub(crate) use self::result::PythonNamespaceRemainder;
 pub(crate) use self::result::PythonSyntaxImpact;
+pub(crate) use self::sequence::PythonList;
+pub(crate) use self::sequence::PythonMaterializedSequence;
+pub(crate) use self::sequence::PythonSequence;
+pub(crate) use self::sequence::PythonSequenceAlternativeRef;
+pub(crate) use self::sequence::PythonSequenceItem;
+pub(crate) use self::sequence::PythonTuple;
 pub(crate) use self::unique_vec::UniqueVec;
-pub(crate) use self::value::PythonDict;
-pub(crate) use self::value::PythonDictItem;
-pub(crate) use self::value::PythonList;
-pub(crate) use self::value::PythonListAlternativeRef;
-pub(crate) use self::value::PythonListItem;
 pub(crate) use self::value::PythonUnknown;
 pub(crate) use self::value::PythonUnknownCause;
 pub(crate) use self::value::PythonValue;
@@ -44,32 +53,16 @@ pub(crate) use self::value::PythonValueKind;
 
 const MAX_EXACT_PYTHON_ALTERNATIVES: usize = 64;
 
-#[derive(Debug, Default)]
-struct MutableOrigins(FxHashSet<Origin>);
-
-impl MutableOrigins {
-    fn insert(&mut self, origin: Origin) {
-        self.0.insert(origin);
-    }
-
-    fn extend(&mut self, origins: impl IntoIterator<Item = Origin>) {
-        self.0.extend(origins);
-    }
-
-    fn contains(&self, origin: &Origin) -> bool {
-        self.0.contains(origin)
-    }
-
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    fn intersects(&self, other: &Self) -> bool {
-        self.0.iter().any(|origin| other.contains(origin))
-    }
-
-    fn iter(&self) -> impl Iterator<Item = Origin> + '_ {
-        self.0.iter().copied()
+fn earliest_origin(left: Option<Origin>, right: Option<Origin>) -> Option<Origin> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(
+            [left, right]
+                .into_iter()
+                .min_by_key(origin_sort_key)
+                .expect("two origins have a minimum"),
+        ),
+        (Some(origin), None) | (None, Some(origin)) => Some(origin),
+        (None, None) => None,
     }
 }
 

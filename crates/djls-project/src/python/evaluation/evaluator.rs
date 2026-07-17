@@ -13,11 +13,7 @@ use ruff_python_ast as ast;
 use super::BranchConstraints;
 use super::PythonBinding;
 use super::PythonBindingState;
-use super::PythonDict;
-use super::PythonDictItem;
 use super::PythonImportOutcome;
-use super::PythonList;
-use super::PythonListItem;
 use super::PythonModuleDependencies;
 use super::PythonModuleValues;
 use super::PythonMutation;
@@ -137,6 +133,18 @@ impl EvaluationState {
         self.assign_binding(name, PythonBinding::bound(value, origin), origin);
     }
 
+    /// Update a name's single bound value after a successful in-place mutation.
+    /// This preserves the binding's assignment origins, branch constraints, and
+    /// prior mutation facts; only rebinding operations replace that state.
+    fn update_bound_value(&mut self, name: &str, value: PythonValue) {
+        let bound = self
+            .bindings
+            .get_mut(name)
+            .and_then(PythonBinding::single_bound_mut)
+            .expect("name-target in-place mutation requires one bound value");
+        bound.value = value;
+    }
+
     fn assign_binding(&mut self, name: &str, binding: PythonBinding, origin: Origin) {
         self.mutations.retain(|mutation| mutation.binding != name);
         self.bindings
@@ -169,13 +177,13 @@ impl EvaluationState {
     }
 
     fn mutable_alias_names(&self, binding: &PythonBinding) -> Vec<String> {
-        let wanted = binding.reachable_mutable_origins();
+        let wanted = binding.reachable_allocation_sites();
         if wanted.is_empty() {
             return Vec::new();
         }
         self.bindings
             .iter()
-            .filter(|(_name, candidate)| candidate.reachable_mutable_origins().intersects(&wanted))
+            .filter(|(_name, candidate)| candidate.reachable_allocation_sites().intersects(&wanted))
             .map(|(name, _binding)| name.clone())
             .collect()
     }
@@ -185,7 +193,7 @@ impl EvaluationState {
         name: &str,
         path: &PythonMutationPath,
     ) -> Vec<String> {
-        let mut wanted = super::MutableOrigins::default();
+        let mut wanted = super::ReachableAllocationSites::default();
         let Some(binding) = self.binding(name) else {
             return Vec::new();
         };
@@ -193,7 +201,7 @@ impl EvaluationState {
             let PythonBindingState::Bound(bound) = state else {
                 continue;
             };
-            wanted.extend(path.possible_target_origins(&bound.value).iter());
+            wanted.absorb(path.possible_target_allocation_sites(&bound.value));
         }
         if wanted.is_empty() {
             return Vec::new();
@@ -201,7 +209,7 @@ impl EvaluationState {
         self.bindings
             .iter()
             .filter(|(candidate_name, candidate)| {
-                let occurrences = candidate.mutable_origin_occurrences(&wanted);
+                let occurrences = candidate.allocation_site_occurrences(&wanted);
                 occurrences > usize::from(candidate_name.as_str() == name)
             })
             .map(|(name, _binding)| name.clone())
@@ -521,7 +529,6 @@ mod tests {
     use super::PythonUnknown;
     use super::PythonUnknownCause;
     use super::PythonValue;
-    use super::PythonValueKind;
     use crate::python::PythonModuleName;
 
     fn test_file(index: u64) -> File {
@@ -538,7 +545,7 @@ mod tests {
         state.bindings.insert(
             "VALUE".to_string(),
             PythonBinding::bound(
-                PythonValue::known(PythonValueKind::Str("value".to_string()), binding_origin),
+                PythonValue::string("value".to_string(), binding_origin),
                 binding_origin,
             ),
         );

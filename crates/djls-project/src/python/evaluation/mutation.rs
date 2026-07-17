@@ -1,12 +1,11 @@
 use djls_source::Origin;
 use ruff_python_ast as ast;
 
-use super::MutableOrigins;
-use super::PythonDictItem;
-use super::PythonListItem;
+use super::PythonSequenceItem;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
+use super::ReachableAllocationSites;
 use super::evaluator::EvaluationState;
 use super::evaluator::Evaluator;
 use super::name_analysis::expr_read_names;
@@ -100,27 +99,36 @@ impl PythonMutationPath {
         self.segments.is_empty()
     }
 
-    pub(super) fn possible_target_origins(&self, value: &PythonValue) -> MutableOrigins {
+    pub(super) fn possible_target_allocation_sites(
+        &self,
+        value: &PythonValue,
+    ) -> ReachableAllocationSites {
         fn collect(
             value: &PythonValue,
             path: &[PythonMutationPathSegment],
-            origins: &mut MutableOrigins,
+            origins: &mut ReachableAllocationSites,
         ) {
             let Some((segment, remaining)) = path.split_first() else {
-                if matches!(
-                    &value.kind,
-                    PythonValueKind::List(_) | PythonValueKind::Dict(_)
-                ) {
-                    origins.extend(value.mutable_origins());
+                if let Some(sites) = value.own_mutable_sites() {
+                    origins.push_group(sites.clone());
                 }
                 return;
             };
             match segment {
                 PythonMutationPathSegment::Index(index) => {
-                    let PythonValueKind::List(list) = &value.kind else {
-                        return;
+                    // Index traversal reaches a nested value through either a
+                    // list or a tuple; only the terminal mutation requires a
+                    // mutable list.
+                    let items = match &value.kind {
+                        PythonValueKind::List(list) => list.semantic_items(),
+                        PythonValueKind::Tuple(tuple) => tuple.semantic_items(),
+                        PythonValueKind::Str(_)
+                        | PythonValueKind::Bool(_)
+                        | PythonValueKind::Path(_)
+                        | PythonValueKind::Dict(_)
+                        | PythonValueKind::Unknown(_) => return,
                     };
-                    if let Some(PythonListItem::Value(value)) = list.semantic_items().get(*index) {
+                    if let Some(PythonSequenceItem::Value(value)) = items.get(*index) {
                         collect(value, remaining, origins);
                     }
                 }
@@ -128,34 +136,14 @@ impl PythonMutationPath {
                     let PythonValueKind::Dict(dict) = &value.kind else {
                         return;
                     };
-                    for item in dict.items.iter().rev() {
-                        let PythonDictItem::Entry {
-                            key: candidate,
-                            value,
-                        } = item
-                        else {
-                            continue;
-                        };
-                        match &candidate.kind {
-                            PythonValueKind::Str(candidate) if candidate == key => {
-                                collect(value, remaining, origins);
-                                return;
-                            }
-                            PythonValueKind::Str(_) => {}
-                            PythonValueKind::Unknown(_)
-                            | PythonValueKind::Bool(_)
-                            | PythonValueKind::Path(_)
-                            | PythonValueKind::List(_)
-                            | PythonValueKind::Dict(_) => {
-                                collect(value, remaining, origins);
-                            }
-                        }
+                    for next in dict.mapping().possible_string_values(key) {
+                        collect(next, remaining, origins);
                     }
                 }
             }
         }
 
-        let mut origins = MutableOrigins::default();
+        let mut origins = ReachableAllocationSites::default();
         collect(value, self.as_slice(), &mut origins);
         origins
     }
@@ -182,42 +170,32 @@ impl PythonMutationPath {
 
             let supported = match next_segment {
                 PythonMutationPathSegment::Index(index) => {
-                    let PythonValueKind::List(list) = &mut value.kind else {
-                        return false;
-                    };
-                    list.try_mutate_indexed_value(*index, |next| {
-                        apply(next, remaining, mutation, origin)
-                    })
+                    // Traverse into the nested value through a list or a tuple.
+                    // The tuple's structure is never mutated here; only a nested
+                    // mutable container reached through indexing can change.
+                    match &mut value.kind {
+                        PythonValueKind::List(list) => list
+                            .try_mutate_indexed_value(*index, |next| {
+                                apply(next, remaining, mutation, origin)
+                            }),
+                        PythonValueKind::Tuple(tuple) => tuple
+                            .try_mutate_indexed_value(*index, |next| {
+                                apply(next, remaining, mutation, origin)
+                            }),
+                        PythonValueKind::Str(_)
+                        | PythonValueKind::Bool(_)
+                        | PythonValueKind::Path(_)
+                        | PythonValueKind::Dict(_)
+                        | PythonValueKind::Unknown(_) => return false,
+                    }
                 }
                 PythonMutationPathSegment::Key(key) => {
                     let PythonValueKind::Dict(dict) = &mut value.kind else {
                         return false;
                     };
-                    let mut selected = None;
-                    for item in dict.items.iter_mut().rev() {
-                        match item {
-                            PythonDictItem::Entry {
-                                key: candidate,
-                                value,
-                            } => match &candidate.kind {
-                                PythonValueKind::Str(candidate) if candidate == key => {
-                                    selected = Some(value);
-                                    break;
-                                }
-                                PythonValueKind::Str(_) => {}
-                                PythonValueKind::Unknown(_)
-                                | PythonValueKind::Bool(_)
-                                | PythonValueKind::Path(_)
-                                | PythonValueKind::List(_)
-                                | PythonValueKind::Dict(_) => return false,
-                            },
-                            PythonDictItem::UnknownUnpack(_) => return false,
-                        }
-                    }
-                    let Some(next) = selected else {
-                        return false;
-                    };
-                    apply(next, remaining, mutation, origin)
+                    dict.try_exact_string_value_mut(key, |next| {
+                        apply(next, remaining, mutation, origin)
+                    })
                 }
             };
             if supported {
@@ -232,27 +210,19 @@ impl PythonMutationPath {
 
 impl EvaluatedMutation<'_> {
     fn apply(&self, value: &mut PythonValue, origin: Origin) -> bool {
-        if !value.is_mutable_container() {
+        let Some(mut sequence) = value.as_mutable_sequence() else {
             return false;
-        }
+        };
         match self {
-            Self::Append(argument) => {
-                let PythonValueKind::List(list) = &mut value.kind else {
-                    return false;
-                };
-                list.append(&PythonListItem::Value((*argument).clone()));
-            }
+            Self::Append(argument) => sequence.append_value((*argument).clone()),
             Self::Extend(extension) => {
-                return value.try_extend_from(extension, origin);
+                return sequence.extend_from(extension, origin).is_some();
             }
             Self::Insert { index, value: item } => {
-                let PythonValueKind::List(list) = &mut value.kind else {
-                    return false;
-                };
-                if !list.is_authoritative() {
+                if !sequence.is_authoritative() {
                     return false;
                 }
-                let len = list.semantic_items().len();
+                let len = sequence.len();
                 let index = match index {
                     InsertIndex::NonNegative(index) => (*index).min(len),
                     InsertIndex::Negative(magnitude) => {
@@ -263,23 +233,13 @@ impl EvaluatedMutation<'_> {
                         }
                     }
                 };
-                list.insert(index, &PythonListItem::Value((*item).clone()));
+                sequence.insert_value(index, (*item).clone());
             }
             Self::Remove(needle) => {
-                let PythonValueKind::List(list) = &mut value.kind else {
-                    return false;
-                };
-                if !list.is_authoritative() {
+                if !sequence.is_authoritative() {
                     return false;
                 }
-                let Some(index) = list.semantic_items().iter().position(|item| {
-                    matches!(item, PythonListItem::Value(PythonValue {
-                        kind: PythonValueKind::Str(candidate), ..
-                    }) if candidate == needle)
-                }) else {
-                    return false;
-                };
-                list.remove(index);
+                return sequence.remove_str(needle);
             }
         }
         true
@@ -322,8 +282,7 @@ impl EvaluationState {
         let mut stale_aliases = self.stale_alias_names_after_mutation(target.binding, &target.path);
         let supported =
             self.try_apply_mutation(&target, &EvaluatedMutation::Extend(extension), origin);
-        self.mutations
-            .insert(target.into_fact(PythonMutationOperation::Extend, origin));
+        let fact = target.into_fact(PythonMutationOperation::Extend, origin);
         if supported {
             self.invalidate_names(
                 stale_aliases,
@@ -340,6 +299,7 @@ impl EvaluationState {
                 origin,
             );
         }
+        self.mutations.insert(fact);
     }
 
     fn try_apply_mutation(

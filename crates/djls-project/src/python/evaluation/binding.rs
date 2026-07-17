@@ -2,11 +2,11 @@ use djls_source::Origin;
 
 use super::BranchConstraints;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
-use super::MutableOrigins;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
+use super::ReachableAllocationSites;
 use super::origin_sort_key;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -139,24 +139,24 @@ impl PythonBinding {
     }
 
     pub(super) fn contains_mutable_value(&self) -> bool {
-        !self.reachable_mutable_origins().is_empty()
+        !self.reachable_allocation_sites().is_empty()
     }
 
-    pub(super) fn reachable_mutable_origins(&self) -> MutableOrigins {
-        let mut origins = MutableOrigins::default();
+    pub(super) fn reachable_allocation_sites(&self) -> ReachableAllocationSites {
+        let mut origins = ReachableAllocationSites::default();
         for state in self.alternatives() {
             if let PythonBindingState::Bound(bound) = state {
-                origins.extend(bound.value.reachable_mutable_origins().iter());
+                origins.absorb(bound.value.reachable_allocation_sites());
             }
         }
         origins
     }
 
-    pub(super) fn mutable_origin_occurrences(&self, wanted: &MutableOrigins) -> usize {
+    pub(super) fn allocation_site_occurrences(&self, wanted: &ReachableAllocationSites) -> usize {
         self.alternatives()
             .filter_map(|state| match state {
                 PythonBindingState::Bound(bound) => {
-                    Some(bound.value.mutable_origin_occurrences(wanted))
+                    Some(bound.value.allocation_site_occurrences(wanted))
                 }
                 PythonBindingState::Unbound => None,
             })
@@ -304,11 +304,11 @@ impl PythonBinding {
     ) -> PythonBindingCase {
         PythonBindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
-                value: PythonValue::with_evidence(
-                    PythonValueKind::Unknown(PythonUnknown {
+                value: PythonValue::unknown_with_evidence(
+                    PythonUnknown {
                         cause: PythonUnknownCause::AlternativeLimitExceeded,
                         origin: Some(overflow_origin),
-                    }),
+                    },
                     overflow_origins.iter(),
                 ),
                 binding_origins: overflow_origins,
@@ -391,7 +391,7 @@ pub(crate) enum PythonBindingState {
 }
 
 impl PythonBindingState {
-    pub(super) fn is_limit_remainder(&self) -> bool {
+    fn is_limit_remainder(&self) -> bool {
         matches!(
             self,
             Self::Bound(PythonBoundValue {
@@ -438,14 +438,204 @@ mod tests {
     use djls_source::Span;
     use salsa::plumbing::FromId as _;
 
+    use super::super::PythonSequenceItem;
     use super::CanonicalOrigins;
+    use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
+    use super::PythonBinding;
+    use super::PythonBindingState;
+    use super::PythonUnknown;
+    use super::PythonUnknownCause;
+    use super::PythonValue;
+    use super::PythonValueKind;
 
     fn origin(file: u32, start: u32) -> Origin {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
         // files are compared only as opaque IDs and are never read.
         let file = File::from_id(unsafe { salsa::Id::from_index(file) });
         Origin::new(file, Span::new(start, 1))
+    }
+
+    #[derive(Clone)]
+    enum BindingValue {
+        Exact(String),
+        TopLevelUnknown,
+        NestedUnknownElement,
+        NestedUnknownUnpack,
+    }
+
+    fn nested_unknown(origin: Origin) -> PythonUnknown {
+        PythonUnknown {
+            cause: PythonUnknownCause::UnsupportedExpression,
+            origin: Some(origin),
+        }
+    }
+
+    fn binding(value: BindingValue, start: u32) -> PythonBinding {
+        let origin = origin(0, start);
+        let value = match value {
+            BindingValue::Exact(value) => PythonValue::string(value, origin),
+            BindingValue::TopLevelUnknown => {
+                PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin))
+            }
+            BindingValue::NestedUnknownElement => PythonValue::list(
+                vec![PythonSequenceItem::UnknownElement(nested_unknown(origin))],
+                origin,
+            ),
+            BindingValue::NestedUnknownUnpack => PythonValue::list(
+                vec![PythonSequenceItem::UnknownUnpack(nested_unknown(origin))],
+                origin,
+            ),
+        };
+        PythonBinding::bound(value, origin)
+    }
+
+    fn joined(bindings: Vec<PythonBinding>, right_grouped: bool) -> PythonBinding {
+        let overflow_origin = origin(0, 1_000);
+        if right_grouped {
+            let mut bindings = bindings;
+            let mut result = bindings.pop();
+            while let Some(left) = bindings.pop() {
+                result = Some(left.join(
+                    result.expect("a right-grouped join has a right operand"),
+                    overflow_origin,
+                ));
+            }
+            result.expect("a binding join needs at least one alternative")
+        } else {
+            bindings
+                .into_iter()
+                .reduce(|left, right| left.join(right, overflow_origin))
+                .expect("a binding join needs at least one alternative")
+        }
+    }
+
+    fn assert_join_laws(bindings: Vec<PythonBinding>) -> PythonBinding {
+        let left = joined(bindings.clone(), false);
+        assert_eq!(
+            left,
+            joined(bindings.clone(), true),
+            "join must be associative"
+        );
+
+        let mut reversed = bindings.clone();
+        reversed.reverse();
+        assert_eq!(left, joined(reversed, false), "join must be commutative");
+
+        let mut duplicated = bindings.clone();
+        duplicated.extend(bindings);
+        assert_eq!(left, joined(duplicated, false), "join must be idempotent");
+        left
+    }
+
+    #[test]
+    fn binding_join_obeys_laws_and_orders_origins_for_all_value_shapes() {
+        let cases = [
+            BindingValue::Exact("same".to_string()),
+            BindingValue::TopLevelUnknown,
+            BindingValue::NestedUnknownElement,
+            BindingValue::NestedUnknownUnpack,
+        ];
+        for value in cases {
+            let joined = assert_join_laws(vec![
+                binding(value.clone(), 30),
+                binding(value.clone(), 10),
+                binding(value, 20),
+            ]);
+            let Some(bound) = joined.single_bound() else {
+                panic!("equal values should normalize to one bound alternative");
+            };
+            assert_eq!(
+                bound
+                    .binding_origins()
+                    .map(|origin| origin.span.start())
+                    .collect::<Vec<_>>(),
+                [10, 20, 30],
+                "binding origins must be retained in order",
+            );
+            assert_eq!(
+                bound
+                    .value
+                    .origins()
+                    .map(|origin| origin.span.start())
+                    .collect::<Vec<_>>(),
+                [10, 20, 30],
+                "value origins must be retained in order",
+            );
+        }
+
+        assert_join_laws(vec![
+            binding(BindingValue::Exact("c".to_string()), 30),
+            binding(BindingValue::Exact("a".to_string()), 10),
+            binding(BindingValue::Exact("b".to_string()), 20),
+        ]);
+    }
+
+    #[test]
+    fn cross_file_origin_sets_do_not_change_semantic_equality() {
+        let from_a = origin(0, 10);
+        let from_b = origin(1, 20);
+        let exact = |origins: Vec<Origin>| {
+            origins
+                .into_iter()
+                .map(|origin| {
+                    PythonBinding::bound(PythonValue::string("same".to_string(), origin), origin)
+                })
+                .reduce(|binding, incoming| binding.join(incoming, from_a))
+                .expect("test bindings have at least one origin")
+        };
+        let a = exact(vec![from_a]);
+        let ab = exact(vec![from_a, from_b]);
+        let b = exact(vec![from_b]);
+
+        assert_eq!(
+            joined(vec![a.clone(), ab.clone(), b.clone()], false),
+            joined(vec![a, ab, b], true),
+        );
+    }
+
+    #[test]
+    fn binding_join_obeys_laws_at_and_over_the_alternative_limit() {
+        let alternatives = |count: u32| {
+            (0..count)
+                .map(|index| binding(BindingValue::Exact(format!("{index:03}")), index))
+                .collect::<Vec<_>>()
+        };
+
+        let at_limit = assert_join_laws(alternatives(64));
+        assert_eq!(at_limit.alternatives().len(), 64);
+        assert!(
+            !at_limit
+                .alternatives()
+                .any(PythonBindingState::is_limit_remainder)
+        );
+        assert_eq!(MAX_EXACT_PYTHON_ALTERNATIVES, 64);
+
+        let overflowed = assert_join_laws(alternatives(65));
+        assert_eq!(overflowed.alternatives().len(), 65);
+        let PythonBindingState::Bound(overflow) = overflowed
+            .alternatives()
+            .find(|state| state.is_limit_remainder())
+            .expect("overflow should add a typed unknown remainder")
+        else {
+            unreachable!();
+        };
+        let PythonValueKind::Unknown(unknown) = &overflow.value.kind else {
+            unreachable!();
+        };
+        assert_eq!(
+            unknown.origin.expect("join origin should be retained").span,
+            Span::new(1_000, 1),
+        );
+        assert_eq!(
+            overflow
+                .value
+                .origins()
+                .map(|origin| origin.span.start())
+                .collect::<Vec<_>>(),
+            [64, 1_000],
+            "overflow evidence should include the dropped alternative and primary join",
+        );
     }
 
     #[test]

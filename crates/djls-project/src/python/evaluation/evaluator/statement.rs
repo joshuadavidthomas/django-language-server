@@ -5,8 +5,10 @@ use ruff_python_ast as ast;
 
 use super::super::PythonBinding;
 use super::super::PythonMutationOperation;
+use super::super::PythonMutationPath;
 use super::super::PythonUnknownCause;
 use super::super::PythonValue;
+use super::super::PythonValueKind;
 use super::super::mutation::MutationTarget;
 use super::super::name_analysis::pattern_bound_names;
 use super::super::name_analysis::target_write_names;
@@ -219,25 +221,8 @@ impl Evaluator<'_> {
             && let Some(name) = assign.target.name_target()
             && let Some(left) = self.state.value_for_name(name)
         {
-            let path = super::PythonMutationPath::default();
-            let aliases = self.state.stale_alias_names_after_mutation(name, &path);
             let right = self.evaluate_value(&assign.value);
-            let mut value = left;
-            let alias_cause = if value.try_extend_from(&right, origin) {
-                value.record_origin(origin);
-                PythonUnknownCause::UnsupportedExpression
-            } else {
-                value =
-                    PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin));
-                PythonUnknownCause::UnsupportedMutation
-            };
-            self.state.assign_value(name, value, origin);
-            self.state.invalidate_names(aliases, &alias_cause, origin);
-            let target = MutationTarget::from_expr(&assign.target)
-                .expect("a name target is a supported mutation target");
-            self.state
-                .mutations
-                .insert(target.into_fact(PythonMutationOperation::Extend, origin));
+            self.apply_name_augmented_add(name, left, &right, &assign.target, origin);
             return;
         }
 
@@ -250,6 +235,102 @@ impl Evaluator<'_> {
         }
 
         self.bind_unknown_targets(&assign.target, &PythonUnknownCause::UnsupportedMutation);
+    }
+
+    /// Apply `name += rhs` where `name` is already bound to `left`. The receiver
+    /// kind selects one of three contracts:
+    ///
+    /// - a list is mutated in place by consuming the RHS as an iterable,
+    ///   preserving its allocation sites and recording an `Extend` fact; a
+    ///   non-iterable RHS (bool) fails the mutation, replacing the target with
+    ///   an unsupported-expression unknown and degrading stale aliases;
+    /// - a tuple or string performs nominal addition and rebinds the name to the
+    ///   new immutable value with no mutation fact and no alias effects;
+    /// - any other receiver is an unsupported in-place add: the target becomes
+    ///   an unsupported-expression unknown, stale aliases become
+    ///   unsupported-mutation unknowns, and an `Extend` fact is recorded.
+    fn apply_name_augmented_add(
+        &mut self,
+        name: &str,
+        left: PythonValue,
+        right: &PythonValue,
+        target: &ast::Expr,
+        origin: djls_source::Origin,
+    ) {
+        let extend_fact = || {
+            MutationTarget::from_expr(target)
+                .expect("a name target is a supported mutation target")
+                .into_fact(PythonMutationOperation::Extend, origin)
+        };
+        match &left.kind {
+            PythonValueKind::List(_) => {
+                let mut stale_aliases = self
+                    .state
+                    .stale_alias_names_after_mutation(name, &PythonMutationPath::default());
+                let mut value = left;
+                let extended = {
+                    let mut sequence = value
+                        .as_mutable_sequence()
+                        .expect("a list value exposes a mutable sequence");
+                    sequence.extend_from(right, origin)
+                };
+                if extended.is_some() {
+                    value.record_origin(origin);
+                    // A successful in-place list `+=` updates the binding
+                    // without clearing prior mutation facts; the `Extend` fact
+                    // below then accumulates onto them.
+                    self.state.update_bound_value(name, value);
+                    self.state.invalidate_names(
+                        stale_aliases,
+                        &PythonUnknownCause::UnsupportedExpression,
+                        origin,
+                    );
+                } else {
+                    // The direct target's failed-operation state wins when the
+                    // target also appears in its own reachable alias graph.
+                    // Other stale aliases still receive the mutation-specific
+                    // failure cause.
+                    stale_aliases.retain(|alias| alias != name);
+                    self.state.assign_value(
+                        name,
+                        PythonValue::unknown(
+                            PythonUnknownCause::UnsupportedExpression,
+                            Some(origin),
+                        ),
+                        origin,
+                    );
+                    self.state.invalidate_names(
+                        stale_aliases,
+                        &PythonUnknownCause::UnsupportedMutation,
+                        origin,
+                    );
+                }
+                self.state.mutations.insert(extend_fact());
+            }
+            PythonValueKind::Tuple(_) | PythonValueKind::Str(_) => {
+                let value = left.add(right, origin);
+                self.state.assign_value(name, value, origin);
+            }
+            PythonValueKind::Dict(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Unknown(_) => {
+                let stale_aliases = self
+                    .state
+                    .stale_alias_names_after_mutation(name, &PythonMutationPath::default());
+                self.state.assign_value(
+                    name,
+                    PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin)),
+                    origin,
+                );
+                self.state.invalidate_names(
+                    stale_aliases,
+                    &PythonUnknownCause::UnsupportedMutation,
+                    origin,
+                );
+                self.state.mutations.insert(extend_fact());
+            }
+        }
     }
 
     fn walk_import(&mut self, import: &ast::StmtImport) {

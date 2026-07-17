@@ -63,13 +63,14 @@ pub enum PythonValueKindView {
     Str(String),
     Bool(bool),
     Path(Utf8PathBuf),
-    List(Vec<PythonListItemView>),
+    List(Vec<PythonSequenceItemView>),
+    Tuple(Vec<PythonSequenceItemView>),
     Dict(Vec<PythonDictItemView>),
     Unknown(PythonUnknownView),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PythonListItemView {
+pub enum PythonSequenceItemView {
     Value(PythonValueView),
     UnknownElement(PythonUnknownView),
     UnknownUnpack(PythonUnknownView),
@@ -277,42 +278,49 @@ fn binding_alternatives_view(
         .collect()
 }
 
+fn sequence_items_view(items: &[evaluation::PythonSequenceItem]) -> Vec<PythonSequenceItemView> {
+    items
+        .iter()
+        .cloned()
+        .map(|item| match item {
+            evaluation::PythonSequenceItem::Value(value) => {
+                PythonSequenceItemView::Value(value_view(value))
+            }
+            evaluation::PythonSequenceItem::UnknownElement(unknown) => {
+                PythonSequenceItemView::UnknownElement(unknown_view(unknown))
+            }
+            evaluation::PythonSequenceItem::UnknownUnpack(unknown) => {
+                PythonSequenceItemView::UnknownUnpack(unknown_view(unknown))
+            }
+        })
+        .collect()
+}
+
 fn value_view(value: evaluation::PythonValue) -> PythonValueView {
     let origins = value.origins().collect();
     PythonValueView {
-        kind: match value.kind {
+        kind: match value.into_kind() {
             evaluation::PythonValueKind::Str(value) => PythonValueKindView::Str(value),
             evaluation::PythonValueKind::Bool(value) => PythonValueKindView::Bool(value),
             evaluation::PythonValueKind::Path(value) => PythonValueKindView::Path(value),
-            evaluation::PythonValueKind::List(list) => PythonValueKindView::List(
-                list.semantic_items()
-                    .iter()
-                    .cloned()
-                    .map(|item| match item {
-                        evaluation::PythonListItem::Value(value) => {
-                            PythonListItemView::Value(value_view(value))
-                        }
-                        evaluation::PythonListItem::UnknownElement(unknown) => {
-                            PythonListItemView::UnknownElement(unknown_view(unknown))
-                        }
-                        evaluation::PythonListItem::UnknownUnpack(unknown) => {
-                            PythonListItemView::UnknownUnpack(unknown_view(unknown))
-                        }
-                    })
-                    .collect(),
-            ),
+            evaluation::PythonValueKind::List(list) => {
+                PythonValueKindView::List(sequence_items_view(list.semantic_items()))
+            }
+            evaluation::PythonValueKind::Tuple(tuple) => {
+                PythonValueKindView::Tuple(sequence_items_view(tuple.semantic_items()))
+            }
             evaluation::PythonValueKind::Dict(dict) => PythonValueKindView::Dict(
-                dict.items
-                    .into_iter()
+                dict.mapping()
+                    .projection()
                     .map(|item| match item {
-                        evaluation::PythonDictItem::Entry { key, value } => {
+                        evaluation::MappingProjection::Entry { key, value } => {
                             PythonDictItemView::Entry {
-                                key: value_view(key),
-                                value: value_view(value),
+                                key: value_view(key.clone()),
+                                value: value_view(value.clone()),
                             }
                         }
-                        evaluation::PythonDictItem::UnknownUnpack(unknown) => {
-                            PythonDictItemView::UnknownUnpack(unknown_view(unknown))
+                        evaluation::MappingProjection::UnknownUnpack(unknown) => {
+                            PythonDictItemView::UnknownUnpack(unknown_view(unknown.clone()))
                         }
                     })
                     .collect(),

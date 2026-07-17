@@ -3,11 +3,6 @@ use super::ExprExt;
 use super::Origin;
 use super::PythonBinding;
 use super::PythonBindingState;
-use super::PythonDict;
-use super::PythonDictItem;
-use super::PythonList;
-use super::PythonListItem;
-use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
@@ -17,26 +12,17 @@ impl Evaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
         let origin = self.origin(expression);
         if let Some(value) = expression.string_literal() {
-            return PythonBinding::bound(
-                PythonValue::known(PythonValueKind::Str(value.to_string()), origin),
-                origin,
-            );
+            return PythonBinding::bound(PythonValue::string(value.to_string(), origin), origin);
         }
         if let Some(value) = expression.bool_literal() {
-            return PythonBinding::bound(
-                PythonValue::known(PythonValueKind::Bool(value), origin),
-                origin,
-            );
+            return PythonBinding::bound(PythonValue::bool(value, origin), origin);
         }
         if let Some(path) = self
             .state
             .path_bindings()
             .evaluate(expression, self.module.path())
         {
-            return PythonBinding::bound(
-                PythonValue::known(PythonValueKind::Path(path), origin),
-                origin,
-            );
+            return PythonBinding::bound(PythonValue::path(path, origin), origin);
         }
         if let Some(name) = expression.name_target()
             && let Some(binding) = self.state.binding(name)
@@ -46,12 +32,12 @@ impl Evaluator<'_> {
         match expression {
             ast::Expr::List(list) => self.evaluate_sequence_binding(
                 &list.elts,
-                PythonValue::known(PythonValueKind::List(PythonList::new(Vec::new())), origin),
+                PythonValue::list(Vec::new(), origin),
                 origin,
             ),
             ast::Expr::Tuple(tuple) => self.evaluate_sequence_binding(
                 &tuple.elts,
-                PythonValue::known_tuple(PythonList::new(Vec::new()), origin),
+                PythonValue::tuple(Vec::new(), origin),
                 origin,
             ),
             ast::Expr::BinOp(binary) if binary.op == ast::Operator::Add => combine_bindings(
@@ -93,37 +79,26 @@ impl Evaluator<'_> {
             };
             let values = self.evaluate_binding(expression);
             lists = combine_bindings(&lists, &values, element_origin, |mut result, value| {
-                let PythonValueKind::List(list) = &mut result.kind else {
-                    unreachable!("list construction starts with a list")
-                };
+                // A prior starred element may have collapsed this alternative to
+                // an unsupported-expression unknown; do not resurrect it.
+                if matches!(result.kind, PythonValueKind::Unknown(_)) {
+                    return result;
+                }
                 if starred {
-                    match value.kind {
-                        PythonValueKind::List(unpacked) => list.extend(&unpacked, element_origin),
-                        PythonValueKind::Unknown(unknown) => {
-                            list.append(&PythonListItem::UnknownUnpack(unknown));
-                        }
-                        PythonValueKind::Str(_)
-                        | PythonValueKind::Bool(_)
-                        | PythonValueKind::Path(_)
-                        | PythonValueKind::Dict(_) => {
-                            list.append(&PythonListItem::UnknownUnpack(PythonUnknown {
-                                cause: PythonUnknownCause::UnsupportedExpression,
-                                origin: Some(element_origin),
-                            }));
-                        }
+                    // A definitely non-iterable starred source (bool) makes the
+                    // whole constructed expression unknown: no prefix that could
+                    // never exist at runtime survives.
+                    if result
+                        .star_extend_construction(&value, element_origin)
+                        .is_none()
+                    {
+                        return PythonValue::unknown(
+                            PythonUnknownCause::UnsupportedExpression,
+                            Some(origin),
+                        );
                     }
                 } else {
-                    let item = match value.kind {
-                        PythonValueKind::Unknown(unknown) => {
-                            PythonListItem::UnknownElement(unknown)
-                        }
-                        PythonValueKind::Str(_)
-                        | PythonValueKind::Bool(_)
-                        | PythonValueKind::Path(_)
-                        | PythonValueKind::List(_)
-                        | PythonValueKind::Dict(_) => PythonListItem::Value(value),
-                    };
-                    list.append(&item);
+                    result.push_constructed_element(value);
                 }
                 result
             });
@@ -132,13 +107,7 @@ impl Evaluator<'_> {
     }
 
     fn evaluate_dict_binding(&self, dictionary: &ast::ExprDict, origin: Origin) -> PythonBinding {
-        let mut dictionaries = PythonBinding::bound(
-            PythonValue::known(
-                PythonValueKind::Dict(PythonDict { items: Vec::new() }),
-                origin,
-            ),
-            origin,
-        );
+        let mut dictionaries = PythonBinding::bound(PythonValue::empty_dict(origin), origin);
         for item in &dictionary.items {
             let item_origin = self.origin(&item.value);
             let Some(key) = &item.key else {
@@ -151,60 +120,29 @@ impl Evaluator<'_> {
                         let PythonValueKind::Dict(dictionary) = &mut result.kind else {
                             unreachable!("dictionary construction starts with a dictionary")
                         };
-                        match unpacked.kind {
-                            PythonValueKind::Dict(unpacked) => {
-                                dictionary.items.extend(unpacked.items);
-                            }
-                            PythonValueKind::Unknown(unknown) => {
-                                dictionary
-                                    .items
-                                    .push(PythonDictItem::UnknownUnpack(unknown));
-                            }
-                            PythonValueKind::Str(_)
-                            | PythonValueKind::Bool(_)
-                            | PythonValueKind::Path(_)
-                            | PythonValueKind::List(_) => {
-                                dictionary.items.push(PythonDictItem::UnknownUnpack(
-                                    PythonUnknown {
-                                        cause: PythonUnknownCause::UnsupportedExpression,
-                                        origin: Some(item_origin),
-                                    },
-                                ));
-                            }
-                        }
+                        dictionary.extend_from_unpack(unpacked, item_origin);
                         result
                     },
                 );
                 continue;
             };
 
+            // Evaluate the key and value alternatives first, then combine them
+            // into complete single-entry dictionaries so no placeholder value
+            // is ever stored in the log.
             let keys = self.evaluate_binding(key);
-            dictionaries =
-                combine_bindings(&dictionaries, &keys, item_origin, |mut result, key| {
-                    let PythonValueKind::Dict(dictionary) = &mut result.kind else {
-                        unreachable!("dictionary construction starts with a dictionary")
-                    };
-                    dictionary.items.push(PythonDictItem::Entry {
-                        key,
-                        value: PythonValue::unknown(
-                            PythonUnknownCause::UnsupportedExpression,
-                            Some(item_origin),
-                        ),
-                    });
-                    result
-                });
             let values = self.evaluate_binding(&item.value);
+            let entries = combine_bindings(&keys, &values, item_origin, |key, value| {
+                PythonValue::dict_entry(key, value, item_origin)
+            });
             dictionaries =
-                combine_bindings(&dictionaries, &values, item_origin, |mut result, value| {
-                    let PythonValueKind::Dict(dictionary) = &mut result.kind else {
-                        unreachable!("dictionary construction starts with a dictionary")
-                    };
-                    let Some(PythonDictItem::Entry { value: slot, .. }) =
-                        dictionary.items.last_mut()
+                combine_bindings(&dictionaries, &entries, item_origin, |mut result, entry| {
+                    let (PythonValueKind::Dict(dictionary), PythonValueKind::Dict(entry)) =
+                        (&mut result.kind, entry.kind)
                     else {
-                        unreachable!("a dictionary entry was just appended")
+                        unreachable!("dictionary construction combines dictionaries")
                     };
-                    *slot = value;
+                    dictionary.append_entries_from(entry);
                     result
                 });
         }

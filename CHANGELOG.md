@@ -70,6 +70,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed Python settings evaluation to distinguish list and tuple concatenation while preserving known collection facts through supported iterable extensions.
 - Fixed relative imports in Django settings modules, including package aliases and overlapping Python search roots.
 - Fixed project analysis failures so waiting requests are released and analysis can recover after the relevant source changes.
 - Fixed later selective `{% load %}` statements so they restore definitions shadowed by intervening Template Libraries.
