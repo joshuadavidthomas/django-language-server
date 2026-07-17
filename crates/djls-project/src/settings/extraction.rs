@@ -1433,6 +1433,7 @@ fn unknown_issue_kind(unknown: &PythonUnknown) -> SettingIssueKind {
         PythonUnknownCause::UnsupportedExpression
         | PythonUnknownCause::InvalidImport(_)
         | PythonUnknownCause::ImportNotFound(_)
+        | PythonUnknownCause::MissingImportMember { .. }
         | PythonUnknownCause::SkippedExternal(_)
         | PythonUnknownCause::Cycle
         | PythonUnknownCause::AlternativeLimitExceeded => SettingIssueKind::DynamicExpression,

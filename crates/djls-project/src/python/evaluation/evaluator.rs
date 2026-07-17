@@ -32,6 +32,7 @@ use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
+use crate::python::PythonModuleName;
 use crate::python::PythonPathBindings;
 
 pub(super) fn evaluate_body(
@@ -350,6 +351,7 @@ impl EvaluationState {
 
     fn bind_named_import(
         &mut self,
+        module: &PythonModuleName,
         values: &PythonModuleValues,
         imported_name: &str,
         bound_name: &str,
@@ -361,20 +363,27 @@ impl EvaluationState {
             .filter(|impact| impact.affects(imported_name))
             .map(|impact| impact.error.clone())
             .collect::<Vec<_>>();
-        let mut binding = values
-            .bindings
-            .get(imported_name)
-            .cloned()
-            .unwrap_or_else(PythonBinding::unbound)
-            .rebase_binding_origin(origin);
+        let missing_member = PythonUnknownCause::MissingImportMember {
+            module: module.clone(),
+            member: imported_name.to_string(),
+        };
+        let (mut binding, unbound_constraints) = match values.bindings.get(imported_name) {
+            Some(imported) => {
+                let imported = imported.clone().rebase_binding_origin(origin);
+                let constraints = imported
+                    .alternatives_with_constraints()
+                    .filter_map(|(alternative, constraints)| {
+                        (*alternative == PythonBindingState::Unbound).then_some(constraints.clone())
+                    })
+                    .collect::<Vec<_>>();
+                (imported, constraints)
+            }
+            None => (
+                PythonBinding::unknown(&missing_member, origin),
+                vec![BranchConstraints::unconstrained()],
+            ),
+        };
         binding.rebase_cycle_unknowns(origin);
-
-        let unbound_constraints = binding
-            .alternatives_with_constraints()
-            .filter_map(|(alternative, constraints)| {
-                (*alternative == PythonBindingState::Unbound).then_some(constraints.clone())
-            })
-            .collect::<Vec<_>>();
         if let Some(remainder) = &values.namespace_remainder {
             for unbound in &unbound_constraints {
                 for cause in &remainder.causes {
@@ -389,6 +398,10 @@ impl EvaluationState {
                 }
             }
         }
+        binding = binding.replace_unbound_with(
+            Some(PythonBinding::unknown(&missing_member, origin)),
+            origin,
+        );
         if !syntax_errors.is_empty() {
             let unknown =
                 PythonBinding::unknown(&PythonUnknownCause::SyntaxErrors(syntax_errors), origin);
@@ -518,17 +531,22 @@ mod tests {
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
+    use super::BranchConstraints;
     use super::EvaluationState;
     use super::Origin;
     use super::PythonBinding;
+    use super::PythonBindingState;
     use super::PythonImportOutcome;
+    use super::PythonModuleValues;
     use super::PythonMutation;
     use super::PythonMutationOperation;
     use super::PythonMutationPath;
     use super::PythonNamespaceCause;
+    use super::PythonNamespaceRemainder;
     use super::PythonUnknown;
     use super::PythonUnknownCause;
     use super::PythonValue;
+    use super::PythonValueKind;
     use crate::python::PythonModuleName;
 
     fn test_file(index: u64) -> File {
@@ -657,5 +675,76 @@ mod tests {
             EvaluationState::join_branches(base, &[first_branch, second_branch], origin(4));
 
         assert_eq!(joined.mutations.as_slice(), [first_seen, later]);
+    }
+
+    #[test]
+    fn named_import_replaces_only_unbound_alternatives_and_preserves_constraints() {
+        let branch_origin = origin(10);
+        let import_origin = origin(20);
+        let mut known_constraints = BranchConstraints::unconstrained();
+        known_constraints.select(branch_origin, 0);
+        let mut missing_constraints = BranchConstraints::unconstrained();
+        missing_constraints.select(branch_origin, 1);
+
+        let mut known = PythonBinding::bound(
+            PythonValue::string("known".to_string(), origin(1)),
+            origin(1),
+        );
+        known.select_branch(branch_origin, 0);
+        let mut unbound = PythonBinding::unbound();
+        unbound.select_branch(branch_origin, 1);
+
+        let mut namespace_cause = PythonNamespaceCause::unconstrained(PythonUnknown::new(
+            PythonUnknownCause::ImportNotFound(PythonModuleName::parse("missing").unwrap()),
+            [origin(2)],
+        ));
+        namespace_cause.select_branch(branch_origin, 1);
+
+        let mut values = PythonModuleValues::default();
+        values
+            .bindings
+            .insert("MEMBER".to_string(), known.join(unbound, branch_origin));
+        values.namespace_remainder = Some(PythonNamespaceRemainder::new(vec![namespace_cause]));
+
+        let module = PythonModuleName::parse("plugin").unwrap();
+        let mut state = EvaluationState::new(test_file(0));
+        state.bind_named_import(&module, &values, "MEMBER", "ALIAS", import_origin);
+
+        let binding = state.binding("ALIAS").expect("the alias should be bound");
+        assert!(
+            !binding
+                .alternatives()
+                .any(|alternative| *alternative == PythonBindingState::Unbound)
+        );
+
+        let mut known_actual = None;
+        let mut missing_actual = None;
+        let mut namespace_actual = None;
+        for (alternative, constraints) in binding.alternatives_with_constraints() {
+            let PythonBindingState::Bound(bound) = alternative else {
+                continue;
+            };
+            match &bound.value.kind {
+                PythonValueKind::Str(value) if value == "known" => {
+                    known_actual = Some(constraints.clone());
+                }
+                PythonValueKind::Unknown(unknown) => match &unknown.cause {
+                    PythonUnknownCause::MissingImportMember { module, member }
+                        if module.as_str() == "plugin" && member == "MEMBER" =>
+                    {
+                        missing_actual = Some(constraints.clone());
+                    }
+                    PythonUnknownCause::ImportNotFound(module) if module.as_str() == "missing" => {
+                        namespace_actual = Some(constraints.clone());
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+
+        assert_eq!(known_actual, Some(known_constraints));
+        assert_eq!(missing_actual, Some(missing_constraints.clone()));
+        assert_eq!(namespace_actual, Some(missing_constraints));
     }
 }

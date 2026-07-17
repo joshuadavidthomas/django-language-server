@@ -136,7 +136,7 @@ fn named_imported_syntax_impact_only_weakens_affected_setting() {
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
     let app_cases = settings["installed_apps"]["cases"].as_array().unwrap();
     assert_eq!(app_cases.len(), 3);
-    assert!(app_cases.iter().any(|case| case == "unset"));
+    assert!(!app_cases.iter().any(|case| case == "unset"));
     assert_eq!(
         app_cases
             .iter()
@@ -149,7 +149,7 @@ fn named_imported_syntax_impact_only_weakens_affected_setting() {
             .iter()
             .filter(|case| case.get("dynamic").is_some())
             .count(),
-        1
+        2
     );
 
     let template_cases = settings["templates"]["cases"].as_array().unwrap();
@@ -546,7 +546,7 @@ fn imported_uncertain_namespace_preserves_local_setting_alternatives() {
 }
 
 #[test]
-fn named_import_of_absent_open_setting_preserves_domain_absence() {
+fn named_import_of_absent_open_setting_is_dynamic_without_domain_absence() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -562,7 +562,7 @@ fn named_import_of_absent_open_setting_preserves_domain_absence() {
         .install(&mut db);
 
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-    assert!(has_case(&settings["templates"], "unset"), "{settings:#}");
+    assert!(!has_case(&settings["templates"], "unset"), "{settings:#}");
     assert!(has_case(&settings["templates"], "dynamic"), "{settings:#}");
 }
 

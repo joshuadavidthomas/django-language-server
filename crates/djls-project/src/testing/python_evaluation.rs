@@ -97,6 +97,10 @@ pub enum PythonUnknownCauseView {
     UnsupportedMutation,
     InvalidImport(PythonImportErrorView),
     ImportNotFound(PythonModuleName),
+    MissingImportMember {
+        module: PythonModuleName,
+        member: String,
+    },
     SkippedExternal(PythonModuleName),
     Unreadable(PythonFileReadErrorView),
     SyntaxErrors(Vec<PythonSyntaxError>),
@@ -348,6 +352,9 @@ fn unknown_view(unknown: evaluation::PythonUnknown) -> PythonUnknownView {
             }
             evaluation::PythonUnknownCause::ImportNotFound(module) => {
                 PythonUnknownCauseView::ImportNotFound(module)
+            }
+            evaluation::PythonUnknownCause::MissingImportMember { module, member } => {
+                PythonUnknownCauseView::MissingImportMember { module, member }
             }
             evaluation::PythonUnknownCause::SkippedExternal(module) => {
                 PythonUnknownCauseView::SkippedExternal(module)

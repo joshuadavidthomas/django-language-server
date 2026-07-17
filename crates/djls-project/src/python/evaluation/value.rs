@@ -671,6 +671,10 @@ pub(crate) enum PythonUnknownCause {
     UnsupportedMutation,
     InvalidImport(PythonImportError),
     ImportNotFound(PythonModuleName),
+    MissingImportMember {
+        module: PythonModuleName,
+        member: String,
+    },
     SkippedExternal(PythonModuleName),
     Unreadable(FileReadError),
     SyntaxErrors(Vec<PythonSyntaxError>),

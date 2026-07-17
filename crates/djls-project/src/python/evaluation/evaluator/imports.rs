@@ -166,6 +166,7 @@ impl EvaluationState {
             }) => {
                 self.dependencies.files.insert(module.file());
                 self.absorb_dependencies(&dependencies);
+                let module_name = module.name().clone();
                 let edge = PythonImportEdge {
                     origin: import.origin,
                     importer: import.importer.clone(),
@@ -182,6 +183,7 @@ impl EvaluationState {
                     ImportSelection::Named(bindings) => {
                         for binding in bindings {
                             self.bind_named_import(
+                                &module_name,
                                 &values,
                                 binding.imported,
                                 binding.bound,

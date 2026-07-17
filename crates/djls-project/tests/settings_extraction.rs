@@ -513,6 +513,61 @@ fn relative_import_from_package_init_alias_uses_parent_package() {
 }
 
 #[test]
+fn missing_resolved_named_import_member_is_typed_dynamic_and_replaces_stale_binding() {
+    let source = "INSTALLED_APPS = ['stale']\nfrom plugin import MISSING as INSTALLED_APPS\n";
+    let (db, project, settings) = extract_project(source, &[("plugin", "PRESENT = 'known'\n")]);
+    let settings_file = settings_module_file(&db, project).unwrap();
+    let plugin_file = db.file(Utf8Path::new("/project/settings/plugin.py"));
+    let evaluation = python_module_evaluation(&db, project, settings_file);
+
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::Resolved {
+            file,
+            importer_module,
+            imported_module,
+            ..
+        }] if *file == plugin_file
+            && importer_module.as_str() == "config.settings"
+            && imported_module.as_str() == "plugin"
+    ));
+    assert_eq!(evaluation.dependency_files, [settings_file, plugin_file]);
+
+    let binding = evaluation
+        .binding("INSTALLED_APPS")
+        .expect("the named import should replace the stale local binding");
+    let import_origin = djls_source::Origin::new(
+        settings_file,
+        expected_span(source, "MISSING as INSTALLED_APPS"),
+    );
+    assert!(matches!(
+        binding.alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                origins,
+            },
+            binding_origins,
+        })] if matches!(
+            &unknown.cause,
+            PythonUnknownCauseView::MissingImportMember { module, member }
+                if module.as_str() == "plugin" && member == "MISSING"
+        ) && unknown.origins.as_slice() == [import_origin]
+            && origins.as_slice() == [import_origin]
+            && binding_origins.as_slice() == [import_origin]
+    ));
+
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+    assert_eq!(setting_cases.len(), 1, "{settings:#}");
+    assert!(setting_cases[0].get("dynamic").is_some(), "{settings:#}");
+    assert!(setting_cases.iter().all(|case| case != "unset"));
+    assert_eq!(
+        setting_cases[0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"],
+        "dynamic_expression",
+    );
+}
+
+#[test]
 fn python_module_evaluation_keeps_typed_import_and_namespace_outcomes() {
     let db = TestDatabase::new();
     let source = "from missing_named import VALUE\nfrom missing_star import *\n";
@@ -565,64 +620,170 @@ fn python_module_evaluation_keeps_typed_import_and_namespace_outcomes() {
 }
 
 #[test]
-fn named_import_of_absent_open_name_preserves_unset_and_typed_dynamic_outcomes() {
+fn named_import_of_absent_open_name_preserves_member_and_namespace_uncertainty() {
     let source = "from plugin import INSTALLED_APPS\n";
     let (db, project, settings) = extract_project(
         source,
         &[("plugin", "if ENABLED:\n    from missing import *\n")],
     );
     let settings_file = settings_module_file(&db, project).unwrap();
+    let plugin_file = db.file(Utf8Path::new("/project/settings/plugin.py"));
     let evaluation = python_module_evaluation(&db, project, settings_file);
     let binding = evaluation
         .binding("INSTALLED_APPS")
-        .expect("the named import should retain absence and namespace uncertainty");
+        .expect("the named import should retain member and namespace uncertainty");
 
     assert!(
-        binding
+        !binding
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound)
+    );
+    let import_origin =
+        djls_source::Origin::new(settings_file, expected_span(source, "INSTALLED_APPS"));
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            binding_origins,
+        }) if matches!(
+            &unknown.cause,
+            PythonUnknownCauseView::MissingImportMember { module, member }
+                if module.as_str() == "plugin" && member == "INSTALLED_APPS"
+        ) && unknown.origins.as_slice() == [import_origin]
+            && binding_origins.as_slice() == [import_origin]
+    )));
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            binding_origins,
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing")
+            && unknown.origins.as_slice() == [import_origin]
+            && binding_origins.as_slice() == [import_origin]
+    )));
+    assert_eq!(
+        evaluation
+            .imports
+            .iter()
+            .filter(|outcome| matches!(outcome, PythonImportOutcomeView::Resolved { file, .. } if *file == plugin_file))
+            .count(),
+        1,
+    );
+    assert_eq!(
+        evaluation
+            .dependency_files
+            .iter()
+            .filter(|file| **file == plugin_file)
+            .count(),
+        1,
+    );
+
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+    assert!(
+        setting_cases.iter().all(|case| case != "unset"),
+        "{settings:#}"
+    );
+    assert!(
+        setting_cases
+            .iter()
+            .any(|case| case.get("dynamic").is_some()),
+        "{settings:#}",
+    );
+}
+
+#[test]
+fn named_import_of_conditional_binding_preserves_known_member_and_namespace_outcomes() {
+    let source = "from plugin import INSTALLED_APPS\n";
+    let (db, project, settings) = extract_project(
+        source,
+        &[(
+            "plugin",
+            "if ENABLED:\n    INSTALLED_APPS = ['imported']\n    from missing import *\n",
+        )],
+    );
+    let settings_file = settings_module_file(&db, project).unwrap();
+    let plugin_file = db.file(Utf8Path::new("/project/settings/plugin.py"));
+    let evaluation = python_module_evaluation(&db, project, settings_file);
+    let binding = evaluation
+        .binding("INSTALLED_APPS")
+        .expect("the conditional named import should bind all feasible alternatives");
+
+    assert!(
+        !binding
             .alternatives
             .contains(&PythonBindingAlternativeView::Unbound)
     );
     assert!(binding.alternatives.iter().any(|alternative| matches!(
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::List(items),
+                ..
+            },
+            ..
+        }) if matches!(items.as_slice(), [PythonSequenceItemView::Value(PythonValueView {
+            kind: PythonValueKindView::Str(value),
+            ..
+        })] if value == "imported")
+    )));
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 ..
             },
-            binding_origins,
-        }) if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing")
-            && unknown.origins.as_slice() == [djls_source::Origin::new(
-                settings_file,
-                expected_span(source, "INSTALLED_APPS"),
-            )]
-            && binding_origins.as_slice() == [djls_source::Origin::new(
-                settings_file,
-                expected_span(source, "INSTALLED_APPS"),
-            )]
+            ..
+        }) if matches!(
+            &unknown.cause,
+            PythonUnknownCauseView::MissingImportMember { module, member }
+                if module.as_str() == "plugin" && member == "INSTALLED_APPS"
+        )
     )));
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing")
+    )));
+    assert_eq!(
+        evaluation
+            .imports
+            .iter()
+            .filter(|outcome| matches!(outcome, PythonImportOutcomeView::Resolved { file, .. } if *file == plugin_file))
+            .count(),
+        1,
+    );
+    assert_eq!(
+        evaluation
+            .dependency_files
+            .iter()
+            .filter(|file| **file == plugin_file)
+            .count(),
+        1,
+    );
 
-    let cases = cases(&settings, "/installed_apps/cases");
-    assert_eq!(cases.len(), 2, "{settings:#}");
-    assert!(cases.iter().any(|case| case == "unset"));
-    assert!(cases.iter().any(|case| case.get("dynamic").is_some()));
-}
-
-#[test]
-fn named_import_of_conditional_binding_preserves_known_unset_and_dynamic_outcomes() {
-    let settings = extract_project(
-        "from plugin import INSTALLED_APPS\n",
-        &[(
-            "plugin",
-            "if ENABLED:\n    INSTALLED_APPS = ['imported']\n    from missing import *\n",
-        )],
-    )
-    .2;
-    let cases = cases(&settings, "/installed_apps/cases");
-
-    assert_eq!(cases.len(), 3, "{settings:#}");
-    assert!(cases.iter().any(|case| case == "unset"));
-    assert!(cases.iter().any(|case| case.get("dynamic").is_some()));
-    assert!(cases.iter().any(|case| {
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+    assert!(
+        setting_cases.iter().all(|case| case != "unset"),
+        "{settings:#}"
+    );
+    assert!(
+        setting_cases
+            .iter()
+            .any(|case| case.get("dynamic").is_some())
+    );
+    assert!(setting_cases.iter().any(|case| {
         case.pointer("/known/apps/0/value") == Some(&serde_json::json!("imported"))
     }));
 }
@@ -1802,6 +1963,25 @@ fn python_module_evaluation_reports_import_syntax_errors() {
                 if binding_errors == errors)
         )
     }));
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(
+            &unknown.cause,
+            PythonUnknownCauseView::MissingImportMember { module, member }
+                if module.as_str() == "broken" && member == "VALUE"
+        )
+    )));
+    assert!(
+        !binding
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound)
+    );
 }
 
 #[test]
