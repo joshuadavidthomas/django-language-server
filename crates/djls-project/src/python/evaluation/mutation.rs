@@ -210,19 +210,19 @@ impl PythonMutationPath {
 
 impl EvaluatedMutation<'_> {
     fn apply(&self, value: &mut PythonValue, origin: Origin) -> bool {
-        let Some(mut sequence) = value.as_mutable_sequence() else {
+        let PythonValueKind::List(list) = &mut value.kind else {
             return false;
         };
         match self {
-            Self::Append(argument) => sequence.append_value((*argument).clone()),
+            Self::Append(argument) => list.append_value((*argument).clone()),
             Self::Extend(extension) => {
-                return sequence.extend_from(extension, origin).is_some();
+                return list.extend_from(extension, origin).is_some();
             }
             Self::Insert { index, value: item } => {
-                if !sequence.is_authoritative() {
+                if !list.is_authoritative() {
                     return false;
                 }
-                let len = sequence.len();
+                let len = list.len();
                 let index = match index {
                     InsertIndex::NonNegative(index) => (*index).min(len),
                     InsertIndex::Negative(magnitude) => {
@@ -233,13 +233,13 @@ impl EvaluatedMutation<'_> {
                         }
                     }
                 };
-                sequence.insert_value(index, (*item).clone());
+                list.insert_value(index, (*item).clone());
             }
             Self::Remove(needle) => {
-                if !sequence.is_authoritative() {
+                if !list.is_authoritative() {
                     return false;
                 }
-                return sequence.remove_str(needle);
+                return list.remove_str(needle);
             }
         }
         true

@@ -262,24 +262,19 @@ impl Evaluator<'_> {
                 .expect("a name target is a supported mutation target")
                 .into_fact(PythonMutationOperation::Extend, origin)
         };
-        match &left.kind {
-            PythonValueKind::List(_) => {
+        let mut left = left;
+        match &mut left.kind {
+            PythonValueKind::List(list) => {
                 let mut stale_aliases = self
                     .state
                     .stale_alias_names_after_mutation(name, &PythonMutationPath::default());
-                let mut value = left;
-                let extended = {
-                    let mut sequence = value
-                        .as_mutable_sequence()
-                        .expect("a list value exposes a mutable sequence");
-                    sequence.extend_from(right, origin)
-                };
+                let extended = list.extend_from(right, origin);
                 if extended.is_some() {
-                    value.record_origin(origin);
+                    left.record_origin(origin);
                     // A successful in-place list `+=` updates the binding
                     // without clearing prior mutation facts; the `Extend` fact
                     // below then accumulates onto them.
-                    self.state.update_bound_value(name, value);
+                    self.state.update_bound_value(name, left);
                     self.state.invalidate_names(
                         stale_aliases,
                         &PythonUnknownCause::UnsupportedExpression,

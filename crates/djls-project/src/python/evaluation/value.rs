@@ -13,7 +13,6 @@ use super::ReachableAllocationSites;
 use super::allocation::AllocationSites;
 use super::earliest_origin;
 use super::origin_sort_key;
-use super::sequence::PythonMutableSequence;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
@@ -272,20 +271,6 @@ impl PythonValue {
         }
     }
 
-    /// The mutable-sequence view for a concrete list, the only value that owns
-    /// in-place append/extend/insert/remove behavior.
-    pub(super) fn as_mutable_sequence(&mut self) -> Option<PythonMutableSequence<'_>> {
-        match &mut self.kind {
-            PythonValueKind::List(list) => Some(PythonMutableSequence::new(list)),
-            PythonValueKind::Tuple(_)
-            | PythonValueKind::Dict(_)
-            | PythonValueKind::Str(_)
-            | PythonValueKind::Bool(_)
-            | PythonValueKind::Path(_)
-            | PythonValueKind::Unknown(_) => None,
-        }
-    }
-
     /// Classify this value's iterability. Lists, tuples, and strings are
     /// sequences; dictionaries are iterable over their keys; booleans are
     /// definitely not iterable; unknown and path values are indeterminate
@@ -478,7 +463,7 @@ impl PythonValue {
         origin: Origin,
     ) -> Option<()> {
         match &mut self.kind {
-            PythonValueKind::List(list) => list.extend_from_iterable(source, origin),
+            PythonValueKind::List(list) => list.extend_from(source, origin),
             PythonValueKind::Tuple(tuple) => tuple.extend_from_iterable(source, origin),
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
@@ -842,10 +827,10 @@ mod tests {
             origin(2),
             vec![PythonSequenceItem::Value(str_value(origin(5), "a"))],
         );
-        let extended = receiver
-            .as_mutable_sequence()
-            .expect("a list is a mutable sequence")
-            .extend_from(&source, origin(4));
+        let PythonValueKind::List(list) = &mut receiver.kind else {
+            panic!("the receiver should remain a list");
+        };
+        let extended = list.extend_from(&source, origin(4));
         assert!(extended.is_some());
         assert_eq!(
             site_origins(&receiver),
@@ -1008,7 +993,7 @@ mod tests {
     }
 
     #[test]
-    fn sequence_and_mutable_sequence_projections_are_nominal() {
+    fn sequence_projection_is_nominal() {
         // Lists, tuples, and strings are all honest Python sequences.
         assert!(matches!(
             list_value(origin(1), Vec::new()).sequence(),
@@ -1022,35 +1007,22 @@ mod tests {
             str_value(origin(1), "x").sequence(),
             Some(PythonSequence::String(_))
         ));
-        for mut value in [
+        for value in [
             bool_value(origin(1), true),
             path_value(origin(1), "p"),
             dict_value(origin(1)),
             unknown_value(origin(1)),
         ] {
             assert!(value.sequence().is_none());
-            assert!(value.as_mutable_sequence().is_none());
         }
-        // A string is a sequence but never a mutable sequence.
-        assert!(str_value(origin(1), "x").as_mutable_sequence().is_none());
-        assert!(
-            list_value(origin(1), Vec::new())
-                .as_mutable_sequence()
-                .is_some()
-        );
-        assert!(
-            tuple_value(origin(1), Vec::new())
-                .as_mutable_sequence()
-                .is_none()
-        );
     }
 
     fn extend_list(source: &PythonValue) -> (Option<()>, PythonValue) {
         let mut receiver = list_value(origin(1), vec![str_item(origin(2), "seed")]);
-        let extended = receiver
-            .as_mutable_sequence()
-            .expect("a list is a mutable sequence")
-            .extend_from(source, origin(9));
+        let PythonValueKind::List(list) = &mut receiver.kind else {
+            panic!("the receiver should remain a list");
+        };
+        let extended = list.extend_from(source, origin(9));
         (extended, receiver)
     }
 

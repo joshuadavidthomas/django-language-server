@@ -31,12 +31,8 @@ impl PythonList {
         self.sequence.semantic_items()
     }
 
-    fn is_authoritative(&self) -> bool {
+    pub(super) fn is_authoritative(&self) -> bool {
         self.sequence.is_authoritative()
-    }
-
-    fn alternatives(&self) -> impl Iterator<Item = PythonSequenceAlternativeRef<'_>> {
-        self.sequence.alternatives()
     }
 
     pub(super) fn allocation_sites(&self) -> &AllocationSites {
@@ -47,6 +43,10 @@ impl PythonList {
         self.sequence.append(item);
     }
 
+    pub(super) fn append_value(&mut self, value: PythonValue) {
+        self.append(&PythonSequenceItem::Value(value));
+    }
+
     fn extend(&mut self, extension: &SequenceFacts, operation_origin: Origin) {
         self.sequence.extend(extension, operation_origin);
     }
@@ -55,9 +55,12 @@ impl PythonList {
         self.extend(&extension.sequence, operation_origin);
     }
 
-    /// Star-unpack an iterable source into this list during construction,
-    /// preserving allocation sites. Returns `None` for a non-iterable source.
-    pub(super) fn extend_from_iterable(
+    /// Extend the list by consuming an iterable source in place. Returns whether
+    /// the source was iterable at all: list/tuple sources contribute exact
+    /// ordered facts, known-but-imprecise (string/mapping) and indeterminate
+    /// (unknown/path) sources contribute a typed unknown-unpack, and a
+    /// definitely non-iterable source (bool) fails without touching the list.
+    pub(super) fn extend_from(
         &mut self,
         source: &PythonValue,
         operation_origin: Origin,
@@ -65,12 +68,29 @@ impl PythonList {
         self.sequence.extend_from_iterable(source, operation_origin)
     }
 
-    fn insert(&mut self, index: usize, item: &PythonSequenceItem) {
-        self.sequence.insert(index, item);
+    pub(super) fn len(&self) -> usize {
+        self.semantic_items().len()
     }
 
-    fn remove(&mut self, index: usize) {
+    pub(super) fn insert_value(&mut self, index: usize, value: PythonValue) {
+        self.sequence
+            .insert(index, &PythonSequenceItem::Value(value));
+    }
+
+    pub(super) fn remove_str(&mut self, needle: &str) -> bool {
+        let Some(index) = self.semantic_items().iter().position(|item| {
+            matches!(
+                item,
+                PythonSequenceItem::Value(PythonValue {
+                    kind: PythonValueKind::Str(candidate),
+                    ..
+                }) if candidate == needle
+            )
+        }) else {
+            return false;
+        };
         self.sequence.remove(index);
+        true
     }
 
     pub(super) fn try_mutate_indexed_value(
@@ -136,10 +156,6 @@ impl PythonTuple {
 
     pub(crate) fn semantic_items(&self) -> &[PythonSequenceItem] {
         self.sequence.semantic_items()
-    }
-
-    fn alternatives(&self) -> impl Iterator<Item = PythonSequenceAlternativeRef<'_>> {
-        self.sequence.alternatives()
     }
 
     pub(super) fn append(&mut self, item: &PythonSequenceItem) {
@@ -640,79 +656,19 @@ pub(crate) enum PythonMaterializedSequence<'a> {
 }
 
 impl<'a> PythonMaterializedSequence<'a> {
+    fn facts(self) -> &'a SequenceFacts {
+        match self {
+            Self::List(list) => &list.sequence,
+            Self::Tuple(tuple) => &tuple.sequence,
+        }
+    }
+
     pub(crate) fn semantic_items(self) -> &'a [PythonSequenceItem] {
-        match self {
-            Self::List(list) => list.semantic_items(),
-            Self::Tuple(tuple) => tuple.semantic_items(),
-        }
+        self.facts().semantic_items()
     }
 
-    pub(crate) fn alternatives(
-        self,
-    ) -> Box<dyn Iterator<Item = PythonSequenceAlternativeRef<'a>> + 'a> {
-        match self {
-            Self::List(list) => Box::new(list.alternatives()),
-            Self::Tuple(tuple) => Box::new(tuple.alternatives()),
-        }
-    }
-}
-
-/// A borrowed mutable view over a concrete list. It owns the list's runtime
-/// mutation behavior (append, extend, insert, remove) while preserving the
-/// list's allocation sites. There is intentionally no mutable-mapping analogue:
-/// direct dictionary mutation is out of scope.
-pub(crate) struct PythonMutableSequence<'a> {
-    list: &'a mut PythonList,
-}
-
-impl<'a> PythonMutableSequence<'a> {
-    pub(super) fn new(list: &'a mut PythonList) -> Self {
-        Self { list }
-    }
-
-    pub(super) fn append_value(&mut self, value: PythonValue) {
-        self.list.append(&PythonSequenceItem::Value(value));
-    }
-
-    /// Extend the list by consuming an iterable source in place. Returns whether
-    /// the source was iterable at all: list/tuple sources contribute exact
-    /// ordered facts, known-but-imprecise (string/mapping) and indeterminate
-    /// (unknown/path) sources contribute a typed unknown-unpack, and a
-    /// definitely non-iterable source (bool) fails without touching the list.
-    pub(super) fn extend_from(
-        &mut self,
-        source: &PythonValue,
-        operation_origin: Origin,
-    ) -> Option<()> {
-        self.list.extend_from_iterable(source, operation_origin)
-    }
-
-    pub(super) fn is_authoritative(&self) -> bool {
-        self.list.is_authoritative()
-    }
-
-    pub(super) fn len(&self) -> usize {
-        self.list.semantic_items().len()
-    }
-
-    pub(super) fn insert_value(&mut self, index: usize, value: PythonValue) {
-        self.list.insert(index, &PythonSequenceItem::Value(value));
-    }
-
-    pub(super) fn remove_str(&mut self, needle: &str) -> bool {
-        let Some(index) = self.list.semantic_items().iter().position(|item| {
-            matches!(
-                item,
-                PythonSequenceItem::Value(PythonValue {
-                    kind: PythonValueKind::Str(candidate),
-                    ..
-                }) if candidate == needle
-            )
-        }) else {
-            return false;
-        };
-        self.list.remove(index);
-        true
+    pub(crate) fn alternatives(self) -> impl Iterator<Item = PythonSequenceAlternativeRef<'a>> {
+        self.facts().alternatives()
     }
 }
 
@@ -887,12 +843,10 @@ mod tests {
     }
 
     fn append_added(nested: &mut PythonValue, mutation_origin: Origin) -> bool {
-        {
-            let Some(mut sequence) = nested.as_mutable_sequence() else {
-                return false;
-            };
-            sequence.append_value(PythonValue::string("added".to_string(), origin(200)));
-        }
+        let PythonValueKind::List(list) = &mut nested.kind else {
+            return false;
+        };
+        list.append_value(PythonValue::string("added".to_string(), origin(200)));
         nested.record_origin(mutation_origin);
         true
     }
