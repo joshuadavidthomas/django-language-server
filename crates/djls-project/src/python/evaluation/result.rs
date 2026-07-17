@@ -12,6 +12,7 @@ use super::PythonMutation;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::UniqueVec;
+use super::origin_sort_key;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
@@ -71,10 +72,9 @@ impl PythonNamespaceRemainder {
                 format!("{:?}", cause.unknown.cause),
                 cause
                     .unknown
-                    .origin
-                    .map(|origin| format!("{:?}", origin.file)),
-                cause.unknown.origin.map(|origin| origin.span.start()),
-                cause.unknown.origin.map(|origin| origin.span.length()),
+                    .origins()
+                    .map(|origin| origin_sort_key(&origin))
+                    .collect::<Vec<_>>(),
                 format!("{:?}", cause.constraints),
             )
         });
@@ -82,8 +82,9 @@ impl PythonNamespaceRemainder {
         for cause in causes {
             if let Some(existing) = normalized
                 .iter_mut()
-                .find(|existing| existing.unknown == cause.unknown)
+                .find(|existing| existing.unknown.cause == cause.unknown.cause)
             {
+                existing.unknown.merge_origins(&cause.unknown);
                 existing.constraints.merge(cause.constraints);
             } else {
                 normalized.push(cause);
@@ -243,7 +244,7 @@ impl EvaluatedPythonModule {
             if root_is_in_cycle && let Some(remainder) = &mut values.namespace_remainder {
                 for cause in &mut remainder.causes {
                     if cause.unknown.cause == PythonUnknownCause::Cycle {
-                        cause.unknown.origin = None;
+                        cause.unknown.replace_origins(None);
                     }
                 }
                 *remainder = PythonNamespaceRemainder::new(remainder.causes.clone());
@@ -295,10 +296,10 @@ impl EvaluatedPythonModule {
                 if previous_values.namespace_remainder != computed_values.namespace_remainder {
                     computed_values.namespace_remainder =
                         Some(PythonNamespaceRemainder::new(vec![
-                            PythonNamespaceCause::unconstrained(PythonUnknown {
-                                cause: PythonUnknownCause::Cycle,
-                                origin: None,
-                            }),
+                            PythonNamespaceCause::unconstrained(PythonUnknown::new(
+                                PythonUnknownCause::Cycle,
+                                None,
+                            )),
                         ]));
                 }
                 computed_values
@@ -509,6 +510,76 @@ mod tests {
             span: Span::new(0, 0),
             message: message.to_string(),
         }
+    }
+
+    #[test]
+    fn canonical_unknown_origins_are_empty_during_cycle_widening() {
+        let root = module("root", 1);
+        let previous_origin = Origin::new(root.file(), Span::new(10, 1));
+        let computed_origin = Origin::new(root.file(), Span::new(20, 1));
+
+        let mut previous_values = PythonModuleValues::default();
+        previous_values.bindings.insert(
+            "VALUE".to_string(),
+            PythonBinding::bound(
+                super::super::PythonValue::string("before".to_string(), previous_origin),
+                previous_origin,
+            ),
+        );
+        let mut computed_values = PythonModuleValues::default();
+        computed_values.bindings.insert(
+            "VALUE".to_string(),
+            PythonBinding::bound(
+                super::super::PythonValue::bool(true, computed_origin),
+                computed_origin,
+            ),
+        );
+        computed_values.namespace_remainder = Some(PythonNamespaceRemainder::new(vec![
+            PythonNamespaceCause::unconstrained(PythonUnknown::new(
+                PythonUnknownCause::UnsupportedExpression,
+                [computed_origin],
+            )),
+        ]));
+
+        let previous = EvaluatedPythonModule {
+            values: Ok(previous_values),
+            dependencies: PythonModuleDependencies::rooted(root.file()),
+        };
+        let computed = EvaluatedPythonModule {
+            values: Ok(computed_values),
+            dependencies: PythonModuleDependencies::rooted(root.file()),
+        };
+        let widened = computed.widened(&previous, &root);
+        let values = widened
+            .values()
+            .as_ref()
+            .expect("widening should remain readable");
+
+        let bound = values
+            .bindings
+            .get("VALUE")
+            .and_then(PythonBinding::single_bound)
+            .expect("changed binding should widen to one cycle unknown");
+        let unknown = bound
+            .value
+            .unknown_value()
+            .expect("changed binding should become unknown");
+        assert_eq!(unknown.cause, PythonUnknownCause::Cycle);
+        assert!(unknown.origins().next().is_none());
+        assert!(bound.value.origins().next().is_none());
+        assert!(bound.binding_origins().next().is_none());
+
+        let [cause] = values
+            .namespace_remainder
+            .as_ref()
+            .expect("changed namespace should widen")
+            .causes
+            .as_slice()
+        else {
+            panic!("namespace widening should produce one cycle cause");
+        };
+        assert_eq!(cause.unknown.cause, PythonUnknownCause::Cycle);
+        assert!(cause.unknown.origins().next().is_none());
     }
 
     #[test]

@@ -88,7 +88,7 @@ pub enum PythonDictItemView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonUnknownView {
     pub cause: PythonUnknownCauseView,
-    pub origin: Option<djls_source::Origin>,
+    pub origins: Vec<djls_source::Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -334,6 +334,7 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
 }
 
 fn unknown_view(unknown: evaluation::PythonUnknown) -> PythonUnknownView {
+    let origins = unknown.origins().collect();
     PythonUnknownView {
         cause: match unknown.cause {
             evaluation::PythonUnknownCause::UnsupportedExpression => {
@@ -362,7 +363,7 @@ fn unknown_view(unknown: evaluation::PythonUnknown) -> PythonUnknownView {
                 PythonUnknownCauseView::AlternativeLimitExceeded
             }
         },
-        origin: unknown.origin,
+        origins,
     }
 }
 

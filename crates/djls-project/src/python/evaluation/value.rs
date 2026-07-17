@@ -3,6 +3,7 @@ use djls_source::FileReadError;
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::CanonicalOrigins;
 use super::PythonDict;
 use super::PythonList;
 use super::PythonMapping;
@@ -11,7 +12,6 @@ use super::PythonSequenceItem;
 use super::PythonTuple;
 use super::ReachableAllocationSites;
 use super::allocation::AllocationSites;
-use super::earliest_origin;
 use super::origin_sort_key;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
@@ -117,12 +117,15 @@ pub(crate) struct PythonValue {
 }
 
 impl PythonValue {
-    pub(super) fn unknown(cause: PythonUnknownCause, origin: Option<Origin>) -> Self {
+    pub(super) fn unknown(
+        cause: PythonUnknownCause,
+        origins: impl IntoIterator<Item = Origin>,
+    ) -> Self {
+        let unknown = PythonUnknown::new(cause, origins);
+        let evidence = PythonValueEvidenceSet::from_origins(unknown.origins());
         Self {
-            kind: PythonValueKind::Unknown(PythonUnknown { cause, origin }),
-            evidence: origin.map_or_else(PythonValueEvidenceSet::default, |origin| {
-                PythonValueEvidenceSet::one(origin)
-            }),
+            kind: PythonValueKind::Unknown(unknown),
+            evidence,
         }
     }
 
@@ -176,16 +179,6 @@ impl PythonValue {
         Self {
             kind,
             evidence: PythonValueEvidenceSet::one(origin),
-        }
-    }
-
-    pub(super) fn unknown_with_evidence(
-        unknown: PythonUnknown,
-        origins: impl IntoIterator<Item = Origin>,
-    ) -> Self {
-        Self {
-            kind: PythonValueKind::Unknown(unknown),
-            evidence: PythonValueEvidenceSet::from_origins(origins),
         }
     }
 
@@ -306,10 +299,7 @@ impl PythonValue {
     /// when iterating a known-but-imprecise or indeterminate source contributes
     /// elements that cannot be materialized.
     pub(super) fn imprecise_iteration_unknown(&self) -> PythonUnknown {
-        PythonUnknown {
-            cause: PythonUnknownCause::UnsupportedExpression,
-            origin: self.origins().next(),
-        }
+        PythonUnknown::new(PythonUnknownCause::UnsupportedExpression, self.origins())
     }
 
     pub(super) fn reachable_allocation_sites(&self) -> ReachableAllocationSites {
@@ -375,7 +365,7 @@ impl PythonValue {
             PythonValueKind::List(list) => list.contains_origin(wanted),
             PythonValueKind::Tuple(tuple) => tuple.contains_origin(wanted),
             PythonValueKind::Dict(dict) => dict.mapping().contains_origin(wanted),
-            PythonValueKind::Unknown(unknown) => unknown.origin == Some(wanted),
+            PythonValueKind::Unknown(unknown) => unknown.contains_origin(wanted),
             PythonValueKind::Str(_) | PythonValueKind::Bool(_) | PythonValueKind::Path(_) => false,
         }
     }
@@ -483,18 +473,36 @@ impl PythonValue {
 
     pub(super) fn rebase_origin(&mut self, origin: Origin) {
         self.evidence.rebase(origin);
-        if let PythonValueKind::List(list) = &mut self.kind {
-            list.rebase_allocation_site(origin);
+        match &mut self.kind {
+            PythonValueKind::List(list) => list.rebase_allocation_site(origin),
+            PythonValueKind::Unknown(unknown) => unknown.replace_origins([origin]),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_) => {}
         }
+        self.debug_assert_unknown_evidence_aligned();
     }
 
     pub(super) fn record_origin(&mut self, origin: Origin) {
         self.evidence.record(origin);
+        if let PythonValueKind::Unknown(unknown) = &mut self.kind {
+            unknown.insert_origin(origin);
+        }
+        self.debug_assert_unknown_evidence_aligned();
     }
 
     pub(super) fn normalize(&mut self) {
         self.evidence.normalize();
         self.kind.normalize();
+        self.debug_assert_unknown_evidence_aligned();
+    }
+
+    fn debug_assert_unknown_evidence_aligned(&self) {
+        if let PythonValueKind::Unknown(unknown) = &self.kind {
+            debug_assert!(self.evidence.origins().eq(unknown.origins()));
+        }
     }
 
     pub(super) fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
@@ -583,7 +591,7 @@ impl PythonValueKind {
                 existing.merge_semantically_equal(incoming, operation_origin);
             }
             (Self::Unknown(existing), Self::Unknown(incoming)) => {
-                existing.origin = earliest_origin(existing.origin, incoming.origin);
+                existing.merge_origins(&incoming);
             }
             (Self::Str(_), Self::Str(_))
             | (Self::Bool(_), Self::Bool(_))
@@ -621,7 +629,40 @@ pub(super) enum PythonIterable<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonUnknown {
     pub(crate) cause: PythonUnknownCause,
-    pub(crate) origin: Option<Origin>,
+    origins: CanonicalOrigins,
+}
+
+impl PythonUnknown {
+    pub(super) fn new(
+        cause: PythonUnknownCause,
+        origins: impl IntoIterator<Item = Origin>,
+    ) -> Self {
+        Self {
+            cause,
+            origins: origins.into_iter().collect(),
+        }
+    }
+
+    pub(crate) fn origins(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
+        self.origins.iter()
+    }
+
+    pub(super) fn contains_origin(&self, wanted: Origin) -> bool {
+        self.origins.contains(wanted)
+    }
+
+    fn insert_origin(&mut self, origin: Origin) {
+        self.origins.insert(origin);
+    }
+
+    pub(super) fn merge_origins(&mut self, incoming: &Self) {
+        debug_assert_eq!(self.cause, incoming.cause);
+        self.origins.extend(incoming.origins.iter());
+    }
+
+    pub(super) fn replace_origins(&mut self, origins: impl IntoIterator<Item = Origin>) {
+        self.origins.replace(origins);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1024,6 +1065,59 @@ mod tests {
         };
         let extended = list.extend_from(source, origin(9));
         (extended, receiver)
+    }
+
+    #[test]
+    fn canonical_unknown_origins_merge_top_level_values_commutatively() {
+        let merged = |left: Origin, right: Origin| {
+            let mut value = PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, [left]);
+            value.merge_semantically_equal(
+                PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, [right]),
+                None,
+            );
+            value
+        };
+
+        let forward = merged(origin(20), origin(10));
+        let reversed = merged(origin(10), origin(20));
+        assert_eq!(forward, reversed);
+        assert_eq!(
+            forward.origins().collect::<Vec<_>>(),
+            [origin(10), origin(20)]
+        );
+        let unknown = forward
+            .unknown_value()
+            .expect("value should remain unknown");
+        assert_eq!(
+            unknown.origins().collect::<Vec<_>>(),
+            [origin(10), origin(20)]
+        );
+
+        let mut idempotent = forward.clone();
+        idempotent.merge_semantically_equal(forward.clone(), None);
+        assert_eq!(idempotent, forward);
+    }
+
+    #[test]
+    fn canonical_unknown_origins_seed_imprecise_sequence_iteration() {
+        let mut source = str_value(origin(20), "abc");
+        source.merge_semantically_equal(str_value(origin(10), "abc"), None);
+        let (ok, result) = extend_list(&source);
+        assert!(ok.is_some());
+        let PythonValueKind::List(list) = result.kind else {
+            panic!("extension receiver should remain a list");
+        };
+        let PythonSequenceItem::UnknownUnpack(unknown) = list
+            .semantic_items()
+            .last()
+            .expect("imprecise source should append an unpack")
+        else {
+            panic!("imprecise source should append an unknown unpack");
+        };
+        assert_eq!(
+            unknown.origins().collect::<Vec<_>>(),
+            [origin(10), origin(20)]
+        );
     }
 
     #[test]

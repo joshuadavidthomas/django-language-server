@@ -1,13 +1,13 @@
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::CanonicalOrigins;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 use super::PythonUnknown;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::allocation::AllocationSites;
-use super::earliest_origin;
 use super::value::PythonIterable;
 use super::value::PythonIterableKnowledge;
 
@@ -263,7 +263,7 @@ impl SequenceFacts {
             })
             .chain(self.alternatives.remainder.iter().map(|remainder| {
                 PythonSequenceAlternativeRef::Remainder {
-                    origin: remainder.origin,
+                    origins: remainder.origins.as_slice(),
                     constraints: &remainder.constraints,
                 }
             }))
@@ -373,7 +373,7 @@ impl SequenceFacts {
         self.summary.iter().any(|item| match item {
             PythonSequenceItem::Value(value) => value.contains_origin(wanted),
             PythonSequenceItem::UnknownElement(unknown)
-            | PythonSequenceItem::UnknownUnpack(unknown) => unknown.origin == Some(wanted),
+            | PythonSequenceItem::UnknownUnpack(unknown) => unknown.contains_origin(wanted),
         })
     }
 
@@ -414,7 +414,7 @@ struct ConstrainedExactSequence {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SequenceAlternativeRemainder {
-    origin: Origin,
+    origins: CanonicalOrigins,
     constraints: BranchConstraints,
 }
 
@@ -470,38 +470,54 @@ impl SequenceAlternatives {
         }
 
         let mut remainder_constraints = None;
+        let mut remainder_origins = CanonicalOrigins::default();
         if let Some(right_remainder) = &extension.remainder {
             for left in &self.exact {
-                merge_feasible_constraints(
-                    &mut remainder_constraints,
-                    left.constraints.intersection(&right_remainder.constraints),
-                );
+                let constraints = left.constraints.intersection(&right_remainder.constraints);
+                if constraints.is_impossible() {
+                    continue;
+                }
+                merge_feasible_constraints(&mut remainder_constraints, constraints);
+                remainder_origins.extend(right_remainder.origins.iter());
+                for item in &left.items {
+                    item.extend_origins(&mut remainder_origins);
+                }
             }
         }
         if let Some(left_remainder) = &self.remainder {
             for right in &extension.exact {
-                merge_feasible_constraints(
-                    &mut remainder_constraints,
-                    left_remainder.constraints.intersection(&right.constraints),
-                );
+                let constraints = left_remainder.constraints.intersection(&right.constraints);
+                if constraints.is_impossible() {
+                    continue;
+                }
+                merge_feasible_constraints(&mut remainder_constraints, constraints);
+                remainder_origins.extend(left_remainder.origins.iter());
+                for item in &right.items {
+                    item.extend_origins(&mut remainder_origins);
+                }
             }
         }
         if let (Some(left_remainder), Some(right_remainder)) =
             (&self.remainder, &extension.remainder)
         {
-            merge_feasible_constraints(
-                &mut remainder_constraints,
-                left_remainder
-                    .constraints
-                    .intersection(&right_remainder.constraints),
-            );
+            let constraints = left_remainder
+                .constraints
+                .intersection(&right_remainder.constraints);
+            if !constraints.is_impossible() {
+                merge_feasible_constraints(&mut remainder_constraints, constraints);
+                remainder_origins.extend(left_remainder.origins.iter());
+                remainder_origins.extend(right_remainder.origins.iter());
+            }
         }
 
         *self = Self {
             exact,
-            remainder: remainder_constraints.map(|constraints| SequenceAlternativeRemainder {
-                origin: operation_origin,
-                constraints,
+            remainder: remainder_constraints.map(|constraints| {
+                remainder_origins.insert(operation_origin);
+                SequenceAlternativeRemainder {
+                    origins: remainder_origins,
+                    constraints,
+                }
             }),
         };
         self.normalize(Some(operation_origin));
@@ -543,14 +559,10 @@ impl SequenceAlternatives {
     fn merge(&mut self, incoming: Self, operation_origin: Option<Origin>) {
         self.exact.extend(incoming.exact);
         self.remainder = match (self.remainder.take(), incoming.remainder) {
-            (Some(existing), Some(incoming)) => {
-                let mut constraints = existing.constraints;
-                constraints.merge(incoming.constraints);
-                Some(SequenceAlternativeRemainder {
-                    origin: earliest_origin(Some(existing.origin), Some(incoming.origin))
-                        .expect("two remainder origins have an earliest origin"),
-                    constraints,
-                })
+            (Some(mut existing), Some(incoming)) => {
+                existing.constraints.merge(incoming.constraints);
+                existing.origins.extend(incoming.origins.iter());
+                Some(existing)
             }
             (Some(remainder), None) | (None, Some(remainder)) => Some(remainder),
             (None, None) => None,
@@ -579,13 +591,22 @@ impl SequenceAlternatives {
 
         if self.exact.len() > MAX_EXACT_PYTHON_ALTERNATIVES {
             let omitted = self.exact.split_off(MAX_EXACT_PYTHON_ALTERNATIVES);
-            let mut constraints = self.remainder.take().map(|remainder| remainder.constraints);
+            let (mut constraints, mut origins) = self.remainder.take().map_or_else(
+                || (None, CanonicalOrigins::default()),
+                |remainder| (Some(remainder.constraints), remainder.origins),
+            );
             for alternative in omitted {
                 merge_feasible_constraints(&mut constraints, alternative.constraints);
+                for item in &alternative.items {
+                    item.extend_origins(&mut origins);
+                }
             }
-            self.remainder = constraints.map(|constraints| SequenceAlternativeRemainder {
-                origin: operation_origin
+            origins.insert(
+                operation_origin
                     .expect("truncating sequence alternatives requires an operation origin"),
+            );
+            self.remainder = constraints.map(|constraints| SequenceAlternativeRemainder {
+                origins,
                 constraints,
             });
         }
@@ -678,7 +699,7 @@ pub(crate) enum PythonSequenceAlternativeRef<'a> {
         constraints: &'a BranchConstraints,
     },
     Remainder {
-        origin: Origin,
+        origins: &'a [Origin],
         constraints: &'a BranchConstraints,
     },
 }
@@ -700,6 +721,15 @@ impl PythonSequenceItem {
     fn normalize(&mut self) {
         if let Self::Value(value) = self {
             value.normalize();
+        }
+    }
+
+    fn extend_origins(&self, origins: &mut CanonicalOrigins) {
+        match self {
+            Self::Value(value) => origins.extend(value.origins()),
+            Self::UnknownElement(unknown) | Self::UnknownUnpack(unknown) => {
+                origins.extend(unknown.origins());
+            }
         }
     }
 
@@ -728,7 +758,7 @@ impl PythonSequenceItem {
             }
             (Self::UnknownElement(existing), Self::UnknownElement(incoming))
             | (Self::UnknownUnpack(existing), Self::UnknownUnpack(incoming)) => {
-                existing.origin = earliest_origin(existing.origin, incoming.origin);
+                existing.merge_origins(&incoming);
             }
             _ => unreachable!("semantic equality requires matching sequence item variants"),
         }
@@ -742,11 +772,14 @@ mod tests {
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
+    use super::super::PythonUnknownCause;
     use super::BranchConstraints;
+    use super::CanonicalOrigins;
     use super::ConstrainedExactSequence;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
     use super::PythonSequenceItem;
+    use super::PythonUnknown;
     use super::PythonValue;
     use super::PythonValueKind;
     use super::SequenceAlternativeRemainder;
@@ -992,13 +1025,16 @@ mod tests {
         let mut overflowed = correlated_strings(0..8);
         overflowed.extend(&correlated_strings(100..109), origin(2_000));
         assert_eq!(overflowed.alternatives.exact.len(), 64);
-        assert_eq!(
-            overflowed
-                .alternatives
-                .remainder
-                .as_ref()
-                .map(|remainder| remainder.origin),
-            Some(origin(2_000)),
+        let origins = &overflowed
+            .alternatives
+            .remainder
+            .as_ref()
+            .expect("overflow should retain a remainder")
+            .origins;
+        assert!(origins.contains(origin(2_000)));
+        assert!(
+            origins.iter().len() > 1,
+            "omitted path evidence should survive"
         );
     }
 
@@ -1028,7 +1064,7 @@ mod tests {
         let mut remainder_constraints = BranchConstraints::unconstrained();
         remainder_constraints.select(join, 1);
         left.alternatives.remainder = Some(SequenceAlternativeRemainder {
-            origin: origin(1_500),
+            origins: [origin(1_500)].into_iter().collect(),
             constraints: remainder_constraints.clone(),
         });
 
@@ -1066,13 +1102,156 @@ mod tests {
         let mut overflowed = correlated_strings(0..32);
         overflowed.merge_semantically_equal(correlated_strings(32..65), Some(origin(2_000)));
         assert_eq!(overflowed.alternatives.exact.len(), 64);
+        let origins = &overflowed
+            .alternatives
+            .remainder
+            .as_ref()
+            .expect("overflow should retain a remainder")
+            .origins;
+        assert!(origins.contains(origin(2_000)));
+        assert!(
+            origins.iter().len() > 1,
+            "omitted path evidence should survive"
+        );
+    }
+
+    #[test]
+    fn canonical_unknown_origins_keep_correlated_exact_rows_local() {
+        let join = origin(1_000);
+        let facts = |offset, arm| {
+            let summary_item = PythonSequenceItem::Value(PythonValue::unknown(
+                PythonUnknownCause::UnsupportedExpression,
+                [origin(offset)],
+            ));
+            let mut constraints = BranchConstraints::unconstrained();
+            constraints.select(join, arm);
+            let mut exact_item = summary_item.clone();
+            exact_item.constrain_value_evidence(&constraints);
+            SequenceFacts {
+                summary: vec![summary_item],
+                alternatives: SequenceAlternatives {
+                    exact: vec![ConstrainedExactSequence {
+                        items: vec![exact_item],
+                        constraints,
+                    }],
+                    remainder: None,
+                },
+            }
+        };
+
+        let mut merged = facts(10, 0);
+        merged.merge_semantically_equal(facts(20, 1), None);
+        merged.normalize(None);
+
+        let [PythonSequenceItem::Value(summary)] = merged.semantic_items() else {
+            panic!("the summary should retain one unknown value");
+        };
         assert_eq!(
-            overflowed
-                .alternatives
+            summary.origins().collect::<Vec<_>>(),
+            [origin(10), origin(20)],
+            "the aggregate summary should union both origins",
+        );
+        assert_eq!(
+            summary
+                .unknown_value()
+                .expect("the summary value should remain unknown")
+                .origins()
+                .collect::<Vec<_>>(),
+            [origin(10), origin(20)],
+            "summary value evidence and unknown evidence should stay aligned",
+        );
+
+        assert_eq!(merged.alternatives.exact.len(), 2);
+        assert!(merged.alternatives.remainder.is_none());
+        let mut rows = merged
+            .alternatives
+            .exact
+            .iter()
+            .map(|alternative| {
+                let [PythonSequenceItem::Value(value)] = alternative.items.as_slice() else {
+                    panic!("each exact row should retain one unknown value");
+                };
+                let mut evidence = value.origins_with_constraints();
+                let (row_origin, evidence_constraints) = evidence
+                    .next()
+                    .expect("each exact row should keep one origin");
+                assert!(evidence.next().is_none());
+                assert_eq!(evidence_constraints, &alternative.constraints);
+                assert_eq!(
+                    value
+                        .unknown_value()
+                        .expect("the exact value should remain unknown")
+                        .origins()
+                        .collect::<Vec<_>>(),
+                    [row_origin],
+                    "aggregate summary evidence must not leak into an exact row",
+                );
+                (row_origin.span.start(), alternative.constraints.clone())
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|(start, _)| *start);
+
+        let selected = |arm| {
+            let mut constraints = BranchConstraints::unconstrained();
+            constraints.select(join, arm);
+            constraints
+        };
+        assert_eq!(rows, [(10, selected(0)), (20, selected(1))]);
+    }
+
+    #[test]
+    fn canonical_unknown_origins_merge_sequence_items_and_remainders() {
+        let unknown = |offset| {
+            PythonUnknown::new(PythonUnknownCause::UnsupportedExpression, [origin(offset)])
+        };
+        for mut existing in [
+            PythonSequenceItem::UnknownElement(unknown(20)),
+            PythonSequenceItem::UnknownUnpack(unknown(20)),
+        ] {
+            let incoming = match &existing {
+                PythonSequenceItem::UnknownElement(_) => {
+                    PythonSequenceItem::UnknownElement(unknown(10))
+                }
+                PythonSequenceItem::UnknownUnpack(_) => {
+                    PythonSequenceItem::UnknownUnpack(unknown(10))
+                }
+                PythonSequenceItem::Value(_) => unreachable!(),
+            };
+            existing.merge_semantically_equal(incoming, None);
+            let unknown = match existing {
+                PythonSequenceItem::UnknownElement(unknown)
+                | PythonSequenceItem::UnknownUnpack(unknown) => unknown,
+                PythonSequenceItem::Value(_) => unreachable!(),
+            };
+            assert_eq!(
+                unknown.origins().collect::<Vec<_>>(),
+                [origin(10), origin(20)]
+            );
+        }
+
+        let remainder = |offset| SequenceAlternativeRemainder {
+            origins: [origin(offset)].into_iter().collect::<CanonicalOrigins>(),
+            constraints: BranchConstraints::unconstrained(),
+        };
+        let mut alternatives = SequenceAlternatives {
+            exact: Vec::new(),
+            remainder: Some(remainder(20)),
+        };
+        alternatives.merge(
+            SequenceAlternatives {
+                exact: Vec::new(),
+                remainder: Some(remainder(10)),
+            },
+            None,
+        );
+        assert_eq!(
+            alternatives
                 .remainder
-                .as_ref()
-                .map(|remainder| remainder.origin),
-            Some(origin(2_000)),
+                .expect("remainders should merge")
+                .origins
+                .iter()
+                .collect::<Vec<_>>(),
+            [origin(10), origin(20)],
         );
     }
 
@@ -1086,13 +1265,17 @@ mod tests {
         }
 
         assert_eq!(facts.alternatives.exact.len(), 64);
-        assert_eq!(
-            facts
-                .alternatives
-                .remainder
-                .as_ref()
-                .map(|remainder| remainder.origin),
-            Some(origin(400)),
-        );
+        let origins = &facts
+            .alternatives
+            .remainder
+            .as_ref()
+            .expect("repeated extension should retain a remainder")
+            .origins;
+        for operation_offset in [300, 400] {
+            assert!(
+                origins.contains(origin(operation_offset)),
+                "remainder operation {operation_offset} should survive"
+            );
+        }
     }
 }

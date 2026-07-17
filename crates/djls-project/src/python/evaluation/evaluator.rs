@@ -333,16 +333,16 @@ impl EvaluationState {
         }
         if !namespace_errors.is_empty() {
             self.namespace_causes
-                .push(PythonNamespaceCause::unconstrained(PythonUnknown {
-                    cause: PythonUnknownCause::SyntaxErrors(namespace_errors),
-                    origin: Some(import_origin),
-                }));
+                .push(PythonNamespaceCause::unconstrained(PythonUnknown::new(
+                    PythonUnknownCause::SyntaxErrors(namespace_errors),
+                    [import_origin],
+                )));
         }
         self.mutations.extend(values.mutations.iter().cloned());
         if let Some(remainder) = &values.namespace_remainder {
             self.namespace_causes
                 .extend(remainder.causes.iter().cloned().map(|mut cause| {
-                    cause.unknown.origin = Some(import_origin);
+                    cause.unknown.replace_origins([import_origin]);
                     cause
                 }));
         }
@@ -625,10 +625,10 @@ mod tests {
         let mut changed = base.clone();
         changed
             .namespace_causes
-            .push(PythonNamespaceCause::unconstrained(PythonUnknown {
-                cause: PythonUnknownCause::UnsupportedExpression,
-                origin: Some(origin(2)),
-            }));
+            .push(PythonNamespaceCause::unconstrained(PythonUnknown::new(
+                PythonUnknownCause::UnsupportedExpression,
+                [origin(2)],
+            )));
         changed.dependencies.files.insert(test_file(1));
         changed
             .dependencies

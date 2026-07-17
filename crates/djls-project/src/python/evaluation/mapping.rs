@@ -7,7 +7,6 @@ use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::allocation::AllocationSites;
-use super::earliest_origin;
 
 /// A concrete Python `dict` value stored as an ordered write/unpack log rather
 /// than a flattened map: unknown unpacks and later exact entries affect lookup
@@ -54,10 +53,10 @@ impl PythonDict {
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_) => {
                 self.items
-                    .push(PythonDictItem::UnknownUnpack(PythonUnknown {
-                        cause: PythonUnknownCause::UnsupportedExpression,
-                        origin: Some(unpack_origin),
-                    }));
+                    .push(PythonDictItem::UnknownUnpack(PythonUnknown::new(
+                        PythonUnknownCause::UnsupportedExpression,
+                        [unpack_origin],
+                    )));
             }
         }
     }
@@ -172,7 +171,7 @@ impl PythonDict {
                     PythonDictItem::UnknownUnpack(existing),
                     PythonDictItem::UnknownUnpack(incoming),
                 ) => {
-                    existing.origin = earliest_origin(existing.origin, incoming.origin);
+                    existing.merge_origins(&incoming);
                 }
                 _ => unreachable!("semantic equality requires matching dictionary item variants"),
             }
@@ -342,7 +341,7 @@ impl<'a> PythonMapping<'a> {
             PythonDictItem::Entry(entry) => {
                 entry.key.contains_origin(wanted) || entry.value.contains_origin(wanted)
             }
-            PythonDictItem::UnknownUnpack(unknown) => unknown.origin == Some(wanted),
+            PythonDictItem::UnknownUnpack(unknown) => unknown.contains_origin(wanted),
         })
     }
 
@@ -350,10 +349,10 @@ impl<'a> PythonMapping<'a> {
     /// keys. Precise key iteration is out of scope, so even a known empty
     /// mapping remains an imprecise iterable at this abstraction boundary.
     pub(super) fn keys_iteration_unknown(self) -> PythonUnknown {
-        PythonUnknown {
-            cause: PythonUnknownCause::UnsupportedExpression,
-            origin: self.dict.allocation_sites.origins().next(),
-        }
+        PythonUnknown::new(
+            PythonUnknownCause::UnsupportedExpression,
+            self.dict.allocation_sites.origins(),
+        )
     }
 }
 
@@ -578,6 +577,32 @@ mod tests {
         assert!(clean.try_exact_string_value_mut("k", |value| {
             matches!(&value.kind, PythonValueKind::Str(text) if text == "v")
         }));
+    }
+
+    #[test]
+    fn canonical_unknown_origins_merge_unpacks_and_mapping_key_iteration() {
+        let mut first = PythonDict::empty(origin(20));
+        first.extend_from_unpack(unknown(40), origin(40));
+        let mut second = PythonDict::empty(origin(10));
+        second.extend_from_unpack(unknown(30), origin(30));
+
+        first.merge_semantically_equal(second, None);
+        let projection = first.mapping().projection().collect::<Vec<_>>();
+        let [MappingProjection::UnknownUnpack(unknown)] = projection.as_slice() else {
+            panic!("equal dictionaries should retain one unknown unpack");
+        };
+        assert_eq!(
+            unknown.origins().collect::<Vec<_>>(),
+            [origin(30), origin(40)]
+        );
+        assert_eq!(
+            first
+                .mapping()
+                .keys_iteration_unknown()
+                .origins()
+                .collect::<Vec<_>>(),
+            [origin(10), origin(20)],
+        );
     }
 
     #[test]

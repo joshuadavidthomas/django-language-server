@@ -6,6 +6,7 @@ use serde::ser::SerializeStruct;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::evaluation::BranchConstraints;
+use crate::python::evaluation::origin_sort_key;
 
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 pub(crate) const MAX_EXACT_SETTING_ALTERNATIVES: usize = 64;
@@ -244,11 +245,9 @@ impl MergeEvidence for SettingIssue {
         if self.kind != other.kind {
             return false;
         }
-        for origin in &other.origins {
-            if !self.origins.contains(origin) {
-                self.origins.push(*origin);
-            }
-        }
+        self.origins.extend(other.origins.iter().copied());
+        self.origins.sort_by_key(origin_sort_key);
+        self.origins.dedup();
         true
     }
 }
@@ -999,3 +998,46 @@ merge_struct_fields!(DjangoSettings {
     templates,
     staticfiles,
 });
+
+#[cfg(test)]
+mod tests {
+    use djls_source::File;
+    use djls_source::Span;
+    use salsa::plumbing::FromId as _;
+
+    use super::MergeEvidence;
+    use super::SettingIssue;
+    use super::SettingIssueKind;
+
+    fn origin(start: u32) -> djls_source::Origin {
+        // SAFETY: The test index is below `salsa::Id::MAX_U32`; this synthetic
+        // file is used only as an opaque identity and is never read.
+        let file = File::from_id(unsafe { salsa::Id::from_index(0) });
+        djls_source::Origin::new(file, Span::new(start, 1))
+    }
+
+    #[test]
+    fn canonical_unknown_origins_setting_issue_merge_is_reversed_and_idempotent() {
+        let first = origin(1);
+        let second = origin(2);
+        let first_issue = SettingIssue {
+            kind: SettingIssueKind::UnknownUnpack,
+            origins: vec![first],
+        };
+        let second_issue = SettingIssue {
+            kind: SettingIssueKind::UnknownUnpack,
+            origins: vec![second],
+        };
+
+        let mut forward = first_issue.clone();
+        assert!(forward.merge_evidence(&second_issue));
+        let mut reversed = second_issue;
+        assert!(reversed.merge_evidence(&first_issue));
+        assert_eq!(forward, reversed);
+        assert_eq!(forward.origins, [first, second]);
+
+        let merged = forward.clone();
+        assert!(forward.merge_evidence(&merged));
+        assert_eq!(forward, merged);
+    }
+}

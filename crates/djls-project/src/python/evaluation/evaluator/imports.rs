@@ -258,10 +258,10 @@ impl EvaluationState {
                     &BranchConstraints::unconstrained(),
                 );
                 self.namespace_causes
-                    .push(PythonNamespaceCause::unconstrained(PythonUnknown {
+                    .push(PythonNamespaceCause::unconstrained(PythonUnknown::new(
                         cause,
-                        origin: Some(import.origin),
-                    }));
+                        [import.origin],
+                    )));
             }
             ImportSelection::Named(bindings) => {
                 for binding in bindings {

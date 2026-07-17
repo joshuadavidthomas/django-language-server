@@ -1,57 +1,13 @@
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::CanonicalOrigins;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
-use super::origin_sort_key;
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct CanonicalOrigins(Vec<Origin>);
-
-impl CanonicalOrigins {
-    fn one(origin: Origin) -> Self {
-        Self(vec![origin])
-    }
-
-    fn insert(&mut self, origin: Origin) {
-        if self.0.contains(&origin) {
-            return;
-        }
-        self.0.push(origin);
-        self.0.sort_by_key(origin_sort_key);
-    }
-
-    fn extend(&mut self, origins: impl IntoIterator<Item = Origin>) {
-        for origin in origins {
-            self.insert(origin);
-        }
-    }
-
-    fn rebase(&mut self, origin: Origin) {
-        self.0.clear();
-        self.0.push(origin);
-    }
-
-    fn first(&self) -> Option<Origin> {
-        self.0.first().copied()
-    }
-
-    fn iter(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
-        self.0.iter().copied()
-    }
-}
-
-impl FromIterator<Origin> for CanonicalOrigins {
-    fn from_iter<T: IntoIterator<Item = Origin>>(iter: T) -> Self {
-        let mut origins = Self::default();
-        origins.extend(iter);
-        origins
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PythonBindingCase {
@@ -69,7 +25,7 @@ impl PythonBinding {
         Self::from_case(PythonBindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value,
-                binding_origins: CanonicalOrigins::one(binding_origin),
+                binding_origins: [binding_origin].into_iter().collect(),
             }),
             constraints: BranchConstraints::unconstrained(),
         })
@@ -190,7 +146,6 @@ impl PythonBinding {
                 continue;
             };
             if unknown.cause == PythonUnknownCause::Cycle {
-                unknown.origin = Some(origin);
                 bound.rebase_binding_origin(origin);
                 bound.value.rebase_origin(origin);
             }
@@ -200,7 +155,7 @@ impl PythonBinding {
     pub(super) fn rebase_binding_origin(mut self, origin: Origin) -> Self {
         for state in self.alternatives_mut() {
             if let PythonBindingState::Bound(bound) = state {
-                bound.binding_origins.rebase(origin);
+                bound.binding_origins.replace([origin]);
             }
         }
         self
@@ -274,7 +229,7 @@ impl PythonBinding {
         joined.normalize(Some(overflow_origin));
 
         if joined.exact_alternative_count() > MAX_EXACT_PYTHON_ALTERNATIVES {
-            let mut overflow_origins = CanonicalOrigins::one(overflow_origin);
+            let mut overflow_origins: CanonicalOrigins = [overflow_origin].into_iter().collect();
             let mut retained = Vec::with_capacity(MAX_EXACT_PYTHON_ALTERNATIVES);
             for case in joined.cases.drain(..) {
                 if case.state.is_limit_remainder()
@@ -288,27 +243,18 @@ impl PythonBinding {
                     retained.push(case);
                 }
             }
-            retained.push(Self::alternative_limit_case(
-                overflow_origin,
-                overflow_origins,
-            ));
+            retained.push(Self::alternative_limit_case(overflow_origins));
             joined.cases = retained;
             joined.normalize(Some(overflow_origin));
         }
         joined
     }
 
-    fn alternative_limit_case(
-        overflow_origin: Origin,
-        overflow_origins: CanonicalOrigins,
-    ) -> PythonBindingCase {
+    fn alternative_limit_case(overflow_origins: CanonicalOrigins) -> PythonBindingCase {
         PythonBindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
-                value: PythonValue::unknown_with_evidence(
-                    PythonUnknown {
-                        cause: PythonUnknownCause::AlternativeLimitExceeded,
-                        origin: Some(overflow_origin),
-                    },
+                value: PythonValue::unknown(
+                    PythonUnknownCause::AlternativeLimitExceeded,
                     overflow_origins.iter(),
                 ),
                 binding_origins: overflow_origins,
@@ -424,7 +370,7 @@ impl PythonBoundValue {
     }
 
     fn rebase_binding_origin(&mut self, origin: Origin) {
-        self.binding_origins.rebase(origin);
+        self.binding_origins.replace([origin]);
     }
 
     fn normalize_origins(&mut self) {
@@ -438,8 +384,8 @@ mod tests {
     use djls_source::Span;
     use salsa::plumbing::FromId as _;
 
+    use super::super::CanonicalOrigins;
     use super::super::PythonSequenceItem;
-    use super::CanonicalOrigins;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
     use super::PythonBinding;
@@ -465,10 +411,7 @@ mod tests {
     }
 
     fn nested_unknown(origin: Origin) -> PythonUnknown {
-        PythonUnknown {
-            cause: PythonUnknownCause::UnsupportedExpression,
-            origin: Some(origin),
-        }
+        PythonUnknown::new(PythonUnknownCause::UnsupportedExpression, [origin])
     }
 
     fn binding(value: BindingValue, start: u32) -> PythonBinding {
@@ -623,9 +566,11 @@ mod tests {
         let PythonValueKind::Unknown(unknown) = &overflow.value.kind else {
             unreachable!();
         };
-        assert_eq!(
-            unknown.origin.expect("join origin should be retained").span,
-            Span::new(1_000, 1),
+        assert!(
+            unknown
+                .origins()
+                .any(|origin| origin.span == Span::new(1_000, 1)),
+            "join origin should be retained",
         );
         assert_eq!(
             overflow

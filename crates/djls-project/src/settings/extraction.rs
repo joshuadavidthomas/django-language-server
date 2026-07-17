@@ -96,7 +96,7 @@ pub(crate) fn settings_from_values(
             .causes
             .iter()
             .map(|cause| NamespaceDynamicEvidence {
-                issue: issue(SettingIssueKind::DynamicNamespace, cause.unknown.origin),
+                issue: issue(SettingIssueKind::DynamicNamespace, cause.unknown.origins()),
                 constraints: cause.constraints.clone(),
             })
             .collect::<Vec<_>>()
@@ -264,7 +264,7 @@ where
     }
     if let Some(origin) = overflow_origin {
         cases.push((
-            SettingCase::Dynamic(dynamic(vec![alternative_limit_issue(origin)])),
+            SettingCase::Dynamic(dynamic(vec![alternative_limit_issue([origin])])),
             BranchConstraints::unconstrained(),
         ));
     }
@@ -325,12 +325,12 @@ fn installed_apps(
                         constraints.intersection(alternative_constraints),
                     ),
                     PythonSequenceAlternativeRef::Remainder {
-                        origin,
+                        origins,
                         constraints: remainder_constraints,
                     } => {
                         let mut apps = OrderedInstalledApps {
                             evidence: vec![InstalledAppEvidence::Issue(alternative_limit_issue(
-                                origin,
+                                origins.iter().copied(),
                             ))],
                         };
                         apps.evidence.extend(
@@ -409,12 +409,14 @@ fn string_list_items(items: &[PythonSequenceItem]) -> (OrderedInstalledApps, boo
                     InstalledAppEvidence::Issue(value_issue(SettingIssueKind::InvalidShape, value))
                 }
             }
-            PythonSequenceItem::UnknownElement(unknown) => {
-                InstalledAppEvidence::Issue(issue(SettingIssueKind::UnknownElement, unknown.origin))
-            }
-            PythonSequenceItem::UnknownUnpack(unknown) => {
-                InstalledAppEvidence::Issue(issue(SettingIssueKind::UnknownUnpack, unknown.origin))
-            }
+            PythonSequenceItem::UnknownElement(unknown) => InstalledAppEvidence::Issue(issue(
+                SettingIssueKind::UnknownElement,
+                unknown.origins(),
+            )),
+            PythonSequenceItem::UnknownUnpack(unknown) => InstalledAppEvidence::Issue(issue(
+                SettingIssueKind::UnknownUnpack,
+                unknown.origins(),
+            )),
         };
         evidence.push(item);
     }
@@ -481,12 +483,13 @@ fn template_list(
     BranchConstraints,
 )> {
     let mut cases = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
-    let mut overflow_origin = None;
+    let mut overflow_origins: Option<Vec<Origin>> = None;
     for alternative in sequence.alternatives() {
         match alternative {
             PythonSequenceAlternativeRef::Exact { items, constraints } => {
                 if cases.len() == MAX_EXACT_SETTING_ALTERNATIVES {
-                    overflow_origin = overflow_origin.or_else(|| list_item_origin(items));
+                    overflow_origins = overflow_origins
+                        .or_else(|| list_item_origin(items).map(|origin| vec![origin]));
                     break;
                 }
                 let expansion = template_list_alternative(
@@ -501,21 +504,27 @@ fn template_list(
                         .intersection(&configuration.correlation);
                     (!correlation.is_impossible()).then_some((configuration.case, correlation))
                 }));
-                overflow_origin = overflow_origin.or(expansion.overflow_origin);
+                if overflow_origins.is_none() {
+                    overflow_origins = expansion.overflow_origins;
+                }
             }
             PythonSequenceAlternativeRef::Remainder {
-                origin,
+                origins,
                 constraints,
             } => {
                 if cases.len() == MAX_EXACT_SETTING_ALTERNATIVES {
-                    overflow_origin = overflow_origin.or(Some(origin));
+                    if overflow_origins.is_none() {
+                        overflow_origins = Some(origins.to_vec());
+                    }
                 } else {
                     let mut evidence = issues
                         .iter()
                         .cloned()
                         .map(TemplateListEvidence::Issue)
                         .collect::<Vec<_>>();
-                    evidence.push(TemplateListEvidence::Issue(alternative_limit_issue(origin)));
+                    evidence.push(TemplateListEvidence::Issue(alternative_limit_issue(
+                        origins.iter().copied(),
+                    )));
                     let configuration =
                         template_configuration(evidence, false, BranchConstraints::unconstrained());
                     let correlation = outer_correlation
@@ -528,11 +537,13 @@ fn template_list(
             }
         }
     }
-    if let Some(origin) = overflow_origin {
+    if let Some(origins) = overflow_origins {
         cases.push((
             SettingCase::Dynamic(DynamicTemplates {
                 templates: OrderedTemplateList {
-                    evidence: vec![TemplateListEvidence::Issue(alternative_limit_issue(origin))],
+                    evidence: vec![TemplateListEvidence::Issue(alternative_limit_issue(
+                        origins,
+                    ))],
                 },
             }),
             BranchConstraints::unconstrained(),
@@ -558,13 +569,15 @@ fn template_list_alternative(
         .map(TemplateListEvidence::Issue)
         .collect::<Vec<_>>();
     let mut configurations = vec![(initial_evidence, false, BranchConstraints::unconstrained())];
-    let mut overflow_origin = None;
+    let mut overflow_origins = None;
     for item in items {
         let alternatives = match item {
             PythonSequenceItem::Value(value) => {
                 if let Some(mapping) = value.mapping() {
                     let expansion = partial_backend(db, mapping);
-                    overflow_origin = overflow_origin.or(expansion.overflow_origin);
+                    if overflow_origins.is_none() {
+                        overflow_origins = expansion.overflow_origins;
+                    }
                     expansion
                         .exact
                         .into_iter()
@@ -598,13 +611,16 @@ fn template_list_alternative(
             PythonSequenceItem::UnknownElement(unknown) => vec![(
                 TemplateListEvidence::Issue(issue(
                     SettingIssueKind::UnknownElement,
-                    unknown.origin,
+                    unknown.origins(),
                 )),
                 false,
                 BranchConstraints::unconstrained(),
             )],
             PythonSequenceItem::UnknownUnpack(unknown) => vec![(
-                TemplateListEvidence::Issue(issue(SettingIssueKind::UnknownUnpack, unknown.origin)),
+                TemplateListEvidence::Issue(issue(
+                    SettingIssueKind::UnknownUnpack,
+                    unknown.origins(),
+                )),
                 false,
                 BranchConstraints::unconstrained(),
             )],
@@ -619,7 +635,9 @@ fn template_list_alternative(
                     continue;
                 }
                 if next.len() == limit {
-                    overflow_origin = overflow_origin.or(item_origin);
+                    if overflow_origins.is_none() {
+                        overflow_origins = item_origin.map(|origin| vec![origin]);
+                    }
                     continue;
                 }
                 let mut evidence = evidence.clone();
@@ -637,7 +655,7 @@ fn template_list_alternative(
                 template_configuration(evidence, malformed, correlation)
             })
             .collect(),
-        overflow_origin,
+        overflow_origins,
     }
 }
 
@@ -764,7 +782,7 @@ fn partial_backend(
                 projected
             })
             .collect(),
-        overflow_origin: dirs.overflow_origin,
+        overflow_origins: dirs.overflow_origins,
     }
 }
 
@@ -825,11 +843,11 @@ fn extract_options(options: PythonMapping<'_>, backend: &mut PartialTemplateBack
                     PythonSequenceItem::UnknownElement(unknown) => backend
                         .context_processors
                         .issues
-                        .push(issue(SettingIssueKind::UnknownElement, unknown.origin)),
+                        .push(issue(SettingIssueKind::UnknownElement, unknown.origins())),
                     PythonSequenceItem::UnknownUnpack(unknown) => backend
                         .context_processors
                         .issues
-                        .push(issue(SettingIssueKind::UnknownUnpack, unknown.origin)),
+                        .push(issue(SettingIssueKind::UnknownUnpack, unknown.origins())),
                 }
             }
         } else if value.unknown_value().is_some() {
@@ -882,7 +900,7 @@ fn extract_libraries(
             MappingStringEntry::UnknownUnpack(unknown) => {
                 libraries
                     .issues
-                    .push(issue(SettingIssueKind::UnknownUnpack, unknown.origin));
+                    .push(issue(SettingIssueKind::UnknownUnpack, unknown.origins()));
             }
         }
     }
@@ -927,10 +945,10 @@ fn module_name_list(
                 }
             }
             PythonSequenceItem::UnknownElement(unknown) => {
-                issues.push(issue(SettingIssueKind::UnknownElement, unknown.origin));
+                issues.push(issue(SettingIssueKind::UnknownElement, unknown.origins()));
             }
             PythonSequenceItem::UnknownUnpack(unknown) => {
-                issues.push(issue(SettingIssueKind::UnknownUnpack, unknown.origin));
+                issues.push(issue(SettingIssueKind::UnknownUnpack, unknown.origins()));
             }
         }
     }
@@ -1105,14 +1123,14 @@ impl PathListProjection {
 
 struct CappedExpansion<T> {
     exact: Vec<T>,
-    overflow_origin: Option<Origin>,
+    overflow_origins: Option<Vec<Origin>>,
 }
 
 impl<T> CappedExpansion<T> {
     fn one(value: T) -> Self {
         Self {
             exact: vec![value],
-            overflow_origin: None,
+            overflow_origins: None,
         }
     }
 }
@@ -1120,9 +1138,9 @@ impl<T> CappedExpansion<T> {
 fn path_list(db: &dyn ProjectDb, value: &PythonValue) -> Vec<PathListProjection> {
     let expansion = path_list_capped(db, value);
     let mut projections = expansion.exact;
-    if let Some(origin) = expansion.overflow_origin {
+    if let Some(origins) = expansion.overflow_origins {
         let mut overflow = PathListProjection::empty();
-        overflow.paths.push_issue(alternative_limit_issue(origin));
+        overflow.paths.push_issue(alternative_limit_issue(origins));
         projections.push(overflow);
     }
     projections
@@ -1146,14 +1164,16 @@ fn path_list_capped(
     };
 
     let mut projections = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES);
-    let mut overflow_origin = None;
+    let mut overflow_origins = None;
     for alternative in sequence.alternatives() {
         match alternative {
             PythonSequenceAlternativeRef::Exact { items, constraints } => {
                 if projections.len() == MAX_EXACT_SETTING_ALTERNATIVES {
-                    overflow_origin = overflow_origin
-                        .or_else(|| list_item_origin(items))
-                        .or_else(|| value.origins().next());
+                    overflow_origins = overflow_origins.or_else(|| {
+                        list_item_origin(items)
+                            .or_else(|| value.origins().next())
+                            .map(|origin| vec![origin])
+                    });
                     break;
                 }
                 let expansion = path_list_alternative(
@@ -1165,17 +1185,23 @@ fn path_list_capped(
                     projection.constraints = projection.constraints.intersection(constraints);
                     projection
                 }));
-                overflow_origin = overflow_origin.or(expansion.overflow_origin);
+                if overflow_origins.is_none() {
+                    overflow_origins = expansion.overflow_origins;
+                }
             }
             PythonSequenceAlternativeRef::Remainder {
-                origin,
+                origins,
                 constraints,
             } => {
                 if projections.len() == MAX_EXACT_SETTING_ALTERNATIVES {
-                    overflow_origin = overflow_origin.or(Some(origin));
+                    if overflow_origins.is_none() {
+                        overflow_origins = Some(origins.to_vec());
+                    }
                 } else {
                     let mut projection = PathListProjection::empty();
-                    projection.paths.push_issue(alternative_limit_issue(origin));
+                    projection
+                        .paths
+                        .push_issue(alternative_limit_issue(origins.iter().copied()));
                     projection.constraints = projection.constraints.intersection(constraints);
                     projections.push(projection);
                 }
@@ -1184,7 +1210,7 @@ fn path_list_capped(
     }
     CappedExpansion {
         exact: projections,
-        overflow_origin,
+        overflow_origins,
     }
 }
 
@@ -1194,7 +1220,7 @@ fn path_list_alternative(
     limit: usize,
 ) -> CappedExpansion<PathListProjection> {
     let mut configurations = vec![PathListProjection::empty()];
-    let mut overflow_origin = None;
+    let mut overflow_origins = None;
     for item in items {
         match item {
             PythonSequenceItem::Value(value) => {
@@ -1232,7 +1258,7 @@ fn path_list_alternative(
                             continue;
                         }
                         if next.len() == limit {
-                            overflow_origin.get_or_insert_with(|| path.path.origin());
+                            overflow_origins.get_or_insert_with(|| vec![path.path.origin()]);
                             continue;
                         }
                         let mut projection = projection.clone();
@@ -1247,21 +1273,21 @@ fn path_list_alternative(
                 for projection in &mut configurations {
                     projection
                         .paths
-                        .push_issue(issue(SettingIssueKind::UnknownElement, unknown.origin));
+                        .push_issue(issue(SettingIssueKind::UnknownElement, unknown.origins()));
                 }
             }
             PythonSequenceItem::UnknownUnpack(unknown) => {
                 for projection in &mut configurations {
                     projection
                         .paths
-                        .push_issue(issue(SettingIssueKind::UnknownUnpack, unknown.origin));
+                        .push_issue(issue(SettingIssueKind::UnknownUnpack, unknown.origins()));
                 }
             }
         }
     }
     CappedExpansion {
         exact: configurations,
-        overflow_origin,
+        overflow_origins,
     }
 }
 
@@ -1310,7 +1336,7 @@ fn dict_field<'a>(
         .iter()
         .map(|override_| match override_ {
             MappingOverride::UnknownUnpack(unknown) => {
-                issue(SettingIssueKind::UnknownUnpack, unknown.origin)
+                issue(SettingIssueKind::UnknownUnpack, unknown.origins())
             }
             MappingOverride::UnknownKey(key) => unknown_value_issue(key),
         })
@@ -1380,26 +1406,23 @@ fn python_list_item_origin(item: &PythonSequenceItem) -> Option<Origin> {
     match item {
         PythonSequenceItem::Value(value) => value.origins().next(),
         PythonSequenceItem::UnknownElement(unknown)
-        | PythonSequenceItem::UnknownUnpack(unknown) => unknown.origin,
+        | PythonSequenceItem::UnknownUnpack(unknown) => unknown.origins().next(),
     }
 }
 
-fn alternative_limit_issue(origin: Origin) -> SettingIssue {
-    unknown_issue(&PythonUnknown {
-        cause: PythonUnknownCause::AlternativeLimitExceeded,
-        origin: Some(origin),
-    })
+fn alternative_limit_issue(origins: impl IntoIterator<Item = Origin>) -> SettingIssue {
+    issue(SettingIssueKind::DynamicExpression, origins)
 }
 
 fn unknown_issue(unknown: &PythonUnknown) -> SettingIssue {
-    issue(unknown_issue_kind(unknown), unknown.origin)
+    issue(unknown_issue_kind(unknown), unknown.origins())
 }
 
 fn unknown_value_issue(value: &PythonValue) -> SettingIssue {
     let unknown = value
         .unknown_value()
         .expect("unknown value issue requires an unknown value");
-    value_issue(unknown_issue_kind(unknown), value)
+    unknown_issue(unknown)
 }
 
 fn unknown_issue_kind(unknown: &PythonUnknown) -> SettingIssueKind {
@@ -1422,9 +1445,9 @@ fn value_issue(kind: SettingIssueKind, value: &PythonValue) -> SettingIssue {
         origins: value.origins().collect(),
     }
 }
-fn issue(kind: SettingIssueKind, origin: Option<Origin>) -> SettingIssue {
+fn issue(kind: SettingIssueKind, origins: impl IntoIterator<Item = Origin>) -> SettingIssue {
     SettingIssue {
         kind,
-        origins: origin.into_iter().collect(),
+        origins: origins.into_iter().collect(),
     }
 }

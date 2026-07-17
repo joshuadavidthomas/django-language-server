@@ -81,7 +81,11 @@ fn binding_unknown_origin(source: &str, name: &str) -> djls_source::Origin {
         panic!("expected unknown value for {name}");
     };
     assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedMutation);
-    unknown.origin.unwrap()
+    unknown
+        .origins
+        .first()
+        .copied()
+        .expect("unknown should retain an origin")
 }
 
 fn python_project(db: &dyn djls_project::Db) -> Project {
@@ -330,7 +334,8 @@ fn python_binding_normalizes_nested_unknowns_and_merges_their_evidence() {
     assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression);
     assert_eq!(
         unknown
-            .origin
+            .origins
+            .first()
             .expect("unknown should retain an origin")
             .span
             .start(),
@@ -586,10 +591,10 @@ fn named_import_of_absent_open_name_preserves_unset_and_typed_dynamic_outcomes()
             },
             binding_origins,
         }) if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing")
-            && unknown.origin == Some(djls_source::Origin::new(
+            && unknown.origins.as_slice() == [djls_source::Origin::new(
                 settings_file,
                 expected_span(source, "INSTALLED_APPS"),
-            ))
+            )]
             && binding_origins.as_slice() == [djls_source::Origin::new(
                 settings_file,
                 expected_span(source, "INSTALLED_APPS"),
@@ -662,11 +667,11 @@ fn star_import_translates_every_typed_namespace_cause_to_the_import_site() {
         unknown.cause == PythonUnknownCauseView::InvalidImport(PythonImportErrorView::TooManyDots)
     }));
     assert!(unknowns.iter().all(|unknown| {
-        unknown.origin
-            == Some(djls_source::Origin::new(
+        unknown.origins.as_slice()
+            == [djls_source::Origin::new(
                 settings_file,
                 expected_span(source, "from plugin import *"),
-            ))
+            )]
     }));
 }
 
@@ -1551,10 +1556,10 @@ fn python_module_evaluation_keeps_failed_star_import_from_loop_body() {
         evaluation.namespace_unknowns.as_slice(),
         [unknown]
             if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing_star")
-                && unknown.origin == Some(djls_source::Origin::new(
+                && unknown.origins.as_slice() == [djls_source::Origin::new(
                     settings,
                     expected_span(source, "from missing_star import *"),
-                ))
+                )]
     ));
 }
 
@@ -1586,7 +1591,10 @@ fn python_module_evaluation_reports_invalid_import_with_typed_cause() {
             },
             ..
         })] if unknown.cause == PythonUnknownCauseView::InvalidImport(PythonImportErrorView::TooManyDots)
-            && unknown.origin.expect("unknown should retain import origin").file == settings
+            && unknown.origins.as_slice() == [djls_source::Origin::new(
+                settings,
+                expected_span(source, source.trim_end()),
+            )]
     ));
 }
 
@@ -1890,10 +1898,10 @@ fn python_module_evaluation_discards_facts_after_unsupported_mutation() {
             },
             ..
         })] if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
-            && unknown.origin == Some(djls_source::Origin::new(
+            && unknown.origins.as_slice() == [djls_source::Origin::new(
                 settings,
                 expected_span(source, "VALUES.clear()"),
-            ))
+            )]
     ));
 }
 
@@ -2120,7 +2128,7 @@ fn python_module_cycle_widens_cyclic_values_but_keeps_post_cycle_assignments() {
 }
 
 #[test]
-fn external_star_import_of_settled_cycle_attributes_dynamic_namespace_to_each_import_edge() {
+fn canonical_unknown_origins_merge_dynamic_namespace_import_edges() {
     let source = "from a import *\nfrom b import *\n";
     let (db, project, settings) = extract_project(
         source,
@@ -2130,23 +2138,11 @@ fn external_star_import_of_settled_cycle_attributes_dynamic_namespace_to_each_im
     let evaluation = python_module_evaluation(&db, project, settings_file);
     let expected_origins = ["from a import *", "from b import *"]
         .map(|statement| djls_source::Origin::new(settings_file, expected_span(source, statement)));
-    assert_eq!(evaluation.namespace_unknowns.len(), 2, "{evaluation:#?}");
-    assert!(
-        evaluation
-            .namespace_unknowns
-            .iter()
-            .all(|unknown| unknown.cause == PythonUnknownCauseView::Cycle)
-    );
-    assert_eq!(
-        evaluation
-            .namespace_unknowns
-            .iter()
-            .map(|unknown| unknown
-                .origin
-                .expect("cycle remainder should have an edge origin"))
-            .collect::<Vec<_>>(),
-        expected_origins
-    );
+    let [unknown] = evaluation.namespace_unknowns.as_slice() else {
+        panic!("cycle causes should merge into one plural unknown: {evaluation:#?}");
+    };
+    assert_eq!(unknown.cause, PythonUnknownCauseView::Cycle);
+    assert_eq!(unknown.origins, expected_origins);
 
     let dynamic_namespace_issues = cases(&settings, "/installed_apps/cases")
         .iter()
@@ -2154,18 +2150,18 @@ fn external_star_import_of_settled_cycle_attributes_dynamic_namespace_to_each_im
         .expect("the open namespace should produce a dynamic settings case")["apps"]["evidence"]
         .as_array()
         .unwrap();
-    assert_eq!(dynamic_namespace_issues.len(), 2);
-    for (evidence, expected_origin) in dynamic_namespace_issues.iter().zip(expected_origins) {
-        assert_eq!(evidence["issue"]["kind"], "dynamic_namespace");
-        assert_eq!(
-            evidence["issue"]["spans"][0],
-            serde_json::to_value(expected_origin.span).unwrap()
-        );
-    }
+    let [evidence] = dynamic_namespace_issues.as_slice() else {
+        panic!("plural namespace provenance should project through one issue");
+    };
+    assert_eq!(evidence["issue"]["kind"], "dynamic_namespace");
+    assert_eq!(
+        evidence["issue"]["spans"],
+        serde_json::to_value(expected_origins.map(|origin| origin.span)).unwrap()
+    );
 }
 
 #[test]
-fn external_star_import_of_settled_cycle_rebases_setting_issue_to_import_edge() {
+fn canonical_unknown_origins_import_rebase_is_exactly_local() {
     let source = "from a import *\n";
     let (db, project, settings) = extract_project(
         source,
@@ -2190,7 +2186,7 @@ fn external_star_import_of_settled_cycle_rebases_setting_issue_to_import_edge() 
             },
             binding_origins,
         })] if unknown.cause == PythonUnknownCauseView::Cycle
-            && unknown.origin == Some(import_origin)
+            && unknown.origins.as_slice() == [import_origin]
             && origins.as_slice() == [import_origin]
             && binding_origins.as_slice() == [import_origin]
     ));
@@ -2240,10 +2236,10 @@ fn external_star_import_of_cycle_is_entry_order_independent() {
             evaluation.namespace_unknowns.as_slice(),
             [unknown]
                 if unknown.cause == PythonUnknownCauseView::Cycle
-                    && unknown.origin == Some(djls_source::Origin::new(
+                    && unknown.origins.as_slice() == [djls_source::Origin::new(
                         external,
                         expected_span("from a import *\n", "from a import *"),
-                    ))
+                    )]
         ));
     }
 }
@@ -4229,8 +4225,8 @@ fn equal_top_level_setting_lists_have_an_exact_boundary_and_typed_remainder() {
             .as_array()
             .unwrap()
             .len(),
-        1,
-        "{overflowed:#}"
+        2,
+        "remainder should retain the omitted path and overflow operation: {overflowed:#}"
     );
 
     let templates = cases(&overflowed, "/templates/cases");
@@ -4252,7 +4248,7 @@ fn equal_top_level_setting_lists_have_an_exact_boundary_and_typed_remainder() {
             .unwrap()
             .len(),
         1,
-        "{overflowed:#}"
+        "settings-level capping selects one fallback operation: {overflowed:#}"
     );
 }
 
@@ -4692,6 +4688,50 @@ fn unknown_library_key_weakens_prior_alias_and_later_exact_key_is_authoritative(
     assert_eq!(libraries["known"][0][0], "alias");
     assert_eq!(libraries["known"][0][1]["value"], "after.tags");
     assert_eq!(libraries["issues"][0]["kind"], "dynamic_expression");
+}
+
+#[test]
+fn canonical_unknown_origins_project_top_level_branch_spans() {
+    let source = "if FLAG:\n    STATIC_URL = first()\nelse:\n    STATIC_URL = second()\n";
+    let settings = extract(source);
+    let issues = cases(&settings, "/staticfiles/static_url/cases")[0]["dynamic"]["issues"]
+        .as_array()
+        .expect("unknown scalar should produce issues");
+    let [issue] = issues.as_slice() else {
+        panic!("equal unknown branches should produce one issue: {settings:#}");
+    };
+    assert_eq!(issue["kind"], "dynamic_expression");
+    assert_eq!(
+        issue["spans"],
+        serde_json::to_value([
+            expected_span(source, "first()"),
+            expected_span(source, "second()"),
+        ])
+        .unwrap()
+    );
+}
+
+#[test]
+fn canonical_unknown_origins_project_mapping_unpack_spans() {
+    let source = "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {**first()}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {**second()}}}]\n";
+    let settings = extract(source);
+    let libraries = &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]
+        ["backend"]["libraries"];
+    let issues = libraries["issues"]
+        .as_array()
+        .expect("unknown mapping unpack should produce issues");
+    let [issue] = issues.as_slice() else {
+        panic!("equal unknown mapping branches should produce one issue: {settings:#}");
+    };
+    assert_eq!(issue["kind"], "unknown_unpack");
+    assert_eq!(
+        issue["spans"],
+        serde_json::to_value([
+            expected_span(source, "first()"),
+            expected_span(source, "second()"),
+        ])
+        .unwrap()
+    );
 }
 
 #[test]
