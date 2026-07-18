@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
@@ -19,6 +21,23 @@ pub enum SearchPath {
 }
 
 impl SearchPath {
+    /// Structural precedence preserves the former diagnostic-name order while
+    /// remaining separate from resolver precedence in [`SearchPaths`].
+    fn structural_rank(&self) -> u8 {
+        match self {
+            Self::Editable(_) => 0,
+            Self::Extra(_) => 1,
+            Self::FirstParty(_) => 2,
+            Self::SitePackages(_) => 3,
+        }
+    }
+
+    pub(in crate::python) fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.structural_rank()
+            .cmp(&other.structural_rank())
+            .then_with(|| self.path().cmp(other.path()))
+    }
+
     fn from_pythonpath(
         root: &Utf8Path,
         discovered_site_packages: Option<&Utf8Path>,
@@ -204,5 +223,50 @@ impl SearchPaths {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cmp::Ordering;
+
+    use camino::Utf8PathBuf;
+
+    use super::SearchPath;
+
+    #[test]
+    fn typed_module_order_search_path_variants_are_distinct_and_total() {
+        let path = Utf8PathBuf::from("/shared");
+        let paths = [
+            SearchPath::Editable(path.clone()),
+            SearchPath::Extra(path.clone()),
+            SearchPath::FirstParty(path.clone()),
+            SearchPath::SitePackages(path),
+        ];
+
+        for (left_index, left) in paths.iter().enumerate() {
+            for (right_index, right) in paths.iter().enumerate() {
+                let ordering = left.structural_cmp(right);
+                assert_eq!(ordering, right.structural_cmp(left).reverse());
+                assert_eq!(ordering == Ordering::Equal, left == right);
+                assert_eq!(ordering, left_index.cmp(&right_index));
+            }
+        }
+    }
+
+    #[test]
+    fn typed_module_order_search_paths_compare_variant_before_path() {
+        let later_editable = SearchPath::Editable(Utf8PathBuf::from("/z"));
+        let earlier_extra = SearchPath::Extra(Utf8PathBuf::from("/a"));
+        let earlier_editable = SearchPath::Editable(Utf8PathBuf::from("/a"));
+
+        assert_eq!(
+            later_editable.structural_cmp(&earlier_extra),
+            Ordering::Less
+        );
+        assert_eq!(
+            earlier_editable.structural_cmp(&later_editable),
+            Ordering::Less
+        );
     }
 }

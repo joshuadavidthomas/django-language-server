@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::FileReadError;
@@ -69,6 +71,26 @@ pub struct PythonSyntaxError {
     pub class: PythonSyntaxErrorClass,
     pub span: Span,
     pub message: String,
+}
+
+impl PythonSyntaxError {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.class
+            .cmp(&other.class)
+            .then_with(|| self.span.start().cmp(&other.span.start()))
+            .then_with(|| self.span.length().cmp(&other.span.length()))
+            .then_with(|| self.message.cmp(&other.message))
+    }
+
+    pub(in crate::python) fn structural_cmp_slice(left: &[Self], right: &[Self]) -> Ordering {
+        for (left, right) in left.iter().zip(right) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        left.len().cmp(&right.len())
+    }
 }
 
 struct PythonParseOutput {

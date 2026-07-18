@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use djls_source::Origin;
 use ruff_python_ast as ast;
 
@@ -6,6 +8,7 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
+use super::StructuralOrder as _;
 use super::evaluator::EvaluationState;
 use super::evaluator::Evaluator;
 use super::name_analysis::expr_read_names;
@@ -38,7 +41,42 @@ pub(crate) enum PythonMutationOperation {
     Remove,
 }
 
+impl PythonMutation {
+    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.binding
+            .cmp(&other.binding)
+            .then_with(|| self.path.structural_cmp(&other.path))
+            .then_with(|| self.operation.structural_cmp(other.operation))
+            .then_with(|| self.origin.structural_cmp(&other.origin))
+    }
+}
+
+impl PythonMutationPathSegment {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Index(left), Self::Index(right)) => left.cmp(right),
+            (Self::Key(left), Self::Key(right)) => left.cmp(right),
+            (Self::Index(_), Self::Key(_)) => Ordering::Less,
+            (Self::Key(_), Self::Index(_)) => Ordering::Greater,
+        }
+    }
+}
+
 impl PythonMutationOperation {
+    /// Mutation facts retain their established operation-name precedence.
+    fn structural_rank(self) -> u8 {
+        match self {
+            Self::Append => 0,
+            Self::Extend => 1,
+            Self::Insert => 2,
+            Self::Remove => 3,
+        }
+    }
+
+    fn structural_cmp(self, other: Self) -> Ordering {
+        self.structural_rank().cmp(&other.structural_rank())
+    }
+
     fn from_method(method: &str) -> Option<Self> {
         match method {
             "append" => Some(Self::Append),
@@ -67,6 +105,16 @@ enum EvaluatedMutation<'a> {
 }
 
 impl PythonMutationPath {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.segments.iter().zip(&other.segments) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.segments.len().cmp(&other.segments.len())
+    }
+
     fn from_expr(expr: &ast::Expr) -> Option<(&str, Self)> {
         if let Some(binding) = expr.name_target() {
             return Some((binding, Self::default()));
@@ -455,7 +503,17 @@ impl Evaluator<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
+    use djls_source::File;
+    use djls_source::Origin;
+    use djls_source::Span;
+    use salsa::plumbing::FromId as _;
+
     use super::MutationTarget;
+    use super::PythonMutation;
+    use super::PythonMutationOperation;
+    use super::PythonMutationPath;
     use super::PythonMutationPathSegment;
     use super::ast;
 
@@ -472,6 +530,102 @@ mod tests {
                 target.path.iter().cloned().collect(),
             )
         })
+    }
+
+    fn origin(file_index: u32, start: u32) -> Origin {
+        // SAFETY: Synthetic files are compared only as opaque IDs and never read.
+        let file = File::from_id(unsafe { salsa::Id::from_index(file_index) });
+        Origin::new(file, Span::new(start, 1))
+    }
+
+    fn mutation(
+        binding: &str,
+        segments: Vec<PythonMutationPathSegment>,
+        operation: PythonMutationOperation,
+        origin: Origin,
+    ) -> PythonMutation {
+        PythonMutation {
+            binding: binding.to_string(),
+            path: PythonMutationPath { segments },
+            operation,
+            origin,
+        }
+    }
+
+    #[test]
+    fn typed_module_order_mutations_compare_every_field_and_reverse() {
+        let base = mutation(
+            "VALUE",
+            vec![PythonMutationPathSegment::Index(1)],
+            PythonMutationOperation::Append,
+            origin(15, 1),
+        );
+        let unequal = [
+            mutation(
+                "VALUES",
+                vec![PythonMutationPathSegment::Index(1)],
+                PythonMutationOperation::Append,
+                origin(15, 1),
+            ),
+            mutation(
+                "VALUE",
+                vec![PythonMutationPathSegment::Key("1".to_string())],
+                PythonMutationOperation::Append,
+                origin(15, 1),
+            ),
+            mutation(
+                "VALUE",
+                vec![PythonMutationPathSegment::Index(2)],
+                PythonMutationOperation::Append,
+                origin(15, 1),
+            ),
+            mutation(
+                "VALUE",
+                vec![PythonMutationPathSegment::Index(1)],
+                PythonMutationOperation::Extend,
+                origin(15, 1),
+            ),
+            mutation(
+                "VALUE",
+                vec![PythonMutationPathSegment::Index(1)],
+                PythonMutationOperation::Append,
+                origin(16, 1),
+            ),
+        ];
+
+        assert_eq!(base.structural_cmp(&base), Ordering::Equal);
+        for other in &unequal {
+            assert_ne!(base.structural_cmp(other), Ordering::Equal);
+            assert_eq!(
+                base.structural_cmp(other),
+                other.structural_cmp(&base).reverse()
+            );
+        }
+    }
+
+    #[test]
+    fn typed_module_order_mutation_variants_have_exhaustive_precedence() {
+        let segments = [
+            PythonMutationPathSegment::Index(0),
+            PythonMutationPathSegment::Key(String::new()),
+        ];
+        for (left_index, left) in segments.iter().enumerate() {
+            for (right_index, right) in segments.iter().enumerate() {
+                assert_eq!(left.structural_cmp(right), left_index.cmp(&right_index));
+            }
+        }
+
+        let operations = [
+            PythonMutationOperation::Append,
+            PythonMutationOperation::Extend,
+            PythonMutationOperation::Insert,
+            PythonMutationOperation::Remove,
+        ];
+        for (left_index, left) in operations.iter().enumerate() {
+            for (right_index, right) in operations.iter().enumerate() {
+                assert_eq!((*left).structural_cmp(*right), left_index.cmp(&right_index));
+            }
+        }
     }
 
     #[test]

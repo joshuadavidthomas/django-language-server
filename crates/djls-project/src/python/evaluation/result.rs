@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
@@ -11,8 +12,9 @@ use super::PythonBinding;
 use super::PythonMutation;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
+use super::StructuralOrder as _;
 use super::UniqueVec;
-use super::origin_structural_key;
+use super::file_read_error_structural_cmp;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
@@ -58,6 +60,12 @@ impl PythonNamespaceCause {
     pub(super) fn select_branch(&mut self, join: Origin, arm: usize) {
         self.constraints.select(join, arm);
     }
+
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.unknown
+            .structural_cmp(&other.unknown)
+            .then_with(|| self.constraints.structural_cmp(&other.constraints))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,17 +75,7 @@ pub(crate) struct PythonNamespaceRemainder {
 
 impl PythonNamespaceRemainder {
     pub(super) fn new(mut causes: Vec<PythonNamespaceCause>) -> Self {
-        causes.sort_by_key(|cause| {
-            (
-                format!("{:?}", cause.unknown.cause),
-                cause
-                    .unknown
-                    .origins()
-                    .map(|origin| origin_structural_key(&origin))
-                    .collect::<Vec<_>>(),
-                format!("{:?}", cause.constraints),
-            )
-        });
+        causes.sort_by(PythonNamespaceCause::structural_cmp);
         let mut normalized: Vec<PythonNamespaceCause> = Vec::new();
         for cause in causes {
             if let Some(existing) = normalized
@@ -129,13 +127,11 @@ pub(crate) struct PythonImportEdge {
 }
 
 impl PythonImportEdge {
-    fn canonical_sort_key(&self) -> (String, u32, u32, String) {
-        (
-            format!("{:?}", self.importer),
-            self.origin.span.start(),
-            self.origin.span.length(),
-            format!("{:?}", self.imported),
-        )
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.importer
+            .structural_cmp(&other.importer)
+            .then_with(|| self.origin.structural_cmp(&other.origin))
+            .then_with(|| self.imported.structural_cmp(&other.imported))
     }
 }
 
@@ -155,6 +151,39 @@ pub(crate) enum PythonImportEvaluationStatus {
 }
 
 impl PythonImportEvaluationStatus {
+    /// Status precedence preserves the former variant-name ordering:
+    /// Cycle < Resolved < `SyntaxErrors`.
+    fn structural_rank(&self) -> u8 {
+        match self {
+            Self::Cycle { .. } => 0,
+            Self::Resolved => 1,
+            Self::SyntaxErrors(_) => 2,
+        }
+    }
+
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        let ordering = self.structural_rank().cmp(&other.structural_rank());
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+        match (self, other) {
+            (Self::Resolved, Self::Resolved) => Ordering::Equal,
+            (Self::SyntaxErrors(left), Self::SyntaxErrors(right))
+            | (
+                Self::Cycle {
+                    syntax_errors: left,
+                },
+                Self::Cycle {
+                    syntax_errors: right,
+                },
+            ) => PythonSyntaxError::structural_cmp_slice(left, right),
+            (
+                Self::Resolved | Self::SyntaxErrors(_) | Self::Cycle { .. },
+                Self::Resolved | Self::SyntaxErrors(_) | Self::Cycle { .. },
+            ) => unreachable!("equal import-status ranks identify the same variant"),
+        }
+    }
+
     fn into_syntax_errors(self) -> Vec<PythonSyntaxError> {
         match self {
             Self::Resolved => Vec::new(),
@@ -218,6 +247,96 @@ pub(crate) enum PythonImportOutcome {
 }
 
 impl PythonImportOutcome {
+    /// Outcome precedence preserves the established observable variant order.
+    fn structural_rank(&self) -> u8 {
+        match self {
+            Self::Evaluated { .. } => 0,
+            Self::InvalidImport { .. } => 1,
+            Self::NotFound { .. } => 2,
+            Self::SkippedExternal { .. } => 3,
+            Self::Unreadable { .. } => 4,
+        }
+    }
+
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        let ordering = self.structural_rank().cmp(&other.structural_rank());
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+        match (self, other) {
+            (
+                Self::Evaluated {
+                    edge: left_edge,
+                    status: left_status,
+                },
+                Self::Evaluated {
+                    edge: right_edge,
+                    status: right_status,
+                },
+            ) => left_edge
+                .structural_cmp(right_edge)
+                .then_with(|| left_status.structural_cmp(right_status)),
+            (
+                Self::InvalidImport {
+                    origin: left_origin,
+                    reason: left_reason,
+                },
+                Self::InvalidImport {
+                    origin: right_origin,
+                    reason: right_reason,
+                },
+            ) => left_origin
+                .structural_cmp(right_origin)
+                .then_with(|| left_reason.structural_cmp(right_reason)),
+            (
+                Self::NotFound {
+                    origin: left_origin,
+                    module: left_module,
+                },
+                Self::NotFound {
+                    origin: right_origin,
+                    module: right_module,
+                },
+            )
+            | (
+                Self::SkippedExternal {
+                    origin: left_origin,
+                    module: left_module,
+                },
+                Self::SkippedExternal {
+                    origin: right_origin,
+                    module: right_module,
+                },
+            ) => left_origin
+                .structural_cmp(right_origin)
+                .then_with(|| left_module.cmp(right_module)),
+            (
+                Self::Unreadable {
+                    edge: left_edge,
+                    error: left_error,
+                },
+                Self::Unreadable {
+                    edge: right_edge,
+                    error: right_error,
+                },
+            ) => left_edge
+                .structural_cmp(right_edge)
+                .then_with(|| file_read_error_structural_cmp(left_error, right_error)),
+            (
+                Self::Evaluated { .. }
+                | Self::InvalidImport { .. }
+                | Self::NotFound { .. }
+                | Self::SkippedExternal { .. }
+                | Self::Unreadable { .. },
+                Self::Evaluated { .. }
+                | Self::InvalidImport { .. }
+                | Self::NotFound { .. }
+                | Self::SkippedExternal { .. }
+                | Self::Unreadable { .. },
+            ) => unreachable!("equal import-outcome ranks identify the same variant"),
+        }
+    }
+
     fn edge(&self) -> Option<&PythonImportEdge> {
         match self {
             Self::Evaluated { edge, .. } | Self::Unreadable { edge, .. } => Some(edge),
@@ -226,6 +345,13 @@ impl PythonImportOutcome {
             }
         }
     }
+}
+
+fn dependency_file_structural_key(
+    file: File,
+    root: File,
+) -> (u8, <File as super::StructuralOrder>::Key) {
+    (u8::from(file != root), file.structural_key())
 }
 
 impl EvaluatedPythonModule {
@@ -238,9 +364,7 @@ impl EvaluatedPythonModule {
         let root_is_in_cycle = import_graph.root_participates_in_cycle(root);
         let root_file = root.file();
         if let Ok(values) = &mut values {
-            values
-                .mutations
-                .sort_by_key(|mutation| format!("{mutation:?}"));
+            values.mutations.sort_by(PythonMutation::structural_cmp);
             if root_is_in_cycle && let Some(remainder) = &mut values.namespace_remainder {
                 for cause in &mut remainder.causes {
                     if cause.unknown.cause == PythonUnknownCause::Cycle {
@@ -253,7 +377,7 @@ impl EvaluatedPythonModule {
         dependencies.imports = import_graph.canonicalized_outcomes();
         dependencies
             .files
-            .sort_by_key(|file| (usize::from(*file != root_file), format!("{file:?}")));
+            .sort_by_key(|file| dependency_file_structural_key(*file, root_file));
         Self {
             values,
             dependencies,
@@ -307,7 +431,7 @@ impl EvaluatedPythonModule {
                     .extend(previous_values.mutations.iter().cloned());
                 computed_values
                     .mutations
-                    .sort_by_key(|mutation| format!("{mutation:?}"));
+                    .sort_by(PythonMutation::structural_cmp);
             }
             (Ok(_) | Err(_), Err(_)) | (Err(_), Ok(_)) => {}
         }
@@ -343,7 +467,7 @@ impl PythonModuleDependencies {
         if let Some(edge) = cycle {
             files.extend([edge.importer.file(), edge.imported.file()]);
         }
-        files.sort_by_key(|file| (usize::from(*file != root_file), format!("{file:?}")));
+        files.sort_by_key(|file| dependency_file_structural_key(*file, root_file));
         Self {
             files,
             imports: candidates,
@@ -401,7 +525,7 @@ impl PythonImportGraph {
             })
             .filter(|edge| self.path_exists(&edge.imported, &edge.importer))
             .collect::<Vec<_>>();
-        cyclic.sort_by_key(|edge| edge.canonical_sort_key());
+        cyclic.sort_by(|left, right| left.structural_cmp(right));
 
         let mut canonical = Vec::new();
         for edge in cyclic {
@@ -425,7 +549,7 @@ impl PythonImportGraph {
                 | PythonImportOutcome::SkippedExternal { .. }
                 | PythonImportOutcome::Unreadable { .. } => None,
             }));
-            canonical.sort_by_key(PythonImportEdge::canonical_sort_key);
+            canonical.sort_by(PythonImportEdge::structural_cmp);
         }
 
         canonical
@@ -486,14 +610,16 @@ impl PythonImportGraph {
                 }
             }
         }
-        let mut outcomes = UniqueVec::from(normalized);
-        outcomes.sort_by_key(|outcome| format!("{outcome:?}"));
-        outcomes
+        normalized.sort_by(PythonImportOutcome::structural_cmp);
+        normalized.into()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+    use std::io::ErrorKind;
+
     use camino::Utf8PathBuf;
     use djls_source::File;
     use djls_source::Span;
@@ -509,6 +635,80 @@ mod tests {
             class: PythonSyntaxErrorClass::Ordinary,
             span: Span::new(0, 0),
             message: message.to_string(),
+        }
+    }
+
+    fn origin(file_index: u64, start: u32) -> Origin {
+        Origin::new(
+            File::from_id(Id::from_bits(file_index)),
+            Span::new(start, 1),
+        )
+    }
+
+    #[test]
+    fn typed_module_order_namespace_causes_compare_unknowns_origins_and_constraints() {
+        let base = PythonNamespaceCause::unconstrained(PythonUnknown::new(
+            PythonUnknownCause::UnsupportedExpression,
+            [origin(15, 1)],
+        ));
+        let different_cause = PythonNamespaceCause::unconstrained(PythonUnknown::new(
+            PythonUnknownCause::UnsupportedMutation,
+            [origin(15, 1)],
+        ));
+        let different_origin = PythonNamespaceCause::unconstrained(PythonUnknown::new(
+            PythonUnknownCause::UnsupportedExpression,
+            [origin(16, 1)],
+        ));
+        let mut different_constraints = base.clone();
+        different_constraints.select_branch(origin(15, 20), 1);
+
+        assert_eq!(base.structural_cmp(&base), Ordering::Equal);
+        for other in [&different_cause, &different_origin, &different_constraints] {
+            assert_ne!(base.structural_cmp(other), Ordering::Equal);
+            assert_eq!(
+                base.structural_cmp(other),
+                other.structural_cmp(&base).reverse()
+            );
+        }
+    }
+
+    #[test]
+    fn typed_module_order_import_statuses_are_exhaustive_total_and_payload_complete() {
+        let statuses = [
+            PythonImportEvaluationStatus::Cycle {
+                syntax_errors: Vec::new(),
+            },
+            PythonImportEvaluationStatus::Resolved,
+            PythonImportEvaluationStatus::SyntaxErrors(Vec::new()),
+        ];
+        for (left_index, left) in statuses.iter().enumerate() {
+            for (right_index, right) in statuses.iter().enumerate() {
+                let ordering = left.structural_cmp(right);
+                assert_eq!(ordering, right.structural_cmp(left).reverse());
+                assert_eq!(ordering == Ordering::Equal, left == right);
+                assert_eq!(ordering, left_index.cmp(&right_index));
+            }
+        }
+
+        let base = PythonImportEvaluationStatus::SyntaxErrors(vec![syntax_error("a")]);
+        let payloads = [
+            PythonImportEvaluationStatus::SyntaxErrors(vec![PythonSyntaxError {
+                class: PythonSyntaxErrorClass::Unsupported,
+                ..syntax_error("a")
+            }]),
+            PythonImportEvaluationStatus::SyntaxErrors(vec![PythonSyntaxError {
+                span: Span::new(1, 1),
+                ..syntax_error("a")
+            }]),
+            PythonImportEvaluationStatus::SyntaxErrors(vec![syntax_error("b")]),
+            PythonImportEvaluationStatus::SyntaxErrors(vec![syntax_error("a"), syntax_error("b")]),
+        ];
+        for other in &payloads {
+            assert_ne!(base.structural_cmp(other), Ordering::Equal);
+            assert_eq!(
+                base.structural_cmp(other),
+                other.structural_cmp(&base).reverse()
+            );
         }
     }
 
@@ -660,6 +860,201 @@ mod tests {
     }
 
     #[test]
+    fn typed_module_order_dependencies_are_root_first_and_input_order_independent() {
+        let root = module("root", 16);
+        let numerically_first = File::from_id(Id::from_bits(15));
+        let numerically_last = File::from_id(Id::from_bits(17));
+        let evaluate = |files: [File; 3]| {
+            EvaluatedPythonModule::new(
+                Ok(PythonModuleValues::default()),
+                PythonModuleDependencies {
+                    files: files.into_iter().collect(),
+                    imports: UniqueVec::new(),
+                },
+                &root,
+            )
+        };
+
+        let forward = evaluate([numerically_last, root.file(), numerically_first]);
+        let reversed = evaluate([numerically_first, root.file(), numerically_last]);
+
+        assert_eq!(forward, reversed);
+        assert_eq!(
+            forward
+                .dependencies
+                .files
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            [root.file(), numerically_first, numerically_last]
+        );
+    }
+
+    #[test]
+    fn typed_module_order_import_edges_compare_complete_module_and_origin_identity() {
+        let source = module("same", 15);
+        let destination = module("imported", 17);
+        let base = PythonImportEdge {
+            origin: Origin::new(source.file(), Span::new(1, 1)),
+            importer: source.clone(),
+            imported: destination.clone(),
+        };
+        let unequal = [
+            PythonImportEdge {
+                importer: module("same", 16),
+                ..base.clone()
+            },
+            PythonImportEdge {
+                origin: Origin::new(File::from_id(Id::from_bits(16)), Span::new(1, 1)),
+                ..base.clone()
+            },
+            PythonImportEdge {
+                imported: module("imported", 18),
+                ..base.clone()
+            },
+        ];
+
+        assert_eq!(base.structural_cmp(&base), Ordering::Equal);
+        for other in &unequal {
+            assert_ne!(base.structural_cmp(other), Ordering::Equal);
+            assert_eq!(
+                base.structural_cmp(other),
+                other.structural_cmp(&base).reverse()
+            );
+        }
+    }
+
+    #[test]
+    fn typed_module_order_import_outcomes_are_exhaustive_total_and_input_independent() {
+        let source = module("importer", 15);
+        let destination = module("imported", 16);
+        let edge = PythonImportEdge {
+            origin: Origin::new(source.file(), Span::new(1, 1)),
+            importer: source,
+            imported: destination,
+        };
+        let outcomes = [
+            PythonImportOutcome::Evaluated {
+                edge: edge.clone(),
+                status: PythonImportEvaluationStatus::Resolved,
+            },
+            PythonImportOutcome::InvalidImport {
+                origin: edge.origin,
+                reason: PythonImportError::TooManyDots,
+            },
+            PythonImportOutcome::NotFound {
+                origin: edge.origin,
+                module: PythonModuleName::parse("missing").unwrap(),
+            },
+            PythonImportOutcome::SkippedExternal {
+                origin: edge.origin,
+                module: PythonModuleName::parse("external").unwrap(),
+            },
+            PythonImportOutcome::Unreadable {
+                edge,
+                error: FileReadError::new(
+                    Utf8PathBuf::from("/project/unreadable.py"),
+                    ErrorKind::PermissionDenied,
+                ),
+            },
+        ];
+
+        for (left_index, left) in outcomes.iter().enumerate() {
+            for (right_index, right) in outcomes.iter().enumerate() {
+                let ordering = left.structural_cmp(right);
+                assert_eq!(ordering, right.structural_cmp(left).reverse());
+                assert_eq!(ordering == Ordering::Equal, left == right);
+                assert_eq!(ordering, left_index.cmp(&right_index));
+            }
+        }
+
+        let forward =
+            PythonImportGraph::new(outcomes.clone().into_iter().collect()).canonicalized_outcomes();
+        let reversed =
+            PythonImportGraph::new(outcomes.into_iter().rev().collect()).canonicalized_outcomes();
+        assert_eq!(forward, reversed);
+    }
+
+    #[test]
+    fn typed_module_order_import_outcomes_compare_every_variant_payload() {
+        let source = module("importer", 15);
+        let destination = module("imported", 16);
+        let edge = PythonImportEdge {
+            origin: Origin::new(source.file(), Span::new(1, 1)),
+            importer: source,
+            imported: destination,
+        };
+        let pairs = [
+            (
+                PythonImportOutcome::Evaluated {
+                    edge: edge.clone(),
+                    status: PythonImportEvaluationStatus::Resolved,
+                },
+                PythonImportOutcome::Evaluated {
+                    edge: edge.clone(),
+                    status: PythonImportEvaluationStatus::SyntaxErrors(vec![syntax_error("a")]),
+                },
+            ),
+            (
+                PythonImportOutcome::InvalidImport {
+                    origin: edge.origin,
+                    reason: PythonImportError::EmptyAbsoluteImport,
+                },
+                PythonImportOutcome::InvalidImport {
+                    origin: edge.origin,
+                    reason: PythonImportError::InvalidModuleName(
+                        crate::python::InvalidModuleName::InvalidSegment("!".to_string()),
+                    ),
+                },
+            ),
+            (
+                PythonImportOutcome::NotFound {
+                    origin: edge.origin,
+                    module: PythonModuleName::parse("a").unwrap(),
+                },
+                PythonImportOutcome::NotFound {
+                    origin: Origin::new(edge.origin.file, Span::new(2, 1)),
+                    module: PythonModuleName::parse("b").unwrap(),
+                },
+            ),
+            (
+                PythonImportOutcome::SkippedExternal {
+                    origin: edge.origin,
+                    module: PythonModuleName::parse("a").unwrap(),
+                },
+                PythonImportOutcome::SkippedExternal {
+                    origin: edge.origin,
+                    module: PythonModuleName::parse("b").unwrap(),
+                },
+            ),
+            (
+                PythonImportOutcome::Unreadable {
+                    edge: edge.clone(),
+                    error: FileReadError::new(
+                        Utf8PathBuf::from("/project/a.py"),
+                        ErrorKind::NotFound,
+                    ),
+                },
+                PythonImportOutcome::Unreadable {
+                    edge,
+                    error: FileReadError::new(
+                        Utf8PathBuf::from("/project/a.py"),
+                        ErrorKind::PermissionDenied,
+                    ),
+                },
+            ),
+        ];
+
+        for (left, right) in pairs {
+            assert_ne!(left.structural_cmp(&right), Ordering::Equal);
+            assert_eq!(
+                left.structural_cmp(&right),
+                right.structural_cmp(&left).reverse()
+            );
+        }
+    }
+
+    #[test]
     fn acyclic_graph_has_no_cycle_participant_or_canonical_edge() {
         let root = module("root", 1);
         let imported = module("imported", 2);
@@ -728,6 +1123,60 @@ mod tests {
             .canonicalized_outcomes();
 
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn typed_module_order_cycle_selection_breaks_old_debug_collisions_stably() {
+        // These modules have the same diagnostic Debug view but distinct typed
+        // File identity. The canonical edge must not depend on insertion order.
+        let first = module("same", 15);
+        let second = module("same", 16);
+        let forward = evaluated_edge(&first, &second, cycle_status());
+        let reverse = evaluated_edge(&second, &first, cycle_status());
+        let PythonImportOutcome::Evaluated {
+            edge: expected_edge,
+            ..
+        } = &forward
+        else {
+            unreachable!("helper always creates an evaluated edge")
+        };
+
+        let first_order =
+            PythonImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())
+                .canonical_cycle_edges();
+        let reversed_order =
+            PythonImportGraph::new([reverse.clone(), forward.clone()].into_iter().collect())
+                .canonical_cycle_edges();
+        assert_eq!(first_order.as_slice(), std::slice::from_ref(expected_edge));
+        assert_eq!(first_order, reversed_order);
+
+        let first_outcomes =
+            PythonImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())
+                .canonicalized_outcomes();
+        let reversed_outcomes = PythonImportGraph::new([reverse, forward].into_iter().collect())
+            .canonicalized_outcomes();
+        assert_eq!(first_outcomes, reversed_outcomes);
+    }
+
+    #[test]
+    fn typed_module_order_overlapping_cycle_selection_is_reversal_stable() {
+        let first = module("first", 15);
+        let second = module("second", 16);
+        let third = module("third", 17);
+        let outcomes = [
+            evaluated_edge(&first, &second, cycle_status()),
+            evaluated_edge(&second, &first, cycle_status()),
+            evaluated_edge(&second, &third, cycle_status()),
+            evaluated_edge(&third, &second, cycle_status()),
+        ];
+
+        let forward =
+            PythonImportGraph::new(outcomes.clone().into_iter().collect()).canonical_cycle_edges();
+        let reversed =
+            PythonImportGraph::new(outcomes.into_iter().rev().collect()).canonical_cycle_edges();
+
+        assert_eq!(forward.len(), 1);
+        assert_eq!(forward, reversed);
     }
 
     #[test]

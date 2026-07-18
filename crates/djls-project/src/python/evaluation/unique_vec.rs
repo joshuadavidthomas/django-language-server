@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct UniqueVec<T>(Vec<T>);
 
@@ -21,6 +23,10 @@ impl<T> UniqueVec<T> {
 
     pub(crate) fn retain(&mut self, predicate: impl FnMut(&T) -> bool) {
         self.0.retain(predicate);
+    }
+
+    pub(crate) fn sort_by(&mut self, compare: impl FnMut(&T, &T) -> Ordering) {
+        self.0.sort_by(compare);
     }
 
     pub(crate) fn sort_by_key<K: Ord>(&mut self, key: impl FnMut(&T) -> K) {

@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
 use djls_source::File;
+use djls_source::FileReadError;
 use djls_source::Origin;
 use salsa::plumbing::AsId as _;
 
@@ -145,8 +146,10 @@ impl StructuralOrder for Origin {
     }
 }
 
-pub(crate) fn origin_structural_key(origin: &Origin) -> <Origin as StructuralOrder>::Key {
-    origin.structural_key()
+fn file_read_error_structural_cmp(left: &FileReadError, right: &FileReadError) -> Ordering {
+    left.path()
+        .cmp(right.path())
+        .then_with(|| left.kind().cmp(&right.kind()))
 }
 
 #[cfg(test)]

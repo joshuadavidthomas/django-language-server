@@ -15,7 +15,7 @@ use super::PythonTuple;
 use super::ReachableAllocationSites;
 use super::StructuralOrder as _;
 use super::allocation::AllocationSites;
-use crate::python::InvalidModuleName;
+use super::file_read_error_structural_cmp;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
@@ -817,7 +817,7 @@ impl PythonUnknownCause {
                 let Self::InvalidImport(right) = other else {
                     unreachable!("equal unknown-cause ranks identify the same variant")
                 };
-                cmp_import_error(left, right)
+                left.structural_cmp(right)
             }
             Self::ImportNotFound(left) => {
                 let Self::ImportNotFound(right) = other else {
@@ -850,17 +850,13 @@ impl PythonUnknownCause {
                 let Self::Unreadable(right) = other else {
                     unreachable!("equal unknown-cause ranks identify the same variant")
                 };
-                left.path()
-                    .cmp(right.path())
-                    .then_with(|| left.kind().cmp(&right.kind()))
+                file_read_error_structural_cmp(left, right)
             }
             Self::SyntaxErrors(left) => {
                 let Self::SyntaxErrors(right) = other else {
                     unreachable!("equal unknown-cause ranks identify the same variant")
                 };
-                left.iter()
-                    .map(syntax_error_key)
-                    .cmp(right.iter().map(syntax_error_key))
+                PythonSyntaxError::structural_cmp_slice(left, right)
             }
             Self::Cycle => {
                 let Self::Cycle = other else {
@@ -874,112 +870,6 @@ impl PythonUnknownCause {
                 };
                 Ordering::Equal
             }
-        }
-    }
-}
-
-fn syntax_error_key(
-    error: &PythonSyntaxError,
-) -> (crate::python::PythonSyntaxErrorClass, u32, u32, &str) {
-    (
-        error.class,
-        error.span.start(),
-        error.span.length(),
-        error.message.as_str(),
-    )
-}
-
-fn cmp_import_error(left: &PythonImportError, right: &PythonImportError) -> Ordering {
-    match (left, right) {
-        (PythonImportError::EmptyAbsoluteImport, PythonImportError::EmptyAbsoluteImport)
-        | (PythonImportError::TooManyDots, PythonImportError::TooManyDots) => Ordering::Equal,
-        (
-            PythonImportError::InvalidModuleName(left),
-            PythonImportError::InvalidModuleName(right),
-        ) => cmp_invalid_module_name(left, right),
-        (
-            PythonImportError::EmptyAbsoluteImport,
-            PythonImportError::InvalidModuleName(_) | PythonImportError::TooManyDots,
-        )
-        | (PythonImportError::InvalidModuleName(_), PythonImportError::TooManyDots) => {
-            Ordering::Less
-        }
-        (
-            PythonImportError::InvalidModuleName(_) | PythonImportError::TooManyDots,
-            PythonImportError::EmptyAbsoluteImport,
-        )
-        | (PythonImportError::TooManyDots, PythonImportError::InvalidModuleName(_)) => {
-            Ordering::Greater
-        }
-    }
-}
-
-fn cmp_invalid_module_name(left: &InvalidModuleName, right: &InvalidModuleName) -> Ordering {
-    fn rank(error: &InvalidModuleName) -> u8 {
-        match error {
-            InvalidModuleName::ContainsConsecutiveDots => 0,
-            InvalidModuleName::ContainsWhitespace => 1,
-            InvalidModuleName::Empty => 2,
-            InvalidModuleName::EndsWithDot => 3,
-            InvalidModuleName::InvalidSegment(_) => 4,
-            InvalidModuleName::MustHavePyExtension => 5,
-            InvalidModuleName::SourcePathIsAbsolute(_) => 6,
-            InvalidModuleName::StartsWithDot => 7,
-        }
-    }
-
-    let ordering = rank(left).cmp(&rank(right));
-    if ordering != Ordering::Equal {
-        return ordering;
-    }
-    match left {
-        InvalidModuleName::Empty => {
-            let InvalidModuleName::Empty = right else {
-                unreachable!("equal module-name-error ranks identify the same variant")
-            };
-            Ordering::Equal
-        }
-        InvalidModuleName::ContainsWhitespace => {
-            let InvalidModuleName::ContainsWhitespace = right else {
-                unreachable!("equal module-name-error ranks identify the same variant")
-            };
-            Ordering::Equal
-        }
-        InvalidModuleName::StartsWithDot => {
-            let InvalidModuleName::StartsWithDot = right else {
-                unreachable!("equal module-name-error ranks identify the same variant")
-            };
-            Ordering::Equal
-        }
-        InvalidModuleName::EndsWithDot => {
-            let InvalidModuleName::EndsWithDot = right else {
-                unreachable!("equal module-name-error ranks identify the same variant")
-            };
-            Ordering::Equal
-        }
-        InvalidModuleName::ContainsConsecutiveDots => {
-            let InvalidModuleName::ContainsConsecutiveDots = right else {
-                unreachable!("equal module-name-error ranks identify the same variant")
-            };
-            Ordering::Equal
-        }
-        InvalidModuleName::InvalidSegment(left) => {
-            let InvalidModuleName::InvalidSegment(right) = right else {
-                unreachable!("equal module-name-error ranks identify the same variant")
-            };
-            left.cmp(right)
-        }
-        InvalidModuleName::MustHavePyExtension => {
-            let InvalidModuleName::MustHavePyExtension = right else {
-                unreachable!("equal module-name-error ranks identify the same variant")
-            };
-            Ordering::Equal
-        }
-        InvalidModuleName::SourcePathIsAbsolute(left) => {
-            let InvalidModuleName::SourcePathIsAbsolute(right) = right else {
-                unreachable!("equal module-name-error ranks identify the same variant")
-            };
-            left.cmp(right)
         }
     }
 }
@@ -1011,8 +901,6 @@ mod tests {
     use super::PythonValueEvidenceSet;
     use super::PythonValueKind;
     use super::ReachableAllocationSites;
-    use super::cmp_import_error;
-    use super::cmp_invalid_module_name;
     use crate::python::InvalidModuleName;
     use crate::python::PythonModuleName;
     use crate::python::PythonSyntaxError;
@@ -1153,7 +1041,7 @@ mod tests {
         ];
         for (index, left) in import_errors.iter().enumerate() {
             for (other_index, right) in import_errors.iter().enumerate() {
-                assert_eq!(cmp_import_error(left, right), index.cmp(&other_index));
+                assert_eq!(left.structural_cmp(right), index.cmp(&other_index));
             }
         }
 
@@ -1169,8 +1057,8 @@ mod tests {
         ];
         for (index, left) in module_name_errors.iter().enumerate() {
             for (other_index, right) in module_name_errors.iter().enumerate() {
-                let ordering = cmp_invalid_module_name(left, right);
-                assert_eq!(ordering, cmp_invalid_module_name(right, left).reverse());
+                let ordering = left.structural_cmp(right);
+                assert_eq!(ordering, right.structural_cmp(left).reverse());
                 assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
                 assert_eq!(ordering, index.cmp(&other_index));
             }

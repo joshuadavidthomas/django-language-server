@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt;
 
 use camino::Utf8Path;
@@ -11,6 +12,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
+use crate::python::evaluation::StructuralOrder as _;
 use crate::python::search_paths::SearchPath;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -362,6 +364,15 @@ pub fn file_to_module_resolution(
 }
 
 impl PythonModule {
+    pub(in crate::python) fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.name
+            .cmp(&other.name)
+            .then_with(|| self.package.cmp(&other.package))
+            .then_with(|| self.path.cmp(&other.path))
+            .then_with(|| self.file.structural_cmp(&other.file))
+            .then_with(|| self.search_path.structural_cmp(&other.search_path))
+    }
+
     fn regular_package(
         name: PythonModuleName,
         path: Utf8PathBuf,
@@ -471,6 +482,22 @@ impl PythonModule {
     }
 }
 
+impl PythonImportError {
+    pub(in crate::python) fn structural_cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::EmptyAbsoluteImport, Self::EmptyAbsoluteImport)
+            | (Self::TooManyDots, Self::TooManyDots) => Ordering::Equal,
+            (Self::InvalidModuleName(left), Self::InvalidModuleName(right)) => {
+                left.structural_cmp(right)
+            }
+            (Self::EmptyAbsoluteImport, Self::InvalidModuleName(_) | Self::TooManyDots)
+            | (Self::InvalidModuleName(_), Self::TooManyDots) => Ordering::Less,
+            (Self::InvalidModuleName(_) | Self::TooManyDots, Self::EmptyAbsoluteImport)
+            | (Self::TooManyDots, Self::InvalidModuleName(_)) => Ordering::Greater,
+        }
+    }
+}
+
 impl fmt::Debug for PythonModule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PythonModule")
@@ -495,6 +522,48 @@ mod tests {
             File::from_id(Id::from_bits(1)),
             SearchPath::FirstParty(Utf8PathBuf::from("/project")),
         )
+    }
+
+    #[test]
+    fn typed_module_order_compares_every_equality_bearing_field() {
+        let base = PythonModule {
+            name: PythonModuleName::parse("pkg.module").unwrap(),
+            package: Some(PythonModuleName::parse("pkg").unwrap()),
+            path: Utf8PathBuf::from("/project/pkg/module.py"),
+            file: File::from_id(Id::from_bits(15)),
+            search_path: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+        };
+        let unequal = [
+            PythonModule {
+                name: PythonModuleName::parse("pkg.other").unwrap(),
+                ..base.clone()
+            },
+            PythonModule {
+                package: None,
+                ..base.clone()
+            },
+            PythonModule {
+                path: Utf8PathBuf::from("/project/pkg/other.py"),
+                ..base.clone()
+            },
+            PythonModule {
+                file: File::from_id(Id::from_bits(16)),
+                ..base.clone()
+            },
+            PythonModule {
+                search_path: SearchPath::Extra(Utf8PathBuf::from("/project")),
+                ..base.clone()
+            },
+        ];
+
+        assert_eq!(base.structural_cmp(&base), std::cmp::Ordering::Equal);
+        for other in &unequal {
+            assert_ne!(base.structural_cmp(other), std::cmp::Ordering::Equal);
+            assert_eq!(
+                base.structural_cmp(other),
+                other.structural_cmp(&base).reverse()
+            );
+        }
     }
 
     #[test]

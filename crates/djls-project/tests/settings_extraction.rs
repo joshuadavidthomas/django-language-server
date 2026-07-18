@@ -2215,31 +2215,40 @@ fn relative_import_cycle_uses_module_identities_in_overlapping_roots() {
 }
 
 #[test]
-fn disjoint_import_cycles_each_keep_a_canonical_edge() {
-    let db = TestDatabase::new();
-    db.add_file("/project/settings.py", "from a import A\nfrom x import X\n");
-    db.add_file("/project/a.py", "from b import B\nA = B\n");
-    db.add_file("/project/b.py", "from a import A\nB = A\n");
-    db.add_file("/project/x.py", "from y import Y\nX = Y\n");
-    db.add_file("/project/y.py", "from x import X\nY = X\n");
-    let project = python_project(&db);
-    let settings = db.file(Utf8Path::new("/project/settings.py"));
+fn typed_module_order_disjoint_import_cycles_are_root_order_independent() {
+    let cycle_edges = |settings_source| {
+        let db = TestDatabase::new();
+        db.add_file("/project/settings.py", settings_source);
+        db.add_file("/project/a.py", "from b import B\nA = B\n");
+        db.add_file("/project/b.py", "from a import A\nB = A\n");
+        db.add_file("/project/x.py", "from y import Y\nX = Y\n");
+        db.add_file("/project/y.py", "from x import X\nY = X\n");
+        let project = python_project(&db);
+        let settings = db.file(Utf8Path::new("/project/settings.py"));
 
-    let evaluation = python_module_evaluation(&db, project, settings);
-    let cycles = evaluation
-        .imports
-        .iter()
-        .filter_map(|outcome| match outcome {
-            PythonImportOutcomeView::Cycle {
-                importer_module,
-                imported_module,
-                ..
-            } => Some((importer_module.as_str(), imported_module.as_str())),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+        python_module_evaluation(&db, project, settings)
+            .imports
+            .iter()
+            .filter_map(|outcome| match outcome {
+                PythonImportOutcomeView::Cycle {
+                    importer_module,
+                    imported_module,
+                    ..
+                } => Some((
+                    importer_module.as_str().to_string(),
+                    imported_module.as_str().to_string(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
 
-    assert_eq!(cycles, [("a", "b"), ("x", "y")]);
+    let expected = [
+        ("a".to_string(), "b".to_string()),
+        ("x".to_string(), "y".to_string()),
+    ];
+    assert_eq!(cycle_edges("from a import A\nfrom x import X\n"), expected);
+    assert_eq!(cycle_edges("from x import X\nfrom a import A\n"), expected);
 }
 
 #[test]

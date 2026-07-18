@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 
@@ -25,6 +26,51 @@ pub enum InvalidModuleName {
     MustHavePyExtension,
     #[error("python module source path must be relative, got absolute: {0}")]
     SourcePathIsAbsolute(String),
+}
+
+impl InvalidModuleName {
+    fn structural_rank(&self) -> u8 {
+        match self {
+            Self::ContainsConsecutiveDots => 0,
+            Self::ContainsWhitespace => 1,
+            Self::Empty => 2,
+            Self::EndsWithDot => 3,
+            Self::InvalidSegment(_) => 4,
+            Self::MustHavePyExtension => 5,
+            Self::SourcePathIsAbsolute(_) => 6,
+            Self::StartsWithDot => 7,
+        }
+    }
+
+    pub(in crate::python) fn structural_cmp(&self, other: &Self) -> Ordering {
+        let ordering = self.structural_rank().cmp(&other.structural_rank());
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+        match (self, other) {
+            (Self::Empty, Self::Empty)
+            | (Self::ContainsWhitespace, Self::ContainsWhitespace)
+            | (Self::StartsWithDot, Self::StartsWithDot)
+            | (Self::EndsWithDot, Self::EndsWithDot)
+            | (Self::ContainsConsecutiveDots, Self::ContainsConsecutiveDots)
+            | (Self::MustHavePyExtension, Self::MustHavePyExtension) => Ordering::Equal,
+            (Self::InvalidSegment(left), Self::InvalidSegment(right))
+            | (Self::SourcePathIsAbsolute(left), Self::SourcePathIsAbsolute(right)) => {
+                left.cmp(right)
+            }
+            (
+                Self::Empty
+                | Self::ContainsWhitespace
+                | Self::StartsWithDot
+                | Self::EndsWithDot
+                | Self::ContainsConsecutiveDots
+                | Self::InvalidSegment(_)
+                | Self::MustHavePyExtension
+                | Self::SourcePathIsAbsolute(_),
+                _,
+            ) => unreachable!("equal module-name-error ranks identify the same variant"),
+        }
+    }
 }
 
 /// A dotted Python module name, e.g. `"myapp.models"`.
