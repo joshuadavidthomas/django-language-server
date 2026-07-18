@@ -66,7 +66,7 @@ impl CanonicalOrigins {
             return;
         }
         self.0.push(origin);
-        self.0.sort_by(cmp_origin);
+        self.0.sort_by(StructuralOrder::structural_cmp);
     }
 
     fn extend(&mut self, origins: impl IntoIterator<Item = Origin>) {
@@ -95,18 +95,11 @@ impl CanonicalOrigins {
         self.0.contains(&origin)
     }
 
-    #[allow(
-        dead_code,
-        reason = "composed by the typed aggregate ordering in Plans 047 and 048"
-    )]
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
-        for (left, right) in self.0.iter().zip(&other.0) {
-            let ordering = cmp_origin(left, right);
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        self.0.len().cmp(&other.0.len())
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.0
+            .iter()
+            .map(StructuralOrder::structural_key)
+            .cmp(other.0.iter().map(StructuralOrder::structural_key))
     }
 }
 
@@ -118,24 +111,42 @@ impl FromIterator<Origin> for CanonicalOrigins {
     }
 }
 
-pub(crate) fn cmp_file(left: File, right: File) -> Ordering {
-    left.as_id().cmp(&right.as_id())
+/// Evaluator-owned structural ordering for Salsa-backed source-provenance leaves.
+///
+/// This remains deliberately narrower than `Ord`: only evaluator
+/// structural comparison should depend on process-local Salsa identity ordering.
+pub(crate) trait StructuralOrder {
+    type Key: Ord;
+
+    fn structural_key(&self) -> Self::Key;
+
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.structural_key().cmp(&other.structural_key())
+    }
 }
 
-pub(crate) fn cmp_origin(left: &Origin, right: &Origin) -> Ordering {
-    cmp_file(left.file, right.file)
-        .then_with(|| left.span.start().cmp(&right.span.start()))
-        .then_with(|| left.span.length().cmp(&right.span.length()))
+impl StructuralOrder for File {
+    type Key = salsa::Id;
+
+    fn structural_key(&self) -> Self::Key {
+        self.as_id()
+    }
 }
 
-// Plans 047 and 048 still compose this leaf key with aggregate Debug keys. Keep
-// their aggregate policy unchanged while making the provenance fields typed.
-pub(crate) fn origin_sort_key(origin: &Origin) -> (salsa::Id, u32, u32) {
-    (
-        origin.file.as_id(),
-        origin.span.start(),
-        origin.span.length(),
-    )
+impl StructuralOrder for Origin {
+    type Key = (salsa::Id, u32, u32);
+
+    fn structural_key(&self) -> Self::Key {
+        (
+            self.file.structural_key(),
+            self.span.start(),
+            self.span.length(),
+        )
+    }
+}
+
+pub(crate) fn origin_structural_key(origin: &Origin) -> <Origin as StructuralOrder>::Key {
+    origin.structural_key()
 }
 
 #[cfg(test)]
@@ -149,8 +160,7 @@ mod tests {
 
     use super::CanonicalOrigins;
     use super::Origin;
-    use super::cmp_file;
-    use super::cmp_origin;
+    use super::StructuralOrder as _;
 
     fn file(index: u32) -> File {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
@@ -172,11 +182,11 @@ mod tests {
         assert_eq!(numerically_first.as_id().index(), 15);
         assert_eq!(numerically_later.as_id().index(), 16);
         assert_eq!(
-            cmp_file(numerically_first, numerically_later),
+            numerically_first.structural_cmp(&numerically_later),
             Ordering::Less
         );
         assert_eq!(
-            cmp_file(numerically_later, numerically_first),
+            numerically_later.structural_cmp(&numerically_first),
             Ordering::Greater
         );
     }
@@ -188,15 +198,15 @@ mod tests {
         let earlier_start = origin(15, 3, 9);
         let shorter = origin(15, 4, 2);
 
-        assert_eq!(cmp_origin(&first_file, &later_file), Ordering::Less);
-        assert_eq!(cmp_origin(&earlier_start, &shorter), Ordering::Less);
-        assert_eq!(cmp_origin(&shorter, &first_file), Ordering::Less);
+        assert_eq!(first_file.structural_cmp(&later_file), Ordering::Less);
+        assert_eq!(earlier_start.structural_cmp(&shorter), Ordering::Less);
+        assert_eq!(shorter.structural_cmp(&first_file), Ordering::Less);
 
         for unequal in [later_file, earlier_start, shorter] {
-            assert_ne!(cmp_origin(&first_file, &unequal), Ordering::Equal);
-            assert_ne!(cmp_origin(&unequal, &first_file), Ordering::Equal);
+            assert_ne!(first_file.structural_cmp(&unequal), Ordering::Equal);
+            assert_ne!(unequal.structural_cmp(&first_file), Ordering::Equal);
         }
-        assert_eq!(cmp_origin(&first_file, &first_file), Ordering::Equal);
+        assert_eq!(first_file.structural_cmp(&first_file), Ordering::Equal);
     }
 
     #[test]
@@ -210,13 +220,13 @@ mod tests {
         let forward: CanonicalOrigins = [second, first, second].into_iter().collect();
         let reversed: CanonicalOrigins = [first, second].into_iter().collect();
         assert_eq!(forward, reversed);
-        assert_eq!(forward.canonical_cmp(&reversed), Ordering::Equal);
+        assert_eq!(forward.structural_cmp(&reversed), Ordering::Equal);
         assert_eq!(forward.iter().collect::<Vec<_>>(), [first, second]);
         assert!(forward.contains(first));
         assert!(forward.contains(second));
 
         let extended: CanonicalOrigins = [first, second, origin(16, 0, 1)].into_iter().collect();
-        assert_eq!(forward.canonical_cmp(&extended), Ordering::Less);
-        assert_eq!(extended.canonical_cmp(&forward), Ordering::Greater);
+        assert_eq!(forward.structural_cmp(&extended), Ordering::Less);
+        assert_eq!(extended.structural_cmp(&forward), Ordering::Greater);
     }
 }

@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use djls_source::Origin;
 
 use super::BranchConstraints;
@@ -131,6 +133,19 @@ impl PythonDict {
                 entry.value.normalize();
             }
         }
+    }
+
+    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.items.iter().zip(&other.items) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.items.len().cmp(&other.items.len()).then_with(|| {
+            self.allocation_sites
+                .structural_cmp(&other.allocation_sites)
+        })
     }
 
     pub(super) fn same_semantic_value(&self, other: &Self) -> bool {
@@ -416,6 +431,22 @@ struct PythonDictEntry {
     value: PythonValue,
 }
 
+impl PythonDictItem {
+    /// Entries precede unknown unpacks, preserving the ordered-log retention
+    /// policy while comparing each payload structurally.
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Entry(left), Self::Entry(right)) => left
+                .key
+                .structural_cmp(&right.key)
+                .then_with(|| left.value.structural_cmp(&right.value)),
+            (Self::Entry(_), Self::UnknownUnpack(_)) => Ordering::Less,
+            (Self::UnknownUnpack(_), Self::Entry(_)) => Ordering::Greater,
+            (Self::UnknownUnpack(left), Self::UnknownUnpack(right)) => left.structural_cmp(right),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use djls_source::File;
@@ -454,6 +485,57 @@ mod tests {
             PythonUnknownCause::UnsupportedExpression,
             Some(origin(offset)),
         )
+    }
+
+    #[test]
+    fn typed_value_order_mapping_log_is_total_and_source_ordered() {
+        let entry = dict_with(vec![(str_value("a", 1), str_value("value", 2))]);
+        let mut unpack = PythonDict::empty(origin(0));
+        unpack.extend_from_unpack(unknown(3), origin(3));
+        assert_eq!(
+            entry.structural_cmp(&unpack),
+            std::cmp::Ordering::Less,
+            "entries precede unknown unpacks"
+        );
+
+        let forward = dict_with(vec![
+            (str_value("a", 1), str_value("first", 2)),
+            (str_value("b", 3), str_value("second", 4)),
+        ]);
+        let reversed = dict_with(vec![
+            (str_value("b", 3), str_value("second", 4)),
+            (str_value("a", 1), str_value("first", 2)),
+        ]);
+        assert_ne!(forward, reversed);
+        assert_ne!(forward.structural_cmp(&reversed), std::cmp::Ordering::Equal);
+        assert_eq!(
+            forward.structural_cmp(&reversed),
+            reversed.structural_cmp(&forward).reverse()
+        );
+
+        let different_site = dict_with(vec![(str_value("a", 1), str_value("value", 2))]);
+        let mut different_site = different_site;
+        different_site.allocation_sites = super::AllocationSites::one(origin(9));
+        assert_ne!(
+            entry.structural_cmp(&different_site),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn typed_value_order_mapping_keeps_semantic_merge_separate_from_provenance() {
+        let mut first = dict_with(vec![(str_value("key", 1), str_value("value", 2))]);
+        let second = dict_with(vec![(str_value("key", 3), str_value("value", 4))]);
+        assert!(first.same_semantic_value(&second));
+        assert_ne!(first.structural_cmp(&second), std::cmp::Ordering::Equal);
+
+        first.merge_semantically_equal(second, None);
+        let projection = first.mapping().projection().collect::<Vec<_>>();
+        let [MappingProjection::Entry { key, value }] = projection.as_slice() else {
+            panic!("the merged dictionary should retain one entry")
+        };
+        assert_eq!(key.origins().collect::<Vec<_>>(), [origin(1), origin(3)]);
+        assert_eq!(value.origins().collect::<Vec<_>>(), [origin(2), origin(4)]);
     }
 
     #[test]

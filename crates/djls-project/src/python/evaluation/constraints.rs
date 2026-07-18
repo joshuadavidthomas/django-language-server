@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use djls_source::Origin;
 
-use super::cmp_origin;
+use super::StructuralOrder;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BranchConstraints {
@@ -41,11 +41,7 @@ impl BranchConstraints {
         self.alternatives.dedup();
     }
 
-    #[allow(
-        dead_code,
-        reason = "composed by the typed aggregate ordering in Plans 047 and 048"
-    )]
-    pub(super) fn canonical_cmp(&self, other: &Self) -> Ordering {
+    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
         for (left, right) in self.alternatives.iter().zip(&other.alternatives) {
             let ordering = cmp_conjunction(left, right);
             if ordering != Ordering::Equal {
@@ -102,18 +98,18 @@ impl BranchConstraints {
     }
 }
 
+fn branch_choice_sort_key(choice: &(Origin, usize)) -> (<Origin as StructuralOrder>::Key, usize) {
+    (choice.0.structural_key(), choice.1)
+}
+
 fn cmp_branch_choice(left: &(Origin, usize), right: &(Origin, usize)) -> Ordering {
-    cmp_origin(&left.0, &right.0).then_with(|| left.1.cmp(&right.1))
+    branch_choice_sort_key(left).cmp(&branch_choice_sort_key(right))
 }
 
 fn cmp_conjunction(left: &[(Origin, usize)], right: &[(Origin, usize)]) -> Ordering {
-    for (left, right) in left.iter().zip(right) {
-        let ordering = cmp_branch_choice(left, right);
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-    left.len().cmp(&right.len())
+    left.iter()
+        .map(branch_choice_sort_key)
+        .cmp(right.iter().map(branch_choice_sort_key))
 }
 
 #[cfg(test)]
@@ -161,8 +157,8 @@ mod tests {
         let second_arm = selected(join, 1);
 
         assert_ne!(first_arm, second_arm);
-        assert_eq!(first_arm.canonical_cmp(&second_arm), Ordering::Less);
-        assert_eq!(second_arm.canonical_cmp(&first_arm), Ordering::Greater);
+        assert_eq!(first_arm.structural_cmp(&second_arm), Ordering::Less);
+        assert_eq!(second_arm.structural_cmp(&first_arm), Ordering::Greater);
 
         let mut alternatives = second_arm.clone();
         alternatives.merge(first_arm.clone());
@@ -170,7 +166,7 @@ mod tests {
             alternatives.alternatives,
             vec![vec![(join, 0)], vec![(join, 1)]]
         );
-        assert_ne!(alternatives.canonical_cmp(&first_arm), Ordering::Equal);
+        assert_ne!(alternatives.structural_cmp(&first_arm), Ordering::Equal);
     }
 
     #[test]
@@ -197,9 +193,9 @@ mod tests {
         for left in &constraints {
             for right in &constraints {
                 assert_eq!(
-                    left.canonical_cmp(right) == Ordering::Equal,
+                    left.structural_cmp(right) == Ordering::Equal,
                     left == right,
-                    "structural equality and canonical comparison must agree"
+                    "structural equality and comparison must agree"
                 );
             }
         }
@@ -216,7 +212,7 @@ mod tests {
         reversed_conjunction.select(first, 0);
         assert_eq!(forward_conjunction, reversed_conjunction);
         assert_eq!(
-            forward_conjunction.canonical_cmp(&reversed_conjunction),
+            forward_conjunction.structural_cmp(&reversed_conjunction),
             Ordering::Equal
         );
 
@@ -228,7 +224,7 @@ mod tests {
         reversed_disjunction.merge(first_alternative);
         assert_eq!(forward_disjunction, reversed_disjunction);
         assert_eq!(
-            forward_disjunction.canonical_cmp(&reversed_disjunction),
+            forward_disjunction.structural_cmp(&reversed_disjunction),
             Ordering::Equal
         );
     }

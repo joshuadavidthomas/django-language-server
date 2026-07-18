@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use djls_source::Origin;
 
 use super::BranchConstraints;
@@ -124,6 +126,13 @@ impl PythonList {
         self.sequence.normalize(None);
     }
 
+    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.sequence.structural_cmp(&other.sequence).then_with(|| {
+            self.allocation_sites
+                .structural_cmp(&other.allocation_sites)
+        })
+    }
+
     pub(super) fn same_semantic_value(&self, other: &Self) -> bool {
         self.sequence.same_semantic_value(&other.sequence)
     }
@@ -206,6 +215,10 @@ impl PythonTuple {
 
     pub(super) fn normalize(&mut self) {
         self.sequence.normalize(None);
+    }
+
+    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.sequence.structural_cmp(&other.sequence)
     }
 
     pub(super) fn same_semantic_value(&self, other: &Self) -> bool {
@@ -391,6 +404,11 @@ impl SequenceFacts {
         }));
     }
 
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        PythonSequenceItem::slices_structural_cmp(&self.summary, &other.summary)
+            .then_with(|| self.alternatives.structural_cmp(&other.alternatives))
+    }
+
     fn same_semantic_value(&self, other: &Self) -> bool {
         PythonSequenceItem::slices_same_semantic_value(&self.summary, &other.summary)
     }
@@ -418,6 +436,21 @@ struct SequenceAlternativeRemainder {
     constraints: BranchConstraints,
 }
 
+impl ConstrainedExactSequence {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        PythonSequenceItem::slices_structural_cmp(&self.items, &other.items)
+            .then_with(|| self.constraints.structural_cmp(&other.constraints))
+    }
+}
+
+impl SequenceAlternativeRemainder {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.origins
+            .structural_cmp(&other.origins)
+            .then_with(|| self.constraints.structural_cmp(&other.constraints))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SequenceAlternatives {
     exact: Vec<ConstrainedExactSequence>,
@@ -425,6 +458,25 @@ struct SequenceAlternatives {
 }
 
 impl SequenceAlternatives {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.exact.iter().zip(&other.exact) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        let ordering = self.exact.len().cmp(&other.exact.len());
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+        match (&self.remainder, &other.remainder) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (Some(left), Some(right)) => left.structural_cmp(right),
+        }
+    }
+
     fn one(items: Vec<PythonSequenceItem>) -> Self {
         Self {
             exact: vec![ConstrainedExactSequence {
@@ -585,8 +637,7 @@ impl SequenceAlternatives {
         {
             self.remainder = None;
         }
-        self.exact
-            .sort_by_cached_key(|alternative| format!("{alternative:?}"));
+        self.exact.sort_by(ConstrainedExactSequence::structural_cmp);
         self.exact.dedup();
 
         if self.exact.len() > MAX_EXACT_PYTHON_ALTERNATIVES {
@@ -712,6 +763,30 @@ pub(crate) enum PythonSequenceItem {
 }
 
 impl PythonSequenceItem {
+    /// `UnknownElement` < `UnknownUnpack` < Value preserves the exact-alternative
+    /// cap's previously observed cross-variant retention policy.
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::UnknownElement(left), Self::UnknownElement(right))
+            | (Self::UnknownUnpack(left), Self::UnknownUnpack(right)) => left.structural_cmp(right),
+            (Self::Value(left), Self::Value(right)) => left.structural_cmp(right),
+            (Self::UnknownElement(_), Self::UnknownUnpack(_) | Self::Value(_))
+            | (Self::UnknownUnpack(_), Self::Value(_)) => Ordering::Less,
+            (Self::UnknownUnpack(_) | Self::Value(_), Self::UnknownElement(_))
+            | (Self::Value(_), Self::UnknownUnpack(_)) => Ordering::Greater,
+        }
+    }
+
+    fn slices_structural_cmp(left: &[Self], right: &[Self]) -> Ordering {
+        for (left, right) in left.iter().zip(right) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        left.len().cmp(&right.len())
+    }
+
     fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
         if let Self::Value(value) = self {
             value.constrain_value_evidence(constraints);
@@ -905,6 +980,74 @@ mod tests {
     }
 
     #[test]
+    fn typed_value_order_sequence_items_and_exact_rows_are_total() {
+        let unknown = PythonUnknown::new(PythonUnknownCause::Cycle, [origin(1)]);
+        let items = [
+            PythonSequenceItem::UnknownElement(unknown.clone()),
+            PythonSequenceItem::UnknownUnpack(unknown),
+            str_item("value", 1),
+        ];
+        for (index, left) in items.iter().enumerate() {
+            for (other_index, right) in items.iter().enumerate() {
+                let ordering = left.structural_cmp(right);
+                assert_eq!(ordering, right.structural_cmp(left).reverse());
+                assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
+                assert_eq!(ordering, index.cmp(&other_index));
+            }
+        }
+
+        let join = origin(50);
+        let constrained = |arm| {
+            let mut constraints = BranchConstraints::unconstrained();
+            constraints.select(join, arm);
+            ConstrainedExactSequence {
+                items: vec![str_item("same", 1)],
+                constraints,
+            }
+        };
+        let first = constrained(0);
+        let second = constrained(1);
+        assert_ne!(first, second);
+        assert_ne!(first.structural_cmp(&second), std::cmp::Ordering::Equal);
+
+        let different_evidence = ConstrainedExactSequence {
+            items: vec![str_item("same", 2)],
+            constraints: first.constraints.clone(),
+        };
+        assert_ne!(first, different_evidence);
+        assert_ne!(
+            first.structural_cmp(&different_evidence),
+            std::cmp::Ordering::Equal
+        );
+
+        let alternatives = |remainder_origin, remainder_constraints| SequenceAlternatives {
+            exact: vec![first.clone()],
+            remainder: Some(SequenceAlternativeRemainder {
+                origins: [remainder_origin].into_iter().collect(),
+                constraints: remainder_constraints,
+            }),
+        };
+        let first_remainder = alternatives(origin(60), BranchConstraints::unconstrained());
+        let different_remainder_origin =
+            alternatives(origin(61), BranchConstraints::unconstrained());
+        let different_remainder_constraints = alternatives(origin(60), {
+            let mut constraints = BranchConstraints::unconstrained();
+            constraints.select(join, 1);
+            constraints
+        });
+        for other in [
+            &different_remainder_origin,
+            &different_remainder_constraints,
+        ] {
+            assert_ne!(&first_remainder, other);
+            assert_ne!(
+                first_remainder.structural_cmp(other),
+                std::cmp::Ordering::Equal
+            );
+        }
+    }
+
+    #[test]
     fn correlated_sequence_merge_obeys_laws_and_retains_alternatives() {
         let forward = merge_all(vec![pair(10, 21), pair(20, 11), pair(30, 31)], 1_000);
         let reversed = merge_all(vec![pair(30, 31), pair(20, 11), pair(10, 21)], 1_000);
@@ -1093,25 +1236,37 @@ mod tests {
     }
 
     #[test]
-    fn sequence_alternative_merge_is_capped_at_the_exact_boundary() {
+    fn typed_value_order_sequence_cap_retains_the_same_rows_for_reversed_input() {
         let mut at_limit = correlated_strings(0..32);
         at_limit.merge_semantically_equal(correlated_strings(32..64), Some(origin(1_000)));
         assert_eq!(at_limit.alternatives.exact.len(), 64);
         assert!(at_limit.alternatives.remainder.is_none());
 
-        let mut overflowed = correlated_strings(0..32);
-        overflowed.merge_semantically_equal(correlated_strings(32..65), Some(origin(2_000)));
-        assert_eq!(overflowed.alternatives.exact.len(), 64);
-        let origins = &overflowed
+        let mut forward = correlated_strings(0..32);
+        forward.merge_semantically_equal(correlated_strings(32..65), Some(origin(2_000)));
+        let mut reversed = correlated_strings(32..65);
+        reversed.merge_semantically_equal(correlated_strings(0..32), Some(origin(2_000)));
+        assert_eq!(forward, reversed);
+        assert_eq!(forward.alternatives.exact.len(), 64);
+        assert_eq!(
+            forward
+                .alternatives
+                .exact
+                .iter()
+                .map(|alternative| value_origin_start(&alternative.items[0]))
+                .collect::<Vec<_>>(),
+            (0..64).collect::<Vec<_>>(),
+            "the typed order retains the same exact 64-row subset"
+        );
+        let origins = &forward
             .alternatives
             .remainder
             .as_ref()
             .expect("overflow should retain a remainder")
             .origins;
-        assert!(origins.contains(origin(2_000)));
-        assert!(
-            origins.iter().len() > 1,
-            "omitted path evidence should survive"
+        assert_eq!(
+            origins.iter().collect::<Vec<_>>(),
+            [origin(64), origin(2_000)]
         );
     }
 

@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use camino::Utf8PathBuf;
 use djls_source::FileReadError;
 use djls_source::Origin;
@@ -11,8 +13,9 @@ use super::PythonSequence;
 use super::PythonSequenceItem;
 use super::PythonTuple;
 use super::ReachableAllocationSites;
+use super::StructuralOrder as _;
 use super::allocation::AllocationSites;
-use super::origin_sort_key;
+use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
@@ -88,13 +91,18 @@ impl PythonValueEvidenceSet {
         }
     }
 
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.0.iter().zip(&other.0) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.0.len().cmp(&other.0.len())
+    }
+
     fn normalize(&mut self) {
-        self.0.sort_by_key(|evidence| {
-            (
-                origin_sort_key(&evidence.origin),
-                format!("{:?}", evidence.constraints),
-            )
-        });
+        self.0.sort_by(PythonValueEvidence::structural_cmp);
         let mut normalized: Vec<PythonValueEvidence> = Vec::with_capacity(self.0.len());
         for evidence in std::mem::take(&mut self.0) {
             if let Some(existing) = normalized
@@ -107,6 +115,14 @@ impl PythonValueEvidenceSet {
             }
         }
         self.0 = normalized;
+    }
+}
+
+impl PythonValueEvidence {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.origin
+            .structural_cmp(&other.origin)
+            .then_with(|| self.constraints.structural_cmp(&other.constraints))
     }
 }
 
@@ -518,6 +534,12 @@ impl PythonValue {
         }
     }
 
+    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.kind
+            .structural_cmp(&other.kind)
+            .then_with(|| self.evidence.structural_cmp(&other.evidence))
+    }
+
     pub(super) fn same_semantic_value(&self, other: &Self) -> bool {
         self.kind.same_semantic_value(&other.kind)
     }
@@ -547,6 +569,71 @@ pub(crate) enum PythonValueKind {
 }
 
 impl PythonValueKind {
+    /// Typed precedence matching the evaluator's previously observed retained
+    /// subsets: Bool < Dict < List < Path < Str < Tuple < Unknown.
+    fn structural_rank(&self) -> u8 {
+        match self {
+            Self::Bool(_) => 0,
+            Self::Dict(_) => 1,
+            Self::List(_) => 2,
+            Self::Path(_) => 3,
+            Self::Str(_) => 4,
+            Self::Tuple(_) => 5,
+            Self::Unknown(_) => 6,
+        }
+    }
+
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        let ordering = self.structural_rank().cmp(&other.structural_rank());
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+        match self {
+            Self::Str(left) => {
+                let Self::Str(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.cmp(right)
+            }
+            Self::Bool(left) => {
+                let Self::Bool(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.cmp(right)
+            }
+            Self::Path(left) => {
+                let Self::Path(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.cmp(right)
+            }
+            Self::List(left) => {
+                let Self::List(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.structural_cmp(right)
+            }
+            Self::Tuple(left) => {
+                let Self::Tuple(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.structural_cmp(right)
+            }
+            Self::Dict(left) => {
+                let Self::Dict(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.structural_cmp(right)
+            }
+            Self::Unknown(left) => {
+                let Self::Unknown(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.structural_cmp(right)
+            }
+        }
+    }
+
     fn normalize(&mut self) {
         match self {
             Self::List(list) => list.normalize(),
@@ -663,6 +750,12 @@ impl PythonUnknown {
     pub(super) fn replace_origins(&mut self, origins: impl IntoIterator<Item = Origin>) {
         self.origins.replace(origins);
     }
+
+    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.cause
+            .structural_cmp(&other.cause)
+            .then_with(|| self.origins.structural_cmp(&other.origins))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -682,10 +775,222 @@ pub(crate) enum PythonUnknownCause {
     AlternativeLimitExceeded,
 }
 
+impl PythonUnknownCause {
+    /// Typed precedence matching the evaluator's previously observed retained
+    /// subsets: `AlternativeLimitExceeded`, Cycle, `ImportNotFound`, `InvalidImport`,
+    /// `MissingImportMember`, `SkippedExternal`, `SyntaxErrors`, Unreadable,
+    /// `UnsupportedExpression`, `UnsupportedMutation`.
+    fn structural_rank(&self) -> u8 {
+        match self {
+            Self::AlternativeLimitExceeded => 0,
+            Self::Cycle => 1,
+            Self::ImportNotFound(_) => 2,
+            Self::InvalidImport(_) => 3,
+            Self::MissingImportMember { .. } => 4,
+            Self::SkippedExternal(_) => 5,
+            Self::SyntaxErrors(_) => 6,
+            Self::Unreadable(_) => 7,
+            Self::UnsupportedExpression => 8,
+            Self::UnsupportedMutation => 9,
+        }
+    }
+
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        let ordering = self.structural_rank().cmp(&other.structural_rank());
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+        match self {
+            Self::UnsupportedExpression => {
+                let Self::UnsupportedExpression = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                Ordering::Equal
+            }
+            Self::UnsupportedMutation => {
+                let Self::UnsupportedMutation = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                Ordering::Equal
+            }
+            Self::InvalidImport(left) => {
+                let Self::InvalidImport(right) = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                cmp_import_error(left, right)
+            }
+            Self::ImportNotFound(left) => {
+                let Self::ImportNotFound(right) = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                left.cmp(right)
+            }
+            Self::MissingImportMember {
+                module: left_module,
+                member: left_member,
+            } => {
+                let Self::MissingImportMember {
+                    module: right_module,
+                    member: right_member,
+                } = other
+                else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                left_module
+                    .cmp(right_module)
+                    .then_with(|| left_member.cmp(right_member))
+            }
+            Self::SkippedExternal(left) => {
+                let Self::SkippedExternal(right) = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                left.cmp(right)
+            }
+            Self::Unreadable(left) => {
+                let Self::Unreadable(right) = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                left.path()
+                    .cmp(right.path())
+                    .then_with(|| left.kind().cmp(&right.kind()))
+            }
+            Self::SyntaxErrors(left) => {
+                let Self::SyntaxErrors(right) = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                left.iter()
+                    .map(syntax_error_key)
+                    .cmp(right.iter().map(syntax_error_key))
+            }
+            Self::Cycle => {
+                let Self::Cycle = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                Ordering::Equal
+            }
+            Self::AlternativeLimitExceeded => {
+                let Self::AlternativeLimitExceeded = other else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                Ordering::Equal
+            }
+        }
+    }
+}
+
+fn syntax_error_key(
+    error: &PythonSyntaxError,
+) -> (crate::python::PythonSyntaxErrorClass, u32, u32, &str) {
+    (
+        error.class,
+        error.span.start(),
+        error.span.length(),
+        error.message.as_str(),
+    )
+}
+
+fn cmp_import_error(left: &PythonImportError, right: &PythonImportError) -> Ordering {
+    match (left, right) {
+        (PythonImportError::EmptyAbsoluteImport, PythonImportError::EmptyAbsoluteImport)
+        | (PythonImportError::TooManyDots, PythonImportError::TooManyDots) => Ordering::Equal,
+        (
+            PythonImportError::InvalidModuleName(left),
+            PythonImportError::InvalidModuleName(right),
+        ) => cmp_invalid_module_name(left, right),
+        (
+            PythonImportError::EmptyAbsoluteImport,
+            PythonImportError::InvalidModuleName(_) | PythonImportError::TooManyDots,
+        )
+        | (PythonImportError::InvalidModuleName(_), PythonImportError::TooManyDots) => {
+            Ordering::Less
+        }
+        (
+            PythonImportError::InvalidModuleName(_) | PythonImportError::TooManyDots,
+            PythonImportError::EmptyAbsoluteImport,
+        )
+        | (PythonImportError::TooManyDots, PythonImportError::InvalidModuleName(_)) => {
+            Ordering::Greater
+        }
+    }
+}
+
+fn cmp_invalid_module_name(left: &InvalidModuleName, right: &InvalidModuleName) -> Ordering {
+    fn rank(error: &InvalidModuleName) -> u8 {
+        match error {
+            InvalidModuleName::ContainsConsecutiveDots => 0,
+            InvalidModuleName::ContainsWhitespace => 1,
+            InvalidModuleName::Empty => 2,
+            InvalidModuleName::EndsWithDot => 3,
+            InvalidModuleName::InvalidSegment(_) => 4,
+            InvalidModuleName::MustHavePyExtension => 5,
+            InvalidModuleName::SourcePathIsAbsolute(_) => 6,
+            InvalidModuleName::StartsWithDot => 7,
+        }
+    }
+
+    let ordering = rank(left).cmp(&rank(right));
+    if ordering != Ordering::Equal {
+        return ordering;
+    }
+    match left {
+        InvalidModuleName::Empty => {
+            let InvalidModuleName::Empty = right else {
+                unreachable!("equal module-name-error ranks identify the same variant")
+            };
+            Ordering::Equal
+        }
+        InvalidModuleName::ContainsWhitespace => {
+            let InvalidModuleName::ContainsWhitespace = right else {
+                unreachable!("equal module-name-error ranks identify the same variant")
+            };
+            Ordering::Equal
+        }
+        InvalidModuleName::StartsWithDot => {
+            let InvalidModuleName::StartsWithDot = right else {
+                unreachable!("equal module-name-error ranks identify the same variant")
+            };
+            Ordering::Equal
+        }
+        InvalidModuleName::EndsWithDot => {
+            let InvalidModuleName::EndsWithDot = right else {
+                unreachable!("equal module-name-error ranks identify the same variant")
+            };
+            Ordering::Equal
+        }
+        InvalidModuleName::ContainsConsecutiveDots => {
+            let InvalidModuleName::ContainsConsecutiveDots = right else {
+                unreachable!("equal module-name-error ranks identify the same variant")
+            };
+            Ordering::Equal
+        }
+        InvalidModuleName::InvalidSegment(left) => {
+            let InvalidModuleName::InvalidSegment(right) = right else {
+                unreachable!("equal module-name-error ranks identify the same variant")
+            };
+            left.cmp(right)
+        }
+        InvalidModuleName::MustHavePyExtension => {
+            let InvalidModuleName::MustHavePyExtension = right else {
+                unreachable!("equal module-name-error ranks identify the same variant")
+            };
+            Ordering::Equal
+        }
+        InvalidModuleName::SourcePathIsAbsolute(left) => {
+            let InvalidModuleName::SourcePathIsAbsolute(right) = right else {
+                unreachable!("equal module-name-error ranks identify the same variant")
+            };
+            left.cmp(right)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::io::ErrorKind;
+
     use camino::Utf8PathBuf;
     use djls_source::File;
+    use djls_source::FileReadError;
     use djls_source::Span;
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
@@ -699,12 +1004,20 @@ mod tests {
     use super::PythonSequence;
     use super::PythonSequenceItem;
     use super::PythonTuple;
+    use super::PythonUnknown;
     use super::PythonUnknownCause;
     use super::PythonValue;
     use super::PythonValueEvidence;
     use super::PythonValueEvidenceSet;
     use super::PythonValueKind;
     use super::ReachableAllocationSites;
+    use super::cmp_import_error;
+    use super::cmp_invalid_module_name;
+    use crate::python::InvalidModuleName;
+    use crate::python::PythonModuleName;
+    use crate::python::PythonSyntaxError;
+    use crate::python::PythonSyntaxErrorClass;
+    use crate::python::module::PythonImportError;
 
     fn origin(offset: usize) -> Origin {
         let file = File::from_id(Id::from_bits(1));
@@ -777,8 +1090,259 @@ mod tests {
     }
 
     fn sorted(mut origins: Vec<Origin>) -> Vec<Origin> {
-        origins.sort_by_key(super::origin_sort_key);
+        origins.sort_by(super::super::StructuralOrder::structural_cmp);
         origins
+    }
+
+    #[test]
+    fn typed_value_order_is_total_across_value_and_unknown_variants() {
+        let values = [
+            bool_value(origin(1), false),
+            dict_value(origin(1)),
+            list_value(origin(1), Vec::new()),
+            path_value(origin(1), "path"),
+            str_value(origin(1), "text"),
+            tuple_value(origin(1), Vec::new()),
+            unknown_value(origin(1)),
+        ];
+        for (index, left) in values.iter().enumerate() {
+            for (other_index, right) in values.iter().enumerate() {
+                let ordering = left.structural_cmp(right);
+                assert_eq!(ordering, right.structural_cmp(left).reverse());
+                assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
+                assert_eq!(ordering, index.cmp(&other_index));
+            }
+        }
+
+        let module = |name| PythonModuleName::parse(name).expect("valid module name");
+        let causes = vec![
+            PythonUnknownCause::AlternativeLimitExceeded,
+            PythonUnknownCause::Cycle,
+            PythonUnknownCause::ImportNotFound(module("a")),
+            PythonUnknownCause::InvalidImport(PythonImportError::EmptyAbsoluteImport),
+            PythonUnknownCause::MissingImportMember {
+                module: module("a"),
+                member: "member".to_string(),
+            },
+            PythonUnknownCause::SkippedExternal(module("a")),
+            PythonUnknownCause::SyntaxErrors(vec![PythonSyntaxError {
+                class: PythonSyntaxErrorClass::Ordinary,
+                span: Span::new(1, 2),
+                message: "syntax".to_string(),
+            }]),
+            PythonUnknownCause::Unreadable(FileReadError::new(
+                Utf8PathBuf::from("a.py"),
+                ErrorKind::PermissionDenied,
+            )),
+            PythonUnknownCause::UnsupportedExpression,
+            PythonUnknownCause::UnsupportedMutation,
+        ];
+        for (index, left) in causes.iter().enumerate() {
+            for (other_index, right) in causes.iter().enumerate() {
+                let ordering = left.structural_cmp(right);
+                assert_eq!(ordering, right.structural_cmp(left).reverse());
+                assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
+                assert_eq!(ordering, index.cmp(&other_index));
+            }
+        }
+
+        let import_errors = [
+            PythonImportError::EmptyAbsoluteImport,
+            PythonImportError::InvalidModuleName(InvalidModuleName::Empty),
+            PythonImportError::TooManyDots,
+        ];
+        for (index, left) in import_errors.iter().enumerate() {
+            for (other_index, right) in import_errors.iter().enumerate() {
+                assert_eq!(cmp_import_error(left, right), index.cmp(&other_index));
+            }
+        }
+
+        let module_name_errors = [
+            InvalidModuleName::ContainsConsecutiveDots,
+            InvalidModuleName::ContainsWhitespace,
+            InvalidModuleName::Empty,
+            InvalidModuleName::EndsWithDot,
+            InvalidModuleName::InvalidSegment("segment".to_string()),
+            InvalidModuleName::MustHavePyExtension,
+            InvalidModuleName::SourcePathIsAbsolute("/absolute.py".to_string()),
+            InvalidModuleName::StartsWithDot,
+        ];
+        for (index, left) in module_name_errors.iter().enumerate() {
+            for (other_index, right) in module_name_errors.iter().enumerate() {
+                let ordering = cmp_invalid_module_name(left, right);
+                assert_eq!(ordering, cmp_invalid_module_name(right, left).reverse());
+                assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
+                assert_eq!(ordering, index.cmp(&other_index));
+            }
+        }
+    }
+
+    #[test]
+    fn typed_value_order_compares_every_unknown_payload_and_exact_evidence() {
+        let module = |name| PythonModuleName::parse(name).expect("valid module name");
+        let payload_pairs = [
+            (
+                PythonUnknownCause::InvalidImport(PythonImportError::InvalidModuleName(
+                    InvalidModuleName::InvalidSegment("a".to_string()),
+                )),
+                PythonUnknownCause::InvalidImport(PythonImportError::InvalidModuleName(
+                    InvalidModuleName::InvalidSegment("b".to_string()),
+                )),
+            ),
+            (
+                PythonUnknownCause::ImportNotFound(module("a")),
+                PythonUnknownCause::ImportNotFound(module("b")),
+            ),
+            (
+                PythonUnknownCause::InvalidImport(PythonImportError::EmptyAbsoluteImport),
+                PythonUnknownCause::InvalidImport(PythonImportError::TooManyDots),
+            ),
+            (
+                PythonUnknownCause::MissingImportMember {
+                    module: module("a"),
+                    member: "a".to_string(),
+                },
+                PythonUnknownCause::MissingImportMember {
+                    module: module("a"),
+                    member: "b".to_string(),
+                },
+            ),
+            (
+                PythonUnknownCause::MissingImportMember {
+                    module: module("a"),
+                    member: "same".to_string(),
+                },
+                PythonUnknownCause::MissingImportMember {
+                    module: module("b"),
+                    member: "same".to_string(),
+                },
+            ),
+            (
+                PythonUnknownCause::SkippedExternal(module("a")),
+                PythonUnknownCause::SkippedExternal(module("b")),
+            ),
+            (
+                PythonUnknownCause::Unreadable(FileReadError::new(
+                    Utf8PathBuf::from("a.py"),
+                    ErrorKind::PermissionDenied,
+                )),
+                PythonUnknownCause::Unreadable(FileReadError::new(
+                    Utf8PathBuf::from("b.py"),
+                    ErrorKind::PermissionDenied,
+                )),
+            ),
+            (
+                PythonUnknownCause::Unreadable(FileReadError::new(
+                    Utf8PathBuf::from("same.py"),
+                    ErrorKind::NotFound,
+                )),
+                PythonUnknownCause::Unreadable(FileReadError::new(
+                    Utf8PathBuf::from("same.py"),
+                    ErrorKind::PermissionDenied,
+                )),
+            ),
+        ];
+        for (left, right) in payload_pairs {
+            assert_ne!(left, right);
+            assert_ne!(left.structural_cmp(&right), std::cmp::Ordering::Equal);
+        }
+    }
+
+    #[test]
+    fn typed_value_order_compares_every_syntax_error_payload() {
+        let syntax_error = |class, span, message: &str| {
+            PythonUnknownCause::SyntaxErrors(vec![PythonSyntaxError {
+                class,
+                span,
+                message: message.to_string(),
+            }])
+        };
+        let ordinary = syntax_error(PythonSyntaxErrorClass::Ordinary, Span::new(1, 2), "same");
+        for different in [
+            syntax_error(PythonSyntaxErrorClass::Unsupported, Span::new(1, 2), "same"),
+            syntax_error(PythonSyntaxErrorClass::Ordinary, Span::new(2, 2), "same"),
+            syntax_error(PythonSyntaxErrorClass::Ordinary, Span::new(1, 3), "same"),
+            syntax_error(
+                PythonSyntaxErrorClass::Ordinary,
+                Span::new(1, 2),
+                "different",
+            ),
+            PythonUnknownCause::SyntaxErrors(vec![
+                PythonSyntaxError {
+                    class: PythonSyntaxErrorClass::Ordinary,
+                    span: Span::new(1, 2),
+                    message: "same".to_string(),
+                },
+                PythonSyntaxError {
+                    class: PythonSyntaxErrorClass::Ordinary,
+                    span: Span::new(2, 2),
+                    message: "second".to_string(),
+                },
+            ]),
+        ] {
+            assert_ne!(ordinary, different);
+            assert_ne!(
+                ordinary.structural_cmp(&different),
+                std::cmp::Ordering::Equal
+            );
+        }
+    }
+
+    #[test]
+    fn typed_value_order_compares_unknown_origins_and_exact_value_evidence() {
+        let left = PythonUnknown::new(PythonUnknownCause::Cycle, [origin(1)]);
+        let right = PythonUnknown::new(PythonUnknownCause::Cycle, [origin(2)]);
+        assert_ne!(left.structural_cmp(&right), std::cmp::Ordering::Equal);
+
+        let join = origin(20);
+        let mut first_constraints = BranchConstraints::unconstrained();
+        first_constraints.select(join, 0);
+        let mut second_constraints = BranchConstraints::unconstrained();
+        second_constraints.select(join, 1);
+        let first = PythonValueEvidenceSet(vec![PythonValueEvidence {
+            origin: origin(10),
+            constraints: first_constraints,
+        }]);
+        let different_constraints = PythonValueEvidenceSet(vec![PythonValueEvidence {
+            origin: origin(10),
+            constraints: second_constraints,
+        }]);
+        let different_origin = PythonValueEvidenceSet(vec![PythonValueEvidence {
+            origin: origin(11),
+            constraints: BranchConstraints::unconstrained(),
+        }]);
+        for other in [&different_constraints, &different_origin] {
+            assert_ne!(&first, other);
+            assert_ne!(first.structural_cmp(other), std::cmp::Ordering::Equal);
+        }
+
+        let evidence = |entries: [(Origin, BranchConstraints); 2]| {
+            let mut evidence = PythonValueEvidenceSet::default();
+            for (origin, constraints) in entries {
+                evidence.insert(PythonValueEvidence {
+                    origin,
+                    constraints,
+                });
+            }
+            evidence
+        };
+        let forward = evidence([
+            (origin(11), BranchConstraints::unconstrained()),
+            (origin(10), BranchConstraints::unconstrained()),
+        ]);
+        let reversed = evidence([
+            (origin(10), BranchConstraints::unconstrained()),
+            (origin(11), BranchConstraints::unconstrained()),
+        ]);
+        assert_eq!(forward, reversed);
+        assert_eq!(forward.structural_cmp(&reversed), std::cmp::Ordering::Equal);
+
+        let mut merged = str_value(origin(1), "same");
+        let incoming = str_value(origin(2), "same");
+        assert!(merged.same_semantic_value(&incoming));
+        assert_ne!(merged.structural_cmp(&incoming), std::cmp::Ordering::Equal);
+        merged.merge_semantically_equal(incoming, None);
+        assert_eq!(merged.origins().collect::<Vec<_>>(), [origin(1), origin(2)]);
     }
 
     #[test]

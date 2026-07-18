@@ -184,7 +184,7 @@ fn branch_alternatives(count: usize) -> String {
     source
 }
 
-fn equal_top_level_list_alternatives(count: usize) -> Value {
+fn equal_top_level_list_alternatives(count: usize, reverse_module_installation: bool) -> Value {
     let mut source = String::new();
     let mut modules = Vec::new();
     for index in 0..count {
@@ -204,6 +204,9 @@ fn equal_top_level_list_alternatives(count: usize) -> Value {
             format!("variant_{index:02}"),
             "INSTALLED_APPS = ['shared']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates']}]\n",
         ));
+    }
+    if reverse_module_installation {
+        modules.reverse();
     }
     let module_refs = modules
         .iter()
@@ -4365,8 +4368,8 @@ fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
 }
 
 #[test]
-fn equal_top_level_setting_lists_have_an_exact_boundary_and_typed_remainder() {
-    let at_limit = equal_top_level_list_alternatives(64);
+fn typed_value_order_setting_lists_keep_cap_projection_for_reversed_input() {
+    let at_limit = equal_top_level_list_alternatives(64, false);
     let installed_apps = cases(&at_limit, "/installed_apps/cases");
     assert_eq!(installed_apps.len(), 1, "{at_limit:#}");
     assert_eq!(installed_apps[0]["known"]["apps"][0]["value"], "shared");
@@ -4382,11 +4385,11 @@ fn equal_top_level_setting_lists_have_an_exact_boundary_and_typed_remainder() {
     assert_eq!(templates.len(), 64, "{at_limit:#}");
     assert!(templates.iter().all(|case| case.get("known").is_some()));
 
-    let overflowed = equal_top_level_list_alternatives(65);
+    let overflowed = equal_top_level_list_alternatives(65, false);
     assert_eq!(
         overflowed,
-        equal_top_level_list_alternatives(65),
-        "top-level list projection must be deterministic"
+        equal_top_level_list_alternatives(65, true),
+        "top-level list projection must ignore equivalent reversed module installation"
     );
 
     let installed_apps = cases(&overflowed, "/installed_apps/cases");

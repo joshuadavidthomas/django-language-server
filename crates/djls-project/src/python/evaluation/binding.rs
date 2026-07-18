@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use djls_source::Origin;
 
 use super::BranchConstraints;
@@ -310,23 +312,18 @@ impl PythonBinding {
                 }
             }
         }
-        normalized.sort_by_key(PythonBindingCase::canonical_sort_key);
+        normalized.sort_by(PythonBindingCase::structural_cmp);
         self.cases = normalized;
     }
 }
 
 impl PythonBindingCase {
-    fn canonical_sort_key(&self) -> String {
-        match &self.state {
-            PythonBindingState::Unbound => format!("0:{:?}", self.constraints),
-            PythonBindingState::Bound(bound) => format!(
-                "1:{:?}:{:?}:{:?}:{:?}",
-                bound.value.kind,
-                bound.value.origins().collect::<Vec<_>>(),
-                bound.binding_origins.iter().collect::<Vec<_>>(),
-                self.constraints,
-            ),
-        }
+    /// Unbound precedes Bound so cap retention remains stable. Bound cases then
+    /// compare complete value evidence, binding provenance, and constraints.
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.state
+            .structural_cmp(&other.state)
+            .then_with(|| self.constraints.structural_cmp(&other.constraints))
     }
 }
 
@@ -337,6 +334,18 @@ pub(crate) enum PythonBindingState {
 }
 
 impl PythonBindingState {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Unbound, Self::Unbound) => Ordering::Equal,
+            (Self::Unbound, Self::Bound(_)) => Ordering::Less,
+            (Self::Bound(_), Self::Unbound) => Ordering::Greater,
+            (Self::Bound(left), Self::Bound(right)) => left
+                .value
+                .structural_cmp(&right.value)
+                .then_with(|| left.binding_origins.structural_cmp(&right.binding_origins)),
+        }
+    }
+
     fn is_limit_remainder(&self) -> bool {
         matches!(
             self,
@@ -384,11 +393,13 @@ mod tests {
     use djls_source::Span;
     use salsa::plumbing::FromId as _;
 
+    use super::super::BranchConstraints;
     use super::super::CanonicalOrigins;
     use super::super::PythonSequenceItem;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
     use super::PythonBinding;
+    use super::PythonBindingCase;
     use super::PythonBindingState;
     use super::PythonUnknown;
     use super::PythonUnknownCause;
@@ -472,6 +483,55 @@ mod tests {
     }
 
     #[test]
+    fn typed_value_order_binding_cases_is_total_before_semantic_merge() {
+        let join = origin(0, 100);
+        let mut first_constraints = BranchConstraints::unconstrained();
+        first_constraints.select(join, 0);
+        let mut second_constraints = BranchConstraints::unconstrained();
+        second_constraints.select(join, 1);
+
+        let first = PythonBindingCase {
+            state: PythonBindingState::Bound(super::PythonBoundValue {
+                value: PythonValue::string("same".to_string(), origin(0, 10)),
+                binding_origins: [origin(0, 10)].into_iter().collect(),
+            }),
+            constraints: first_constraints,
+        };
+        let second = PythonBindingCase {
+            state: PythonBindingState::Bound(super::PythonBoundValue {
+                value: PythonValue::string("same".to_string(), origin(0, 20)),
+                binding_origins: [origin(0, 20)].into_iter().collect(),
+            }),
+            constraints: second_constraints,
+        };
+        let unbound = PythonBindingCase {
+            state: PythonBindingState::Unbound,
+            constraints: BranchConstraints::unconstrained(),
+        };
+        assert_eq!(unbound.structural_cmp(&first), std::cmp::Ordering::Less);
+        assert_ne!(first, second);
+        assert_ne!(first.structural_cmp(&second), std::cmp::Ordering::Equal);
+        assert_eq!(
+            first.structural_cmp(&second),
+            second.structural_cmp(&first).reverse()
+        );
+
+        let merged = PythonBinding { cases: vec![first] }.join(
+            PythonBinding {
+                cases: vec![second],
+            },
+            origin(0, 1_000),
+        );
+        let Some(bound) = merged.single_bound() else {
+            panic!("semantically equal values should still merge")
+        };
+        assert_eq!(
+            bound.binding_origins().collect::<Vec<_>>(),
+            [origin(0, 10), origin(0, 20)]
+        );
+    }
+
+    #[test]
     fn binding_join_obeys_laws_and_orders_origins_for_all_value_shapes() {
         let cases = [
             BindingValue::Exact("same".to_string()),
@@ -538,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn binding_join_obeys_laws_at_and_over_the_alternative_limit() {
+    fn typed_value_order_binding_cap_retains_the_same_subset_for_reversed_input() {
         let alternatives = |count: u32| {
             (0..count)
                 .map(|index| binding(BindingValue::Exact(format!("{index:03}")), index))
@@ -556,6 +616,21 @@ mod tests {
 
         let overflowed = assert_join_laws(alternatives(65));
         assert_eq!(overflowed.alternatives().len(), 65);
+        assert_eq!(
+            overflowed
+                .alternatives()
+                .filter_map(|state| {
+                    let PythonBindingState::Bound(bound) = state else {
+                        return None;
+                    };
+                    bound.value.string_value()
+                })
+                .collect::<Vec<_>>(),
+            (0..64)
+                .map(|index| format!("{index:03}"))
+                .collect::<Vec<_>>(),
+            "the typed order retains the same exact 64-value subset"
+        );
         let PythonBindingState::Bound(overflow) = overflowed
             .alternatives()
             .find(|state| state.is_limit_remainder())

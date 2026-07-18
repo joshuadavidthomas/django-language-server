@@ -6,7 +6,7 @@ use serde::ser::SerializeStruct;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::evaluation::BranchConstraints;
-use crate::python::evaluation::cmp_origin;
+use crate::python::evaluation::StructuralOrder;
 
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 pub(crate) const MAX_EXACT_SETTING_ALTERNATIVES: usize = 64;
@@ -246,7 +246,7 @@ impl MergeEvidence for SettingIssue {
             return false;
         }
         self.origins.extend(other.origins.iter().copied());
-        self.origins.sort_by(cmp_origin);
+        self.origins.sort_by(StructuralOrder::structural_cmp);
         self.origins.dedup();
         true
     }

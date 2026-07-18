@@ -1,7 +1,9 @@
+use std::cmp::Ordering;
+
 use djls_source::Origin;
 
 use super::BranchConstraints;
-use super::origin_sort_key;
+use super::StructuralOrder as _;
 
 /// An abstract source identity for a freshly allocated mutable object.
 ///
@@ -69,13 +71,18 @@ impl AllocationSites {
             .any(|left| other.0.iter().any(|right| left.origin == right.origin))
     }
 
+    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.0.iter().zip(&other.0) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.0.len().cmp(&other.0.len())
+    }
+
     fn normalize(&mut self) {
-        self.0.sort_by_key(|site| {
-            (
-                origin_sort_key(&site.origin),
-                format!("{:?}", site.constraints),
-            )
-        });
+        self.0.sort_by(AllocationSite::structural_cmp);
         let mut normalized: Vec<AllocationSite> = Vec::with_capacity(self.0.len());
         for site in std::mem::take(&mut self.0) {
             if let Some(existing) = normalized
@@ -92,6 +99,14 @@ impl AllocationSites {
             !self.0.is_empty(),
             "allocation sites remain non-empty for every list and dictionary"
         );
+    }
+}
+
+impl AllocationSite {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.origin
+            .structural_cmp(&other.origin)
+            .then_with(|| self.constraints.structural_cmp(&other.constraints))
     }
 }
 
@@ -141,6 +156,7 @@ mod tests {
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
+    use super::AllocationSite;
     use super::AllocationSites;
     use super::BranchConstraints;
     use super::Origin;
@@ -167,6 +183,43 @@ mod tests {
     fn a_single_site_is_non_empty_and_unconstrained() {
         let sites = AllocationSites::one(origin(1));
         assert_eq!(sites.origins().collect::<Vec<_>>(), vec![origin(1)]);
+    }
+
+    #[test]
+    fn typed_value_order_allocation_sites_is_total_and_normalizes_reversed_input() {
+        let join = origin(9);
+        let first_arm = selected(join, 0);
+        let second_arm = selected(join, 1);
+        let first = AllocationSite {
+            origin: origin(1),
+            constraints: first_arm.clone(),
+        };
+        let different_constraints = AllocationSite {
+            origin: origin(1),
+            constraints: second_arm,
+        };
+        let different_origin = AllocationSite {
+            origin: origin(2),
+            constraints: first_arm,
+        };
+        for (left, right) in [
+            (&first, &different_constraints),
+            (&first, &different_origin),
+        ] {
+            assert_ne!(left, right);
+            assert_ne!(left.structural_cmp(right), std::cmp::Ordering::Equal);
+            assert_eq!(
+                left.structural_cmp(right),
+                right.structural_cmp(left).reverse()
+            );
+        }
+
+        let mut forward = constrained_site(origin(2), join, 0);
+        forward.merge(constrained_site(origin(1), join, 1));
+        let mut reversed = constrained_site(origin(1), join, 1);
+        reversed.merge(constrained_site(origin(2), join, 0));
+        assert_eq!(forward, reversed);
+        assert_eq!(forward.structural_cmp(&reversed), std::cmp::Ordering::Equal);
     }
 
     #[test]

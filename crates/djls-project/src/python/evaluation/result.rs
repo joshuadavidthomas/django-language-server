@@ -12,7 +12,7 @@ use super::PythonMutation;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::UniqueVec;
-use super::origin_sort_key;
+use super::origin_structural_key;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
@@ -73,7 +73,7 @@ impl PythonNamespaceRemainder {
                 cause
                     .unknown
                     .origins()
-                    .map(|origin| origin_sort_key(&origin))
+                    .map(|origin| origin_structural_key(&origin))
                     .collect::<Vec<_>>(),
                 format!("{:?}", cause.constraints),
             )
