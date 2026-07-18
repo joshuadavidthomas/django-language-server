@@ -1056,6 +1056,26 @@ mod tests {
     }
 
     #[test]
+    fn no_project_readiness_stays_ready_without_advancing_generation() {
+        let mut readiness = IntrinsicReadiness::new(false);
+
+        assert_eq!(readiness.desired_generation(), 0);
+        assert_eq!(
+            readiness.watched_state(),
+            IntrinsicReadinessState::ReadyWithoutProject
+        );
+        assert_eq!(readiness.ready_generation(), None);
+        assert_eq!(readiness.mark_project_changed(false), 0);
+        assert_eq!(readiness.desired_generation(), 0);
+        assert_eq!(
+            readiness.watched_state(),
+            IntrinsicReadinessState::ReadyWithoutProject
+        );
+        assert!(readiness.coverage().is_none());
+        assert!(readiness.admitted_revisions().is_none());
+    }
+
+    #[test]
     fn intrinsic_readiness_is_generation_scoped_and_stale_results_do_not_publish() {
         let mut session = Session::default();
         assert_eq!(
