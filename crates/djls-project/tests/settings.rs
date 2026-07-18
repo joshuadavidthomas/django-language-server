@@ -1428,36 +1428,6 @@ fn template_dirs_merge_equivalent_explicit_backend_branches() {
         .map(|origin| origin.path_buf(&db).clone())
         .collect();
     assert_eq!(origins, [Utf8PathBuf::from("/proj/templates/index.html")]);
-
-    let processors = template_context_processors(&db, project);
-    assert_eq!(processors.processors().len(), 1);
-}
-
-#[test]
-fn template_context_processors_enumerate_known_backend_alternatives() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[(
-            "/proj/myproject/settings.py",
-            "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': ['project.context.alpha']}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': ['project.context.beta']}}]\n",
-        )],
-    );
-
-    let processors = template_context_processors(&db, project);
-    let paths = processors
-        .processors()
-        .iter()
-        .map(djls_project::TemplateContextProcessor::path_str)
-        .collect::<std::collections::BTreeSet<_>>();
-
-    assert_eq!(
-        paths,
-        ["project.context.alpha", "project.context.beta"]
-            .into_iter()
-            .collect()
-    );
 }
 
 #[test]
@@ -1704,7 +1674,7 @@ fn uncertain_backend_dictionary_before_known_backend_keeps_library_identity_alig
 }
 
 #[test]
-fn missing_template_backend_does_not_enumerate_processor_evidence() {
+fn missing_template_backend_excludes_directory_and_library_consumers() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1717,7 +1687,7 @@ fn missing_template_backend_does_not_enumerate_processor_evidence() {
             ),
             (
                 "/proj/myproject/settings.py",
-                "INSTALLED_APPS = []\nTEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site'], 'libraries': {'custom': 'custom_tags'}}}]\n",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
             ),
         ],
     );
@@ -1728,8 +1698,6 @@ fn missing_template_backend_does_not_enumerate_processor_evidence() {
     let directories = template_directories(&db, project);
     assert!(directories.configuration_may_omit_roots());
     assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
-    let processors = template_context_processors(&db, project);
-    assert!(processors.processors().is_empty());
     assert!(
         TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
             .loadable_library_str("custom")
@@ -1739,7 +1707,7 @@ fn missing_template_backend_does_not_enumerate_processor_evidence() {
 }
 
 #[test]
-fn dynamic_template_backend_does_not_enumerate_processor_evidence() {
+fn dynamic_template_backend_excludes_directory_and_library_consumers() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1752,7 +1720,7 @@ fn dynamic_template_backend_does_not_enumerate_processor_evidence() {
             ),
             (
                 "/proj/myproject/settings.py",
-                "INSTALLED_APPS = []\nBACKEND = object()\nTEMPLATES = [{'BACKEND': BACKEND, 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site'], 'libraries': {'custom': 'custom_tags'}}}]\n",
+                "INSTALLED_APPS = []\nBACKEND = object()\nTEMPLATES = [{'BACKEND': BACKEND, 'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
             ),
         ],
     );
@@ -1763,8 +1731,6 @@ fn dynamic_template_backend_does_not_enumerate_processor_evidence() {
     let directories = template_directories(&db, project);
     assert!(directories.configuration_may_omit_roots());
     assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
-    let processors = template_context_processors(&db, project);
-    assert!(processors.processors().is_empty());
     assert!(
         TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
             .loadable_library_str("custom")
@@ -1979,133 +1945,6 @@ fn template_dirs_demote_broken_app_config_entry_to_partial() {
     let directories = template_directories(&db, project);
 
     assert!(directories.configuration_may_omit_roots());
-}
-
-#[test]
-fn template_context_processors_retain_known_processor_from_complete_settings() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/django/template/__init__.py", ""),
-            ("/proj/django/template/context_processors.py", ""),
-            (
-                "/proj/myproject/settings.py",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
-            ),
-        ],
-    );
-
-    let processors = template_context_processors(&db, project);
-
-    assert_eq!(processors.processors().len(), 1);
-}
-
-#[test]
-fn template_context_processors_retain_known_processor_beside_invalid_entry() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[(
-            "/proj/myproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request', object()]}}]\n",
-        )],
-    );
-
-    let processors = template_context_processors(&db, project);
-
-    assert_eq!(processors.processors().len(), 1);
-}
-
-#[test]
-fn template_context_processors_without_usable_settings_are_not_discovered() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj").install(&mut db);
-
-    let processors = template_context_processors(&db, project);
-
-    assert!(processors.processors().is_empty());
-}
-
-#[test]
-fn template_context_processors_resolve_module_prefix_and_callable_tail() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/django/template/__init__.py", ""),
-            ("/proj/django/template/context_processors.py", ""),
-            (
-                "/proj/myproject/settings.py",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
-            ),
-        ],
-    );
-
-    let processors = template_context_processors(&db, project);
-    let processor = processors.processors().first().unwrap();
-
-    assert_eq!(
-        processor.path_str(),
-        "django.template.context_processors.request"
-    );
-    assert_eq!(
-        processor.module().map(|module| module.name().as_str()),
-        Some("django.template.context_processors")
-    );
-    assert_eq!(processor.unresolved_tail(), ["request"]);
-}
-
-#[test]
-fn template_context_processors_keep_imported_origin_file() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings.local",
-        &[
-            ("/proj/myproject/settings/__init__.py", ""),
-            (
-                "/proj/myproject/settings/base.py",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
-            ),
-            (
-                "/proj/myproject/settings/local.py",
-                "from .base import TEMPLATES\n",
-            ),
-        ],
-    );
-
-    let processors = template_context_processors(&db, project);
-    let processor = processors.processors().first().unwrap();
-    let (file, _) = processor.origin();
-
-    assert_eq!(file.path(&db).as_str(), "/proj/myproject/settings/base.py");
-}
-
-#[test]
-fn template_context_processors_keep_unresolved_facts_with_tail() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[(
-            "/proj/myproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['missing.context.processor']}}]\n",
-        )],
-    );
-
-    let processors = template_context_processors(&db, project);
-    let processor = processors.processors().first().unwrap();
-
-    assert_eq!(processor.path_str(), "missing.context.processor");
-    assert!(processor.module().is_none());
-    assert_eq!(
-        processor.unresolved_tail(),
-        ["missing", "context", "processor"]
-    );
 }
 
 #[test]

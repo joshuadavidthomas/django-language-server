@@ -3007,10 +3007,12 @@ fn templates_keep_mutually_exclusive_configurations_separate() {
 #[test]
 fn template_field_uncertainty_does_not_erase_siblings() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'OPTIONS': {'libraries': {'good': 'app.templatetags.good'}, 'context_processors': [unknown]}}]",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'OPTIONS': {'libraries': {'good': 'app.templatetags.good'}, 'context_processors': ['app.context.good', unknown]}}]",
     );
-    let backend =
-        &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]["backend"];
+    let template_case = &cases(&settings, "/templates/cases")[0];
+    assert!(template_case.get("dynamic").is_some(), "{settings:#}");
+    assert!(template_case.get("malformed").is_none(), "{settings:#}");
+    let backend = &template_case["dynamic"]["templates"]["evidence"][0]["backend"];
 
     assert_eq!(
         backend["dirs"]["evidence"][0]["known"]["value"]["resolved"],
@@ -3025,9 +3027,37 @@ fn template_field_uncertainty_does_not_erase_siblings() {
             .is_empty()
     );
     assert_eq!(
+        backend["context_processors"]["known"][0]["value"],
+        "app.context.good"
+    );
+    assert_eq!(
+        backend["context_processors"]["issues"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
         backend["context_processors"]["issues"][0]["kind"],
         "unknown_element"
     );
+}
+
+#[test]
+fn invalid_context_processor_module_path_is_malformed() {
+    let settings = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'context_processors': ['invalid path']}}]",
+    );
+    let template_case = &cases(&settings, "/templates/cases")[0];
+
+    assert!(template_case.get("malformed").is_some(), "{settings:#}");
+    assert!(template_case.get("dynamic").is_none(), "{settings:#}");
+    let issues = template_case["malformed"]["templates"]["evidence"][0]["backend"]
+        ["context_processors"]["issues"]
+        .as_array()
+        .unwrap();
+    assert_eq!(issues.len(), 1, "{settings:#}");
+    assert_eq!(issues[0]["kind"], "invalid_module_name");
 }
 
 #[test]
@@ -3097,17 +3127,18 @@ fn dynamic_template_members_are_not_malformed() {
 }
 
 #[test]
-fn dynamic_and_malformed_templates_preserve_backend_order_and_complete_siblings() {
-    let dynamic = extract(
+fn dynamic_templates_preserve_backend_order_and_complete_siblings() {
+    let settings = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN]}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]",
     );
-    let evidence = cases(&dynamic, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
+    let evidence = cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
         .as_array()
         .unwrap();
     let backends = evidence
         .iter()
         .map(|evidence| &evidence["backend"])
         .collect::<Vec<_>>();
+
     assert_eq!(backends.len(), 3);
     assert_eq!(
         backends[0]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
@@ -3117,17 +3148,21 @@ fn dynamic_and_malformed_templates_preserve_backend_order_and_complete_siblings(
         backends[2]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
         "/third"
     );
+}
 
-    let malformed = extract(
+#[test]
+fn malformed_templates_preserve_backend_order_and_complete_siblings() {
+    let settings = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'DIRS': ['/broken']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]",
     );
-    let evidence = cases(&malformed, "/templates/cases")[0]["malformed"]["templates"]["evidence"]
+    let evidence = cases(&settings, "/templates/cases")[0]["malformed"]["templates"]["evidence"]
         .as_array()
         .unwrap();
     let backends = evidence
         .iter()
         .map(|evidence| &evidence["backend"])
         .collect::<Vec<_>>();
+
     assert_eq!(backends.len(), 3);
     assert_eq!(
         backends[0]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
@@ -3173,7 +3208,7 @@ fn duplicate_mapping_keys_use_last_exact_value() {
 #[test]
 fn equivalent_template_cases_merge_all_value_origins() {
     let settings = extract(
-        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': True}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': True}]",
+        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': True, 'OPTIONS': {'context_processors': ['app.context.processor']}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': True, 'OPTIONS': {'context_processors': ['app.context.processor']}}]",
     );
     let cases = cases(&settings, "/templates/cases");
 
@@ -3194,6 +3229,13 @@ fn equivalent_template_cases_merge_all_value_origins() {
     );
     assert_eq!(
         cases[0]["known"]["backends"][0]["app_dirs"]["spans"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        cases[0]["known"]["backends"][0]["context_processors"][0]["spans"]
             .as_array()
             .unwrap()
             .len(),
@@ -3613,12 +3655,18 @@ fn string_installed_apps_are_not_accepted_as_a_collection() {
 
 #[test]
 fn tuple_collection_shaped_template_settings_are_accepted() {
-    let settings = extract(
-        "TEMPLATES = ({'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ('/templates',), 'OPTIONS': {'context_processors': ('app.context.processor',), 'builtins': ('app.builtins',)}},)",
-    );
+    let source = "TEMPLATES = ({'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ('/templates',), 'OPTIONS': {'context_processors': ('app.context.processor',), 'builtins': ('app.builtins',)}},)";
+    let settings = extract(source);
 
     let backend = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0];
     assert_eq!(backend["dirs"][0]["value"]["resolved"], "/templates");
+    assert_eq!(
+        backend["context_processors"][0],
+        json!({
+            "value": "app.context.processor",
+            "spans": [expected_span(source, "'app.context.processor'")],
+        })
+    );
 }
 
 #[test]
@@ -4412,23 +4460,17 @@ fn template_backend_products_have_a_global_deterministic_64_plus_one_cap() {
 }
 
 #[test]
-fn equal_relative_path_lists_from_distinct_modules_remain_correlated_alternatives() {
+fn imported_template_fields_remain_correlated_alternatives() {
+    let one = "PREFIX = None\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second'], 'OPTIONS': {'context_processors': ['one.context.processor']}}]";
+    let two = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second'], 'OPTIONS': {'context_processors': ['two.context.processor']}}]";
     let settings = extract_project(
         "if FLAG:\n    from one.base import TEMPLATES\nelse:\n    from two.base import TEMPLATES",
-        &[
-            (
-                "one.base",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second']}]",
-            ),
-            (
-                "two.base",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second']}]",
-            ),
-        ],
+        &[("one.base", one), ("two.base", two)],
     )
     .2;
 
-    let template_dirs = cases(&settings, "/templates/cases")
+    let template_cases = cases(&settings, "/templates/cases");
+    let template_dirs = template_cases
         .iter()
         .map(|case| {
             case["known"]["backends"][0]["dirs"]
@@ -4450,6 +4492,24 @@ fn equal_relative_path_lists_from_distinct_modules_remain_correlated_alternative
                 "/project/settings/two/first",
                 "/project/settings/two/second",
             ],
+        ]
+    );
+
+    let context_processors = template_cases
+        .iter()
+        .map(|case| &case["known"]["backends"][0]["context_processors"][0])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        context_processors,
+        [
+            &json!({
+                "value": "one.context.processor",
+                "spans": [expected_span(one, "'one.context.processor'")],
+            }),
+            &json!({
+                "value": "two.context.processor",
+                "spans": [expected_span(two, "'two.context.processor'")],
+            }),
         ]
     );
 }

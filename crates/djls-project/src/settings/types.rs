@@ -286,10 +286,6 @@ impl<T> WithOrigin<T> {
         }
     }
 
-    pub(crate) fn value(&self) -> &T {
-        &self.value
-    }
-
     pub(crate) fn origin(&self) -> Origin {
         self.origin
     }
@@ -628,10 +624,6 @@ impl TemplateContextProcessorPath {
         let name = PythonModuleName::parse(path)?;
         Ok(Self(name.into_string()))
     }
-
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
 macro_rules! merge_struct_fields {
@@ -909,7 +901,6 @@ mod tests {
         let first = origin(1);
         let value = WithOrigin::new("value".to_string(), first, []);
 
-        assert_eq!(value.value(), "value");
         assert_eq!(value.origin(), first);
         assert_eq!(value.origins().collect::<Vec<_>>(), [first]);
         assert_eq!(

@@ -7,7 +7,6 @@ pub(crate) use sources::DjangoSettingsSources;
 pub(crate) use sources::settings_sources;
 pub(crate) use types::DjangoSettings;
 pub(crate) use types::EvaluatedPath;
-pub(crate) use types::TemplateContextProcessorPath;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
