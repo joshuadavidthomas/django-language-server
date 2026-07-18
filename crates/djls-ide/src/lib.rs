@@ -1,3 +1,4 @@
+mod check;
 mod code_actions;
 mod completions;
 mod context;
@@ -13,6 +14,11 @@ mod snippets;
 mod symbols;
 mod warmup;
 
+pub use check::CheckedTemplate;
+pub use check::TemplateCheck;
+pub use check::check_template;
+pub use check::check_template_with_source;
+pub use check::render_validation_error;
 pub use code_actions::code_actions;
 pub use completions::completion;
 pub use diagnostics::collect_diagnostics;
