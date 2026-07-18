@@ -1260,172 +1260,6 @@ fn settings_sources_dedupes_duplicate_import_edges() {
 }
 
 #[test]
-fn imported_unsupported_staticfiles_dirs_mutations_discard_path_evidence() {
-    for mutation in [
-        "STATICFILES_DIRS += ['invented']",
-        "STATICFILES_DIRS.append('invented')",
-        "STATICFILES_DIRS.extend(['invented'])",
-    ] {
-        let mut db = TestDatabase::new();
-        let base = format!("STATICFILES_DIRS = ['known']\n{mutation}\n");
-        let project = project_with_settings(
-            &mut db,
-            "myproject.settings",
-            &[
-                ("/proj/myproject/settings.py", "from .base import *\n"),
-                ("/proj/myproject/base.py", &base),
-            ],
-        );
-
-        let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-        let cases = settings["staticfiles"]["staticfiles_dirs"]["cases"]
-            .as_array()
-            .unwrap();
-        let evidence = cases[0]["dynamic"]["paths"]["evidence"].as_array().unwrap();
-
-        assert_eq!(cases.len(), 1, "{mutation}");
-        assert_eq!(evidence.len(), 1, "{mutation}");
-        assert_eq!(
-            evidence[0]["issue"]["kind"], "unsupported_mutation",
-            "{mutation}"
-        );
-        assert!(!cases[0].to_string().contains("known"), "{mutation}");
-        assert!(!cases[0].to_string().contains("invented"), "{mutation}");
-    }
-}
-
-#[test]
-fn cyclic_star_import_retains_post_cycle_exact_setting() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/myproject/settings.py", "from .base import *\n"),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nfrom .settings import *\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert!(has_case(
-        &settings["staticfiles"]["staticfiles_dirs"],
-        "known"
-    ));
-}
-
-#[test]
-fn local_assignment_clears_imported_unsupported_mutation() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import *\nSTATICFILES_DIRS = []\n",
-            ),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert!(has_case(
-        &settings["staticfiles"]["staticfiles_dirs"],
-        "known"
-    ));
-    assert!(!has_case(
-        &settings["staticfiles"]["staticfiles_dirs"],
-        "dynamic"
-    ));
-}
-
-#[test]
-fn named_imported_unsupported_mutation_produces_dynamic_case() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import STATICFILES_DIRS\n",
-            ),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert!(has_case(
-        &settings["staticfiles"]["staticfiles_dirs"],
-        "dynamic"
-    ));
-}
-
-#[test]
-fn aliased_imported_unsupported_mutation_remains_dynamic() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import STATICFILES_DIRS as BASE_STATICFILES_DIRS\nSTATICFILES_DIRS = BASE_STATICFILES_DIRS\n",
-            ),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert!(has_case(
-        &settings["staticfiles"]["staticfiles_dirs"],
-        "dynamic"
-    ));
-}
-
-#[test]
-fn same_name_assignment_preserves_imported_dynamic_case() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import STATICFILES_DIRS\nSTATICFILES_DIRS = STATICFILES_DIRS\n",
-            ),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert!(has_case(
-        &settings["staticfiles"]["staticfiles_dirs"],
-        "dynamic"
-    ));
-}
-
-#[test]
 fn unreadable_root_settings_are_dynamic_never_unset() {
     let settings_path = Utf8PathBuf::from("/proj/myproject/settings.py");
     let mut fs = InMemoryFileSystem::new();
@@ -1458,25 +1292,12 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
     db.set_project(project);
 
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-    for pointer in [
-        "/staticfiles/static_url/cases",
-        "/staticfiles/static_root/cases",
-    ] {
-        let cases = settings.pointer(pointer).unwrap().as_array().unwrap();
-        assert_eq!(cases.len(), 1, "{pointer}");
-        assert_eq!(cases[0]["dynamic"]["issues"][0]["kind"], "unreadable");
-    }
     assert_eq!(
         settings["installed_apps"]["cases"][0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"],
         "unreadable"
     );
     assert_eq!(
         settings["templates"]["cases"][0]["dynamic"]["templates"]["evidence"][0]["issue"]["kind"],
-        "unreadable"
-    );
-    assert_eq!(
-        settings["staticfiles"]["staticfiles_dirs"]["cases"][0]["dynamic"]["paths"]["evidence"][0]
-            ["issue"]["kind"],
         "unreadable"
     );
 }

@@ -858,8 +858,8 @@ fn deterministic_false_while_executes_only_else_body() {
 
 #[test]
 fn ambiguous_while_degrades_writes_and_retains_branch_effects() {
-    let source = "INSTALLED_APPS = []\nwhile FLAG:\n    INSTALLED_APPS.append('loop')\nelse:\n    from plugin import STATIC_URL\n";
-    let (db, project, settings) = extract_project(source, &[("plugin", "STATIC_URL = '/static/'")]);
+    let source = "INSTALLED_APPS = []\nwhile FLAG:\n    INSTALLED_APPS.append('loop')\nelse:\n    from plugin import VALUE\n";
+    let (db, project, settings) = extract_project(source, &[("plugin", "VALUE = '/static/'")]);
     let app_cases = cases(&settings, "/installed_apps/cases");
     assert_eq!(app_cases.len(), 2, "{settings:#}");
     assert_eq!(
@@ -871,12 +871,6 @@ fn ambiguous_while_degrades_writes_and_retains_branch_effects() {
         app_cases[1]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
         "{settings:#}"
     );
-    assert_eq!(
-        cases(&settings, "/staticfiles/static_url/cases")[0]["dynamic"]["issues"][0]["kind"],
-        "dynamic_expression",
-        "{settings:#}"
-    );
-
     let file = settings_module_file(&db, project).unwrap();
     let plugin = db.file(Utf8Path::new("/project/settings/plugin.py"));
     let evaluation = python_module_evaluation(&db, project, file);
@@ -2867,17 +2861,9 @@ fn only_deterministic_if_assignments_dominate_namespace_wide_syntax_impact() {
 
 #[test]
 fn unrelated_later_syntax_error_preserves_all_exact_settings() {
-    let settings = extract(
-        "INSTALLED_APPS = ['blog']\nTEMPLATES = []\nSTATIC_URL = '/static/'\nSTATIC_ROOT = '/static-root'\nSTATICFILES_DIRS = ['/assets']\ndef broken(\n",
-    );
+    let settings = extract("INSTALLED_APPS = ['blog']\nTEMPLATES = []\ndef broken(\n");
 
-    for pointer in [
-        "/installed_apps/cases",
-        "/templates/cases",
-        "/staticfiles/static_url/cases",
-        "/staticfiles/static_root/cases",
-        "/staticfiles/staticfiles_dirs/cases",
-    ] {
+    for pointer in ["/installed_apps/cases", "/templates/cases"] {
         let setting_cases = cases(&settings, pointer);
         assert_eq!(setting_cases.len(), 1, "{pointer}");
         assert!(setting_cases[0].get("known").is_some(), "{pointer}");
@@ -3209,54 +3195,6 @@ fn equivalent_template_cases_merge_all_value_origins() {
 }
 
 #[test]
-fn scalar_alternatives_preserve_equal_value_origins() {
-    let settings =
-        extract("if FLAG:\n    STATIC_URL = '/static/'\nelse:\n    STATIC_URL = '/static/'");
-    let cases = cases(&settings, "/staticfiles/static_url/cases");
-
-    assert_eq!(cases.len(), 1);
-    assert_eq!(cases[0]["known"]["value"], "/static/");
-    assert_eq!(cases[0]["known"]["spans"].as_array().unwrap().len(), 2);
-}
-
-#[test]
-fn equal_malformed_scalar_alternatives_merge_all_issue_origins() {
-    let settings = extract("if FLAG:\n    STATIC_URL = False\nelse:\n    STATIC_URL = False");
-    let cases = cases(&settings, "/staticfiles/static_url/cases");
-
-    assert_eq!(cases.len(), 1);
-    assert_eq!(cases[0]["malformed"]["issues"][0]["kind"], "invalid_shape");
-    assert_eq!(
-        cases[0]["malformed"]["issues"][0]["spans"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-}
-
-#[test]
-fn equal_top_level_unknown_alternatives_merge_all_issue_origins() {
-    let source =
-        "if FLAG:\n    STATIC_URL = first_dynamic()\nelse:\n    STATIC_URL = second_dynamic()";
-    let settings = extract(source);
-    let cases = cases(&settings, "/staticfiles/static_url/cases");
-
-    assert_eq!(cases.len(), 1, "{settings:#}");
-    let issues = cases[0]["dynamic"]["issues"].as_array().unwrap();
-    assert_eq!(issues.len(), 1, "{settings:#}");
-    assert_eq!(issues[0]["kind"], "dynamic_expression");
-    assert_eq!(
-        issues[0]["spans"],
-        serde_json::to_value([
-            expected_span(source, "first_dynamic()"),
-            expected_span(source, "second_dynamic()"),
-        ])
-        .unwrap()
-    );
-}
-
-#[test]
 fn branch_merged_unknown_appended_to_installed_apps_retains_all_origins() {
     let source = "if FLAG:\n    APP = first_dynamic()\nelse:\n    APP = second_dynamic()\nINSTALLED_APPS = []\nINSTALLED_APPS.append(APP)";
     let settings = extract(source);
@@ -3303,69 +3241,27 @@ fn typed_unknowns_reach_module_name_and_path_extractors_with_all_origins() {
 }
 
 #[test]
-fn static_root_resolves_relative_to_imported_origin_file() {
-    let settings = extract_project(
-        "from one.base import STATIC_ROOT",
-        &[("one.base", "STATIC_ROOT = 'static'")],
-    )
-    .2;
-    assert_eq!(
-        cases(&settings, "/staticfiles/static_root/cases")[0]["known"]["value"]["resolved"],
-        "/project/settings/one/static"
-    );
-}
-
-#[test]
-fn equal_static_roots_from_modules_in_same_directory_merge_origins() {
-    let settings = extract_project(
-        "if FLAG:\n    from shared.one import STATIC_ROOT\nelse:\n    from shared.two import STATIC_ROOT",
-        &[
-            ("shared.one", "STATIC_ROOT = 'static'"),
-            ("shared.two", "STATIC_ROOT = 'static'"),
-        ],
-    )
-    .2;
-    let cases = cases(&settings, "/staticfiles/static_root/cases");
-
-    assert_eq!(cases.len(), 1);
-    assert_eq!(
-        cases[0]["known"]["value"]["resolved"],
-        "/project/settings/shared/static"
-    );
-    assert_eq!(cases[0]["known"]["spans"].as_array().unwrap().len(), 2);
-}
-
-#[test]
 fn path_collections_keep_known_paths_and_uncertainty_in_source_order() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first', *UNKNOWN, '/later']}]\nSTATICFILES_DIRS = ['/a', UNKNOWN, '/b']",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first', *UNKNOWN, '/later']}]",
     );
     let template_evidence = &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
         [0]["backend"]["dirs"]["evidence"];
     assert_eq!(template_evidence[0]["known"]["value"]["resolved"], "/first");
     assert_eq!(template_evidence[1]["issue"]["kind"], "unknown_unpack");
     assert_eq!(template_evidence[2]["known"]["value"]["resolved"], "/later");
-
-    let static_evidence =
-        &cases(&settings, "/staticfiles/staticfiles_dirs/cases")[0]["dynamic"]["paths"]["evidence"];
-    assert_eq!(static_evidence[0]["known"]["value"]["resolved"], "/a");
-    assert_eq!(static_evidence[1]["issue"]["kind"], "unknown_element");
-    assert_eq!(static_evidence[2]["known"]["value"]["resolved"], "/b");
 }
 
 #[test]
 fn exact_path_lists_preserve_duplicate_entries() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/same', '/same']} ]\nSTATICFILES_DIRS = ['/same', '/same']",
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/same', '/same']} ]",
     );
 
     let template_dirs = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0]["dirs"];
     assert_eq!(template_dirs.as_array().unwrap().len(), 2);
     assert_eq!(template_dirs[0]["value"]["resolved"], "/same");
     assert_eq!(template_dirs[1]["value"]["resolved"], "/same");
-
-    let static_dirs = &cases(&settings, "/staticfiles/staticfiles_dirs/cases")[0]["known"]["dirs"];
-    assert_eq!(static_dirs.as_array().unwrap().len(), 2);
 }
 
 #[test]
@@ -3411,59 +3307,24 @@ fn exact_assignment_after_uncertain_star_import_restores_certainty() {
 }
 
 #[test]
-fn later_exact_assignment_replaces_dynamic_case() {
-    let settings = extract("STATIC_URL = dynamic()\nSTATIC_URL = '/static/'");
-    let cases = cases(&settings, "/staticfiles/static_url/cases");
-    assert_eq!(cases.len(), 1);
-    assert!(cases[0].get("known").is_some());
-}
+fn straight_line_unsupported_mutation_discards_stale_installed_apps() {
+    let source = "INSTALLED_APPS = ['stale']\nINSTALLED_APPS.clear()";
+    let settings = extract(source);
+    let cases = cases(&settings, "/installed_apps/cases");
 
-#[test]
-fn straight_line_unsupported_mutations_discard_stale_settings() {
-    for (source, pointer, issue_pointer) in [
-        (
-            "STATIC_URL = '/stale/'\nSTATIC_URL.clear()",
-            "/staticfiles/static_url/cases",
-            "/dynamic/issues/0",
-        ),
-        (
-            "STATIC_ROOT = '/stale'\nSTATIC_ROOT.clear()",
-            "/staticfiles/static_root/cases",
-            "/dynamic/issues/0",
-        ),
-        (
-            "INSTALLED_APPS = ['stale']\nINSTALLED_APPS.clear()",
-            "/installed_apps/cases",
-            "/dynamic/apps/evidence/0/issue",
-        ),
-        (
-            "STATICFILES_DIRS = ['/stale']\nSTATICFILES_DIRS.clear()",
-            "/staticfiles/staticfiles_dirs/cases",
-            "/dynamic/paths/evidence/0/issue",
-        ),
-    ] {
-        let settings = extract(source);
-        let cases = cases(&settings, pointer);
+    assert_eq!(cases.len(), 1, "{source}");
+    assert!(cases[0].get("known").is_none(), "{source}");
+    assert_eq!(
+        cases[0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "unsupported_mutation",
+        "{source}"
+    );
+    assert!(!cases[0].to_string().contains("stale"), "{source}");
 
-        assert_eq!(cases.len(), 1, "{source}");
-        assert!(cases[0].get("known").is_none(), "{source}");
-        assert_eq!(
-            cases[0].pointer(issue_pointer).unwrap()["kind"],
-            "unsupported_mutation",
-            "{source}"
-        );
-        assert!(!cases[0].to_string().contains("stale"), "{source}");
-
-        let origin = binding_unknown_origin(
-            source,
-            source.lines().next().unwrap().split_once(' ').unwrap().0,
-        );
-        assert_eq!(
-            &source[origin.span.start_usize()..origin.span.end_usize()],
-            source.lines().nth(1).unwrap(),
-            "{source}"
-        );
-    }
+    let origin = binding_unknown_origin(source, "INSTALLED_APPS");
+    assert_eq!(
+        &source[origin.span.start_usize()..origin.span.end_usize()],
+        "INSTALLED_APPS.clear()",
+    );
 }
 
 #[test]
@@ -3482,29 +3343,6 @@ fn branch_local_unsupported_mutation_preserves_unaffected_known_alternative() {
             .as_str()
             .is_some_and(|kind| kind == "unsupported_mutation")
     }));
-}
-
-#[test]
-fn unsupported_staticfiles_dirs_list_mutations_discard_all_path_evidence() {
-    for mutation in [
-        "STATICFILES_DIRS += ['/invented']",
-        "STATICFILES_DIRS.append('/invented')",
-        "STATICFILES_DIRS.extend(['/invented'])",
-    ] {
-        let source = format!("STATICFILES_DIRS = ['/known']\n{mutation}");
-        let cases = cases(&extract(&source), "/staticfiles/staticfiles_dirs/cases").to_vec();
-
-        assert_eq!(cases.len(), 1, "{mutation}");
-        assert!(cases[0].get("known").is_none(), "{mutation}");
-        let evidence = cases[0]["dynamic"]["paths"]["evidence"].as_array().unwrap();
-        assert_eq!(evidence.len(), 1, "{mutation}");
-        assert_eq!(
-            evidence[0]["issue"]["kind"], "unsupported_mutation",
-            "{mutation}"
-        );
-        assert!(!cases[0].to_string().contains("/known"), "{mutation}");
-        assert!(!cases[0].to_string().contains("/invented"), "{mutation}");
-    }
 }
 
 #[test]
@@ -3567,26 +3405,6 @@ fn list_augmented_add_string_preserves_prefix_and_unknown_remainder() {
     assert_eq!(evidence.len(), 2, "{source}");
     assert_eq!(evidence[0]["known"]["value"], "stale", "{source}");
     assert_eq!(evidence[1]["issue"]["kind"], "unknown_unpack", "{source}");
-}
-
-#[test]
-fn exact_assignment_after_unsupported_mutation_restores_known_setting() {
-    for mutation in [
-        "STATICFILES_DIRS += ['/discarded']",
-        "STATICFILES_DIRS.append('/discarded')",
-        "STATICFILES_DIRS.extend(['/discarded'])",
-    ] {
-        let source =
-            format!("STATICFILES_DIRS = ['/stale']\n{mutation}\nSTATICFILES_DIRS = ['/restored']");
-        let cases = cases(&extract(&source), "/staticfiles/staticfiles_dirs/cases").to_vec();
-
-        assert_eq!(cases.len(), 1, "{mutation}");
-        assert_eq!(
-            cases[0]["known"]["dirs"][0]["value"]["resolved"], "/restored",
-            "{mutation}"
-        );
-        assert!(cases[0].get("dynamic").is_none(), "{mutation}");
-    }
 }
 
 #[test]
@@ -3740,11 +3558,14 @@ fn simple_mutable_alias_mutation_preserves_mutated_setting() {
 
 #[test]
 fn chained_immutable_assignment_remains_exact() {
-    let settings = extract("STATIC_URL = URL = '/static/'");
-    let cases = cases(&settings, "/staticfiles/static_url/cases");
+    let (_, evaluation) = evaluate_module("VALUE = ALIAS = '/static/'");
 
-    assert_eq!(cases.len(), 1, "{settings:#}");
-    assert_eq!(cases[0]["known"]["value"], "/static/");
+    for name in ["VALUE", "ALIAS"] {
+        assert!(matches!(
+            &bound_value(&evaluation, name).value.kind,
+            PythonValueKindView::Str(value) if value == "/static/"
+        ));
+    }
 }
 
 #[test]
@@ -3784,16 +3605,13 @@ fn string_installed_apps_are_not_accepted_as_a_collection() {
 }
 
 #[test]
-fn tuple_collection_shaped_template_and_static_settings_are_accepted() {
+fn tuple_collection_shaped_template_settings_are_accepted() {
     let settings = extract(
-        "TEMPLATES = ({'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ('/templates',), 'OPTIONS': {'context_processors': ('app.context.processor',), 'builtins': ('app.builtins',)}},)\nSTATICFILES_DIRS = ('/assets',)",
+        "TEMPLATES = ({'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ('/templates',), 'OPTIONS': {'context_processors': ('app.context.processor',), 'builtins': ('app.builtins',)}},)",
     );
 
     let backend = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0];
     assert_eq!(backend["dirs"][0]["value"]["resolved"], "/templates");
-
-    let static_dirs = &cases(&settings, "/staticfiles/staticfiles_dirs/cases")[0]["known"]["dirs"];
-    assert_eq!(static_dirs.as_array().unwrap().len(), 1, "{settings:#}");
 }
 
 #[test]
@@ -3809,9 +3627,12 @@ fn binary_tuple_plus_tuple_preserves_exact_installed_apps() {
 
 #[test]
 fn binary_string_plus_string_is_exact() {
-    let settings = extract("STATIC_URL = '/sta' + 'tic/'");
-    let cases = cases(&settings, "/staticfiles/static_url/cases");
-    assert_eq!(cases[0]["known"]["value"], "/static/", "{settings:#}");
+    let (_, evaluation) = evaluate_module("VALUE = '/sta' + 'tic/'");
+
+    assert!(matches!(
+        &bound_value(&evaluation, "VALUE").value.kind,
+        PythonValueKindView::Str(value) if value == "/static/"
+    ));
 }
 
 #[test]
@@ -3932,21 +3753,18 @@ fn starred_tuple_construction_follows_iterable_matrix() {
 
 #[test]
 fn name_target_string_augmented_add_is_exact_or_degrades() {
-    let exact = extract("STATIC_URL = '/sta'\nSTATIC_URL += 'tic/'");
-    assert_eq!(
-        cases(&exact, "/staticfiles/static_url/cases")[0]["known"]["value"],
-        "/static/",
-        "{exact:#}"
-    );
+    let (_, exact) = evaluate_module("VALUE = '/sta'\nVALUE += 'tic/'");
+    assert!(matches!(
+        &bound_value(&exact, "VALUE").value.kind,
+        PythonValueKindView::Str(value) if value == "/static/"
+    ));
 
     for source in [
-        "STATIC_URL = '/static/'\nSTATIC_URL += EXTRA",
-        "from pathlib import Path\nSTATIC_URL = '/static/'\nSTATIC_URL += Path('/x')",
+        "VALUE = '/static/'\nVALUE += EXTRA",
+        "from pathlib import Path\nVALUE = '/static/'\nVALUE += Path('/x')",
     ] {
-        let degraded = extract(source);
-        let degraded_cases = cases(&degraded, "/staticfiles/static_url/cases");
-        assert!(degraded_cases[0].get("known").is_none(), "{degraded:#}");
-        assert!(degraded_cases[0].get("dynamic").is_some(), "{degraded:#}");
+        let (_, degraded) = evaluate_module(source);
+        assert!(has_unknown_alternative(&degraded, "VALUE"), "{degraded:#?}");
     }
 }
 
@@ -4074,14 +3892,14 @@ fn chained_mutable_assignment_finds_aliases_after_augmented_add() {
 
 #[test]
 fn chained_container_assignment_invalidates_nested_mutable_sources() {
-    let settings = extract(
-        "DIRS = []\nWRAPPER = {'DIRS': DIRS}\nLEFT = RIGHT = WRAPPER\nRIGHT['DIRS'].append('/templates')\nSTATICFILES_DIRS = DIRS",
+    let (_, evaluation) = evaluate_module(
+        "DIRS = []\nWRAPPER = {'DIRS': DIRS}\nLEFT = RIGHT = WRAPPER\nRIGHT['DIRS'].append('/templates')",
     );
-    let cases = cases(&settings, "/staticfiles/staticfiles_dirs/cases");
 
-    assert_eq!(cases.len(), 1, "{settings:#}");
-    assert!(cases[0].get("dynamic").is_some(), "{settings:#}");
-    assert!(cases[0].get("known").is_none(), "{settings:#}");
+    assert!(
+        has_unknown_alternative(&evaluation, "DIRS"),
+        "{evaluation:#?}"
+    );
 }
 
 #[test]
@@ -4166,35 +3984,9 @@ fn nested_template_dirs_augmented_assignment_is_supported() {
 }
 
 #[test]
-fn relative_paths_from_distinct_import_origins_remain_alternatives() {
-    let settings = extract_project(
-        "if FLAG:\n    from one.base import STATIC_ROOT\nelse:\n    from two.base import STATIC_ROOT",
-        &[
-            ("one.base", "STATIC_ROOT = 'static'"),
-            ("two.base", "STATIC_ROOT = 'static'"),
-        ],
-    )
-    .2;
-    let roots = cases(&settings, "/staticfiles/static_root/cases")
-        .iter()
-        .map(|case| case["known"]["value"]["resolved"].as_str().unwrap())
-        .collect::<std::collections::BTreeSet<_>>();
-
-    assert_eq!(
-        roots,
-        [
-            "/project/settings/one/static",
-            "/project/settings/two/static",
-        ]
-        .into_iter()
-        .collect()
-    );
-}
-
-#[test]
 fn differing_branch_scalars_distribute_through_settings_collections() {
     let settings = extract_project(
-        "if FLAG:\n    from one.values import ROOT, BASE_APPS\nelse:\n    from two.values import ROOT, BASE_APPS\nINSTALLED_APPS = BASE_APPS + ['local']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]}]\nSTATICFILES_DIRS = [ROOT]",
+        "if FLAG:\n    from one.values import ROOT, BASE_APPS\nelse:\n    from two.values import ROOT, BASE_APPS\nINSTALLED_APPS = BASE_APPS + ['local']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]}]",
         &[
             ("one.values", "ROOT = '/one'\nBASE_APPS = ['one']"),
             ("two.values", "ROOT = '/two'\nBASE_APPS = ['two']"),
@@ -4220,52 +4012,21 @@ fn differing_branch_scalars_distribute_through_settings_collections() {
             .collect()
     );
 
-    for pointer in ["/templates/cases", "/staticfiles/staticfiles_dirs/cases"] {
-        let paths = cases(&settings, pointer)
-            .iter()
-            .map(|case| {
-                let dirs = if pointer == "/templates/cases" {
-                    &case["known"]["backends"][0]["dirs"]
-                } else {
-                    &case["known"]["dirs"]
-                };
-                dirs[0]["value"]["resolved"].as_str().unwrap()
-            })
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(paths, ["/one", "/two"].into_iter().collect());
-    }
-}
-
-#[test]
-fn independent_differing_scalars_form_exact_collection_cross_products() {
-    let settings = extract_project(
-        "if FIRST_FLAG:\n    from one.values import FIRST\nelse:\n    from two.values import FIRST\nif SECOND_FLAG:\n    from one.values import SECOND\nelse:\n    from two.values import SECOND\nSTATICFILES_DIRS = [FIRST, SECOND]",
-        &[
-            ("one.values", "FIRST = '/one-first'\nSECOND = '/one-second'"),
-            ("two.values", "FIRST = '/two-first'\nSECOND = '/two-second'"),
-        ],
-    )
-    .2;
-    let paths = cases(&settings, "/staticfiles/staticfiles_dirs/cases")
+    let paths = cases(&settings, "/templates/cases")
         .iter()
         .map(|case| {
-            case["known"]["dirs"]
-                .as_array()
+            case["known"]["backends"][0]["dirs"][0]["value"]["resolved"]
+                .as_str()
                 .unwrap()
-                .iter()
-                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
-                .collect::<Vec<_>>()
         })
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(paths.len(), 4);
-    assert!(paths.contains(&vec!["/one-first", "/two-second"]));
-    assert!(paths.contains(&vec!["/two-first", "/one-second"]));
+    assert_eq!(paths, ["/one", "/two"].into_iter().collect());
 }
 
 #[test]
 fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
     let settings = extract_project(
-        "if FIRST_FLAG:\n    from one.values import FIRST\nelse:\n    from two.values import FIRST\nif SECOND_FLAG:\n    from one.values import SECOND\nelse:\n    from two.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]\nSTATICFILES_DIRS = [FIRST, SECOND]",
+        "if FIRST_FLAG:\n    from one.values import FIRST\nelse:\n    from two.values import FIRST\nif SECOND_FLAG:\n    from one.values import SECOND\nelse:\n    from two.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]",
         &[
             ("one.values", "FIRST = 'first'\nSECOND = 'second'"),
             ("two.values", "FIRST = 'first'\nSECOND = 'second'"),
@@ -4277,17 +4038,6 @@ fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
         .iter()
         .map(|case| {
             case["known"]["backends"][0]["dirs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let static_dirs = cases(&settings, "/staticfiles/staticfiles_dirs/cases")
-        .iter()
-        .map(|case| {
-            case["known"]["dirs"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -4317,12 +4067,7 @@ fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
     .collect();
 
     assert_eq!(template_dirs, expected);
-    assert_eq!(static_dirs, expected);
     assert_eq!(cases(&settings, "/templates/cases").len(), 4);
-    assert_eq!(
-        cases(&settings, "/staticfiles/staticfiles_dirs/cases").len(),
-        4
-    );
 }
 
 #[test]
@@ -4331,7 +4076,7 @@ fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
         .collect::<Vec<_>>()
         .join(", ");
     let source = format!(
-        "if FLAG:\n    from one.values import SHARED\nelse:\n    from two.values import SHARED\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{repeated}]}}]\nSTATICFILES_DIRS = [{repeated}]"
+        "if FLAG:\n    from one.values import SHARED\nelse:\n    from two.values import SHARED\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{repeated}]}}]"
     );
     let settings = extract_project(
         &source,
@@ -4342,38 +4087,32 @@ fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
     )
     .2;
 
-    for pointer in ["/templates/cases", "/staticfiles/staticfiles_dirs/cases"] {
-        let cases = cases(&settings, pointer);
-        assert_eq!(cases.len(), 2);
-        assert!(cases.iter().all(|case| case.get("known").is_some()));
-        let roots = cases
-            .iter()
-            .map(|case| {
-                let paths = if pointer == "/templates/cases" {
-                    case["known"]["backends"][0]["dirs"].as_array().unwrap()
-                } else {
-                    case["known"]["dirs"].as_array().unwrap()
-                };
-                assert_eq!(paths.len(), 7);
-                let root = paths[0]["value"]["resolved"].as_str().unwrap();
-                assert!(
-                    paths
-                        .iter()
-                        .all(|path| path["value"]["resolved"].as_str() == Some(root))
-                );
-                root
-            })
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(
-            roots,
-            [
-                "/project/settings/one/shared",
-                "/project/settings/two/shared",
-            ]
-            .into_iter()
-            .collect()
-        );
-    }
+    let cases = cases(&settings, "/templates/cases");
+    assert_eq!(cases.len(), 2);
+    assert!(cases.iter().all(|case| case.get("known").is_some()));
+    let roots = cases
+        .iter()
+        .map(|case| {
+            let paths = case["known"]["backends"][0]["dirs"].as_array().unwrap();
+            assert_eq!(paths.len(), 7);
+            let root = paths[0]["value"]["resolved"].as_str().unwrap();
+            assert!(
+                paths
+                    .iter()
+                    .all(|path| path["value"]["resolved"].as_str() == Some(root))
+            );
+            root
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        roots,
+        [
+            "/project/settings/one/shared",
+            "/project/settings/two/shared",
+        ]
+        .into_iter()
+        .collect()
+    );
 }
 
 #[test]
@@ -4441,108 +4180,6 @@ fn typed_value_order_setting_lists_keep_cap_projection_for_reversed_input() {
             .len(),
         1,
         "settings-level capping selects one fallback operation: {overflowed:#}"
-    );
-}
-
-#[test]
-fn path_list_caps_the_union_of_list_variants_at_64_plus_one_remainder() {
-    let evaluate = |count: usize| {
-        let mut source = String::new();
-        let mut modules = Vec::new();
-        for index in 0..count {
-            if index == 0 {
-                source.push_str("if FLAG_0:\n");
-            } else if index + 1 == count {
-                source.push_str("else:\n");
-            } else {
-                source.push_str(format!("elif FLAG_{index}:\n").as_str());
-            }
-            source.push_str(
-                format!("    from variant_{index:02} import STATICFILES_DIRS\n").as_str(),
-            );
-            modules.push((
-                format!("variant_{index:02}"),
-                "STATICFILES_DIRS = ['shared']",
-            ));
-        }
-        let module_refs = modules
-            .iter()
-            .map(|(name, body)| (name.as_str(), *body))
-            .collect::<Vec<_>>();
-        extract_project(&source, &module_refs).2
-    };
-
-    let at_limit = evaluate(64);
-    let at_limit = cases(&at_limit, "/staticfiles/staticfiles_dirs/cases");
-    assert_eq!(at_limit.len(), 64);
-    assert!(at_limit.iter().all(|case| case.get("known").is_some()));
-
-    let overflowed = evaluate(65);
-    let overflowed = cases(&overflowed, "/staticfiles/staticfiles_dirs/cases");
-    assert_eq!(overflowed.len(), 65);
-    assert!(
-        overflowed[..64]
-            .iter()
-            .all(|case| case.get("known").is_some())
-    );
-    let remainder = &overflowed[64]["dynamic"]["paths"]["evidence"];
-    assert_eq!(remainder.as_array().unwrap().len(), 1);
-    assert_eq!(remainder[0]["issue"]["kind"], "dynamic_expression");
-    assert_eq!(remainder[0]["issue"]["spans"].as_array().unwrap().len(), 1);
-}
-
-#[test]
-fn capped_dynamic_remainder_merges_later_syntax_evidence() {
-    let mut source = String::from("if BROKEN:\n    STATICFILES_DIRS = ['stale']\n    broken(]\n");
-    let mut modules = Vec::new();
-    for index in 0..65 {
-        if index == 0 {
-            source.push_str("if FLAG_0:\n");
-        } else if index == 64 {
-            source.push_str("else:\n");
-        } else {
-            source.push_str(format!("elif FLAG_{index}:\n").as_str());
-        }
-        source.push_str(format!("    from variant_{index:02} import STATICFILES_DIRS\n").as_str());
-        modules.push((
-            format!("variant_{index:02}"),
-            format!("STATICFILES_DIRS = ['/path-{index:02}']"),
-        ));
-    }
-    let module_refs = modules
-        .iter()
-        .map(|(name, body)| (name.as_str(), body.as_str()))
-        .collect::<Vec<_>>();
-
-    let settings = extract_project(&source, &module_refs).2;
-    let setting_cases = cases(&settings, "/staticfiles/staticfiles_dirs/cases");
-    assert_eq!(setting_cases.len(), 65, "{settings:#}");
-    let evidence = setting_cases
-        .iter()
-        .find_map(|case| case.get("dynamic"))
-        .expect("overflow should retain a dynamic remainder")["paths"]["evidence"]
-        .as_array()
-        .unwrap();
-    let issues = evidence
-        .iter()
-        .map(|evidence| &evidence["issue"])
-        .collect::<Vec<_>>();
-
-    assert_eq!(issues.len(), 2, "{settings:#}");
-    assert!(issues.iter().any(|issue| {
-        issue["kind"] == "dynamic_expression"
-            && issue["spans"]
-                .as_array()
-                .is_some_and(|spans| spans.len() == 1)
-    }));
-    assert!(
-        issues.iter().any(|issue| {
-            issue["kind"] == "syntax_error"
-                && issue["spans"]
-                    .as_array()
-                    .is_some_and(|spans| !spans.is_empty())
-        }),
-        "{issues:#?}"
     );
 }
 
@@ -4694,15 +4331,15 @@ fn template_backend_products_have_a_global_deterministic_64_plus_one_cap() {
 #[test]
 fn equal_relative_path_lists_from_distinct_modules_remain_correlated_alternatives() {
     let settings = extract_project(
-        "if FLAG:\n    from one.base import TEMPLATES, STATICFILES_DIRS\nelse:\n    from two.base import TEMPLATES, STATICFILES_DIRS",
+        "if FLAG:\n    from one.base import TEMPLATES\nelse:\n    from two.base import TEMPLATES",
         &[
             (
                 "one.base",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second']}]\nSTATICFILES_DIRS = ['first', 'second']",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second']}]",
             ),
             (
                 "two.base",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second']}]\nSTATICFILES_DIRS = ['first', 'second']",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['first', 'second']}]",
             ),
         ],
     )
@@ -4732,35 +4369,22 @@ fn equal_relative_path_lists_from_distinct_modules_remain_correlated_alternative
             ],
         ]
     );
-
-    let static_dirs = cases(&settings, "/staticfiles/staticfiles_dirs/cases")
-        .iter()
-        .map(|case| {
-            case["known"]["dirs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(static_dirs, template_dirs);
 }
 
 #[test]
 fn equal_mixed_origin_path_lists_retain_each_original_configuration() {
     let settings = extract_project(
-        "if FLAG:\n    from one.base import TEMPLATES, STATICFILES_DIRS\nelse:\n    from two.base import TEMPLATES, STATICFILES_DIRS",
+        "if FLAG:\n    from one.base import TEMPLATES\nelse:\n    from two.base import TEMPLATES",
         &[
             ("one.values", "FIRST = 'first'\nSECOND = 'second'"),
             ("two.values", "FIRST = 'first'\nSECOND = 'second'"),
             (
                 "one.base",
-                "from one.values import FIRST\nfrom two.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]\nSTATICFILES_DIRS = [FIRST, SECOND]",
+                "from one.values import FIRST\nfrom two.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]",
             ),
             (
                 "two.base",
-                "from two.values import FIRST\nfrom one.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]\nSTATICFILES_DIRS = [FIRST, SECOND]",
+                "from two.values import FIRST\nfrom one.values import SECOND\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [FIRST, SECOND]}]",
             ),
         ],
     )
@@ -4789,41 +4413,17 @@ fn equal_mixed_origin_path_lists_retain_each_original_configuration() {
                 .collect::<Vec<_>>()
         })
         .collect::<std::collections::BTreeSet<_>>();
-    let static_dirs = cases(&settings, "/staticfiles/staticfiles_dirs/cases")
-        .iter()
-        .map(|case| {
-            case["known"]["dirs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect::<std::collections::BTreeSet<_>>();
 
     assert_eq!(template_dirs, expected);
-    assert_eq!(static_dirs, expected);
 }
 
 #[test]
 fn all_setting_families_distinguish_known_unset_dynamic_and_malformed() {
-    let known = extract(
-        "INSTALLED_APPS = []\nTEMPLATES = []\nSTATIC_URL = ''\nSTATIC_ROOT = ''\nSTATICFILES_DIRS = []",
-    );
+    let known = extract("INSTALLED_APPS = []\nTEMPLATES = []");
     let unset = extract("");
-    let dynamic = extract(
-        "INSTALLED_APPS = unknown\nTEMPLATES = unknown\nSTATIC_URL = unknown\nSTATIC_ROOT = unknown\nSTATICFILES_DIRS = unknown",
-    );
-    let malformed = extract(
-        "INSTALLED_APPS = False\nTEMPLATES = False\nSTATIC_URL = False\nSTATIC_ROOT = False\nSTATICFILES_DIRS = False",
-    );
-    for pointer in [
-        "/installed_apps/cases",
-        "/templates/cases",
-        "/staticfiles/static_url/cases",
-        "/staticfiles/static_root/cases",
-        "/staticfiles/staticfiles_dirs/cases",
-    ] {
+    let dynamic = extract("INSTALLED_APPS = unknown\nTEMPLATES = unknown");
+    let malformed = extract("INSTALLED_APPS = False\nTEMPLATES = False");
+    for pointer in ["/installed_apps/cases", "/templates/cases"] {
         assert!(
             cases(&known, pointer)[0].get("known").is_some(),
             "{pointer}"
@@ -4883,23 +4483,25 @@ fn unknown_library_key_weakens_prior_alias_and_later_exact_key_is_authoritative(
 }
 
 #[test]
-fn canonical_unknown_origins_project_top_level_branch_spans() {
-    let source = "if FLAG:\n    STATIC_URL = first()\nelse:\n    STATIC_URL = second()\n";
-    let settings = extract(source);
-    let issues = cases(&settings, "/staticfiles/static_url/cases")[0]["dynamic"]["issues"]
-        .as_array()
-        .expect("unknown scalar should produce issues");
-    let [issue] = issues.as_slice() else {
-        panic!("equal unknown branches should produce one issue: {settings:#}");
+fn canonical_unknown_origins_merge_top_level_branch_spans() {
+    let source = "if FLAG:\n    VALUE = first()\nelse:\n    VALUE = second()\n";
+    let (_, evaluation) = evaluate_module(source);
+    let PythonValueKindView::Unknown(unknown) = &bound_value(&evaluation, "VALUE").value.kind
+    else {
+        panic!("equal unknown branches should produce one unknown: {evaluation:#?}");
     };
-    assert_eq!(issue["kind"], "dynamic_expression");
+
+    assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression);
     assert_eq!(
-        issue["spans"],
-        serde_json::to_value([
+        unknown
+            .origins
+            .iter()
+            .map(|origin| origin.span)
+            .collect::<Vec<_>>(),
+        [
             expected_span(source, "first()"),
             expected_span(source, "second()"),
-        ])
-        .unwrap()
+        ]
     );
 }
 

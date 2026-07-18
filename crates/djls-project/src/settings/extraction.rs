@@ -22,8 +22,6 @@ use crate::python::evaluation::PythonUnknownCause;
 use crate::python::evaluation::PythonValue;
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::DynamicInstalledApps;
-use crate::settings::types::DynamicScalarSetting;
-use crate::settings::types::DynamicStaticFilesDirs;
 use crate::settings::types::DynamicTemplates;
 use crate::settings::types::EvaluatedPath;
 use crate::settings::types::InstalledAppEvidence;
@@ -31,8 +29,6 @@ use crate::settings::types::InstalledAppsAlternatives;
 use crate::settings::types::InstalledAppsValue;
 use crate::settings::types::MAX_EXACT_SETTING_ALTERNATIVES;
 use crate::settings::types::MalformedInstalledApps;
-use crate::settings::types::MalformedScalarSetting;
-use crate::settings::types::MalformedStaticFilesDirs;
 use crate::settings::types::MalformedTemplates;
 use crate::settings::types::MergeDynamicEvidence;
 use crate::settings::types::MergeEvidence;
@@ -41,18 +37,10 @@ use crate::settings::types::OrderedPathList;
 use crate::settings::types::OrderedTemplateList;
 use crate::settings::types::PartialSettingField;
 use crate::settings::types::PartialTemplateBackend;
-use crate::settings::types::PathListEvidence;
 use crate::settings::types::SettingAlternatives;
 use crate::settings::types::SettingCase;
 use crate::settings::types::SettingIssue;
 use crate::settings::types::SettingIssueKind;
-use crate::settings::types::StaticFilesDirsAlternatives;
-use crate::settings::types::StaticFilesDirsValue;
-use crate::settings::types::StaticFilesSettings;
-use crate::settings::types::StaticRoot;
-use crate::settings::types::StaticRootAlternatives;
-use crate::settings::types::StaticUrl;
-use crate::settings::types::StaticUrlAlternatives;
 use crate::settings::types::TemplateAlternatives;
 use crate::settings::types::TemplateBackend;
 use crate::settings::types::TemplateContextProcessorPath;
@@ -64,9 +52,6 @@ use crate::settings::types::WithOrigin;
 enum KnownSetting {
     InstalledApps,
     Templates,
-    StaticUrl,
-    StaticRoot,
-    StaticFilesDirs,
 }
 
 impl KnownSetting {
@@ -74,9 +59,6 @@ impl KnownSetting {
         match self {
             Self::InstalledApps => "INSTALLED_APPS",
             Self::Templates => "TEMPLATES",
-            Self::StaticUrl => "STATIC_URL",
-            Self::StaticRoot => "STATIC_ROOT",
-            Self::StaticFilesDirs => "STATICFILES_DIRS",
         }
     }
 }
@@ -118,11 +100,6 @@ pub(crate) fn settings_from_values(
     let mut settings = DjangoSettings {
         installed_apps: installed_apps(values, namespace_dynamic.as_deref()),
         templates: templates(db, values, namespace_dynamic.as_deref()),
-        staticfiles: StaticFilesSettings {
-            static_url: static_url(values, namespace_dynamic.as_deref()),
-            static_root: static_root(db, values, namespace_dynamic.as_deref()),
-            staticfiles_dirs: staticfiles_dirs(db, values, namespace_dynamic.as_deref()),
-        },
     };
 
     let issues = syntax_issues(KnownSetting::InstalledApps);
@@ -148,31 +125,6 @@ pub(crate) fn settings_from_values(
                         .into_iter()
                         .map(TemplateListEvidence::Issue)
                         .collect(),
-                },
-            }));
-    }
-    let issues = syntax_issues(KnownSetting::StaticUrl);
-    if !issues.is_empty() {
-        settings
-            .staticfiles
-            .static_url
-            .add(SettingCase::Dynamic(DynamicScalarSetting { issues }));
-    }
-    let issues = syntax_issues(KnownSetting::StaticRoot);
-    if !issues.is_empty() {
-        settings
-            .staticfiles
-            .static_root
-            .add(SettingCase::Dynamic(DynamicScalarSetting { issues }));
-    }
-    let issues = syntax_issues(KnownSetting::StaticFilesDirs);
-    if !issues.is_empty() {
-        settings
-            .staticfiles
-            .staticfiles_dirs
-            .add(SettingCase::Dynamic(DynamicStaticFilesDirs {
-                paths: OrderedPathList {
-                    evidence: issues.into_iter().map(PathListEvidence::Issue).collect(),
                 },
             }));
     }
@@ -955,155 +907,6 @@ fn module_name_list(
     (known, issues, malformed)
 }
 
-fn static_url(
-    values: &PythonModuleValues,
-    namespace_dynamic: Option<&[NamespaceDynamicEvidence]>,
-) -> StaticUrlAlternatives {
-    binding_cases(
-        values,
-        KnownSetting::StaticUrl,
-        namespace_dynamic,
-        |bound, constraints| {
-            let case = if let Some(value) = bound.value.string_value() {
-                SettingCase::Known(WithOrigin::new(
-                    StaticUrl(value.to_string()),
-                    bound.value.origins().collect(),
-                ))
-            } else if bound.value.unknown_value().is_some() {
-                SettingCase::Dynamic(DynamicScalarSetting {
-                    issues: vec![unknown_value_issue(&bound.value)],
-                })
-            } else {
-                SettingCase::Malformed(MalformedScalarSetting {
-                    issues: vec![value_issue(SettingIssueKind::InvalidShape, &bound.value)],
-                })
-            };
-            correlated_cases(vec![case], constraints)
-        },
-        |issues| DynamicScalarSetting { issues },
-    )
-}
-
-fn static_root(
-    db: &dyn ProjectDb,
-    values: &PythonModuleValues,
-    namespace_dynamic: Option<&[NamespaceDynamicEvidence]>,
-) -> StaticRootAlternatives {
-    binding_cases(
-        values,
-        KnownSetting::StaticRoot,
-        namespace_dynamic,
-        |bound, constraints| {
-            let paths = evaluated_paths(db, &bound.value);
-            if paths.is_empty() {
-                let case = if bound.value.unknown_value().is_some() {
-                    SettingCase::Dynamic(DynamicScalarSetting {
-                        issues: vec![unknown_value_issue(&bound.value)],
-                    })
-                } else {
-                    SettingCase::Malformed(MalformedScalarSetting {
-                        issues: vec![value_issue(SettingIssueKind::InvalidShape, &bound.value)],
-                    })
-                };
-                correlated_cases(vec![case], constraints)
-            } else {
-                paths
-                    .into_iter()
-                    .map(|path| {
-                        (
-                            SettingCase::Known(WithOrigin::new(
-                                StaticRoot::new(path.path.value),
-                                path.path.origins,
-                            )),
-                            constraints.intersection(&path.constraints),
-                        )
-                    })
-                    .collect()
-            }
-        },
-        |issues| DynamicScalarSetting { issues },
-    )
-}
-
-fn staticfiles_dirs(
-    db: &dyn ProjectDb,
-    values: &PythonModuleValues,
-    namespace_dynamic: Option<&[NamespaceDynamicEvidence]>,
-) -> StaticFilesDirsAlternatives {
-    binding_cases(
-        values,
-        KnownSetting::StaticFilesDirs,
-        namespace_dynamic,
-        |bound, constraints| {
-            let mutation_issues =
-                unsupported_mutation_issues(values, KnownSetting::StaticFilesDirs, &bound.value);
-            if collection_sequence(&bound.value).is_some() {
-                if mutation_issues.is_empty() {
-                    path_list(db, &bound.value)
-                        .into_iter()
-                        .map(|projection| {
-                            let projection_correlation = projection.constraints;
-                            let paths = projection.paths;
-                            let case = if projection.malformed {
-                                SettingCase::Malformed(MalformedStaticFilesDirs { paths })
-                            } else if paths.has_issues() {
-                                SettingCase::Dynamic(DynamicStaticFilesDirs { paths })
-                            } else {
-                                SettingCase::Known(StaticFilesDirsValue {
-                                    dirs: paths.into_known(),
-                                })
-                            };
-                            (case, constraints.intersection(&projection_correlation))
-                        })
-                        .collect()
-                } else {
-                    correlated_cases(
-                        vec![SettingCase::Dynamic(DynamicStaticFilesDirs {
-                            paths: OrderedPathList {
-                                evidence: mutation_issues
-                                    .into_iter()
-                                    .map(PathListEvidence::Issue)
-                                    .collect(),
-                            },
-                        })],
-                        constraints,
-                    )
-                }
-            } else {
-                if bound.value.unknown_value().is_some() {
-                    correlated_cases(
-                        vec![SettingCase::Dynamic(DynamicStaticFilesDirs {
-                            paths: OrderedPathList {
-                                evidence: vec![PathListEvidence::Issue(unknown_value_issue(
-                                    &bound.value,
-                                ))],
-                            },
-                        })],
-                        constraints,
-                    )
-                } else {
-                    correlated_cases(
-                        vec![SettingCase::Malformed(MalformedStaticFilesDirs {
-                            paths: OrderedPathList {
-                                evidence: vec![PathListEvidence::Issue(value_issue(
-                                    SettingIssueKind::InvalidShape,
-                                    &bound.value,
-                                ))],
-                            },
-                        })],
-                        constraints,
-                    )
-                }
-            }
-        },
-        |issues| DynamicStaticFilesDirs {
-            paths: OrderedPathList {
-                evidence: issues.into_iter().map(PathListEvidence::Issue).collect(),
-            },
-        },
-    )
-}
-
 #[derive(Clone)]
 struct PathListProjection {
     paths: OrderedPathList,
@@ -1133,17 +936,6 @@ impl<T> CappedExpansion<T> {
             overflow_origins: None,
         }
     }
-}
-
-fn path_list(db: &dyn ProjectDb, value: &PythonValue) -> Vec<PathListProjection> {
-    let expansion = path_list_capped(db, value);
-    let mut projections = expansion.exact;
-    if let Some(origins) = expansion.overflow_origins {
-        let mut overflow = PathListProjection::empty();
-        overflow.paths.push_issue(alternative_limit_issue(origins));
-        projections.push(overflow);
-    }
-    projections
 }
 
 fn path_list_capped(
@@ -1365,7 +1157,6 @@ fn setting_accepts_mutation(setting: KnownSetting, mutation: &PythonMutation) ->
                     | PythonMutationOperation::Remove
             ) && matches!(mutation.path.as_slice(), [PythonMutationPathSegment::Index(_), PythonMutationPathSegment::Key(key)] if key == "DIRS")
         }
-        KnownSetting::StaticUrl | KnownSetting::StaticRoot | KnownSetting::StaticFilesDirs => false,
     }
 }
 

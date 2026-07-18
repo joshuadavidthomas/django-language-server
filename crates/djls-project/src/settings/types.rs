@@ -252,17 +252,6 @@ impl MergeEvidence for SettingIssue {
     }
 }
 
-fn merge_issue_evidence(issues: &mut Vec<SettingIssue>, additional: SettingIssue) {
-    if let Some(existing) = issues
-        .iter_mut()
-        .find(|existing| existing.kind == additional.kind)
-    {
-        let _ = existing.merge_evidence(&additional);
-    } else {
-        issues.push(additional);
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SettingIssueKind {
@@ -281,7 +270,7 @@ pub(crate) enum SettingIssueKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WithOrigin<T> {
     pub(crate) value: T,
-    pub(crate) origins: Vec<Origin>,
+    origins: Vec<Origin>,
 }
 
 impl<T> WithOrigin<T> {
@@ -451,7 +440,7 @@ impl OrderedPathList {
             .extend(issues.into_iter().map(PathListEvidence::Issue));
     }
 
-    pub(crate) fn has_issues(&self) -> bool {
+    fn has_issues(&self) -> bool {
         self.evidence
             .iter()
             .any(|evidence| matches!(evidence, PathListEvidence::Issue(_)))
@@ -553,79 +542,9 @@ impl PartialTemplateBackend {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct StaticUrl(pub(crate) String);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct StaticRoot {
-    path: EvaluatedPath,
-}
-
-impl StaticRoot {
-    pub(crate) fn new(path: EvaluatedPath) -> Self {
-        Self { path }
-    }
-}
-
-impl Serialize for StaticRoot {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.path.serialize(serializer)
-    }
-}
-
-impl MergeEvidence for StaticRoot {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        self == other
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct DynamicScalarSetting {
-    pub(crate) issues: Vec<SettingIssue>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct MalformedScalarSetting {
-    pub(crate) issues: Vec<SettingIssue>,
-}
-
-pub(crate) type StaticUrlAlternatives =
-    SettingAlternatives<WithOrigin<StaticUrl>, DynamicScalarSetting, MalformedScalarSetting>;
-pub(crate) type StaticRootAlternatives =
-    SettingAlternatives<WithOrigin<StaticRoot>, DynamicScalarSetting, MalformedScalarSetting>;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct StaticFilesDirsValue {
-    pub(crate) dirs: Vec<WithOrigin<EvaluatedPath>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct DynamicStaticFilesDirs {
-    pub(crate) paths: OrderedPathList,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct MalformedStaticFilesDirs {
-    pub(crate) paths: OrderedPathList,
-}
-
-pub(crate) type StaticFilesDirsAlternatives =
-    SettingAlternatives<StaticFilesDirsValue, DynamicStaticFilesDirs, MalformedStaticFilesDirs>;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct StaticFilesSettings {
-    pub(crate) static_url: StaticUrlAlternatives,
-    pub(crate) static_root: StaticRootAlternatives,
-    pub(crate) staticfiles_dirs: StaticFilesDirsAlternatives,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct DjangoSettings {
     pub(crate) installed_apps: InstalledAppsAlternatives,
     pub(crate) templates: TemplateAlternatives,
-    pub(crate) staticfiles: StaticFilesSettings,
 }
 
 pub(crate) struct FeasibleConfiguration<'a> {
@@ -665,28 +584,9 @@ impl DjangoSettings {
             )]),
             templates: SettingAlternatives::new(vec![SettingCase::Dynamic(DynamicTemplates {
                 templates: OrderedTemplateList {
-                    evidence: vec![TemplateListEvidence::Issue(issue.clone())],
+                    evidence: vec![TemplateListEvidence::Issue(issue)],
                 },
             })]),
-            staticfiles: StaticFilesSettings {
-                static_url: SettingAlternatives::new(vec![SettingCase::Dynamic(
-                    DynamicScalarSetting {
-                        issues: vec![issue.clone()],
-                    },
-                )]),
-                static_root: SettingAlternatives::new(vec![SettingCase::Dynamic(
-                    DynamicScalarSetting {
-                        issues: vec![issue.clone()],
-                    },
-                )]),
-                staticfiles_dirs: SettingAlternatives::new(vec![SettingCase::Dynamic(
-                    DynamicStaticFilesDirs {
-                        paths: OrderedPathList {
-                            evidence: vec![PathListEvidence::Issue(issue)],
-                        },
-                    },
-                )]),
-            },
         }
     }
 }
@@ -696,11 +596,6 @@ impl Default for DjangoSettings {
         Self {
             installed_apps: SettingAlternatives::new(vec![SettingCase::Unset]),
             templates: SettingAlternatives::new(vec![SettingCase::Unset]),
-            staticfiles: StaticFilesSettings {
-                static_url: SettingAlternatives::new(vec![SettingCase::Unset]),
-                static_root: SettingAlternatives::new(vec![SettingCase::Unset]),
-                staticfiles_dirs: SettingAlternatives::new(vec![SettingCase::Unset]),
-            },
         }
     }
 }
@@ -748,7 +643,6 @@ equality_is_semantic!(
     SettingIssueKind,
     PythonModuleName,
     EvaluatedPath,
-    StaticUrl,
     TemplateContextProcessorPath,
 );
 
@@ -918,24 +812,6 @@ merge_struct_fields!(PartialTemplateBackend {
     builtins,
     context_processors,
 });
-merge_struct_fields!(DynamicScalarSetting { issues });
-impl MergeDynamicEvidence for DynamicScalarSetting {
-    fn merge_dynamic_evidence(&mut self, other: Self) {
-        for issue in other.issues {
-            merge_issue_evidence(&mut self.issues, issue);
-        }
-    }
-}
-merge_struct_fields!(MalformedScalarSetting { issues });
-impl MergeEvidence for StaticFilesDirsValue {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        if !same_path_origin_files(&self.dirs, &other.dirs) {
-            return false;
-        }
-        self.dirs.merge_evidence(&other.dirs)
-    }
-}
-
 fn same_path_origin_files(
     left: &[WithOrigin<EvaluatedPath>],
     right: &[WithOrigin<EvaluatedPath>],
@@ -962,41 +838,9 @@ fn same_origin_files(left: &[Origin], right: &[Origin]) -> bool {
     }
     left_files == right_files
 }
-merge_struct_fields!(DynamicStaticFilesDirs { paths });
-impl MergeDynamicEvidence for DynamicStaticFilesDirs {
-    fn merge_dynamic_evidence(&mut self, other: Self) {
-        for evidence in other.paths.evidence {
-            if let PathListEvidence::Issue(additional) = evidence {
-                let existing = self.paths.evidence.iter_mut().find_map(|evidence| {
-                    if let PathListEvidence::Issue(issue) = evidence
-                        && issue.kind == additional.kind
-                    {
-                        Some(issue)
-                    } else {
-                        None
-                    }
-                });
-                if let Some(existing) = existing {
-                    let _ = existing.merge_evidence(&additional);
-                } else {
-                    self.paths
-                        .evidence
-                        .push(PathListEvidence::Issue(additional));
-                }
-            }
-        }
-    }
-}
-merge_struct_fields!(MalformedStaticFilesDirs { paths });
-merge_struct_fields!(StaticFilesSettings {
-    static_url,
-    static_root,
-    staticfiles_dirs,
-});
 merge_struct_fields!(DjangoSettings {
     installed_apps,
     templates,
-    staticfiles,
 });
 
 #[cfg(test)]
