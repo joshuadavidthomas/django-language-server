@@ -3,9 +3,11 @@ use std::collections::BTreeMap;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_project::testing::PythonImportOutcomeView;
 use djls_project::testing::compute_django_environment;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::model_modules;
+use djls_project::testing::python_module_evaluation_for_module;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::File;
@@ -2294,6 +2296,40 @@ fn file_to_module_returns_unique_module_for_source_and_init_files() {
             rest: Vec::new(),
         }
     );
+}
+
+#[test]
+fn python_module_package_identity_resolves_relative_imports_by_semantic_kind() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/pkg/__init__.py",
+            "from .sibling import PACKAGE_VALUE\n",
+        )
+        .file(
+            "/project/pkg/settings.py",
+            "from .sibling import MODULE_VALUE\n",
+        )
+        .file(
+            "/project/pkg/sibling.py",
+            "PACKAGE_VALUE = 'package'\nMODULE_VALUE = 'module'\n",
+        )
+        .build(&db);
+
+    for module_name in ["pkg", "pkg.settings"] {
+        let module =
+            PythonModule::resolve(&db, project, PythonModuleName::parse(module_name).unwrap())
+                .unwrap_or_else(|| panic!("{module_name} should resolve"));
+        let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+        assert!(matches!(
+            evaluation.imports.as_slice(),
+            [PythonImportOutcomeView::Resolved {
+                imported_module,
+                ..
+            }] if imported_module.as_str() == "pkg.sibling"
+        ));
+    }
 }
 
 #[test]

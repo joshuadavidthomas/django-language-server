@@ -35,7 +35,6 @@ impl TemplateTagCandidate {
     ) -> Result<Self, TemplateTagCandidateIssue> {
         let module_name = templatetag_module(&app, &name)
             .expect("recognized template tag candidate should have a valid module name");
-        let package = module_name.parent();
         let file =
             path_to_file(db, &path).map_err(|_| TemplateTagCandidateIssue::FileConversion)?;
         let search_path = search_path_for_source(db, project, &path)
@@ -43,7 +42,7 @@ impl TemplateTagCandidate {
         Ok(Self {
             app,
             name,
-            module: PythonModule::new(module_name, package, path, file, search_path),
+            module: PythonModule::file_module(module_name, path, file, search_path),
         })
     }
 

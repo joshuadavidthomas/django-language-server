@@ -483,7 +483,7 @@ fn relative_import_uses_the_inbound_module_identity() {
 }
 
 #[test]
-fn relative_import_from_package_init_alias_uses_parent_package() {
+fn python_module_package_identity_relative_import_from_init_alias_uses_parent_package() {
     let db = TestDatabase::new();
     db.add_file("/project/pkg/__init__.py", "from .base import VALUE\n");
     db.add_file("/project/pkg/base.py", "VALUE = 'package value'\n");

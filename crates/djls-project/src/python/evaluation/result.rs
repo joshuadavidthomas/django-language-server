@@ -630,9 +630,8 @@ mod tests {
 
     fn module(name: &str, id: u64) -> PythonModule {
         let path = format!("/project/{name}.py");
-        PythonModule::new(
+        PythonModule::file_module(
             PythonModuleName::parse(name).unwrap(),
-            None,
             Utf8PathBuf::from(&path),
             File::from_id(Id::from_bits(id)),
             SearchPath::FirstParty(Utf8PathBuf::from("/project")),

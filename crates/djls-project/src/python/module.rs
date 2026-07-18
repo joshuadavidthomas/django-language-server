@@ -362,16 +362,30 @@ pub fn file_to_module_resolution(
 }
 
 impl PythonModule {
-    pub(crate) fn new(
+    fn regular_package(
         name: PythonModuleName,
-        package: Option<PythonModuleName>,
         path: Utf8PathBuf,
         file: File,
         search_path: SearchPath,
     ) -> Self {
         Self {
+            package: Some(name.clone()),
             name,
-            package,
+            path,
+            file,
+            search_path,
+        }
+    }
+
+    pub(crate) fn file_module(
+        name: PythonModuleName,
+        path: Utf8PathBuf,
+        file: File,
+        search_path: SearchPath,
+    ) -> Self {
+        Self {
+            package: name.parent(),
+            name,
             path,
             file,
             search_path,
@@ -448,10 +462,9 @@ impl PythonModule {
                 init_file,
                 file,
                 ..
-            } => Some(Self::new(name.clone(), Some(name), init_file, file, root)),
+            } => Some(Self::regular_package(name, init_file, file, root)),
             ModuleLookupResult::FileModule { root, path, file } => {
-                let package = name.parent();
-                Some(Self::new(name, package, path, file, root))
+                Some(Self::file_module(name, path, file, root))
             }
             ModuleLookupResult::NamespaceOnly { .. } | ModuleLookupResult::NotFound => None,
         }
@@ -465,5 +478,46 @@ impl fmt::Debug for PythonModule {
             .field("package", &self.package)
             .field("path", &self.path)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use salsa::plumbing::FromId;
+    use salsa::plumbing::Id;
+
+    use super::*;
+
+    fn module_parts(name: &str) -> (PythonModuleName, Utf8PathBuf, File, SearchPath) {
+        (
+            PythonModuleName::parse(name).unwrap(),
+            Utf8PathBuf::from(format!("/project/{}.py", name.replace('.', "/"))),
+            File::from_id(Id::from_bits(1)),
+            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+        )
+    }
+
+    #[test]
+    fn python_module_package_identity_is_derived_by_semantic_kind() {
+        let (name, path, file, search_path) = module_parts("pkg");
+        let package = PythonModule::regular_package(name, path, file, search_path);
+        assert_eq!(
+            package.package.as_ref().map(PythonModuleName::as_str),
+            Some("pkg")
+        );
+
+        for (name, expected_package) in [
+            ("top_level", None),
+            ("pkg.settings", Some("pkg")),
+            ("pkg.__init__", Some("pkg")),
+            ("app.templatetags.tags", Some("app.templatetags")),
+        ] {
+            let (name, path, file, search_path) = module_parts(name);
+            let module = PythonModule::file_module(name, path, file, search_path);
+            assert_eq!(
+                module.package.as_ref().map(PythonModuleName::as_str),
+                expected_package
+            );
+        }
     }
 }
