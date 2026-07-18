@@ -1,8 +1,8 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
+use djls_semantic::TemplateDiagnostics;
 use djls_semantic::ValidationError;
-use djls_semantic::ValidationErrorAccumulator;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -11,56 +11,37 @@ use djls_source::Severity;
 use djls_source::SourceText;
 use djls_source::Span;
 use djls_templates::TemplateError;
-use djls_templates::TemplateErrorAccumulator;
 
-pub struct TemplateCheck {
-    template_errors: Vec<TemplateError>,
-    validation_errors: Vec<ValidationError>,
-}
-
-impl TemplateCheck {
-    #[must_use]
-    pub fn has_diagnostics(&self) -> bool {
-        !self.template_errors.is_empty() || !self.validation_errors.is_empty()
-    }
-
-    #[must_use]
-    pub fn template_errors(&self) -> &[TemplateError] {
-        &self.template_errors
-    }
-
-    #[must_use]
-    pub fn validation_errors(&self) -> &[ValidationError] {
-        &self.validation_errors
-    }
-}
-
+/// A readable Template and its collected diagnostics, ready for terminal output.
 pub struct CheckedTemplate {
     path: Utf8PathBuf,
     source: SourceText,
-    check: TemplateCheck,
+    diagnostics: TemplateDiagnostics,
 }
 
 impl CheckedTemplate {
+    /// Return the Template path used in rendered diagnostics.
     #[must_use]
     pub fn path(&self) -> &Utf8Path {
         &self.path
     }
 
+    /// Return whether syntax or validation produced any diagnostics.
     #[must_use]
-    pub fn check(&self) -> &TemplateCheck {
-        &self.check
+    pub fn has_diagnostics(&self) -> bool {
+        self.diagnostics.has_diagnostics()
     }
 
+    /// Count diagnostics enabled by `config` that can be rendered.
     #[must_use]
     pub fn renderable_diagnostic_count(&self, config: &DiagnosticsConfig) -> usize {
-        self.check
+        self.diagnostics
             .template_errors
             .iter()
             .filter(|error| diagnostic_is_enabled(config, error.diagnostic_code()))
             .count()
             + self
-                .check
+                .diagnostics
                 .validation_errors
                 .iter()
                 .filter(|error| {
@@ -69,19 +50,20 @@ impl CheckedTemplate {
                 .count()
     }
 
+    /// Render enabled diagnostics in terminal output order.
     #[must_use]
     pub fn render(&self, config: &DiagnosticsConfig, fmt: &DiagnosticRenderer) -> Vec<String> {
         let mut results = Vec::with_capacity(self.renderable_diagnostic_count(config));
         let path = self.path.as_str();
         let source = self.source.as_str();
 
-        for error in &self.check.template_errors {
+        for error in &self.diagnostics.template_errors {
             if let Some(output) = render_template_error(source, path, error, config, fmt) {
                 results.push(output);
             }
         }
 
-        for error in &self.check.validation_errors {
+        for error in &self.diagnostics.validation_errors {
             if let Some(output) = render_validation_error(source, path, error, config, fmt) {
                 results.push(output);
             }
@@ -91,40 +73,21 @@ impl CheckedTemplate {
     }
 }
 
-#[must_use]
-pub fn check_template(db: &dyn djls_semantic::Db, file: File) -> TemplateCheck {
-    djls_semantic::validate_template_file(db, file);
-
-    let template_errors: Vec<TemplateError> =
-        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
-            .iter()
-            .map(|acc| acc.0.clone())
-            .collect();
-
-    let accumulated =
-        djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file);
-
-    let mut validation_errors: Vec<ValidationError> =
-        accumulated.iter().map(|acc| acc.0.clone()).collect();
-    validation_errors.sort_by_cached_key(|e| e.primary_span().map_or(0, Span::start));
-
-    TemplateCheck {
-        template_errors,
-        validation_errors,
-    }
-}
-
-pub fn check_template_with_source(
+/// Read, validate, and collect one Template for terminal reporting.
+pub fn check_template(
     db: &dyn djls_semantic::Db,
     file: File,
 ) -> Result<CheckedTemplate, FileReadError> {
     let source = file.try_source(db)?;
-    let check = check_template(db, file);
+    let mut diagnostics = djls_semantic::collect_template_diagnostics(db, file);
+    diagnostics
+        .validation_errors
+        .sort_by_cached_key(|error| error.primary_span().map_or(0, Span::start));
 
     Ok(CheckedTemplate {
         path: file.path(db).to_owned(),
         source,
-        check,
+        diagnostics,
     })
 }
 
@@ -171,8 +134,7 @@ fn render_template_error(
     Some(fmt.render(&diag))
 }
 
-#[must_use]
-pub fn render_validation_error(
+fn render_validation_error(
     source: &str,
     path: &str,
     error: &ValidationError,

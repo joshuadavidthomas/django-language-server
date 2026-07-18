@@ -144,27 +144,16 @@ fn collect_incremental(bencher: Bencher) {
     });
 }
 
-struct ValidationRenderFixture<'a> {
-    source: &'a str,
-    path: &'a str,
-    check: djls_ide::TemplateCheck,
-}
-
-fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRenderFixture<'_> {
+fn validation_render_fixture(fixture: &ValidationErrorFixture) -> djls::CheckedTemplate {
     let mut db = primed_realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-    let check = djls_ide::check_template(&db, file);
+    let checked = djls::check_template(&db, file).expect("benchmark file should be readable");
     assert!(
-        !check.validation_errors().is_empty(),
-        "validation error rendering fixture '{}' produced no validation errors",
+        checked.has_diagnostics(),
+        "validation error rendering fixture '{}' produced no diagnostics",
         fixture.label,
     );
-
-    ValidationRenderFixture {
-        source: &fixture.source,
-        path: fixture.path.as_str(),
-        check,
-    }
+    checked
 }
 
 #[divan::bench]
@@ -178,18 +167,10 @@ fn render_validation_output(bencher: Bencher) {
 
     bencher.bench_local(move || {
         let mut rendered_count = 0;
-        for fixture in &fixtures {
-            for error in fixture.check.validation_errors() {
-                if let Some(output) = djls_ide::render_validation_error(
-                    fixture.source,
-                    fixture.path,
-                    error,
-                    &config,
-                    &renderer,
-                ) {
-                    divan::black_box_drop(output);
-                    rendered_count += 1;
-                }
+        for checked in &fixtures {
+            for output in checked.render(&config, &renderer) {
+                divan::black_box_drop(output);
+                rendered_count += 1;
             }
         }
         divan::black_box(rendered_count);
@@ -199,12 +180,12 @@ fn render_validation_output(bencher: Bencher) {
 #[divan::bench]
 fn render_validation_synthetic_output(bencher: Bencher) {
     let mut db = primed_realistic_db();
-    let file = db.file_with_contents("/templates/bench.html", MANY_ERRORS_SOURCE);
+    let file = db.file_with_contents("bench.html", MANY_ERRORS_SOURCE);
 
-    let check = djls_ide::check_template(&db, file);
+    let checked = djls::check_template(&db, file).expect("benchmark file should be readable");
     assert!(
-        !check.validation_errors().is_empty(),
-        "synthetic validation error benchmark produced no validation errors",
+        checked.has_diagnostics(),
+        "synthetic validation error benchmark produced no diagnostics",
     );
 
     let config = djls_conf::DiagnosticsConfig::default();
@@ -213,17 +194,9 @@ fn render_validation_synthetic_output(bencher: Bencher) {
     bencher.bench_local(move || {
         let mut rendered_count = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
-            for error in check.validation_errors() {
-                if let Some(output) = djls_ide::render_validation_error(
-                    MANY_ERRORS_SOURCE,
-                    "bench.html",
-                    error,
-                    &config,
-                    &renderer,
-                ) {
-                    divan::black_box_drop(output);
-                    rendered_count += 1;
-                }
+            for output in checked.render(&config, &renderer) {
+                divan::black_box_drop(output);
+                rendered_count += 1;
             }
         }
         divan::black_box(rendered_count);

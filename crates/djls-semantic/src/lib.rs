@@ -1,4 +1,5 @@
 mod db;
+mod diagnostics;
 mod errors;
 mod filters;
 mod inheritance;
@@ -12,6 +13,8 @@ mod validation;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use db::template_environment_for_file;
+pub use diagnostics::TemplateDiagnostics;
+pub use diagnostics::collect_template_diagnostics;
 pub use djls_project::TagArgument;
 pub use djls_project::TagArgumentKind;
 pub use errors::ValidationError;

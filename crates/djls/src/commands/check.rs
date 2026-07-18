@@ -8,8 +8,8 @@ use anyhow::bail;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
+use djls::CheckedTemplate;
 use djls_db::DjangoDatabase;
-use djls_ide::CheckedTemplate;
 use djls_source::CaseSensitivity;
 use djls_source::DiagnosticRenderer;
 use djls_source::FileSystem;
@@ -258,8 +258,8 @@ fn check_files_parallel(
                 let Ok(file) = path_to_file(&db, &path) else {
                     return;
                 };
-                match djls_ide::check_template_with_source(&db, file) {
-                    Ok(result) if result.check().has_diagnostics() => {
+                match djls::check_template(&db, file) {
+                    Ok(result) if result.has_diagnostics() => {
                         let _ = tx.send(Ok(result));
                     }
                     Ok(_) => {}

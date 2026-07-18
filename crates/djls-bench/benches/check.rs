@@ -55,9 +55,11 @@ fn fixtures(bencher: Bencher) {
         .bench_local_refs(|(db, files, config, fmt)| {
             let mut total_errors = 0;
             for &file in files.iter() {
-                let result = djls_ide::check_template_with_source(db, file)
-                    .expect("benchmark file should be readable");
-                total_errors += result.render(config, fmt).len();
+                let result =
+                    djls::check_template(db, file).expect("benchmark file should be readable");
+                if result.has_diagnostics() {
+                    total_errors += result.render(config, fmt).len();
+                }
             }
             divan::black_box(total_errors);
         });
@@ -102,9 +104,9 @@ fn bench_corpus_check(
         .bench_local_refs(|(db, files, config, fmt)| {
             let mut total_errors = 0;
             for &file in files.iter() {
-                let result = djls_ide::check_template_with_source(db, file)
-                    .expect("benchmark file should be readable");
-                if result.check().has_diagnostics() {
+                let result =
+                    djls::check_template(db, file).expect("benchmark file should be readable");
+                if result.has_diagnostics() {
                     total_errors += result.render(config, fmt).len();
                 }
             }

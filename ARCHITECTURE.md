@@ -39,7 +39,7 @@ Throughout the code map you'll see **Architecture Invariant** callouts. These ar
 
 ### `crates/djls`
 
-The CLI binary. It parses command-line arguments, starts the LSP server for `djls serve`, and runs the black-box template validation flow for `djls check`. For project-backed checks, the CLI applies settings and Project Facts, discovers the input Templates, calls the `djls-ide` one-shot preparation seam, and only then clones the database into parallel validation workers. That preparation primes intrinsic Template Library products before building the shared Template index; the stdin path uses the same seam. This is also the only crate that carries the release version; internal library crates use `0.0.0`.
+The CLI application. It parses command-line arguments, starts the LSP server for `djls serve`, and owns the terminal validation and rendering kernel used by `djls check`. For project-backed checks, the CLI applies settings and Project Facts, discovers the input Templates, calls the `djls-ide` one-shot preparation seam, and only then clones the database into parallel validation workers. That preparation primes intrinsic Template Library products before building the shared Template index; the stdin path uses the same seam. The package exposes its check kernel to benchmarks so they measure production behavior without moving terminal policy into an IDE or semantic crate. This is also the only crate that carries the release version; internal library crates use `0.0.0`.
 
 ### `crates/djls-server`
 
@@ -92,7 +92,7 @@ The project-level semantic grammar vocabulary indexes only closer and intermedia
 
 `TemplateValidator` consumes the converged projection directly. It checks load scoping, arguments, Filter Arity, `{% if %}` expressions, and `{% extends %}` positioning without rebuilding grammar, Loaded Libraries, or symbol indexes. Opaque contents never enter the active occurrence stream. Structural diagnostics are emitted only from the converged pass, so fixed-point retries cannot duplicate them.
 
-`TemplateTree` is not intended to be a lossless syntax tree. Parser-owned details that do not affect structure, such as exact parse errors, remain available from the original `NodeList`. Validation errors go through `ValidationErrorAccumulator`; callers collect them from `validate_template_file`.
+`TemplateTree` is not intended to be a lossless syntax tree. Parser-owned details that do not affect structure, such as exact parse errors, remain available from the original `NodeList`. Validation errors go through `ValidationErrorAccumulator`. `collect_template_diagnostics` is the configuration-independent collection boundary for syntax and validation errors; output adapters decide filtering, ordering, severity, and representation.
 
 This crate also owns Template-reference relationships: deciding which Tag occurrences create template-domain references after `djls-project` has resolved Template origins.
 
@@ -120,7 +120,7 @@ Settings and diagnostics configuration. Merges configuration from multiple sourc
 
 ### `crates/djls-bench`
 
-Benchmarks using [divan](https://github.com/nvzqz/divan). Its database supports both explicit projectless structural fixtures and realistic project-backed inputs. Project-backed warm-semantic workloads call the production priming seam; cold-Project and primed-Project/cold-Template workloads keep those costs distinct. The crate benchmarks parsing, sparse Template analysis, validation, extraction, diagnostics, and the documented validation/render kernels used by `djls check`. Check benchmark Divan inputs create the database, synchronize all Template sources, and call the same `djls-ide` one-shot preparation function as the CLI outside the timed region; only per-file validation and rendering are timed. They also exclude CLI and configuration loading, Django Discovery, filesystem Template discovery, Rayon scheduling, sorting, and terminal I/O, so they are not full-pipeline benchmarks. The separate semantic cold-Project and primed-Project/cold-Template benchmarks keep setup and Project costs visible. `just dev profile <bench> [filter]` generates flamegraphs.
+Benchmarks using [divan](https://github.com/nvzqz/divan). Its database supports both explicit projectless structural fixtures and realistic project-backed inputs. Project-backed warm-semantic workloads call the production priming seam; cold-Project and primed-Project/cold-Template workloads keep those costs distinct. The crate benchmarks parsing, sparse Template analysis, validation, extraction, diagnostics, and the documented validation/render kernels used by `djls check`. Check benchmark Divan inputs create the database, synchronize all Template sources, and call the same `djls-ide` one-shot preparation function as the CLI outside the timed region; timed per-file work calls the production `djls::check` kernel directly. They exclude CLI argument/config loading, Django Discovery, filesystem Template discovery, Rayon scheduling, batch sorting, and terminal I/O, so they are not full-pipeline benchmarks. The separate semantic cold-Project and primed-Project/cold-Template benchmarks keep setup and Project costs visible. `just dev profile <bench> [filter]` generates flamegraphs.
 
 ### `crates/djls-testing`
 
@@ -189,7 +189,7 @@ When a template file opens or changes, it flows through a series of stages. Each
 2. **Parsing** — produces a flat `NodeList`. Parse errors become `Node::Error` entries and are also emitted via `TemplateErrorAccumulator`.
 3. **Template analysis** — Project-backed analysis uses `TemplateAnalysisProjection` to run a sparse structural/load fixed point. It resolves source occurrences against the borrowed `TemplateEnvironment`, converges loader state, builds the `TemplateTree`, and records sparse Tag and Filter facts. Opening Branches capture their contracts, so later loads cannot rewrite existing structure. Structural errors accumulate once from the converged pass. Explicit projectless structure analysis is a direct one-pass query that builds only the sparse grammar and tree needed by its caller.
 4. **Validation** — a single-pass validator consumes the correlated projection and checks load scoping, argument counts, Filter Arity, expression syntax, and `{% extends %}` rules. Opaque contents have already been excluded from active semantic occurrences. Errors accumulate as `ValidationError`s.
-5. **Diagnostics** — `collect_diagnostics` in `djls-ide` retrieves accumulated errors from both the parsing and validation accumulators, converts them to LSP diagnostics, and applies severity overrides from the diagnostics configuration.
+5. **Diagnostics** — `collect_template_diagnostics` in `djls-semantic` collects syntax and validation errors without output policy. `collect_diagnostics` in `djls-ide` converts that result to LSP diagnostics and applies severity overrides; `djls::check` owns terminal filtering and rendering.
 
 The key insight is that no stage blocks on errors from a previous stage. A template full of syntax errors still gets structural analysis on its valid portions, and a template with structural problems still gets validation on the tags that parsed correctly.
 
@@ -212,7 +212,7 @@ Template parsing and semantic validation currently use Salsa accumulators to rep
 
 Infrastructure code — the CLI, file I/O, configuration loading — uses `anyhow::Result`. These are operations that can genuinely fail (disk full, malformed TOML), and the failure should propagate up to the user.
 
-The boundary between these two worlds is `collect_diagnostics` in `djls-ide`: it rejects files that are not diagnostics targets, reaches into the Salsa accumulators for template files, gathers everything, and produces a flat `Vec<Diagnostic>`. That function itself never fails — if a template has nothing to report, it returns an empty vec.
+`collect_template_diagnostics` in `djls-semantic` is the boundary between accumulated analysis errors and output adapters. `collect_diagnostics` in `djls-ide` rejects files that are not LSP diagnostic targets and translates the collected errors into a flat `Vec<Diagnostic>`. The `djls::check` kernel separately combines collected errors with fallible source reads and terminal rendering. Analysis collection itself never fails; infrastructure failures remain typed until the CLI adds application context.
 
 ### Observability
 
