@@ -1928,8 +1928,9 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
                 .iter()
                 .map(|app| InstalledAppEvidence::Known(app.clone()))
                 .collect(),
-            SettingCase::Dynamic(value) => value.apps.evidence.clone(),
-            SettingCase::Malformed(value) => value.apps.evidence.clone(),
+            SettingCase::Dynamic(value) | SettingCase::Malformed(value) => {
+                value.apps.evidence.clone()
+            }
             SettingCase::Unset => Vec::new(),
         };
         for evidence in evidence {
@@ -2024,22 +2025,16 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
                     }
                 }
             }
-            SettingCase::Dynamic(value) => insert_partial_backend_evidence(
-                db,
-                project,
-                &value.templates.evidence,
-                app_libraries,
-                &mut libraries,
-                &mut backend_configuration,
-            ),
-            SettingCase::Malformed(value) => insert_partial_backend_evidence(
-                db,
-                project,
-                &value.templates.evidence,
-                app_libraries,
-                &mut libraries,
-                &mut backend_configuration,
-            ),
+            SettingCase::Dynamic(value) | SettingCase::Malformed(value) => {
+                insert_partial_backend_evidence(
+                    db,
+                    project,
+                    &value.templates.evidence,
+                    app_libraries,
+                    &mut libraries,
+                    &mut backend_configuration,
+                );
+            }
             SettingCase::Unset => {}
         }
         for backend in &mut backend_configuration {

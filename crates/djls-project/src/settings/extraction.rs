@@ -21,22 +21,20 @@ use crate::python::evaluation::PythonUnknown;
 use crate::python::evaluation::PythonUnknownCause;
 use crate::python::evaluation::PythonValue;
 use crate::settings::types::DjangoSettings;
-use crate::settings::types::DynamicInstalledApps;
-use crate::settings::types::DynamicTemplates;
 use crate::settings::types::EvaluatedPath;
 use crate::settings::types::InstalledAppEvidence;
 use crate::settings::types::InstalledAppsAlternatives;
 use crate::settings::types::InstalledAppsValue;
 use crate::settings::types::MAX_EXACT_SETTING_ALTERNATIVES;
-use crate::settings::types::MalformedInstalledApps;
-use crate::settings::types::MalformedTemplates;
 use crate::settings::types::MergeDynamicEvidence;
 use crate::settings::types::MergeEvidence;
 use crate::settings::types::OrderedInstalledApps;
 use crate::settings::types::OrderedPathList;
 use crate::settings::types::OrderedTemplateList;
+use crate::settings::types::PartialInstalledApps;
 use crate::settings::types::PartialSettingField;
 use crate::settings::types::PartialTemplateBackend;
+use crate::settings::types::PartialTemplates;
 use crate::settings::types::SettingAlternatives;
 use crate::settings::types::SettingCase;
 use crate::settings::types::SettingIssue;
@@ -106,7 +104,7 @@ pub(crate) fn settings_from_values(
     if !issues.is_empty() {
         settings
             .installed_apps
-            .add(SettingCase::Dynamic(DynamicInstalledApps {
+            .add(SettingCase::Dynamic(PartialInstalledApps {
                 apps: OrderedInstalledApps {
                     evidence: issues
                         .into_iter()
@@ -119,7 +117,7 @@ pub(crate) fn settings_from_values(
     if !issues.is_empty() {
         settings
             .templates
-            .add(SettingCase::Dynamic(DynamicTemplates {
+            .add(SettingCase::Dynamic(PartialTemplates {
                 templates: OrderedTemplateList {
                     evidence: issues
                         .into_iter()
@@ -131,22 +129,21 @@ pub(crate) fn settings_from_values(
     settings
 }
 
-fn binding_cases<T, D, I>(
+fn binding_cases<T, P>(
     values: &PythonModuleValues,
     setting: KnownSetting,
     namespace_dynamic: Option<&[NamespaceDynamicEvidence]>,
     mut bound: impl FnMut(
         &PythonBoundValue,
         &BranchConstraints,
-    ) -> Vec<(SettingCase<T, D, I>, BranchConstraints)>,
-    dynamic: impl Fn(Vec<SettingIssue>) -> D,
-) -> SettingAlternatives<T, D, I>
+    ) -> Vec<(SettingCase<T, P>, BranchConstraints)>,
+    dynamic: impl Fn(Vec<SettingIssue>) -> P,
+) -> SettingAlternatives<T, P>
 where
     T: MergeEvidence,
-    D: MergeEvidence + MergeDynamicEvidence,
-    I: MergeEvidence,
+    P: MergeEvidence + MergeDynamicEvidence,
 {
-    let mut cases: Vec<(SettingCase<T, D, I>, BranchConstraints)> =
+    let mut cases: Vec<(SettingCase<T, P>, BranchConstraints)> =
         Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
     let mut overflow_origin = None;
     {
@@ -223,10 +220,10 @@ where
     SettingAlternatives::from_correlated(cases)
 }
 
-fn correlated_cases<T, D, I>(
-    cases: Vec<SettingCase<T, D, I>>,
+fn correlated_cases<T, P>(
+    cases: Vec<SettingCase<T, P>>,
     correlation: &BranchConstraints,
-) -> Vec<(SettingCase<T, D, I>, BranchConstraints)> {
+) -> Vec<(SettingCase<T, P>, BranchConstraints)> {
     cases
         .into_iter()
         .map(|case| (case, correlation.clone()))
@@ -246,7 +243,7 @@ fn installed_apps(
                 unsupported_mutation_issues(values, KnownSetting::InstalledApps, &bound.value);
             let Some(sequence) = collection_sequence(&bound.value) else {
                 let case = if bound.value.unknown_value().is_some() {
-                    SettingCase::Dynamic(DynamicInstalledApps {
+                    SettingCase::Dynamic(PartialInstalledApps {
                         apps: OrderedInstalledApps {
                             evidence: vec![InstalledAppEvidence::Issue(unknown_value_issue(
                                 &bound.value,
@@ -254,7 +251,7 @@ fn installed_apps(
                         },
                     })
                 } else {
-                    SettingCase::Malformed(MalformedInstalledApps {
+                    SettingCase::Malformed(PartialInstalledApps {
                         apps: OrderedInstalledApps {
                             evidence: vec![InstalledAppEvidence::Issue(value_issue(
                                 SettingIssueKind::InvalidShape,
@@ -292,14 +289,14 @@ fn installed_apps(
                                 .map(InstalledAppEvidence::Issue),
                         );
                         (
-                            SettingCase::Dynamic(DynamicInstalledApps { apps }),
+                            SettingCase::Dynamic(PartialInstalledApps { apps }),
                             constraints.intersection(remainder_constraints),
                         )
                     }
                 })
                 .collect()
         },
-        |issues| DynamicInstalledApps {
+        |issues| PartialInstalledApps {
             apps: OrderedInstalledApps {
                 evidence: issues
                     .into_iter()
@@ -313,7 +310,7 @@ fn installed_apps(
 fn installed_apps_list_case(
     items: &[PythonSequenceItem],
     mutation_issues: &[SettingIssue],
-) -> SettingCase<InstalledAppsValue, DynamicInstalledApps, MalformedInstalledApps> {
+) -> SettingCase<InstalledAppsValue, PartialInstalledApps> {
     let (mut apps, malformed) = string_list_items(items);
     apps.evidence.extend(
         mutation_issues
@@ -322,7 +319,7 @@ fn installed_apps_list_case(
             .map(InstalledAppEvidence::Issue),
     );
     if malformed {
-        SettingCase::Malformed(MalformedInstalledApps { apps })
+        SettingCase::Malformed(PartialInstalledApps { apps })
     } else if apps
         .evidence
         .iter()
@@ -339,7 +336,7 @@ fn installed_apps_list_case(
                 .collect(),
         })
     } else {
-        SettingCase::Dynamic(DynamicInstalledApps { apps })
+        SettingCase::Dynamic(PartialInstalledApps { apps })
     }
 }
 
@@ -391,7 +388,7 @@ fn templates(
                 template_list(db, sequence, &mutation_issues, constraints)
             } else if bound.value.unknown_value().is_some() {
                 correlated_cases(
-                    vec![SettingCase::Dynamic(DynamicTemplates {
+                    vec![SettingCase::Dynamic(PartialTemplates {
                         templates: OrderedTemplateList {
                             evidence: vec![TemplateListEvidence::Issue(unknown_value_issue(
                                 &bound.value,
@@ -402,7 +399,7 @@ fn templates(
                 )
             } else {
                 correlated_cases(
-                    vec![SettingCase::Malformed(MalformedTemplates {
+                    vec![SettingCase::Malformed(PartialTemplates {
                         templates: OrderedTemplateList {
                             evidence: vec![TemplateListEvidence::Issue(value_issue(
                                 SettingIssueKind::InvalidShape,
@@ -414,7 +411,7 @@ fn templates(
                 )
             }
         },
-        |issues| DynamicTemplates {
+        |issues| PartialTemplates {
             templates: OrderedTemplateList {
                 evidence: issues
                     .into_iter()
@@ -431,7 +428,7 @@ fn template_list(
     issues: &[SettingIssue],
     outer_correlation: &BranchConstraints,
 ) -> Vec<(
-    SettingCase<TemplatesValue, DynamicTemplates, MalformedTemplates>,
+    SettingCase<TemplatesValue, PartialTemplates>,
     BranchConstraints,
 )> {
     let mut cases = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
@@ -491,7 +488,7 @@ fn template_list(
     }
     if let Some(origins) = overflow_origins {
         cases.push((
-            SettingCase::Dynamic(DynamicTemplates {
+            SettingCase::Dynamic(PartialTemplates {
                 templates: OrderedTemplateList {
                     evidence: vec![TemplateListEvidence::Issue(alternative_limit_issue(
                         origins,
@@ -505,7 +502,7 @@ fn template_list(
 }
 
 struct CorrelatedTemplateConfiguration {
-    case: SettingCase<TemplatesValue, DynamicTemplates, MalformedTemplates>,
+    case: SettingCase<TemplatesValue, PartialTemplates>,
     correlation: BranchConstraints,
 }
 
@@ -618,12 +615,12 @@ fn template_configuration(
 ) -> CorrelatedTemplateConfiguration {
     let templates = OrderedTemplateList { evidence };
     let case = if malformed {
-        SettingCase::Malformed(MalformedTemplates { templates })
+        SettingCase::Malformed(PartialTemplates { templates })
     } else if templates.evidence.iter().any(|evidence| match evidence {
         TemplateListEvidence::Backend(backend) => backend.has_issues(),
         TemplateListEvidence::Issue(_) => true,
     }) {
-        SettingCase::Dynamic(DynamicTemplates { templates })
+        SettingCase::Dynamic(PartialTemplates { templates })
     } else {
         SettingCase::Known(TemplatesValue {
             backends: templates

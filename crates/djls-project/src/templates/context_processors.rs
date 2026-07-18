@@ -83,16 +83,9 @@ pub fn template_context_processors(
                     }
                 }
             }
-            SettingCase::Dynamic(value) => processors.extend(resolve_partial_processors(
-                db,
-                project,
-                &value.templates.evidence,
-            )),
-            SettingCase::Malformed(value) => processors.extend(resolve_partial_processors(
-                db,
-                project,
-                &value.templates.evidence,
-            )),
+            SettingCase::Dynamic(value) | SettingCase::Malformed(value) => processors.extend(
+                resolve_partial_processors(db, project, &value.templates.evidence),
+            ),
             SettingCase::Unset => {}
         }
     }

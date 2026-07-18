@@ -14,29 +14,28 @@ const MAX_SETTING_ALTERNATIVES: usize = MAX_EXACT_SETTING_ALTERNATIVES + 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SettingCase<T, D, I> {
+pub(crate) enum SettingCase<T, P> {
     Known(T),
     Unset,
-    Dynamic(D),
-    Malformed(I),
+    Dynamic(P),
+    Malformed(P),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CorrelatedSettingCase<T, D, I> {
-    case: SettingCase<T, D, I>,
+struct CorrelatedSettingCase<T, P> {
+    case: SettingCase<T, P>,
     correlation: BranchConstraints,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SettingAlternatives<T, D, I> {
-    cases: Vec<CorrelatedSettingCase<T, D, I>>,
+pub(crate) struct SettingAlternatives<T, P> {
+    cases: Vec<CorrelatedSettingCase<T, P>>,
 }
 
-impl<T, D, I> Serialize for SettingAlternatives<T, D, I>
+impl<T, P> Serialize for SettingAlternatives<T, P>
 where
     T: Serialize,
-    D: Serialize,
-    I: Serialize,
+    P: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -51,13 +50,12 @@ where
     }
 }
 
-impl<T, D, I> SettingAlternatives<T, D, I>
+impl<T, P> SettingAlternatives<T, P>
 where
     T: MergeEvidence,
-    D: MergeEvidence + MergeDynamicEvidence,
-    I: MergeEvidence,
+    P: MergeEvidence + MergeDynamicEvidence,
 {
-    fn new(cases: Vec<SettingCase<T, D, I>>) -> Self {
+    fn new(cases: Vec<SettingCase<T, P>>) -> Self {
         let mut alternatives = Self { cases: Vec::new() };
         for case in cases {
             alternatives.add(case);
@@ -69,7 +67,7 @@ where
         alternatives
     }
 
-    pub(super) fn from_correlated(cases: Vec<(SettingCase<T, D, I>, BranchConstraints)>) -> Self {
+    pub(super) fn from_correlated(cases: Vec<(SettingCase<T, P>, BranchConstraints)>) -> Self {
         let mut alternatives = Self { cases: Vec::new() };
         for (case, correlation) in cases {
             alternatives.add_with_correlation(case, correlation);
@@ -81,23 +79,23 @@ where
         alternatives
     }
 
-    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = &SettingCase<T, D, I>> {
+    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = &SettingCase<T, P>> {
         self.cases.iter().map(|case| &case.case)
     }
 
     fn cases_with_correlations(
         &self,
-    ) -> impl Iterator<Item = (&SettingCase<T, D, I>, &BranchConstraints)> {
+    ) -> impl Iterator<Item = (&SettingCase<T, P>, &BranchConstraints)> {
         self.cases
             .iter()
             .map(|case| (&case.case, &case.correlation))
     }
 
-    pub(crate) fn add(&mut self, case: SettingCase<T, D, I>) {
+    pub(crate) fn add(&mut self, case: SettingCase<T, P>) {
         self.add_with_correlation(case, BranchConstraints::unconstrained());
     }
 
-    fn add_with_correlation(&mut self, case: SettingCase<T, D, I>, correlation: BranchConstraints) {
+    fn add_with_correlation(&mut self, case: SettingCase<T, P>, correlation: BranchConstraints) {
         for existing in &mut self.cases {
             if existing.case.merge_evidence(&case) {
                 existing.correlation.merge(correlation);
@@ -126,11 +124,10 @@ where
     }
 }
 
-impl<T, D, I> MergeEvidence for SettingAlternatives<T, D, I>
+impl<T, P> MergeEvidence for SettingAlternatives<T, P>
 where
     T: MergeEvidence,
-    D: MergeEvidence + MergeDynamicEvidence,
-    I: MergeEvidence,
+    P: MergeEvidence + MergeDynamicEvidence,
 {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         if self.cases.len() != other.cases.len() {
@@ -209,13 +206,13 @@ impl<A: MergeEvidence, B: MergeEvidence> MergeEvidence for (A, B) {
     }
 }
 
-impl<T: MergeEvidence, D: MergeEvidence, I: MergeEvidence> MergeEvidence for SettingCase<T, D, I> {
+impl<T: MergeEvidence, P: MergeEvidence> MergeEvidence for SettingCase<T, P> {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         match (self, other) {
             (Self::Known(left), Self::Known(right)) => left.merge_evidence(right),
             (Self::Unset, Self::Unset) => true,
-            (Self::Dynamic(left), Self::Dynamic(right)) => left.merge_evidence(right),
-            (Self::Malformed(left), Self::Malformed(right)) => left.merge_evidence(right),
+            (Self::Dynamic(left), Self::Dynamic(right))
+            | (Self::Malformed(left), Self::Malformed(right)) => left.merge_evidence(right),
             _ => false,
         }
     }
@@ -333,17 +330,12 @@ pub(crate) struct OrderedInstalledApps {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct DynamicInstalledApps {
-    pub(crate) apps: OrderedInstalledApps,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct MalformedInstalledApps {
+pub(crate) struct PartialInstalledApps {
     pub(crate) apps: OrderedInstalledApps,
 }
 
 pub(crate) type InstalledAppsAlternatives =
-    SettingAlternatives<InstalledAppsValue, DynamicInstalledApps, MalformedInstalledApps>;
+    SettingAlternatives<InstalledAppsValue, PartialInstalledApps>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct TemplatesValue {
@@ -374,17 +366,11 @@ pub(crate) struct OrderedTemplateList {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct DynamicTemplates {
+pub(crate) struct PartialTemplates {
     pub(crate) templates: OrderedTemplateList,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct MalformedTemplates {
-    pub(crate) templates: OrderedTemplateList,
-}
-
-pub(crate) type TemplateAlternatives =
-    SettingAlternatives<TemplatesValue, DynamicTemplates, MalformedTemplates>;
+pub(crate) type TemplateAlternatives = SettingAlternatives<TemplatesValue, PartialTemplates>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct TemplateBackend {
@@ -548,9 +534,8 @@ pub(crate) struct DjangoSettings {
 }
 
 pub(crate) struct FeasibleConfiguration<'a> {
-    pub(crate) installed_apps:
-        &'a SettingCase<InstalledAppsValue, DynamicInstalledApps, MalformedInstalledApps>,
-    pub(crate) templates: &'a SettingCase<TemplatesValue, DynamicTemplates, MalformedTemplates>,
+    pub(crate) installed_apps: &'a SettingCase<InstalledAppsValue, PartialInstalledApps>,
+    pub(crate) templates: &'a SettingCase<TemplatesValue, PartialTemplates>,
 }
 
 impl DjangoSettings {
@@ -576,13 +561,13 @@ impl DjangoSettings {
         };
         Self {
             installed_apps: SettingAlternatives::new(vec![SettingCase::Dynamic(
-                DynamicInstalledApps {
+                PartialInstalledApps {
                     apps: OrderedInstalledApps {
                         evidence: vec![InstalledAppEvidence::Issue(issue.clone())],
                     },
                 },
             )]),
-            templates: SettingAlternatives::new(vec![SettingCase::Dynamic(DynamicTemplates {
+            templates: SettingAlternatives::new(vec![SettingCase::Dynamic(PartialTemplates {
                 templates: OrderedTemplateList {
                     evidence: vec![TemplateListEvidence::Issue(issue)],
                 },
@@ -657,8 +642,8 @@ impl MergeEvidence for InstalledAppEvidence {
     }
 }
 merge_struct_fields!(OrderedInstalledApps { evidence });
-merge_struct_fields!(DynamicInstalledApps { apps });
-impl MergeDynamicEvidence for DynamicInstalledApps {
+merge_struct_fields!(PartialInstalledApps { apps });
+impl MergeDynamicEvidence for PartialInstalledApps {
     fn merge_dynamic_evidence(&mut self, other: Self) {
         for evidence in other.apps.evidence {
             if let InstalledAppEvidence::Issue(additional) = evidence {
@@ -680,7 +665,6 @@ impl MergeDynamicEvidence for DynamicInstalledApps {
         }
     }
 }
-merge_struct_fields!(MalformedInstalledApps { apps });
 impl MergeEvidence for TemplatesValue {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         if self.backends.len() != other.backends.len()
@@ -705,8 +689,8 @@ impl MergeEvidence for TemplateListEvidence {
     }
 }
 merge_struct_fields!(OrderedTemplateList { evidence });
-merge_struct_fields!(DynamicTemplates { templates });
-impl MergeDynamicEvidence for DynamicTemplates {
+merge_struct_fields!(PartialTemplates { templates });
+impl MergeDynamicEvidence for PartialTemplates {
     fn merge_dynamic_evidence(&mut self, other: Self) {
         for evidence in other.templates.evidence {
             if let TemplateListEvidence::Issue(additional) = evidence {
@@ -730,7 +714,6 @@ impl MergeDynamicEvidence for DynamicTemplates {
         }
     }
 }
-merge_struct_fields!(MalformedTemplates { templates });
 impl MergeEvidence for TemplateBackend {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         if !same_path_origin_files(&self.dirs, &other.dirs) {

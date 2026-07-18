@@ -4184,6 +4184,82 @@ fn typed_value_order_setting_lists_keep_cap_projection_for_reversed_input() {
 }
 
 #[test]
+fn capped_dynamic_remainder_merges_later_syntax_evidence() {
+    let mut source = String::new();
+    for index in 0..65 {
+        if index == 0 {
+            source.push_str("if FLAG_0:\n");
+        } else if index == 64 {
+            source.push_str("else:\n");
+        } else {
+            writeln!(source, "elif FLAG_{index}:").unwrap();
+        }
+        if index == 0 {
+            source.push_str("    INSTALLED_APPS = False\n");
+        } else {
+            writeln!(source, "    INSTALLED_APPS = ['app_{index:02}']").unwrap();
+        }
+    }
+    source.push_str("INSTALLED_APPS.append(@)\n");
+
+    let settings = extract(&source);
+    let setting_cases = cases(&settings, "/installed_apps/cases");
+
+    assert_eq!(setting_cases.len(), 65, "{settings:#}");
+    let malformed_cases = setting_cases
+        .iter()
+        .filter_map(|case| case.get("malformed"))
+        .collect::<Vec<_>>();
+    let [malformed] = malformed_cases.as_slice() else {
+        panic!("expected one Malformed case: {settings:#}");
+    };
+    assert_eq!(
+        malformed["apps"]["evidence"],
+        json!([
+            {
+                "issue": {
+                    "kind": "invalid_shape",
+                    "spans": [expected_span(&source, "False")],
+                }
+            },
+        ]),
+        "the Malformed case must not absorb overflow or syntax evidence: {settings:#}"
+    );
+
+    let dynamic_cases = setting_cases
+        .iter()
+        .filter_map(|case| case.get("dynamic"))
+        .collect::<Vec<_>>();
+    let [remainder] = dynamic_cases.as_slice() else {
+        panic!("expected one capped Dynamic remainder: {settings:#}");
+    };
+    assert_eq!(
+        remainder["apps"]["evidence"],
+        json!([
+            {
+                "issue": {
+                    "kind": "dynamic_expression",
+                    "spans": [Span::saturating_from_parts_usize(
+                        0,
+                        source.find("\nINSTALLED_APPS.append").unwrap(),
+                    )],
+                }
+            },
+            {
+                "issue": {
+                    "kind": "syntax_error",
+                    "spans": [
+                        expected_span(&source, "@"),
+                        expected_span(&source, ")"),
+                    ],
+                }
+            },
+        ]),
+        "{settings:#}"
+    );
+}
+
+#[test]
 fn two_backends_sharing_a_branch_path_keep_only_feasible_configurations() {
     let settings = extract_project(
         "if FLAG:\n    from one.values import ROOT\nelse:\n    from two.values import ROOT\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]},\n]",
@@ -4423,18 +4499,36 @@ fn all_setting_families_distinguish_known_unset_dynamic_and_malformed() {
     let unset = extract("");
     let dynamic = extract("INSTALLED_APPS = unknown\nTEMPLATES = unknown");
     let malformed = extract("INSTALLED_APPS = False\nTEMPLATES = False");
-    for pointer in ["/installed_apps/cases", "/templates/cases"] {
+    for (pointer, payload_field) in [
+        ("/installed_apps/cases", "apps"),
+        ("/templates/cases", "templates"),
+    ] {
         assert!(
             cases(&known, pointer)[0].get("known").is_some(),
             "{pointer}"
         );
         assert_eq!(cases(&unset, pointer), [json!("unset")], "{pointer}");
-        assert!(
-            cases(&dynamic, pointer)[0].get("dynamic").is_some(),
+
+        let dynamic_case = &cases(&dynamic, pointer)[0];
+        let malformed_case = &cases(&malformed, pointer)[0];
+        let dynamic_payload = dynamic_case["dynamic"].as_object().unwrap();
+        let malformed_payload = malformed_case["malformed"].as_object().unwrap();
+        assert_eq!(dynamic_case.as_object().unwrap().len(), 1, "{pointer}");
+        assert_eq!(malformed_case.as_object().unwrap().len(), 1, "{pointer}");
+        assert_eq!(
+            dynamic_payload
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            [payload_field],
             "{pointer}"
         );
-        assert!(
-            cases(&malformed, pointer)[0].get("malformed").is_some(),
+        assert_eq!(
+            malformed_payload
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            [payload_field],
             "{pointer}"
         );
     }

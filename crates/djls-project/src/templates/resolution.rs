@@ -104,8 +104,7 @@ struct InstalledAppsProjection(Vec<InstalledAppEntry>);
 fn project_installed_apps(
     case: &SettingCase<
         crate::settings::types::InstalledAppsValue,
-        crate::settings::types::DynamicInstalledApps,
-        crate::settings::types::MalformedInstalledApps,
+        crate::settings::types::PartialInstalledApps,
     >,
 ) -> InstalledAppsProjection {
     match case {
@@ -116,18 +115,7 @@ fn project_installed_apps(
                 .map(|app| InstalledAppEntry::Known(app.value.clone()))
                 .collect(),
         ),
-        SettingCase::Dynamic(value) => InstalledAppsProjection(
-            value
-                .apps
-                .evidence
-                .iter()
-                .map(|evidence| match evidence {
-                    InstalledAppEvidence::Known(app) => InstalledAppEntry::Known(app.value.clone()),
-                    InstalledAppEvidence::Issue(_) => InstalledAppEntry::Unknown,
-                })
-                .collect(),
-        ),
-        SettingCase::Malformed(value) => InstalledAppsProjection(
+        SettingCase::Dynamic(value) | SettingCase::Malformed(value) => InstalledAppsProjection(
             value
                 .apps
                 .evidence
@@ -229,20 +217,15 @@ pub fn template_directories(db: &dyn ProjectDb, project: Project) -> TemplateDir
                     );
                 }
             }
-            SettingCase::Dynamic(value) => add_partial_backend_roots(
-                db,
-                project,
-                &value.templates.evidence,
-                &apps,
-                &mut alternative,
-            ),
-            SettingCase::Malformed(value) => add_partial_backend_roots(
-                db,
-                project,
-                &value.templates.evidence,
-                &apps,
-                &mut alternative,
-            ),
+            SettingCase::Dynamic(value) | SettingCase::Malformed(value) => {
+                add_partial_backend_roots(
+                    db,
+                    project,
+                    &value.templates.evidence,
+                    &apps,
+                    &mut alternative,
+                );
+            }
             SettingCase::Unset => {}
         }
         // Keep one entry per feasible settings configuration. Environment correlation relies on
