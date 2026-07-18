@@ -252,8 +252,11 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                     TemplateSymbolKind::Tag,
                                 )
                             },
-                            unknown_load_can_shadow: load_state
-                                .unknown_load_can_shadow_symbol(tag.tag, environment),
+                            unknown_load_can_shadow: load_state.unknown_load_can_shadow_symbol(
+                                tag.tag,
+                                TemplateSymbolKind::Tag,
+                                environment,
+                            ),
                         });
                     let loader_arguments =
                         if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
@@ -326,7 +329,11 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                     availability,
                                     arity,
                                     unknown_load_can_shadow: load_state
-                                        .unknown_load_can_shadow_symbol(&filter.name, environment),
+                                        .unknown_load_can_shadow_symbol(
+                                            &filter.name,
+                                            TemplateSymbolKind::Filter,
+                                            environment,
+                                        ),
                                 }
                             });
                         filter_facts.insert(

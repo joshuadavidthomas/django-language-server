@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use djls_project::LoadableLibraryLookup;
+use djls_project::TemplateSymbolKind;
 use djls_source::Span;
 use djls_templates::TagBit;
 
@@ -231,24 +232,37 @@ impl<'a> LoadState<'a> {
     pub(crate) fn unknown_load_can_shadow_symbol(
         self,
         symbol: &str,
+        kind: TemplateSymbolKind,
         environment: djls_project::TemplateEnvironment<'_>,
     ) -> bool {
-        self.statements()
-            .iter()
-            .any(|statement| match &statement.kind {
-                LoadKind::FullLoad { libraries } => libraries.iter().any(|library| {
-                    matches!(
-                        environment.loadable_library_str(library.as_str()),
-                        LoadableLibraryLookup::Inconclusive(_)
-                    )
-                }),
-                LoadKind::SelectiveImport { symbols, library } => {
-                    matches!(
-                        environment.loadable_library_str(library.as_str()),
-                        LoadableLibraryLookup::Inconclusive(_)
-                    ) && symbols.iter().any(|loaded| loaded.as_str() == symbol)
+        let mut can_shadow = false;
+        let mut fold_library =
+            |library: &LoadArgument| match environment.loadable_library_str(library.as_str()) {
+                LoadableLibraryLookup::Inconclusive(_) => can_shadow = true,
+                LoadableLibraryLookup::Found(library) if library.symbol(kind, symbol).is_some() => {
+                    can_shadow = false;
                 }
-            })
+                LoadableLibraryLookup::Found(_)
+                | LoadableLibraryLookup::Ambiguous(_)
+                | LoadableLibraryLookup::Absent => {}
+            };
+
+        for statement in self.statements() {
+            match &statement.kind {
+                LoadKind::FullLoad { libraries } => {
+                    for library in libraries {
+                        fold_library(library);
+                    }
+                }
+                LoadKind::SelectiveImport { symbols, library }
+                    if symbols.iter().any(|loaded| loaded.as_str() == symbol) =>
+                {
+                    fold_library(library);
+                }
+                LoadKind::SelectiveImport { .. } => {}
+            }
+        }
+        can_shadow
     }
 
     #[must_use]

@@ -64,6 +64,26 @@ fn partial_ambiguous_db() -> TestDatabase {
     db
 }
 
+fn unknown_load_contract_db() -> TestDatabase {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['contract_tags'], 'libraries': {**UNKNOWN, 'exact': 'exact_tags'}}}]\n",
+        )
+        .file(
+            "/contract_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef contract_tag(value): pass\n@register.simple_tag\ndef other_contract(value): pass\n",
+        )
+        .file(
+            "/exact_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef exact_symbol(value): pass\n@register.filter\ndef exact_filter(value, argument): pass\n",
+        )
+        .install(&mut db);
+    db
+}
+
 fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
     collect_errors(db, "test.html", source)
 }
@@ -1510,6 +1530,344 @@ fn unknown_loaded_library_suppresses_unloaded_tag_and_filter_diagnostics() {
                 | ValidationError::AmbiguousUnloadedFilter { filter, .. } if filter == "shared"
         )),
         "an unknown full load may provide the known filter: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_suppresses_extracted_argument_rule() {
+    let db = unknown_load_contract_db();
+    let errors = collect_all_errors(&db, "{% load unknown_library %}\n{% contract_tag %}\n");
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "contract_tag"
+        )),
+        "an unknown full load may replace the known tag argument contract: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_full_library_argument_order_is_last_definition_wins() {
+    let db = unknown_load_contract_db();
+    let restored_errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% load unknown_library exact %}\n",
+            "{% exact_symbol %}\n",
+            "{% contract_tag %}\n",
+            "{{ value|exact_filter }}\n",
+        ),
+    );
+    assert!(
+        restored_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "exact_symbol"
+        )),
+        "the later exact tag definition in one full load must restore its contract: {restored_errors:?}"
+    );
+    assert!(
+        restored_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::FilterMissingArgument { filter, .. } if filter == "exact_filter"
+        )),
+        "the later exact filter definition in one full load must restore its contract: {restored_errors:?}"
+    );
+    assert!(
+        !restored_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "contract_tag"
+        )),
+        "a later found library without contract_tag must not clear prior uncertainty: {restored_errors:?}"
+    );
+
+    let shadowed_errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% load exact unknown_library %}\n",
+            "{% exact_symbol %}\n",
+            "{{ value|exact_filter }}\n",
+        ),
+    );
+    assert!(
+        !shadowed_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "exact_symbol"
+        )),
+        "the later unknown full-load argument must suppress the exact tag contract: {shadowed_errors:?}"
+    );
+    assert!(
+        !shadowed_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::FilterMissingArgument { filter, .. } if filter == "exact_filter"
+        )),
+        "the later unknown full-load argument must suppress the exact filter contract: {shadowed_errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_selective_statement_order_is_last_definition_wins() {
+    let db = unknown_load_contract_db();
+    let restored_errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% load exact_symbol exact_filter from unknown_library %}\n",
+            "{% load exact %}\n",
+            "{% exact_symbol %}\n",
+            "{{ value|exact_filter }}\n",
+        ),
+    );
+    assert!(
+        restored_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "exact_symbol"
+        )),
+        "the later exact load must restore the selectively uncertain tag contract: {restored_errors:?}"
+    );
+    assert!(
+        restored_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::FilterMissingArgument { filter, .. } if filter == "exact_filter"
+        )),
+        "the later exact load must restore the selectively uncertain filter contract: {restored_errors:?}"
+    );
+
+    let shadowed_errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% load exact %}\n",
+            "{% load exact_symbol exact_filter from unknown_library %}\n",
+            "{% exact_symbol %}\n",
+            "{{ value|exact_filter }}\n",
+        ),
+    );
+    assert!(
+        !shadowed_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "exact_symbol"
+        )),
+        "the later selective unknown load must suppress the exact tag contract: {shadowed_errors:?}"
+    );
+    assert!(
+        !shadowed_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::FilterMissingArgument { filter, .. } if filter == "exact_filter"
+        )),
+        "the later selective unknown load must suppress the exact filter contract: {shadowed_errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_suppresses_later_opener_contract() {
+    let db = unknown_load_contract_db();
+    let errors = collect_all_errors(&db, "{% load unknown_library %}\n{% if condition %}\n");
+
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "if")),
+        "an opener after an unknown full load must remain structurally inconclusive: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_suppresses_later_orphan_contracts() {
+    let db = unknown_load_contract_db();
+    let errors = collect_all_errors(&db, "{% load unknown_library %}\n{% else %}\n{% endif %}\n");
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::OrphanedTag { tag, .. } if tag == "else"
+        )),
+        "an intermediate spelling after an unknown full load must not be a definite orphan: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::OrphanedClosingTag { tag, .. } if tag == "endif"
+        )),
+        "a closer spelling after an unknown full load must not be a definite orphan: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_selective_import_is_symbol_specific() {
+    let db = unknown_load_contract_db();
+    let errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% load contract_tag if from unknown_library %}\n",
+            "{% contract_tag %}\n",
+            "{% other_contract %}\n",
+            "{% if condition %}\n",
+            "{% for item in items %}\n",
+        ),
+    );
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "contract_tag"
+        )),
+        "the selected contract_tag spelling must lose its argument contract: {errors:?}"
+    );
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "other_contract"
+        )),
+        "the unselected other_contract spelling must retain its argument contract: {errors:?}"
+    );
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "if")),
+        "the selected if spelling must lose its opener contract: {errors:?}"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "for")),
+        "the unselected for spelling must retain its opener contract: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_exact_and_closed_loads_retain_contracts() {
+    let partial = unknown_load_contract_db();
+    let exact_errors = collect_all_errors(
+        &partial,
+        "{% load exact %}\n{% contract_tag %}\n{% if condition %}\n",
+    );
+    assert!(
+        exact_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "contract_tag"
+        )),
+        "an exact load must not suppress an unrelated argument contract: {exact_errors:?}"
+    );
+    assert!(
+        exact_errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "if")),
+        "an exact load must not suppress an unrelated opener contract: {exact_errors:?}"
+    );
+
+    let closed = standard_db();
+    let closed_errors = collect_all_errors(
+        &closed,
+        "{% load missing_library %}\n{% one_arg_tag %}\n{% if condition %}\n",
+    );
+    assert!(
+        closed_errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "one_arg_tag"
+        )),
+        "a closed library miss must not suppress a known argument contract: {closed_errors:?}"
+    );
+    assert!(
+        closed_errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "if")),
+        "a closed library miss must not suppress a known opener contract: {closed_errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_preserves_captured_closer_and_intermediate() {
+    let db = unknown_load_contract_db();
+    let errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% if first %}\n",
+            "{% load unknown_library %}\n",
+            "{% elif second %}second\n",
+            "{% endif %}\n",
+        ),
+    );
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnclosedTag { tag, .. }
+                | ValidationError::OrphanedTag { tag, .. }
+                | ValidationError::OrphanedClosingTag { tag, .. }
+                | ValidationError::UnbalancedStructure { opening_tag: tag, .. }
+                if tag == "if" || tag == "elif" || tag == "endif"
+        )),
+        "the opener's captured intermediate and closer must survive the later unknown load: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_preserves_captured_close_arguments() {
+    let db = unknown_load_contract_db();
+    let errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% block expected %}\n",
+            "{% load unknown_library %}\n",
+            "{% endblock actual %}\n",
+        ),
+    );
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnmatchedBlockName { expected, got, .. }
+                if expected == "expected" && got == "actual"
+        )),
+        "the opener's captured close-argument contract must remain authoritative: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_suppresses_definition_roles() {
+    let db = unknown_load_contract_db();
+    let errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% load if extends from unknown_library %}\n",
+            "{% csrf_token %}\n",
+            "{% extends 'base.html' %}\n",
+            "{% if and %}\n",
+        ),
+    );
+
+    assert!(
+        !errors.iter().any(|error| {
+            matches!(
+                error,
+                ValidationError::ExtendsMustBeFirst { .. }
+                    | ValidationError::MultipleExtends { .. }
+            ) || matches!(
+                error,
+                ValidationError::ExpressionSyntaxError { tag, .. } if tag == "if"
+            )
+        }),
+        "shadowed definitions must not run extends or if role-specific validation: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_shadowed_tag_contract_does_not_create_a_later_load_event() {
+    let db = unknown_load_contract_db();
+    let errors = collect_all_errors(
+        &db,
+        concat!(
+            "{% load load from unknown_library %}\n",
+            "{% load exact %}\n",
+            "{% exact_symbol %}\n",
+        ),
+    );
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, .. } if tag == "exact_symbol"
+        )),
+        "a shadowable loader must not make a later exact-library contract authoritative: {errors:?}"
     );
 }
 

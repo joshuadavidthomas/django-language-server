@@ -247,6 +247,17 @@ impl SparseTagGrammar {
                 )
             },
             |name, load_state| {
+                if load_state.unknown_load_can_shadow_symbol(
+                    name,
+                    TemplateSymbolKind::Tag,
+                    environment,
+                ) {
+                    return TagGrammarFact {
+                        spec: None,
+                        classification: TagClassification::Inconclusive,
+                    };
+                }
+
                 load_state.write_libraries_loading_symbol(name, &mut loaded_names);
                 let spec = crate::tags::effective_tag_spec_from_environment(
                     db,
