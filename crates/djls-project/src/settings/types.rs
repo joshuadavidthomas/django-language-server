@@ -6,7 +6,7 @@ use serde::ser::SerializeStruct;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::evaluation::BranchConstraints;
-use crate::python::evaluation::StructuralOrder;
+use crate::python::evaluation::StructuralOrd;
 
 pub(crate) const MAX_EXACT_SETTING_ALTERNATIVES: usize = 64;
 const MAX_SETTING_ALTERNATIVES: usize = MAX_EXACT_SETTING_ALTERNATIVES + 1;
@@ -238,7 +238,7 @@ impl MergeEvidence for SettingIssue {
             return false;
         }
         self.origins.extend(other.origins.iter().copied());
-        self.origins.sort_by(StructuralOrder::structural_cmp);
+        self.origins.sort_by(StructuralOrd::structural_cmp);
         self.origins.dedup();
         true
     }
@@ -296,7 +296,7 @@ fn normalize_origins(
 ) -> (Origin, Vec<Origin>) {
     let mut origins = Vec::from([origin]);
     origins.extend(additional_origins);
-    origins.sort_by(StructuralOrder::structural_cmp);
+    origins.sort_by(StructuralOrd::structural_cmp);
     origins.dedup();
     let origin = origins.remove(0);
     (origin, origins)

@@ -214,7 +214,7 @@ pub(super) fn collect_syntax_impacts(
 struct DefiniteWriteCollector {
     taint: AssignmentTaint,
     names: FxHashSet<String>,
-    bool_values: FxHashMap<String, bool>,
+    known_name_truthiness: FxHashMap<String, bool>,
 }
 
 impl DefiniteWriteCollector {
@@ -226,7 +226,7 @@ impl DefiniteWriteCollector {
         let mut collector = Self {
             taint: AssignmentTaint::new(impacted_names, namespace_open),
             names: FxHashSet::default(),
-            bool_values: FxHashMap::default(),
+            known_name_truthiness: FxHashMap::default(),
         };
         collector.visit_body(body);
         collector.names
@@ -385,9 +385,9 @@ impl DefiniteWriteCollector {
             self.names.remove(name);
         }
         if dominates && let Some(value) = value {
-            self.bool_values.insert(name.to_string(), value);
+            self.known_name_truthiness.insert(name.to_string(), value);
         } else {
-            self.bool_values.remove(name);
+            self.known_name_truthiness.remove(name);
         }
     }
 
@@ -395,7 +395,7 @@ impl DefiniteWriteCollector {
         for name in touched.names {
             self.taint.record_uncertain_write(&name);
             self.names.remove(&name);
-            self.bool_values.remove(&name);
+            self.known_name_truthiness.remove(&name);
         }
         if touched.all {
             self.taint.record_uncertain_namespace_write();
@@ -431,7 +431,9 @@ impl DefiniteWriteCollector {
     }
 
     fn known_truthiness(&self, expression: &ast::Expr) -> Truthiness {
-        Truthiness::of_expr(expression, &|name| self.bool_values.get(name).copied())
+        Truthiness::of_expr(expression, &|name| {
+            self.known_name_truthiness.get(name).copied()
+        })
     }
 }
 

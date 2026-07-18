@@ -73,7 +73,7 @@ pub(crate) fn settings_from_values(
 ) -> DjangoSettings {
     let namespace_dynamic = values.namespace_remainder.as_ref().map(|remainder| {
         remainder
-            .causes
+            .as_slice()
             .iter()
             .map(|cause| NamespaceDynamicEvidence {
                 issue: issue(SettingIssueKind::DynamicNamespace, cause.unknown.origins()),

@@ -8,7 +8,7 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
-use super::StructuralOrder as _;
+use super::StructuralOrd;
 use super::evaluator::EvaluationState;
 use super::evaluator::Evaluator;
 use super::name_analysis::expr_read_names;
@@ -41,17 +41,17 @@ pub(crate) enum PythonMutationOperation {
     Remove,
 }
 
-impl PythonMutation {
-    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
+impl StructuralOrd for PythonMutation {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
         self.binding
             .cmp(&other.binding)
             .then_with(|| self.path.structural_cmp(&other.path))
-            .then_with(|| self.operation.structural_cmp(other.operation))
+            .then_with(|| self.operation.structural_cmp(&other.operation))
             .then_with(|| self.origin.structural_cmp(&other.origin))
     }
 }
 
-impl PythonMutationPathSegment {
+impl StructuralOrd for PythonMutationPathSegment {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::Index(left), Self::Index(right)) => left.cmp(right),
@@ -59,6 +59,12 @@ impl PythonMutationPathSegment {
             (Self::Index(_), Self::Key(_)) => Ordering::Less,
             (Self::Key(_), Self::Index(_)) => Ordering::Greater,
         }
+    }
+}
+
+impl StructuralOrd for PythonMutationOperation {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.structural_rank().cmp(&other.structural_rank())
     }
 }
 
@@ -71,10 +77,6 @@ impl PythonMutationOperation {
             Self::Insert => 2,
             Self::Remove => 3,
         }
-    }
-
-    fn structural_cmp(self, other: Self) -> Ordering {
-        self.structural_rank().cmp(&other.structural_rank())
     }
 
     fn from_method(method: &str) -> Option<Self> {
@@ -104,7 +106,7 @@ enum EvaluatedMutation<'a> {
     Remove(&'a str),
 }
 
-impl PythonMutationPath {
+impl StructuralOrd for PythonMutationPath {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         for (left, right) in self.segments.iter().zip(&other.segments) {
             let ordering = left.structural_cmp(right);
@@ -114,7 +116,9 @@ impl PythonMutationPath {
         }
         self.segments.len().cmp(&other.segments.len())
     }
+}
 
+impl PythonMutationPath {
     fn from_expr(expr: &ast::Expr) -> Option<(&str, Self)> {
         if let Some(binding) = expr.name_target() {
             return Some((binding, Self::default()));
@@ -515,6 +519,7 @@ mod tests {
     use super::PythonMutationOperation;
     use super::PythonMutationPath;
     use super::PythonMutationPathSegment;
+    use super::StructuralOrd;
     use super::ast;
 
     fn target(source: &str) -> Option<(String, Vec<PythonMutationPathSegment>)> {
@@ -623,7 +628,7 @@ mod tests {
         ];
         for (left_index, left) in operations.iter().enumerate() {
             for (right_index, right) in operations.iter().enumerate() {
-                assert_eq!((*left).structural_cmp(*right), left_index.cmp(&right_index));
+                assert_eq!(left.structural_cmp(right), left_index.cmp(&right_index));
             }
         }
     }

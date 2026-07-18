@@ -28,10 +28,6 @@ impl<T> UniqueVec<T> {
     pub(crate) fn sort_by(&mut self, compare: impl FnMut(&T, &T) -> Ordering) {
         self.0.sort_by(compare);
     }
-
-    pub(crate) fn sort_by_key<K: Ord>(&mut self, key: impl FnMut(&T) -> K) {
-        self.0.sort_by_key(key);
-    }
 }
 
 impl<T: Eq> UniqueVec<T> {

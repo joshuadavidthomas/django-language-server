@@ -9,6 +9,7 @@ use ruff_python_ast::PySourceType;
 use ruff_python_ast::Stmt;
 
 use crate::ast::RangedExt;
+use crate::python::evaluation::StructuralOrd;
 
 #[derive(Clone, PartialEq, Eq, salsa::Update)]
 enum PythonParseResult<'db> {
@@ -73,23 +74,13 @@ pub struct PythonSyntaxError {
     pub message: String,
 }
 
-impl PythonSyntaxError {
+impl StructuralOrd for PythonSyntaxError {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.class
             .cmp(&other.class)
             .then_with(|| self.span.start().cmp(&other.span.start()))
             .then_with(|| self.span.length().cmp(&other.span.length()))
             .then_with(|| self.message.cmp(&other.message))
-    }
-
-    pub(in crate::python) fn structural_cmp_slice(left: &[Self], right: &[Self]) -> Ordering {
-        for (left, right) in left.iter().zip(right) {
-            let ordering = left.structural_cmp(right);
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        left.len().cmp(&right.len())
     }
 }
 

@@ -217,7 +217,7 @@ pub fn python_module_evaluation_for_module(
                 .namespace_remainder
                 .map_or_else(Vec::new, |remainder| {
                     remainder
-                        .causes
+                        .into_causes()
                         .into_iter()
                         .map(|cause| unknown_view(cause.unknown))
                         .collect()

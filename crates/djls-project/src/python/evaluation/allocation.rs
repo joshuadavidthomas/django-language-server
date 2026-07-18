@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use djls_source::Origin;
 
 use super::BranchConstraints;
-use super::StructuralOrder as _;
+use super::StructuralOrd;
 
 /// An abstract source identity for a freshly allocated mutable object.
 ///
@@ -71,16 +71,6 @@ impl AllocationSites {
             .any(|left| other.0.iter().any(|right| left.origin == right.origin))
     }
 
-    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
-        for (left, right) in self.0.iter().zip(&other.0) {
-            let ordering = left.structural_cmp(right);
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        self.0.len().cmp(&other.0.len())
-    }
-
     fn normalize(&mut self) {
         self.0.sort_by(AllocationSite::structural_cmp);
         let mut normalized: Vec<AllocationSite> = Vec::with_capacity(self.0.len());
@@ -102,7 +92,19 @@ impl AllocationSites {
     }
 }
 
-impl AllocationSite {
+impl StructuralOrd for AllocationSites {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.0.iter().zip(&other.0) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.0.len().cmp(&other.0.len())
+    }
+}
+
+impl StructuralOrd for AllocationSite {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.origin
             .structural_cmp(&other.origin)
@@ -161,6 +163,7 @@ mod tests {
     use super::BranchConstraints;
     use super::Origin;
     use super::ReachableAllocationSites;
+    use super::StructuralOrd;
 
     fn origin(offset: usize) -> Origin {
         let file = File::from_id(Id::from_bits(1));

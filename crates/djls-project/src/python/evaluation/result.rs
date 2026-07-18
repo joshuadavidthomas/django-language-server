@@ -12,9 +12,8 @@ use super::PythonBinding;
 use super::PythonMutation;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
-use super::StructuralOrder as _;
+use super::StructuralOrd;
 use super::UniqueVec;
-use super::file_read_error_structural_cmp;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
@@ -49,6 +48,14 @@ pub(crate) struct PythonNamespaceCause {
     pub(crate) constraints: BranchConstraints,
 }
 
+impl StructuralOrd for PythonNamespaceCause {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.unknown
+            .structural_cmp(&other.unknown)
+            .then_with(|| self.constraints.structural_cmp(&other.constraints))
+    }
+}
+
 impl PythonNamespaceCause {
     pub(super) fn unconstrained(unknown: PythonUnknown) -> Self {
         Self {
@@ -60,18 +67,10 @@ impl PythonNamespaceCause {
     pub(super) fn select_branch(&mut self, join: Origin, arm: usize) {
         self.constraints.select(join, arm);
     }
-
-    fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.unknown
-            .structural_cmp(&other.unknown)
-            .then_with(|| self.constraints.structural_cmp(&other.constraints))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PythonNamespaceRemainder {
-    pub(crate) causes: Vec<PythonNamespaceCause>,
-}
+pub(crate) struct PythonNamespaceRemainder(Vec<PythonNamespaceCause>);
 
 impl PythonNamespaceRemainder {
     pub(super) fn new(mut causes: Vec<PythonNamespaceCause>) -> Self {
@@ -88,7 +87,15 @@ impl PythonNamespaceRemainder {
                 normalized.push(cause);
             }
         }
-        Self { causes: normalized }
+        Self(normalized)
+    }
+
+    pub(crate) fn as_slice(&self) -> &[PythonNamespaceCause] {
+        &self.0
+    }
+
+    pub(crate) fn into_causes(self) -> Vec<PythonNamespaceCause> {
+        self.0
     }
 }
 
@@ -117,6 +124,14 @@ impl PythonModuleDependencies {
             imports: UniqueVec::new(),
         }
     }
+
+    fn sort_files(&mut self, root: File) {
+        self.files.sort_by(|left, right| {
+            (*left != root)
+                .cmp(&(*right != root))
+                .then_with(|| left.structural_cmp(right))
+        });
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,7 +141,7 @@ pub(crate) struct PythonImportEdge {
     pub(crate) imported: PythonModule,
 }
 
-impl PythonImportEdge {
+impl StructuralOrd for PythonImportEdge {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.importer
             .structural_cmp(&other.importer)
@@ -160,7 +175,9 @@ impl PythonImportEvaluationStatus {
             Self::SyntaxErrors(_) => 2,
         }
     }
+}
 
+impl StructuralOrd for PythonImportEvaluationStatus {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         let ordering = self.structural_rank().cmp(&other.structural_rank());
         if ordering != Ordering::Equal {
@@ -176,14 +193,16 @@ impl PythonImportEvaluationStatus {
                 Self::Cycle {
                     syntax_errors: right,
                 },
-            ) => PythonSyntaxError::structural_cmp_slice(left, right),
+            ) => left.as_slice().structural_cmp(right.as_slice()),
             (
                 Self::Resolved | Self::SyntaxErrors(_) | Self::Cycle { .. },
                 Self::Resolved | Self::SyntaxErrors(_) | Self::Cycle { .. },
             ) => unreachable!("equal import-status ranks identify the same variant"),
         }
     }
+}
 
+impl PythonImportEvaluationStatus {
     fn into_syntax_errors(self) -> Vec<PythonSyntaxError> {
         match self {
             Self::Resolved => Vec::new(),
@@ -257,7 +276,9 @@ impl PythonImportOutcome {
             Self::Unreadable { .. } => 4,
         }
     }
+}
 
+impl StructuralOrd for PythonImportOutcome {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         let ordering = self.structural_rank().cmp(&other.structural_rank());
         if ordering != Ordering::Equal {
@@ -321,7 +342,7 @@ impl PythonImportOutcome {
                 },
             ) => left_edge
                 .structural_cmp(right_edge)
-                .then_with(|| file_read_error_structural_cmp(left_error, right_error)),
+                .then_with(|| left_error.structural_cmp(right_error)),
             (
                 Self::Evaluated { .. }
                 | Self::InvalidImport { .. }
@@ -336,7 +357,9 @@ impl PythonImportOutcome {
             ) => unreachable!("equal import-outcome ranks identify the same variant"),
         }
     }
+}
 
+impl PythonImportOutcome {
     fn edge(&self) -> Option<&PythonImportEdge> {
         match self {
             Self::Evaluated { edge, .. } | Self::Unreadable { edge, .. } => Some(edge),
@@ -345,13 +368,6 @@ impl PythonImportOutcome {
             }
         }
     }
-}
-
-fn dependency_file_structural_key(
-    file: File,
-    root: File,
-) -> (u8, <File as super::StructuralOrder>::Key) {
-    (u8::from(file != root), file.structural_key())
 }
 
 impl EvaluatedPythonModule {
@@ -366,18 +382,16 @@ impl EvaluatedPythonModule {
         if let Ok(values) = &mut values {
             values.mutations.sort_by(PythonMutation::structural_cmp);
             if root_is_in_cycle && let Some(remainder) = &mut values.namespace_remainder {
-                for cause in &mut remainder.causes {
+                for cause in &mut remainder.0 {
                     if cause.unknown.cause == PythonUnknownCause::Cycle {
                         cause.unknown.replace_origins(None);
                     }
                 }
-                *remainder = PythonNamespaceRemainder::new(remainder.causes.clone());
+                *remainder = PythonNamespaceRemainder::new(remainder.0.clone());
             }
         }
         dependencies.imports = import_graph.canonicalized_outcomes();
-        dependencies
-            .files
-            .sort_by_key(|file| dependency_file_structural_key(*file, root_file));
+        dependencies.sort_files(root_file);
         Self {
             values,
             dependencies,
@@ -467,11 +481,12 @@ impl PythonModuleDependencies {
         if let Some(edge) = cycle {
             files.extend([edge.importer.file(), edge.imported.file()]);
         }
-        files.sort_by_key(|file| dependency_file_structural_key(*file, root_file));
-        Self {
+        let mut dependencies = Self {
             files,
             imports: candidates,
-        }
+        };
+        dependencies.sort_files(root_file);
+        dependencies
     }
 }
 
@@ -773,7 +788,6 @@ mod tests {
             .namespace_remainder
             .as_ref()
             .expect("changed namespace should widen")
-            .causes
             .as_slice()
         else {
             panic!("namespace widening should produce one cycle cause");

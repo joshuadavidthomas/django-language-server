@@ -489,10 +489,10 @@ fn unresolved_import_path_reason(
                 target: String::new(),
             }
         }
-        ImportPathResolutionError::MissingBinding { binding } => {
+        ImportPathResolutionError::MissingBinding(binding) => {
             RelationTargetUnresolvedReason::MissingImportBinding { binding }
         }
-        ImportPathResolutionError::InvalidTarget { target } => {
+        ImportPathResolutionError::InvalidTarget(target) => {
             RelationTargetUnresolvedReason::InvalidImportedTarget { target }
         }
     }
@@ -857,7 +857,7 @@ impl ModelGraph {
                 };
                 match imports.resolve_qualified_path(std::iter::once(name.as_str())) {
                     Ok(target) => self.resolve_imported_relation_target(db, project, &target),
-                    Err(ImportPathResolutionError::MissingBinding { .. }) => {
+                    Err(ImportPathResolutionError::MissingBinding(_)) => {
                         self.resolve_same_app_target(scope, name)
                     }
                     Err(error) => RelationTargetResolution::Unresolved {

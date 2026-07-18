@@ -4,6 +4,7 @@ use djls_source::File;
 use djls_source::Span;
 use ruff_python_ast::Alias;
 use ruff_python_ast::Stmt;
+use thiserror::Error;
 
 use crate::ast::AliasExt;
 use crate::ast::RangedExt;
@@ -11,9 +12,7 @@ use crate::python::PythonModuleName;
 use crate::python::RecoveredPythonModule;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ImportBindings {
-    bindings: BTreeMap<String, ImportBinding>,
-}
+pub(crate) struct ImportBindings(BTreeMap<String, ImportBinding>);
 
 impl ImportBindings {
     pub(crate) fn resolve_qualified_path<'a>(
@@ -24,10 +23,8 @@ impl ImportBindings {
         let Some(root) = parts.next() else {
             return Err(ImportPathResolutionError::EmptyPath);
         };
-        let Some(binding) = self.bindings.get(root) else {
-            return Err(ImportPathResolutionError::MissingBinding {
-                binding: root.to_string(),
-            });
+        let Some(binding) = self.0.get(root) else {
+            return Err(ImportPathResolutionError::MissingBinding(root.to_string()));
         };
 
         let tail: Vec<&str> = parts.collect();
@@ -38,7 +35,7 @@ impl ImportBindings {
         };
 
         PythonModuleName::parse(&target)
-            .map_err(|_| ImportPathResolutionError::InvalidTarget { target })
+            .map_err(|_| ImportPathResolutionError::InvalidTarget(target))
     }
 
     fn from_statements(
@@ -88,7 +85,7 @@ impl ImportBindings {
             let Ok(target) = PythonModuleName::parse(&target) else {
                 continue;
             };
-            self.bindings.insert(
+            self.0.insert(
                 local_name,
                 ImportBinding {
                     target,
@@ -130,7 +127,7 @@ impl ImportBindings {
                 continue;
             };
 
-            self.bindings.insert(
+            self.0.insert(
                 local_name,
                 ImportBinding {
                     target,
@@ -147,11 +144,14 @@ pub(crate) struct ImportBinding {
     binding_range: Span,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum ImportPathResolutionError {
+    #[error("import path is empty")]
     EmptyPath,
-    MissingBinding { binding: String },
-    InvalidTarget { target: String },
+    #[error("no import binding exists for `{0}`")]
+    MissingBinding(String),
+    #[error("resolved import target `{0}` is not a valid module name")]
+    InvalidTarget(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -246,7 +246,7 @@ mod tests {
     }
 
     fn binding<'a>(table: &'a ImportBindings, name: &str) -> &'a ImportBinding {
-        table.bindings.get(name).expect("binding should exist")
+        table.0.get(name).expect("binding should exist")
     }
 
     #[test]
@@ -268,7 +268,7 @@ mod tests {
     fn submodule_import_binds_only_top_level_module() {
         let table = bindings("import os.path\n", "pkg.mod", ModuleKind::Module);
 
-        assert_eq!(table.bindings.len(), 1);
+        assert_eq!(table.0.len(), 1);
         assert_eq!(binding(&table, "os").target.as_str(), "os");
     }
 
@@ -311,14 +311,14 @@ mod tests {
     fn relative_import_level_overflow_records_no_binding() {
         let table = bindings("from ..m import y\n", "pkg.mod", ModuleKind::Module);
 
-        assert!(table.bindings.is_empty());
+        assert!(table.0.is_empty());
     }
 
     #[test]
     fn star_import_records_no_binding() {
         let table = bindings("from m import *\n", "pkg.mod", ModuleKind::Module);
 
-        assert!(table.bindings.is_empty());
+        assert!(table.0.is_empty());
     }
 
     #[test]
@@ -330,6 +330,40 @@ mod tests {
         );
 
         assert_eq!(binding(&table, "x").target.as_str(), "b.x");
+    }
+
+    #[test]
+    fn qualified_paths_resolve_from_recorded_bindings() {
+        let table = bindings("import package as alias\n", "pkg.mod", ModuleKind::Module);
+
+        assert_eq!(
+            table
+                .resolve_qualified_path(["alias", "nested"])
+                .expect("binding should resolve")
+                .as_str(),
+            "package.nested"
+        );
+    }
+
+    #[test]
+    fn qualified_path_resolution_errors_are_specific() {
+        let table = ImportBindings::default();
+
+        assert_eq!(
+            table.resolve_qualified_path([]),
+            Err(ImportPathResolutionError::EmptyPath)
+        );
+        let missing = table
+            .resolve_qualified_path(["missing"])
+            .expect_err("missing binding should fail");
+        assert_eq!(
+            missing,
+            ImportPathResolutionError::MissingBinding("missing".to_string())
+        );
+        assert_eq!(
+            missing.to_string(),
+            "no import binding exists for `missing`"
+        );
     }
 
     #[test]

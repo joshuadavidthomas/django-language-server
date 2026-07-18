@@ -68,7 +68,7 @@ impl OriginSet {
             return;
         }
         self.0.push(origin);
-        self.0.sort_by(StructuralOrder::structural_cmp);
+        self.0.sort_by(StructuralOrd::structural_cmp);
     }
 
     fn extend(&mut self, origins: impl IntoIterator<Item = Origin>) {
@@ -96,12 +96,17 @@ impl OriginSet {
     fn contains(&self, origin: Origin) -> bool {
         self.0.contains(&origin)
     }
+}
 
+impl StructuralOrd for OriginSet {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.0
-            .iter()
-            .map(StructuralOrder::structural_key)
-            .cmp(other.0.iter().map(StructuralOrder::structural_key))
+        for (left, right) in self.0.iter().zip(&other.0) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.0.len().cmp(&other.0.len())
     }
 }
 
@@ -113,44 +118,48 @@ impl FromIterator<Origin> for OriginSet {
     }
 }
 
-/// Evaluator-owned structural ordering for Salsa-backed source-provenance leaves.
+/// Evaluator-owned total ordering for deterministic normalization and retention.
 ///
-/// This remains deliberately narrower than `Ord`: only evaluator
-/// structural comparison should depend on process-local Salsa identity ordering.
-pub(crate) trait StructuralOrder {
-    type Key: Ord;
+/// Implementations compare every field participating in structural equality.
+/// Context-dependent policies, such as root-first dependency order, stay with
+/// their owning type instead of becoming part of this intrinsic order.
+pub(crate) trait StructuralOrd {
+    fn structural_cmp(&self, other: &Self) -> Ordering;
+}
 
-    fn structural_key(&self) -> Self::Key;
-
+impl<T: StructuralOrd> StructuralOrd for [T] {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.structural_key().cmp(&other.structural_key())
+        for (left, right) in self.iter().zip(other) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.len().cmp(&other.len())
     }
 }
 
-impl StructuralOrder for File {
-    type Key = salsa::Id;
-
-    fn structural_key(&self) -> Self::Key {
-        self.as_id()
+impl StructuralOrd for File {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.as_id().cmp(&other.as_id())
     }
 }
 
-impl StructuralOrder for Origin {
-    type Key = (salsa::Id, u32, u32);
-
-    fn structural_key(&self) -> Self::Key {
-        (
-            self.file.structural_key(),
-            self.span.start(),
-            self.span.length(),
-        )
+impl StructuralOrd for Origin {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.file
+            .structural_cmp(&other.file)
+            .then_with(|| self.span.start().cmp(&other.span.start()))
+            .then_with(|| self.span.length().cmp(&other.span.length()))
     }
 }
 
-fn file_read_error_structural_cmp(left: &FileReadError, right: &FileReadError) -> Ordering {
-    left.path()
-        .cmp(right.path())
-        .then_with(|| left.kind().cmp(&right.kind()))
+impl StructuralOrd for FileReadError {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.path()
+            .cmp(other.path())
+            .then_with(|| self.kind().cmp(&other.kind()))
+    }
 }
 
 #[cfg(test)]
@@ -164,7 +173,7 @@ mod tests {
 
     use super::Origin;
     use super::OriginSet;
-    use super::StructuralOrder as _;
+    use super::StructuralOrd as _;
 
     fn file(index: u32) -> File {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic

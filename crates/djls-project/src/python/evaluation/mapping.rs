@@ -8,6 +8,7 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
+use super::StructuralOrd;
 use super::allocation::AllocationSites;
 
 /// A concrete Python `dict` value stored as an ordered write/unpack log rather
@@ -21,6 +22,21 @@ use super::allocation::AllocationSites;
 pub(crate) struct PythonDict {
     items: Vec<PythonDictItem>,
     allocation_sites: AllocationSites,
+}
+
+impl StructuralOrd for PythonDict {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.items.iter().zip(&other.items) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.items.len().cmp(&other.items.len()).then_with(|| {
+            self.allocation_sites
+                .structural_cmp(&other.allocation_sites)
+        })
+    }
 }
 
 impl PythonDict {
@@ -133,19 +149,6 @@ impl PythonDict {
                 entry.value.normalize();
             }
         }
-    }
-
-    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
-        for (left, right) in self.items.iter().zip(&other.items) {
-            let ordering = left.structural_cmp(right);
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        self.items.len().cmp(&other.items.len()).then_with(|| {
-            self.allocation_sites
-                .structural_cmp(&other.allocation_sites)
-        })
     }
 
     pub(super) fn same_semantic_value(&self, other: &Self) -> bool {
@@ -431,7 +434,7 @@ struct PythonDictEntry {
     value: PythonValue,
 }
 
-impl PythonDictItem {
+impl StructuralOrd for PythonDictItem {
     /// Entries precede unknown unpacks, preserving the ordered-log retention
     /// policy while comparing each payload structurally.
     fn structural_cmp(&self, other: &Self) -> Ordering {
@@ -462,6 +465,7 @@ mod tests {
     use super::PythonUnknownCause;
     use super::PythonValue;
     use super::PythonValueKind;
+    use super::StructuralOrd;
 
     fn origin(offset: usize) -> Origin {
         let file = File::from_id(Id::from_bits(1));

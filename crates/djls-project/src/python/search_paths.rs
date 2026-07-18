@@ -11,6 +11,7 @@ use djls_source::WalkOptions;
 
 use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
+use crate::python::evaluation::StructuralOrd;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SearchPath {
@@ -18,6 +19,14 @@ pub enum SearchPath {
     Extra(Utf8PathBuf),
     SitePackages(Utf8PathBuf),
     Editable(Utf8PathBuf),
+}
+
+impl StructuralOrd for SearchPath {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.structural_rank()
+            .cmp(&other.structural_rank())
+            .then_with(|| self.path().cmp(other.path()))
+    }
 }
 
 impl SearchPath {
@@ -30,12 +39,6 @@ impl SearchPath {
             Self::FirstParty(_) => 2,
             Self::SitePackages(_) => 3,
         }
-    }
-
-    pub(in crate::python) fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.structural_rank()
-            .cmp(&other.structural_rank())
-            .then_with(|| self.path().cmp(other.path()))
     }
 
     fn from_pythonpath(
@@ -233,6 +236,7 @@ mod tests {
     use camino::Utf8PathBuf;
 
     use super::SearchPath;
+    use super::StructuralOrd;
 
     #[test]
     fn typed_module_order_search_path_variants_are_distinct_and_total() {

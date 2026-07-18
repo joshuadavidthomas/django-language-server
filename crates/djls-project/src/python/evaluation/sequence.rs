@@ -9,6 +9,7 @@ use super::PythonUnknown;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
+use super::StructuralOrd;
 use super::allocation::AllocationSites;
 use super::value::PythonIterable;
 use super::value::PythonIterableKnowledge;
@@ -19,6 +20,15 @@ use super::value::PythonIterableKnowledge;
 pub(crate) struct PythonList {
     sequence: SequenceFacts,
     allocation_sites: AllocationSites,
+}
+
+impl StructuralOrd for PythonList {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.sequence.structural_cmp(&other.sequence).then_with(|| {
+            self.allocation_sites
+                .structural_cmp(&other.allocation_sites)
+        })
+    }
 }
 
 impl PythonList {
@@ -126,13 +136,6 @@ impl PythonList {
         self.sequence.normalize(None);
     }
 
-    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.sequence.structural_cmp(&other.sequence).then_with(|| {
-            self.allocation_sites
-                .structural_cmp(&other.allocation_sites)
-        })
-    }
-
     pub(super) fn same_semantic_value(&self, other: &Self) -> bool {
         self.sequence.same_semantic_value(&other.sequence)
     }
@@ -154,6 +157,12 @@ impl PythonList {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonTuple {
     sequence: SequenceFacts,
+}
+
+impl StructuralOrd for PythonTuple {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.sequence.structural_cmp(&other.sequence)
+    }
 }
 
 impl PythonTuple {
@@ -217,10 +226,6 @@ impl PythonTuple {
         self.sequence.normalize(None);
     }
 
-    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.sequence.structural_cmp(&other.sequence)
-    }
-
     pub(super) fn same_semantic_value(&self, other: &Self) -> bool {
         self.sequence.same_semantic_value(&other.sequence)
     }
@@ -244,6 +249,15 @@ struct SequenceFacts {
     summary: Vec<PythonSequenceItem>,
     /// Bounded correlated exact alternatives plus the possible unmaterialized remainder.
     alternatives: SequenceAlternatives,
+}
+
+impl StructuralOrd for SequenceFacts {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.summary
+            .as_slice()
+            .structural_cmp(other.summary.as_slice())
+            .then_with(|| self.alternatives.structural_cmp(&other.alternatives))
+    }
 }
 
 impl SequenceFacts {
@@ -404,11 +418,6 @@ impl SequenceFacts {
         }));
     }
 
-    fn structural_cmp(&self, other: &Self) -> Ordering {
-        PythonSequenceItem::slices_structural_cmp(&self.summary, &other.summary)
-            .then_with(|| self.alternatives.structural_cmp(&other.alternatives))
-    }
-
     fn same_semantic_value(&self, other: &Self) -> bool {
         PythonSequenceItem::slices_same_semantic_value(&self.summary, &other.summary)
     }
@@ -436,14 +445,16 @@ struct SequenceAlternativeRemainder {
     constraints: BranchConstraints,
 }
 
-impl ConstrainedExactSequence {
+impl StructuralOrd for ConstrainedExactSequence {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        PythonSequenceItem::slices_structural_cmp(&self.items, &other.items)
+        self.items
+            .as_slice()
+            .structural_cmp(other.items.as_slice())
             .then_with(|| self.constraints.structural_cmp(&other.constraints))
     }
 }
 
-impl SequenceAlternativeRemainder {
+impl StructuralOrd for SequenceAlternativeRemainder {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.origins
             .structural_cmp(&other.origins)
@@ -457,7 +468,7 @@ struct SequenceAlternatives {
     remainder: Option<SequenceAlternativeRemainder>,
 }
 
-impl SequenceAlternatives {
+impl StructuralOrd for SequenceAlternatives {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         for (left, right) in self.exact.iter().zip(&other.exact) {
             let ordering = left.structural_cmp(right);
@@ -476,7 +487,9 @@ impl SequenceAlternatives {
             (Some(left), Some(right)) => left.structural_cmp(right),
         }
     }
+}
 
+impl SequenceAlternatives {
     fn one(items: Vec<PythonSequenceItem>) -> Self {
         Self {
             exact: vec![ConstrainedExactSequence {
@@ -529,7 +542,7 @@ impl SequenceAlternatives {
                 if constraints.is_impossible() {
                     continue;
                 }
-                merge_feasible_constraints(&mut remainder_constraints, constraints);
+                Self::merge_feasible_constraints(&mut remainder_constraints, constraints);
                 remainder_origins.extend(right_remainder.origins.iter());
                 for item in &left.items {
                     item.extend_origins(&mut remainder_origins);
@@ -542,7 +555,7 @@ impl SequenceAlternatives {
                 if constraints.is_impossible() {
                     continue;
                 }
-                merge_feasible_constraints(&mut remainder_constraints, constraints);
+                Self::merge_feasible_constraints(&mut remainder_constraints, constraints);
                 remainder_origins.extend(left_remainder.origins.iter());
                 for item in &right.items {
                     item.extend_origins(&mut remainder_origins);
@@ -556,7 +569,7 @@ impl SequenceAlternatives {
                 .constraints
                 .intersection(&right_remainder.constraints);
             if !constraints.is_impossible() {
-                merge_feasible_constraints(&mut remainder_constraints, constraints);
+                Self::merge_feasible_constraints(&mut remainder_constraints, constraints);
                 remainder_origins.extend(left_remainder.origins.iter());
                 remainder_origins.extend(right_remainder.origins.iter());
             }
@@ -647,7 +660,7 @@ impl SequenceAlternatives {
                 |remainder| (Some(remainder.constraints), remainder.origins),
             );
             for alternative in omitted {
-                merge_feasible_constraints(&mut constraints, alternative.constraints);
+                Self::merge_feasible_constraints(&mut constraints, alternative.constraints);
                 for item in &alternative.items {
                     item.extend_origins(&mut origins);
                 }
@@ -664,6 +677,20 @@ impl SequenceAlternatives {
         self.debug_assert_invariants();
     }
 
+    fn merge_feasible_constraints(
+        merged: &mut Option<BranchConstraints>,
+        constraints: BranchConstraints,
+    ) {
+        if constraints.is_impossible() {
+            return;
+        }
+        if let Some(merged) = merged {
+            merged.merge(constraints);
+        } else {
+            *merged = Some(constraints);
+        }
+    }
+
     fn debug_assert_invariants(&self) {
         debug_assert!(self.exact.len() <= MAX_EXACT_PYTHON_ALTERNATIVES);
         debug_assert!(
@@ -676,20 +703,6 @@ impl SequenceAlternatives {
                 .as_ref()
                 .is_none_or(|remainder| !remainder.constraints.is_impossible())
         );
-    }
-}
-
-fn merge_feasible_constraints(
-    merged: &mut Option<BranchConstraints>,
-    constraints: BranchConstraints,
-) {
-    if constraints.is_impossible() {
-        return;
-    }
-    if let Some(merged) = merged {
-        merged.merge(constraints);
-    } else {
-        *merged = Some(constraints);
     }
 }
 
@@ -762,7 +775,7 @@ pub(crate) enum PythonSequenceItem {
     UnknownUnpack(PythonUnknown),
 }
 
-impl PythonSequenceItem {
+impl StructuralOrd for PythonSequenceItem {
     /// `UnknownElement` < `UnknownUnpack` < Value preserves the exact-alternative
     /// cap's previously observed cross-variant retention policy.
     fn structural_cmp(&self, other: &Self) -> Ordering {
@@ -776,17 +789,9 @@ impl PythonSequenceItem {
             | (Self::Value(_), Self::UnknownUnpack(_)) => Ordering::Greater,
         }
     }
+}
 
-    fn slices_structural_cmp(left: &[Self], right: &[Self]) -> Ordering {
-        for (left, right) in left.iter().zip(right) {
-            let ordering = left.structural_cmp(right);
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        left.len().cmp(&right.len())
-    }
-
+impl PythonSequenceItem {
     fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
         if let Self::Value(value) = self {
             value.constrain_value_evidence(constraints);
@@ -860,6 +865,7 @@ mod tests {
     use super::SequenceAlternativeRemainder;
     use super::SequenceAlternatives;
     use super::SequenceFacts;
+    use super::StructuralOrd;
 
     fn origin(offset: usize) -> Origin {
         let file = File::from_id(Id::from_bits(1));

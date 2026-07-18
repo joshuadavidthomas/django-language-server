@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use djls_source::Origin;
 
-use super::StructuralOrder;
+use super::StructuralOrd;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BranchConstraints {
@@ -41,16 +41,6 @@ impl BranchConstraints {
         self.alternatives.dedup();
     }
 
-    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
-        for (left, right) in self.alternatives.iter().zip(&other.alternatives) {
-            let ordering = cmp_conjunction(left, right);
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        self.alternatives.len().cmp(&other.alternatives.len())
-    }
-
     pub(crate) fn is_impossible(&self) -> bool {
         self.alternatives.is_empty()
     }
@@ -87,29 +77,59 @@ impl BranchConstraints {
 
     pub(crate) fn compatible_with(&self, other: &Self) -> bool {
         self.alternatives.iter().any(|left| {
-            other.alternatives.iter().any(|right| {
-                left.iter().all(|(left_join, left_arm)| {
-                    right.iter().all(|(right_join, right_arm)| {
-                        left_join != right_join || left_arm == right_arm
-                    })
-                })
-            })
+            other
+                .alternatives
+                .iter()
+                .any(|right| conjunctions_are_compatible(left, right))
         })
     }
 }
 
-fn branch_choice_sort_key(choice: &(Origin, usize)) -> (<Origin as StructuralOrder>::Key, usize) {
-    (choice.0.structural_key(), choice.1)
+impl StructuralOrd for BranchConstraints {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.alternatives.iter().zip(&other.alternatives) {
+            let ordering = cmp_conjunction(left, right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.alternatives.len().cmp(&other.alternatives.len())
+    }
+}
+
+fn conjunctions_are_compatible(left: &[(Origin, usize)], right: &[(Origin, usize)]) -> bool {
+    let mut left_index = 0;
+    let mut right_index = 0;
+    while let (Some((left_join, left_arm)), Some((right_join, right_arm))) =
+        (left.get(left_index), right.get(right_index))
+    {
+        match left_join.structural_cmp(right_join) {
+            Ordering::Less => left_index += 1,
+            Ordering::Greater => right_index += 1,
+            Ordering::Equal if left_arm != right_arm => return false,
+            Ordering::Equal => {
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+    true
 }
 
 fn cmp_branch_choice(left: &(Origin, usize), right: &(Origin, usize)) -> Ordering {
-    branch_choice_sort_key(left).cmp(&branch_choice_sort_key(right))
+    left.0
+        .structural_cmp(&right.0)
+        .then_with(|| left.1.cmp(&right.1))
 }
 
 fn cmp_conjunction(left: &[(Origin, usize)], right: &[(Origin, usize)]) -> Ordering {
-    left.iter()
-        .map(branch_choice_sort_key)
-        .cmp(right.iter().map(branch_choice_sort_key))
+    for (left, right) in left.iter().zip(right) {
+        let ordering = cmp_branch_choice(left, right);
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+    left.len().cmp(&right.len())
 }
 
 #[cfg(test)]
@@ -122,6 +142,7 @@ mod tests {
 
     use super::BranchConstraints;
     use super::Origin;
+    use super::StructuralOrd;
 
     fn origin(file_index: u32, start: u32) -> Origin {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
@@ -253,5 +274,25 @@ mod tests {
         assert!(!left.compatible_with(&conflicting));
         assert!(!left.intersection(&independent).is_impossible());
         assert!(left.compatible_with(&independent));
+    }
+
+    #[test]
+    fn compatibility_handles_unconstrained_impossible_and_disjunctive_paths() {
+        let join = origin(0, 1);
+        let first_arm = selected(join, 0);
+        let second_arm = selected(join, 1);
+        let impossible = first_arm.intersection(&second_arm);
+        let unconstrained = BranchConstraints::unconstrained();
+        let mut either_arm = first_arm.clone();
+        either_arm.merge(second_arm.clone());
+
+        assert!(unconstrained.compatible_with(&first_arm));
+        assert!(first_arm.compatible_with(&unconstrained));
+        assert!(!impossible.compatible_with(&first_arm));
+        assert!(!first_arm.compatible_with(&impossible));
+        assert!(first_arm.compatible_with(&first_arm));
+        assert!(!first_arm.compatible_with(&second_arm));
+        assert!(either_arm.compatible_with(&second_arm));
+        assert!(second_arm.compatible_with(&either_arm));
     }
 }

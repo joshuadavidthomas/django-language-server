@@ -8,6 +8,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::python::evaluation::StructuralOrd;
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InvalidModuleName {
     #[error("python module name cannot be empty")]
@@ -41,8 +43,10 @@ impl InvalidModuleName {
             Self::StartsWithDot => 7,
         }
     }
+}
 
-    pub(in crate::python) fn structural_cmp(&self, other: &Self) -> Ordering {
+impl StructuralOrd for InvalidModuleName {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
         let ordering = self.structural_rank().cmp(&other.structural_rank());
         if ordering != Ordering::Equal {
             return ordering;

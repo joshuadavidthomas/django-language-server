@@ -60,6 +60,7 @@ fn collect_target_write_names<'a>(target: &'a ast::Expr, names: &mut Vec<&'a str
     }
 }
 
+/// Collects names whose current bindings are read while evaluating an expression.
 pub(super) fn expr_read_names(expression: &ast::Expr) -> FxHashSet<String> {
     ReadNameCollector::collect(expression)
 }

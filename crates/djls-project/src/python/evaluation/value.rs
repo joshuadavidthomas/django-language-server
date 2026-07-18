@@ -13,9 +13,8 @@ use super::PythonSequence;
 use super::PythonSequenceItem;
 use super::PythonTuple;
 use super::ReachableAllocationSites;
-use super::StructuralOrder as _;
+use super::StructuralOrd;
 use super::allocation::AllocationSites;
-use super::file_read_error_structural_cmp;
 use crate::python::PythonModuleName;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
@@ -81,6 +80,18 @@ impl<'a> PythonKnownScalar<'a> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct PythonValueEvidenceSet(Vec<PythonValueEvidence>);
 
+impl StructuralOrd for PythonValueEvidenceSet {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.0.iter().zip(&other.0) {
+            let ordering = left.structural_cmp(right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.0.len().cmp(&other.0.len())
+    }
+}
+
 impl PythonValueEvidenceSet {
     fn one(origin: Origin) -> Self {
         Self(vec![PythonValueEvidence {
@@ -143,16 +154,6 @@ impl PythonValueEvidenceSet {
         }
     }
 
-    fn structural_cmp(&self, other: &Self) -> Ordering {
-        for (left, right) in self.0.iter().zip(&other.0) {
-            let ordering = left.structural_cmp(right);
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        self.0.len().cmp(&other.0.len())
-    }
-
     fn normalize(&mut self) {
         self.0.sort_by(PythonValueEvidence::structural_cmp);
         let mut normalized: Vec<PythonValueEvidence> = Vec::with_capacity(self.0.len());
@@ -170,7 +171,7 @@ impl PythonValueEvidenceSet {
     }
 }
 
-impl PythonValueEvidence {
+impl StructuralOrd for PythonValueEvidence {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.origin
             .structural_cmp(&other.origin)
@@ -182,6 +183,14 @@ impl PythonValueEvidence {
 pub(crate) struct PythonValue {
     pub(in crate::python::evaluation) kind: PythonValueKind,
     evidence: PythonValueEvidenceSet,
+}
+
+impl StructuralOrd for PythonValue {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.kind
+            .structural_cmp(&other.kind)
+            .then_with(|| self.evidence.structural_cmp(&other.evidence))
+    }
 }
 
 impl PythonValue {
@@ -590,12 +599,6 @@ impl PythonValue {
         }
     }
 
-    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.kind
-            .structural_cmp(&other.kind)
-            .then_with(|| self.evidence.structural_cmp(&other.evidence))
-    }
-
     pub(super) fn same_semantic_value(&self, other: &Self) -> bool {
         self.kind.same_semantic_value(&other.kind)
     }
@@ -638,7 +641,9 @@ impl PythonValueKind {
             Self::Unknown(_) => 6,
         }
     }
+}
 
+impl StructuralOrd for PythonValueKind {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         let ordering = self.structural_rank().cmp(&other.structural_rank());
         if ordering != Ordering::Equal {
@@ -689,7 +694,9 @@ impl PythonValueKind {
             }
         }
     }
+}
 
+impl PythonValueKind {
     fn normalize(&mut self) {
         match self {
             Self::List(list) => list.normalize(),
@@ -775,6 +782,14 @@ pub(crate) struct PythonUnknown {
     origins: OriginSet,
 }
 
+impl StructuralOrd for PythonUnknown {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.cause
+            .structural_cmp(&other.cause)
+            .then_with(|| self.origins.structural_cmp(&other.origins))
+    }
+}
+
 impl PythonUnknown {
     pub(super) fn new(
         cause: PythonUnknownCause,
@@ -805,12 +820,6 @@ impl PythonUnknown {
 
     pub(super) fn replace_origins(&mut self, origins: impl IntoIterator<Item = Origin>) {
         self.origins.replace(origins);
-    }
-
-    pub(super) fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.cause
-            .structural_cmp(&other.cause)
-            .then_with(|| self.origins.structural_cmp(&other.origins))
     }
 }
 
@@ -850,7 +859,9 @@ impl PythonUnknownCause {
             Self::UnsupportedMutation => 9,
         }
     }
+}
 
+impl StructuralOrd for PythonUnknownCause {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         let ordering = self.structural_rank().cmp(&other.structural_rank());
         if ordering != Ordering::Equal {
@@ -906,13 +917,13 @@ impl PythonUnknownCause {
                 let Self::Unreadable(right) = other else {
                     unreachable!("equal unknown-cause ranks identify the same variant")
                 };
-                file_read_error_structural_cmp(left, right)
+                left.structural_cmp(right)
             }
             Self::SyntaxErrors(left) => {
                 let Self::SyntaxErrors(right) = other else {
                     unreachable!("equal unknown-cause ranks identify the same variant")
                 };
-                PythonSyntaxError::structural_cmp_slice(left, right)
+                left.as_slice().structural_cmp(right.as_slice())
             }
             Self::Cycle => {
                 let Self::Cycle = other else {
@@ -957,6 +968,7 @@ mod tests {
     use super::PythonValueEvidenceSet;
     use super::PythonValueKind;
     use super::ReachableAllocationSites;
+    use super::StructuralOrd;
     use crate::python::InvalidModuleName;
     use crate::python::PythonModuleName;
     use crate::python::PythonSyntaxError;
@@ -1034,7 +1046,7 @@ mod tests {
     }
 
     fn sorted(mut origins: Vec<Origin>) -> Vec<Origin> {
-        origins.sort_by(super::super::StructuralOrder::structural_cmp);
+        origins.sort_by(super::super::StructuralOrd::structural_cmp);
         origins
     }
 

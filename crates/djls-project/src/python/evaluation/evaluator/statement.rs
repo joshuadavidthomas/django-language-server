@@ -190,7 +190,8 @@ impl Evaluator<'_> {
 
     fn walk_assign(&mut self, assign: &ast::StmtAssign) {
         let value = self.evaluate_binding(&assign.value);
-        let aliases_mutable_value = assign.targets.len() > 1 && value.contains_mutable_value();
+        let aliases_mutable_value =
+            assign.targets.len() > 1 && !value.reachable_allocation_sites().is_empty();
         if aliases_mutable_value {
             let cause = PythonUnknownCause::UnsupportedExpression;
             let aliased_names = self.state.mutable_alias_names(&value);

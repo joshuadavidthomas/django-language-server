@@ -12,7 +12,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
-use crate::python::evaluation::StructuralOrder as _;
+use crate::python::evaluation::StructuralOrd;
 use crate::python::search_paths::SearchPath;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -363,8 +363,8 @@ pub fn file_to_module_resolution(
     }
 }
 
-impl PythonModule {
-    pub(in crate::python) fn structural_cmp(&self, other: &Self) -> Ordering {
+impl StructuralOrd for PythonModule {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
         self.name
             .cmp(&other.name)
             .then_with(|| self.package.cmp(&other.package))
@@ -372,7 +372,9 @@ impl PythonModule {
             .then_with(|| self.file.structural_cmp(&other.file))
             .then_with(|| self.search_path.structural_cmp(&other.search_path))
     }
+}
 
+impl PythonModule {
     fn regular_package(
         name: PythonModuleName,
         path: Utf8PathBuf,
@@ -482,8 +484,8 @@ impl PythonModule {
     }
 }
 
-impl PythonImportError {
-    pub(in crate::python) fn structural_cmp(&self, other: &Self) -> Ordering {
+impl StructuralOrd for PythonImportError {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::EmptyAbsoluteImport, Self::EmptyAbsoluteImport)
             | (Self::TooManyDots, Self::TooManyDots) => Ordering::Equal,

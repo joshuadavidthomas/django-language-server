@@ -5,11 +5,11 @@ use djls_source::Origin;
 use super::BranchConstraints;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 use super::OriginSet;
-use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
+use super::StructuralOrd;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PythonBindingCase {
@@ -96,10 +96,6 @@ impl PythonBinding {
         self.cases.iter_mut().map(|case| &mut case.state)
     }
 
-    pub(super) fn contains_mutable_value(&self) -> bool {
-        !self.reachable_allocation_sites().is_empty()
-    }
-
     pub(super) fn reachable_allocation_sites(&self) -> ReachableAllocationSites {
         let mut origins = ReachableAllocationSites::default();
         for state in self.alternatives() {
@@ -122,18 +118,26 @@ impl PythonBinding {
     }
 
     pub(super) fn single_bound(&self) -> Option<&PythonBoundValue> {
-        let mut states = self.alternatives();
-        let PythonBindingState::Bound(bound) = states.next()? else {
+        let [
+            PythonBindingCase {
+                state: PythonBindingState::Bound(bound),
+                ..
+            },
+        ] = self.cases.as_slice()
+        else {
             return None;
         };
-        states.next().is_none().then_some(bound)
+        Some(bound)
     }
 
     pub(super) fn single_bound_mut(&mut self) -> Option<&mut PythonBoundValue> {
-        if self.cases.len() != 1 {
-            return None;
-        }
-        let PythonBindingState::Bound(bound) = &mut self.cases[0].state else {
+        let [
+            PythonBindingCase {
+                state: PythonBindingState::Bound(bound),
+                ..
+            },
+        ] = self.cases.as_mut_slice()
+        else {
             return None;
         };
         Some(bound)
@@ -230,13 +234,16 @@ impl PythonBinding {
         let mut joined = Self { cases };
         joined.normalize(Some(overflow_origin));
 
-        if joined.exact_alternative_count() > MAX_EXACT_PYTHON_ALTERNATIVES {
+        let exact_alternative_count = joined
+            .cases
+            .iter()
+            .filter(|case| !case.is_limit_remainder())
+            .count();
+        if exact_alternative_count > MAX_EXACT_PYTHON_ALTERNATIVES {
             let mut overflow_origins: OriginSet = [overflow_origin].into_iter().collect();
             let mut retained = Vec::with_capacity(MAX_EXACT_PYTHON_ALTERNATIVES);
             for case in joined.cases.drain(..) {
-                if case.state.is_limit_remainder()
-                    || retained.len() == MAX_EXACT_PYTHON_ALTERNATIVES
-                {
+                if case.is_limit_remainder() || retained.len() == MAX_EXACT_PYTHON_ALTERNATIVES {
                     if let PythonBindingState::Bound(bound) = &case.state {
                         overflow_origins.extend(bound.binding_origins.iter());
                         overflow_origins.extend(bound.value.origins());
@@ -245,32 +252,13 @@ impl PythonBinding {
                     retained.push(case);
                 }
             }
-            retained.push(Self::alternative_limit_case(overflow_origins));
+            retained.push(PythonBindingCase::alternative_limit_remainder(
+                overflow_origins,
+            ));
             joined.cases = retained;
             joined.normalize(Some(overflow_origin));
         }
         joined
-    }
-
-    fn alternative_limit_case(overflow_origins: OriginSet) -> PythonBindingCase {
-        PythonBindingCase {
-            state: PythonBindingState::Bound(PythonBoundValue {
-                value: PythonValue::unknown(
-                    PythonUnknownCause::AlternativeLimitExceeded,
-                    overflow_origins.iter(),
-                ),
-                binding_origins: overflow_origins,
-            }),
-            // The remainder represents alternatives discarded from potentially different
-            // arms, so leaving it unconstrained is conservative and preserves the cap.
-            constraints: BranchConstraints::unconstrained(),
-        }
-    }
-
-    fn exact_alternative_count(&self) -> usize {
-        self.alternatives()
-            .filter(|state| !state.is_limit_remainder())
-            .count()
     }
 
     fn normalize(&mut self, operation_origin: Option<Origin>) {
@@ -288,7 +276,7 @@ impl PythonBinding {
                     }
                 }
                 PythonBindingState::Bound(mut incoming) => {
-                    incoming.normalize_origins();
+                    incoming.value.normalize();
                     incoming
                         .value
                         .constrain_value_evidence(&incoming_case.constraints);
@@ -298,12 +286,7 @@ impl PythonBinding {
                         let PythonBindingState::Bound(existing) = &mut existing_case.state else {
                             unreachable!()
                         };
-                        existing
-                            .binding_origins
-                            .extend(incoming.binding_origins.iter());
-                        existing
-                            .value
-                            .merge_semantically_equal(incoming.value, operation_origin);
+                        existing.merge_semantically_equal(incoming, operation_origin);
                         existing_case.constraints.merge(incoming_case.constraints);
                     } else {
                         incoming_case.state = PythonBindingState::Bound(incoming);
@@ -318,6 +301,33 @@ impl PythonBinding {
 }
 
 impl PythonBindingCase {
+    fn alternative_limit_remainder(overflow_origins: OriginSet) -> Self {
+        Self {
+            state: PythonBindingState::Bound(PythonBoundValue {
+                value: PythonValue::unknown(
+                    PythonUnknownCause::AlternativeLimitExceeded,
+                    overflow_origins.iter(),
+                ),
+                binding_origins: overflow_origins,
+            }),
+            // The remainder represents alternatives discarded from potentially different
+            // arms, so leaving it unconstrained is conservative and preserves the cap.
+            constraints: BranchConstraints::unconstrained(),
+        }
+    }
+
+    fn is_limit_remainder(&self) -> bool {
+        let PythonBindingState::Bound(bound) = &self.state else {
+            return false;
+        };
+        bound
+            .value
+            .unknown_value()
+            .is_some_and(|unknown| unknown.cause == PythonUnknownCause::AlternativeLimitExceeded)
+    }
+}
+
+impl StructuralOrd for PythonBindingCase {
     /// Unbound precedes Bound so cap retention remains stable. Bound cases then
     /// compare complete value evidence, binding provenance, and constraints.
     fn structural_cmp(&self, other: &Self) -> Ordering {
@@ -333,7 +343,7 @@ pub(crate) enum PythonBindingState {
     Unbound,
 }
 
-impl PythonBindingState {
+impl StructuralOrd for PythonBindingState {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::Unbound, Self::Unbound) => Ordering::Equal,
@@ -344,22 +354,6 @@ impl PythonBindingState {
                 .structural_cmp(&right.value)
                 .then_with(|| left.binding_origins.structural_cmp(&right.binding_origins)),
         }
-    }
-
-    fn is_limit_remainder(&self) -> bool {
-        matches!(
-            self,
-            Self::Bound(PythonBoundValue {
-                value: PythonValue {
-                    kind: PythonValueKind::Unknown(PythonUnknown {
-                        cause: PythonUnknownCause::AlternativeLimitExceeded,
-                        ..
-                    }),
-                    ..
-                },
-                ..
-            })
-        )
     }
 }
 
@@ -382,8 +376,10 @@ impl PythonBoundValue {
         self.binding_origins.replace([origin]);
     }
 
-    fn normalize_origins(&mut self) {
-        self.value.normalize();
+    fn merge_semantically_equal(&mut self, incoming: Self, operation_origin: Option<Origin>) {
+        self.binding_origins.extend(incoming.binding_origins.iter());
+        self.value
+            .merge_semantically_equal(incoming.value, operation_origin);
     }
 }
 
@@ -396,15 +392,16 @@ mod tests {
     use super::super::BranchConstraints;
     use super::super::OriginSet;
     use super::super::PythonSequenceItem;
+    use super::super::PythonUnknown;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
     use super::PythonBinding;
     use super::PythonBindingCase;
     use super::PythonBindingState;
-    use super::PythonUnknown;
     use super::PythonUnknownCause;
     use super::PythonValue;
     use super::PythonValueKind;
+    use super::StructuralOrd;
 
     fn origin(file: u32, start: u32) -> Origin {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
@@ -609,8 +606,9 @@ mod tests {
         assert_eq!(at_limit.alternatives().len(), 64);
         assert!(
             !at_limit
-                .alternatives()
-                .any(PythonBindingState::is_limit_remainder)
+                .cases
+                .iter()
+                .any(PythonBindingCase::is_limit_remainder)
         );
         assert_eq!(MAX_EXACT_PYTHON_ALTERNATIVES, 64);
 
@@ -634,10 +632,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             "the typed order retains the same exact 64-value subset"
         );
-        let PythonBindingState::Bound(overflow) = overflowed
-            .alternatives()
-            .find(|state| state.is_limit_remainder())
+        let PythonBindingState::Bound(overflow) = &overflowed
+            .cases
+            .iter()
+            .find(|case| case.is_limit_remainder())
             .expect("overflow should add a typed unknown remainder")
+            .state
         else {
             unreachable!();
         };
