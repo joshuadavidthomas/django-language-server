@@ -96,14 +96,18 @@ impl ProjectReload {
         let (tx, mut rx) = mpsc::channel(1);
         let pending = Arc::new(StdMutex::new(None));
         let worker_pending = Arc::clone(&pending);
-        let worker_tx = tx.clone();
         tokio::spawn(async move {
             while rx.recv().await.is_some() {
-                let Some(job) = worker_pending.lock().unwrap().take() else {
-                    continue;
-                };
-                if runner(job).await == ReloadRunOutcome::Cancelled {
-                    enqueue_project_work(&worker_pending, &worker_tx, job);
+                loop {
+                    let Some(job) = worker_pending.lock().unwrap().take() else {
+                        break;
+                    };
+                    if rx.is_closed() {
+                        return;
+                    }
+                    if runner(job).await == ReloadRunOutcome::Cancelled {
+                        merge_project_work(&worker_pending, job);
+                    }
                 }
             }
         });
@@ -145,11 +149,7 @@ impl ProjectReload {
     }
 }
 
-fn enqueue_project_work(
-    pending: &StdMutex<Option<ProjectWork>>,
-    tx: &mpsc::Sender<()>,
-    requested: ProjectWork,
-) {
+fn merge_project_work(pending: &StdMutex<Option<ProjectWork>>, requested: ProjectWork) {
     let mut pending = pending.lock().unwrap();
     *pending = Some(match (*pending, requested) {
         (Some(ProjectWork::FullReload), _) | (_, ProjectWork::FullReload) => {
@@ -157,6 +157,14 @@ fn enqueue_project_work(
         }
         (Some(ProjectWork::Reprime) | None, ProjectWork::Reprime) => ProjectWork::Reprime,
     });
+}
+
+fn enqueue_project_work(
+    pending: &StdMutex<Option<ProjectWork>>,
+    tx: &mpsc::Sender<()>,
+    requested: ProjectWork,
+) {
+    merge_project_work(pending, requested);
     match tx.try_send(()) {
         Ok(()) | Err(mpsc::error::TrySendError::Full(())) => {}
         Err(mpsc::error::TrySendError::Closed(())) => {
@@ -1010,10 +1018,154 @@ mod tests {
     use tempfile::tempdir;
     use tokio::sync::Notify;
     use tokio::sync::oneshot;
-    use tokio::time::sleep;
     use tokio::time::timeout;
 
     use super::*;
+
+    struct DropProbe {
+        dropped: Option<oneshot::Sender<()>>,
+    }
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            if let Some(dropped) = self.dropped.take() {
+                dropped.send(()).ok();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn idle_reload_worker_drops_runner_capture() {
+        let (dropped_tx, dropped_rx) = oneshot::channel();
+        let runner_probe = Arc::new(DropProbe {
+            dropped: Some(dropped_tx),
+        });
+        let reload = ProjectReload::spawn(move |_| {
+            let runner_probe = Arc::clone(&runner_probe);
+            async move {
+                let _runner_probe = runner_probe;
+                ReloadRunOutcome::Complete
+            }
+        });
+
+        drop(reload);
+
+        timeout(Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("idle reload worker should terminate when its owner is dropped")
+            .expect("reload worker should drop its runner capture");
+    }
+
+    #[tokio::test]
+    async fn active_reload_worker_drops_after_current_run_without_followup() {
+        let run_count = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Notify::new());
+        let (release_tx, release_rx) = oneshot::channel();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        let (dropped_tx, mut dropped_rx) = oneshot::channel();
+        let runner_probe = Arc::new(DropProbe {
+            dropped: Some(dropped_tx),
+        });
+        let reload = ProjectReload::spawn({
+            let run_count = Arc::clone(&run_count);
+            let started = Arc::clone(&started);
+            let release_rx = Arc::clone(&release_rx);
+            move |_| {
+                let run_count = Arc::clone(&run_count);
+                let started = Arc::clone(&started);
+                let release_rx = Arc::clone(&release_rx);
+                let runner_probe = Arc::clone(&runner_probe);
+                async move {
+                    let _runner_probe = runner_probe;
+                    let run = run_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if run == 1 {
+                        started.notify_one();
+                        let release = release_rx
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .expect("active reload owns release receiver");
+                        release.await.ok();
+                    }
+                    ReloadRunOutcome::Complete
+                }
+            }
+        });
+
+        reload.request();
+        timeout(Duration::from_secs(1), started.notified())
+            .await
+            .expect("reload should start");
+        reload.request();
+        drop(reload);
+
+        assert!(matches!(
+            dropped_rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        release_tx.send(()).unwrap();
+        timeout(Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("reload worker should terminate after its active run completes")
+            .expect("reload worker should drop its runner capture");
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelled_active_reload_worker_drops_without_retry() {
+        let run_count = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Notify::new());
+        let (release_tx, release_rx) = oneshot::channel();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        let (dropped_tx, mut dropped_rx) = oneshot::channel();
+        let runner_probe = Arc::new(DropProbe {
+            dropped: Some(dropped_tx),
+        });
+        let reload = ProjectReload::spawn({
+            let run_count = Arc::clone(&run_count);
+            let started = Arc::clone(&started);
+            let release_rx = Arc::clone(&release_rx);
+            move |_| {
+                let run_count = Arc::clone(&run_count);
+                let started = Arc::clone(&started);
+                let release_rx = Arc::clone(&release_rx);
+                let runner_probe = Arc::clone(&runner_probe);
+                async move {
+                    let _runner_probe = runner_probe;
+                    let run = run_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if run == 1 {
+                        started.notify_one();
+                        let release = release_rx
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .expect("cancelled reload owns release receiver");
+                        release.await.ok();
+                        ReloadRunOutcome::Cancelled
+                    } else {
+                        ReloadRunOutcome::Complete
+                    }
+                }
+            }
+        });
+
+        reload.request();
+        timeout(Duration::from_secs(1), started.notified())
+            .await
+            .expect("reload should start");
+        drop(reload);
+
+        assert!(matches!(
+            dropped_rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        release_tx.send(()).unwrap();
+        timeout(Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("cancelled reload worker should terminate after owner drop")
+            .expect("reload worker should drop its runner capture");
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn ready_diagnostics_use_the_delivery_supported_by_the_client() {
@@ -1256,6 +1408,10 @@ mod tests {
         let followup_completed = Arc::new(Notify::new());
         let (release_tx, release_rx) = oneshot::channel();
         let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        let (dropped_tx, dropped_rx) = oneshot::channel();
+        let runner_probe = Arc::new(DropProbe {
+            dropped: Some(dropped_tx),
+        });
         let reload = ProjectReload::spawn({
             let run_count = Arc::clone(&run_count);
             let first_started = Arc::clone(&first_started);
@@ -1266,7 +1422,9 @@ mod tests {
                 let first_started = Arc::clone(&first_started);
                 let followup_completed = Arc::clone(&followup_completed);
                 let release_rx = Arc::clone(&release_rx);
+                let runner_probe = Arc::clone(&runner_probe);
                 async move {
+                    let _runner_probe = runner_probe;
                     let run = run_count.fetch_add(1, Ordering::SeqCst) + 1;
                     if run == 1 {
                         first_started.notify_one();
@@ -1297,7 +1455,11 @@ mod tests {
         timeout(Duration::from_secs(1), followup_completed.notified())
             .await
             .unwrap();
-        sleep(Duration::from_millis(50)).await;
+        drop(reload);
+        timeout(Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("reload worker should terminate after the coalesced follow-up")
+            .expect("reload worker should drop its runner capture");
 
         assert_eq!(run_count.load(Ordering::SeqCst), 2);
     }
@@ -1306,13 +1468,19 @@ mod tests {
     async fn cancelled_full_reload_retries_the_same_dominant_job() {
         let jobs = Arc::new(StdMutex::new(Vec::new()));
         let replacement_completed = Arc::new(Notify::new());
+        let (dropped_tx, dropped_rx) = oneshot::channel();
+        let runner_probe = Arc::new(DropProbe {
+            dropped: Some(dropped_tx),
+        });
         let reload = ProjectReload::spawn({
             let jobs = Arc::clone(&jobs);
             let replacement_completed = Arc::clone(&replacement_completed);
             move |job| {
                 let jobs = Arc::clone(&jobs);
                 let replacement_completed = Arc::clone(&replacement_completed);
+                let runner_probe = Arc::clone(&runner_probe);
                 async move {
+                    let _runner_probe = runner_probe;
                     let run = {
                         let mut jobs = jobs.lock().unwrap();
                         jobs.push(job);
@@ -1332,7 +1500,11 @@ mod tests {
         timeout(Duration::from_secs(1), replacement_completed.notified())
             .await
             .unwrap();
-        sleep(Duration::from_millis(20)).await;
+        drop(reload);
+        timeout(Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("reload worker should terminate after the cancellation retry")
+            .expect("reload worker should drop its runner capture");
         assert_eq!(
             *jobs.lock().unwrap(),
             [ProjectWork::FullReload, ProjectWork::FullReload]
@@ -1346,6 +1518,8 @@ mod tests {
         let run_count = Arc::new(AtomicUsize::new(0));
         let first_started = Arc::new(Notify::new());
         let second_completed = Arc::new(Notify::new());
+        let (second_started_tx, mut second_started_rx) = oneshot::channel();
+        let second_started_tx = Arc::new(StdMutex::new(Some(second_started_tx)));
         let (release_tx, release_rx) = oneshot::channel();
         let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
         let reload = ProjectReload::spawn({
@@ -1354,6 +1528,7 @@ mod tests {
             let run_count = Arc::clone(&run_count);
             let first_started = Arc::clone(&first_started);
             let second_completed = Arc::clone(&second_completed);
+            let second_started_tx = Arc::clone(&second_started_tx);
             let release_rx = Arc::clone(&release_rx);
             move |_| {
                 let active_count = Arc::clone(&active_count);
@@ -1361,6 +1536,7 @@ mod tests {
                 let run_count = Arc::clone(&run_count);
                 let first_started = Arc::clone(&first_started);
                 let second_completed = Arc::clone(&second_completed);
+                let second_started_tx = Arc::clone(&second_started_tx);
                 let release_rx = Arc::clone(&release_rx);
                 async move {
                     if active_count.fetch_add(1, Ordering::SeqCst) != 0 {
@@ -1376,6 +1552,14 @@ mod tests {
                             .take()
                             .expect("first reload owns release receiver");
                         release_rx.await.ok();
+                    } else if run == 2 {
+                        second_started_tx
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .expect("second reload owns start sender")
+                            .send(())
+                            .ok();
                     }
 
                     active_count.fetch_sub(1, Ordering::SeqCst);
@@ -1392,12 +1576,20 @@ mod tests {
             .await
             .unwrap();
         reload.request();
-        sleep(Duration::from_millis(50)).await;
+        tokio::task::yield_now().await;
 
+        assert!(matches!(
+            second_started_rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
         assert_eq!(run_count.load(Ordering::SeqCst), 1);
         assert!(!overlap_detected.load(Ordering::SeqCst));
 
         release_tx.send(()).unwrap();
+        timeout(Duration::from_secs(1), second_started_rx)
+            .await
+            .expect("second reload should start after the first is released")
+            .expect("second reload start sender should remain live");
         timeout(Duration::from_secs(1), second_completed.notified())
             .await
             .unwrap();
