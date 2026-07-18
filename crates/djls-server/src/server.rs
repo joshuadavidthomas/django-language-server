@@ -77,11 +77,18 @@ impl DjangoLanguageServer {
     }
 
     fn schedule_document_mutation(&self, mutation: DocumentMutation) -> Option<TextDocument> {
-        let (document, project_work) = mutation.into_parts();
-        if let Some(project_work) = project_work {
-            self.reload.request_current(project_work);
+        match mutation {
+            DocumentMutation::Ignored => None,
+            DocumentMutation::Applied {
+                document,
+                project_work,
+            } => {
+                if let Some(project_work) = project_work {
+                    self.reload.request_current(project_work);
+                }
+                Some(document)
+            }
         }
-        document
     }
 
     async fn maybe_push_diagnostics(&self, document: &TextDocument) {
@@ -750,14 +757,16 @@ mod tests {
         let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
         let generation = {
             let mut session = session.lock().await;
-            let _ = session
-                .open_document(&ls_types::TextDocumentItem {
+            let DocumentMutation::Applied { .. } =
+                session.open_document(&ls_types::TextDocumentItem {
                     uri: uri.clone(),
                     language_id: "python".to_string(),
                     version: 1,
                     text: "initial".to_string(),
                 })
-                .into_parts();
+            else {
+                panic!("Python open should be applied");
+            };
             let file = path_to_file(session.db(), &path).unwrap();
             let generation = session.desired_generation();
             let primed = djls_ide::prime_template_library_products(session.db()).unwrap();
@@ -804,16 +813,16 @@ mod tests {
         release_tx.send(()).unwrap();
         let replacement_generation = {
             let mut session = session.lock().await;
-            let (_, project_work) = session
-                .update_document(
-                    &ls_types::VersionedTextDocumentIdentifier { uri, version: 2 },
-                    vec![ls_types::TextDocumentContentChangeEvent {
-                        range: None,
-                        range_length: None,
-                        text: "updated".to_string(),
-                    }],
-                )
-                .into_parts();
+            let DocumentMutation::Applied { project_work, .. } = session.update_document(
+                &ls_types::VersionedTextDocumentIdentifier { uri, version: 2 },
+                vec![ls_types::TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "updated".to_string(),
+                }],
+            ) else {
+                panic!("open Python document should update");
+            };
             assert_eq!(project_work, Some(ProjectWork::Reprime));
             session.desired_generation()
         };

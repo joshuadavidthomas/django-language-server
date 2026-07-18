@@ -43,29 +43,12 @@ pub(crate) enum ProjectWork {
 }
 
 #[must_use = "document mutations can require project work to restore readiness"]
-pub(crate) struct DocumentMutation {
-    document: Option<TextDocument>,
-    project_work: Option<ProjectWork>,
-}
-
-impl DocumentMutation {
-    const fn ignored() -> Self {
-        Self {
-            document: None,
-            project_work: None,
-        }
-    }
-
-    const fn new(document: TextDocument, project_work: Option<ProjectWork>) -> Self {
-        Self {
-            document: Some(document),
-            project_work,
-        }
-    }
-
-    pub(crate) fn into_parts(self) -> (Option<TextDocument>, Option<ProjectWork>) {
-        (self.document, self.project_work)
-    }
+pub(crate) enum DocumentMutation {
+    Ignored,
+    Applied {
+        document: TextDocument,
+        project_work: Option<ProjectWork>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -381,7 +364,7 @@ impl Session {
     ) -> DocumentMutation {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!("Skip opening non-file URI: {}", text_document.uri.as_str());
-            return DocumentMutation::ignored();
+            return DocumentMutation::Ignored;
         };
 
         let kind = text_document.language_id_to_file_kind(self.client_info.client());
@@ -391,7 +374,10 @@ impl Session {
                 .open_document(&path, &text_document.text, text_document.version, kind);
         SourceChanges::new([change.clone()]).apply(&mut self.db);
         let project_work = self.mark_intrinsic_change(&change, kind);
-        DocumentMutation::new(document, project_work)
+        DocumentMutation::Applied {
+            document,
+            project_work,
+        }
     }
 
     pub(crate) fn save_document(
@@ -400,16 +386,19 @@ impl Session {
     ) -> DocumentMutation {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!("Skip saving non-file URI: {}", text_document.uri.as_str());
-            return DocumentMutation::ignored();
+            return DocumentMutation::Ignored;
         };
 
         let Some(document) = self.workspace.save_document(&path) else {
-            return DocumentMutation::ignored();
+            return DocumentMutation::Ignored;
         };
         let change = ChangeEvent::ContentChanged(path);
         SourceChanges::new([change.clone()]).apply(&mut self.db);
         let project_work = self.mark_intrinsic_change(&change, document.kind());
-        DocumentMutation::new(document, project_work)
+        DocumentMutation::Applied {
+            document,
+            project_work,
+        }
     }
 
     pub(crate) fn update_document(
@@ -419,7 +408,7 @@ impl Session {
     ) -> DocumentMutation {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!("Skip updating non-file URI: {}", text_document.uri.as_str());
-            return DocumentMutation::ignored();
+            return DocumentMutation::Ignored;
         };
 
         let change = if self.workspace.get_document(&path).is_some() {
@@ -433,11 +422,14 @@ impl Session {
             text_document.version,
             self.client_info.position_encoding(),
         ) else {
-            return DocumentMutation::ignored();
+            return DocumentMutation::Ignored;
         };
         SourceChanges::new([change.clone()]).apply(&mut self.db);
         let project_work = self.mark_intrinsic_change(&change, document.kind());
-        DocumentMutation::new(document, project_work)
+        DocumentMutation::Applied {
+            document,
+            project_work,
+        }
     }
 
     /// Close a document.
@@ -450,17 +442,20 @@ impl Session {
     ) -> DocumentMutation {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!("Skip closing non-file URI: {}", text_document.uri.as_str());
-            return DocumentMutation::ignored();
+            return DocumentMutation::Ignored;
         };
 
         let change = self.close_document_change(&path);
         let Some(document) = self.workspace.close_document(&path) else {
-            return DocumentMutation::ignored();
+            return DocumentMutation::Ignored;
         };
         SourceChanges::new([change.clone()]).apply(&mut self.db);
         let project_work = self.mark_intrinsic_change(&change, document.kind());
 
-        DocumentMutation::new(document, project_work)
+        DocumentMutation::Applied {
+            document,
+            project_work,
+        }
     }
 
     fn open_document_change(&self, path: &Utf8Path) -> ChangeEvent {
@@ -609,6 +604,8 @@ impl SessionSnapshot {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use djls_project::Db as ProjectDb;
     use djls_project::Interpreter;
     use tempfile::tempdir;
@@ -631,17 +628,93 @@ mod tests {
     #[test]
     fn test_session_document_lifecycle() {
         let mut session = Session::default();
-        let (path, uri) = test_file_uri("test.py");
+        let non_file_uri = ls_types::Uri::from_str("untitled:Untitled-1").unwrap();
+        let non_file_identifier = ls_types::TextDocumentIdentifier {
+            uri: non_file_uri.clone(),
+        };
 
+        assert!(matches!(
+            session.open_document(&ls_types::TextDocumentItem {
+                uri: non_file_uri.clone(),
+                language_id: "python".to_string(),
+                version: 1,
+                text: String::new(),
+            }),
+            DocumentMutation::Ignored
+        ));
+        assert!(matches!(
+            session.save_document(&non_file_identifier),
+            DocumentMutation::Ignored
+        ));
+        assert!(matches!(
+            session.update_document(
+                &ls_types::VersionedTextDocumentIdentifier {
+                    uri: non_file_uri,
+                    version: 2,
+                },
+                Vec::new(),
+            ),
+            DocumentMutation::Ignored
+        ));
+        assert!(matches!(
+            session.close_document(&non_file_identifier),
+            DocumentMutation::Ignored
+        ));
+
+        let (_, missing_uri) = test_file_uri("missing.py");
+        let missing_identifier = ls_types::TextDocumentIdentifier {
+            uri: missing_uri.clone(),
+        };
+        assert!(matches!(
+            session.save_document(&missing_identifier),
+            DocumentMutation::Ignored
+        ));
+        assert!(matches!(
+            session.update_document(
+                &ls_types::VersionedTextDocumentIdentifier {
+                    uri: missing_uri,
+                    version: 1,
+                },
+                Vec::new(),
+            ),
+            DocumentMutation::Ignored
+        ));
+        assert!(matches!(
+            session.close_document(&missing_identifier),
+            DocumentMutation::Ignored
+        ));
+
+        let (template_path, template_uri) = test_file_uri("test.html");
+        let DocumentMutation::Applied {
+            document: template,
+            project_work,
+        } = session.open_document(&ls_types::TextDocumentItem {
+            uri: template_uri,
+            language_id: "django-html".to_string(),
+            version: 1,
+            text: String::new(),
+        })
+        else {
+            panic!("template open should be applied");
+        };
+        assert_eq!(template.path(), template_path);
+        assert_eq!(project_work, None);
+
+        let (path, uri) = test_file_uri("test.py");
         let text_document = ls_types::TextDocumentItem {
             uri: uri.clone(),
             language_id: "python".to_string(),
             version: 1,
             text: "print('hello')".to_string(),
         };
-        let (opened, _) = session.open_document(&text_document).into_parts();
+        let DocumentMutation::Applied {
+            document: opened, ..
+        } = session.open_document(&text_document)
+        else {
+            panic!("Python open should be applied");
+        };
 
-        assert!(opened.is_some());
+        assert_eq!(opened.path(), path);
         assert!(session.get_document(&path).is_some());
 
         let db = session.db();
@@ -653,8 +726,13 @@ mod tests {
         assert_eq!(content, "print('hello')");
 
         let close_doc = ls_types::TextDocumentIdentifier { uri };
-        let (closed, _) = session.close_document(&close_doc).into_parts();
-        assert!(closed.is_some());
+        let DocumentMutation::Applied {
+            document: closed, ..
+        } = session.close_document(&close_doc)
+        else {
+            panic!("open Python document should close");
+        };
+        assert_eq!(closed.path(), path);
         assert!(session.get_document(&path).is_none());
     }
 
@@ -669,7 +747,9 @@ mod tests {
             version: 1,
             text: "initial".to_string(),
         };
-        let _ = session.open_document(&text_document).into_parts();
+        let DocumentMutation::Applied { .. } = session.open_document(&text_document) else {
+            panic!("Python open should be applied");
+        };
 
         let changes = vec![ls_types::TextDocumentContentChangeEvent {
             range: None,
@@ -677,11 +757,14 @@ mod tests {
             text: "updated".to_string(),
         }];
         let versioned_document = ls_types::VersionedTextDocumentIdentifier { uri, version: 2 };
-        let (updated, _) = session
-            .update_document(&versioned_document, changes)
-            .into_parts();
+        let DocumentMutation::Applied {
+            document: updated, ..
+        } = session.update_document(&versioned_document, changes)
+        else {
+            panic!("open Python document should update");
+        };
 
-        assert!(updated.is_some());
+        assert_eq!(updated.path(), path);
         let doc = session.get_document(&path).unwrap();
         assert_eq!(doc.content(), "updated");
         assert_eq!(doc.version(), 2);
@@ -700,14 +783,19 @@ mod tests {
         let mut session = Session::default();
         let path = Utf8Path::new("/tmp/mutation-outcome.py");
         let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
-        let opened = session.open_document(&ls_types::TextDocumentItem {
+        let DocumentMutation::Applied {
+            document,
+            project_work,
+        } = session.open_document(&ls_types::TextDocumentItem {
             uri: uri.clone(),
             language_id: "python".to_string(),
             version: 1,
             text: String::new(),
-        });
-        let (document, project_work) = opened.into_parts();
-        assert!(document.is_some());
+        })
+        else {
+            panic!("Python open should be applied");
+        };
+        assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::FullReload));
 
         let file = path_to_file(session.db(), path).unwrap();
@@ -716,36 +804,48 @@ mod tests {
         session.intrinsic_readiness.state =
             IntrinsicReadinessState::Ready(session.desired_generation());
 
-        let (document, project_work) = session
-            .save_document(&ls_types::TextDocumentIdentifier { uri: uri.clone() })
-            .into_parts();
-        assert!(document.is_some());
+        let DocumentMutation::Applied {
+            document,
+            project_work,
+        } = session.save_document(&ls_types::TextDocumentIdentifier { uri: uri.clone() })
+        else {
+            panic!("open Python document should save");
+        };
+        assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::Reprime));
 
         session.intrinsic_readiness.state =
             IntrinsicReadinessState::Ready(session.desired_generation());
-        let (document, project_work) = session
-            .update_document(
-                &ls_types::VersionedTextDocumentIdentifier {
-                    uri: uri.clone(),
-                    version: 2,
-                },
-                vec![ls_types::TextDocumentContentChangeEvent {
-                    range: None,
-                    range_length: None,
-                    text: "changed".to_string(),
-                }],
-            )
-            .into_parts();
-        assert!(document.is_some());
+        let DocumentMutation::Applied {
+            document,
+            project_work,
+        } = session.update_document(
+            &ls_types::VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            vec![ls_types::TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "changed".to_string(),
+            }],
+        )
+        else {
+            panic!("open Python document should update");
+        };
+        assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::Reprime));
 
         session.intrinsic_readiness.state =
             IntrinsicReadinessState::Ready(session.desired_generation());
-        let (document, project_work) = session
-            .close_document(&ls_types::TextDocumentIdentifier { uri })
-            .into_parts();
-        assert!(document.is_some());
+        let DocumentMutation::Applied {
+            document,
+            project_work,
+        } = session.close_document(&ls_types::TextDocumentIdentifier { uri })
+        else {
+            panic!("open Python document should close");
+        };
+        assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::FullReload));
     }
 
@@ -823,7 +923,9 @@ mod tests {
             version: 1,
             text: String::new(),
         };
-        let _ = session.open_document(&covered_document).into_parts();
+        let DocumentMutation::Applied { .. } = session.open_document(&covered_document) else {
+            panic!("covered Python open should be applied");
+        };
         let covered = path_to_file(session.db(), covered_path).unwrap();
         session.intrinsic_readiness.generation = 0;
         session.intrinsic_readiness.reprime_files = Some(vec![covered].into());
@@ -853,14 +955,14 @@ mod tests {
     fn failed_intrinsic_generation_records_covered_source_revisions() {
         let mut session = Session::default();
         let path = Utf8Path::new("/tmp/templatetags/failed.py");
-        let _ = session
-            .open_document(&ls_types::TextDocumentItem {
-                uri: ls_types::Uri::from_file_path(path.as_std_path()).unwrap(),
-                language_id: "python".to_string(),
-                version: 1,
-                text: "failed source".to_string(),
-            })
-            .into_parts();
+        let DocumentMutation::Applied { .. } = session.open_document(&ls_types::TextDocumentItem {
+            uri: ls_types::Uri::from_file_path(path.as_std_path()).unwrap(),
+            language_id: "python".to_string(),
+            version: 1,
+            text: "failed source".to_string(),
+        }) else {
+            panic!("Python open should be applied");
+        };
         let file = path_to_file(session.db(), path).unwrap();
         session.intrinsic_readiness.generation = 0;
         session.intrinsic_readiness.reprime_files = Some(vec![file].into());
@@ -882,14 +984,14 @@ mod tests {
         let mut session = Session::default();
         let path = Utf8Path::new("/tmp/templatetags/current.py");
         let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
-        let _ = session
-            .open_document(&ls_types::TextDocumentItem {
-                uri: uri.clone(),
-                language_id: "python".to_string(),
-                version: 1,
-                text: "initial".to_string(),
-            })
-            .into_parts();
+        let DocumentMutation::Applied { .. } = session.open_document(&ls_types::TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "python".to_string(),
+            version: 1,
+            text: "initial".to_string(),
+        }) else {
+            panic!("Python open should be applied");
+        };
         let file = path_to_file(session.db(), path).unwrap();
         session.intrinsic_readiness.generation = 0;
         session.intrinsic_readiness.reprime_files = Some(vec![file].into());
@@ -898,19 +1000,23 @@ mod tests {
 
         let failed_revision = file.revision(session.db());
         assert!(session.fail_intrinsic_readiness(0));
-        let (_, identical_work) = session
-            .update_document(
-                &ls_types::VersionedTextDocumentIdentifier {
-                    uri: uri.clone(),
-                    version: 2,
-                },
-                vec![ls_types::TextDocumentContentChangeEvent {
-                    range: None,
-                    range_length: None,
-                    text: "initial".to_string(),
-                }],
-            )
-            .into_parts();
+        let DocumentMutation::Applied {
+            project_work: identical_work,
+            ..
+        } = session.update_document(
+            &ls_types::VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            vec![ls_types::TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "initial".to_string(),
+            }],
+        )
+        else {
+            panic!("open Python document should update");
+        };
         assert_eq!(file.revision(session.db()), failed_revision);
         assert_eq!(identical_work, None);
         assert_eq!(
@@ -918,16 +1024,20 @@ mod tests {
             IntrinsicReadinessState::Failed(0)
         );
 
-        let (_, changed_work) = session
-            .update_document(
-                &ls_types::VersionedTextDocumentIdentifier { uri, version: 3 },
-                vec![ls_types::TextDocumentContentChangeEvent {
-                    range: None,
-                    range_length: None,
-                    text: "changed".to_string(),
-                }],
-            )
-            .into_parts();
+        let DocumentMutation::Applied {
+            project_work: changed_work,
+            ..
+        } = session.update_document(
+            &ls_types::VersionedTextDocumentIdentifier { uri, version: 3 },
+            vec![ls_types::TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "changed".to_string(),
+            }],
+        )
+        else {
+            panic!("open Python document should update");
+        };
         let changed_revision = file.revision(session.db());
         assert!(changed_revision > failed_revision);
         assert_eq!(changed_work, Some(ProjectWork::Reprime));
@@ -950,14 +1060,14 @@ mod tests {
         let mut session = Session::default();
         let path = Utf8Path::new("/tmp/templatetags/recovery.py");
         let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
-        let _ = session
-            .open_document(&ls_types::TextDocumentItem {
-                uri: uri.clone(),
-                language_id: "python".to_string(),
-                version: 1,
-                text: "failed".to_string(),
-            })
-            .into_parts();
+        let DocumentMutation::Applied { .. } = session.open_document(&ls_types::TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "python".to_string(),
+            version: 1,
+            text: "failed".to_string(),
+        }) else {
+            panic!("Python open should be applied");
+        };
         let file = path_to_file(session.db(), path).unwrap();
         session.intrinsic_readiness.generation = 0;
         session.intrinsic_readiness.reprime_files = Some(vec![file].into());
@@ -965,19 +1075,23 @@ mod tests {
         session.intrinsic_readiness.state = IntrinsicReadinessState::Unready(0);
         assert!(session.fail_intrinsic_readiness(0));
 
-        let (_, changed_work) = session
-            .update_document(
-                &ls_types::VersionedTextDocumentIdentifier {
-                    uri: uri.clone(),
-                    version: 2,
-                },
-                vec![ls_types::TextDocumentContentChangeEvent {
-                    range: None,
-                    range_length: None,
-                    text: "changed".to_string(),
-                }],
-            )
-            .into_parts();
+        let DocumentMutation::Applied {
+            project_work: changed_work,
+            ..
+        } = session.update_document(
+            &ls_types::VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            vec![ls_types::TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "changed".to_string(),
+            }],
+        )
+        else {
+            panic!("open Python document should update");
+        };
         let changed_revision = file.revision(session.db());
         assert_eq!(changed_work, Some(ProjectWork::Reprime));
         assert_eq!(
@@ -985,9 +1099,13 @@ mod tests {
             IntrinsicReadinessState::Unready(1)
         );
 
-        let (_, unchanged_save_work) = session
-            .save_document(&ls_types::TextDocumentIdentifier { uri: uri.clone() })
-            .into_parts();
+        let DocumentMutation::Applied {
+            project_work: unchanged_save_work,
+            ..
+        } = session.save_document(&ls_types::TextDocumentIdentifier { uri: uri.clone() })
+        else {
+            panic!("open Python document should save");
+        };
         assert_eq!(file.revision(session.db()), changed_revision);
         assert_eq!(unchanged_save_work, None);
         assert_eq!(
@@ -995,16 +1113,20 @@ mod tests {
             IntrinsicReadinessState::Unready(1)
         );
 
-        let (_, newer_work) = session
-            .update_document(
-                &ls_types::VersionedTextDocumentIdentifier { uri, version: 3 },
-                vec![ls_types::TextDocumentContentChangeEvent {
-                    range: None,
-                    range_length: None,
-                    text: "newer".to_string(),
-                }],
-            )
-            .into_parts();
+        let DocumentMutation::Applied {
+            project_work: newer_work,
+            ..
+        } = session.update_document(
+            &ls_types::VersionedTextDocumentIdentifier { uri, version: 3 },
+            vec![ls_types::TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "newer".to_string(),
+            }],
+        )
+        else {
+            panic!("open Python document should update");
+        };
         assert!(file.revision(session.db()) > changed_revision);
         assert_eq!(newer_work, Some(ProjectWork::Reprime));
         assert_eq!(
@@ -1041,14 +1163,14 @@ mod tests {
     fn full_reload_clears_coverage_and_classifies_conservatively_until_publish() {
         let mut session = Session::default();
         let settings_path = Utf8Path::new("/tmp/settings.py");
-        let _ = session
-            .open_document(&ls_types::TextDocumentItem {
-                uri: ls_types::Uri::from_file_path(settings_path.as_std_path()).unwrap(),
-                language_id: "python".to_string(),
-                version: 1,
-                text: String::new(),
-            })
-            .into_parts();
+        let DocumentMutation::Applied { .. } = session.open_document(&ls_types::TextDocumentItem {
+            uri: ls_types::Uri::from_file_path(settings_path.as_std_path()).unwrap(),
+            language_id: "python".to_string(),
+            version: 1,
+            text: String::new(),
+        }) else {
+            panic!("settings Python open should be applied");
+        };
         let settings_file = path_to_file(session.db(), settings_path).unwrap();
         session.intrinsic_readiness.generation = 0;
         session.intrinsic_readiness.reprime_files = Some(Vec::new().into());
