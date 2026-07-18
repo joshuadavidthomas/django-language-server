@@ -45,7 +45,7 @@ impl BranchConstraints {
         dead_code,
         reason = "composed by the typed aggregate ordering in Plans 047 and 048"
     )]
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
+    pub(super) fn canonical_cmp(&self, other: &Self) -> Ordering {
         for (left, right) in self.alternatives.iter().zip(&other.alternatives) {
             let ordering = cmp_conjunction(left, right);
             if ordering != Ordering::Equal {
