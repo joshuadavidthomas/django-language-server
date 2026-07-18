@@ -5,7 +5,7 @@ use djls_source::FileReadError;
 use djls_source::Origin;
 
 use super::BranchConstraints;
-use super::CanonicalOrigins;
+use super::OriginSet;
 use super::PythonDict;
 use super::PythonList;
 use super::PythonMapping;
@@ -772,7 +772,7 @@ pub(super) enum PythonIterable<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonUnknown {
     pub(crate) cause: PythonUnknownCause,
-    origins: CanonicalOrigins,
+    origins: OriginSet,
 }
 
 impl PythonUnknown {

@@ -58,10 +58,11 @@ pub(crate) use self::value::PythonValueKind;
 
 const MAX_EXACT_PYTHON_ALTERNATIVES: usize = 64;
 
+/// A unique set of origins with deterministic structural iteration order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct CanonicalOrigins(Vec<Origin>);
+struct OriginSet(Vec<Origin>);
 
-impl CanonicalOrigins {
+impl OriginSet {
     fn insert(&mut self, origin: Origin) {
         if self.0.contains(&origin) {
             return;
@@ -104,7 +105,7 @@ impl CanonicalOrigins {
     }
 }
 
-impl FromIterator<Origin> for CanonicalOrigins {
+impl FromIterator<Origin> for OriginSet {
     fn from_iter<T: IntoIterator<Item = Origin>>(iter: T) -> Self {
         let mut origins = Self::default();
         origins.extend(iter);
@@ -161,8 +162,8 @@ mod tests {
     use salsa::plumbing::AsId as _;
     use salsa::plumbing::FromId as _;
 
-    use super::CanonicalOrigins;
     use super::Origin;
+    use super::OriginSet;
     use super::StructuralOrder as _;
 
     fn file(index: u32) -> File {
@@ -213,22 +214,22 @@ mod tests {
     }
 
     #[test]
-    fn typed_provenance_order_canonical_origins_are_unique_and_order_independent() {
+    fn typed_provenance_order_origin_set_is_unique_and_order_independent() {
         let first = origin(15, 1, 1);
         let second = origin(15, 2, 1);
 
-        let empty = CanonicalOrigins::default();
+        let empty = OriginSet::default();
         assert!(empty.iter().next().is_none());
 
-        let forward: CanonicalOrigins = [second, first, second].into_iter().collect();
-        let reversed: CanonicalOrigins = [first, second].into_iter().collect();
+        let forward: OriginSet = [second, first, second].into_iter().collect();
+        let reversed: OriginSet = [first, second].into_iter().collect();
         assert_eq!(forward, reversed);
         assert_eq!(forward.structural_cmp(&reversed), Ordering::Equal);
         assert_eq!(forward.iter().collect::<Vec<_>>(), [first, second]);
         assert!(forward.contains(first));
         assert!(forward.contains(second));
 
-        let extended: CanonicalOrigins = [first, second, origin(16, 0, 1)].into_iter().collect();
+        let extended: OriginSet = [first, second, origin(16, 0, 1)].into_iter().collect();
         assert_eq!(forward.structural_cmp(&extended), Ordering::Less);
         assert_eq!(extended.structural_cmp(&forward), Ordering::Greater);
     }

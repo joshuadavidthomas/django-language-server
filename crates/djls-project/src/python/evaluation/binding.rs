@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use djls_source::Origin;
 
 use super::BranchConstraints;
-use super::CanonicalOrigins;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
+use super::OriginSet;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
@@ -68,7 +68,7 @@ impl PythonBinding {
         Self::from_case(PythonBindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value: PythonValue::unknown(PythonUnknownCause::Cycle, None),
-                binding_origins: CanonicalOrigins::default(),
+                binding_origins: OriginSet::default(),
             }),
             constraints: BranchConstraints::unconstrained(),
         })
@@ -231,7 +231,7 @@ impl PythonBinding {
         joined.normalize(Some(overflow_origin));
 
         if joined.exact_alternative_count() > MAX_EXACT_PYTHON_ALTERNATIVES {
-            let mut overflow_origins: CanonicalOrigins = [overflow_origin].into_iter().collect();
+            let mut overflow_origins: OriginSet = [overflow_origin].into_iter().collect();
             let mut retained = Vec::with_capacity(MAX_EXACT_PYTHON_ALTERNATIVES);
             for case in joined.cases.drain(..) {
                 if case.state.is_limit_remainder()
@@ -252,7 +252,7 @@ impl PythonBinding {
         joined
     }
 
-    fn alternative_limit_case(overflow_origins: CanonicalOrigins) -> PythonBindingCase {
+    fn alternative_limit_case(overflow_origins: OriginSet) -> PythonBindingCase {
         PythonBindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value: PythonValue::unknown(
@@ -366,7 +366,7 @@ impl PythonBindingState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonBoundValue {
     pub(crate) value: PythonValue,
-    binding_origins: CanonicalOrigins,
+    binding_origins: OriginSet,
 }
 
 impl PythonBoundValue {
@@ -374,7 +374,7 @@ impl PythonBoundValue {
         self.binding_origins.iter()
     }
 
-    pub(crate) fn first_binding_origin(&self) -> Option<Origin> {
+    pub(crate) fn representative_binding_origin(&self) -> Option<Origin> {
         self.binding_origins.first()
     }
 
@@ -394,7 +394,7 @@ mod tests {
     use salsa::plumbing::FromId as _;
 
     use super::super::BranchConstraints;
-    use super::super::CanonicalOrigins;
+    use super::super::OriginSet;
     use super::super::PythonSequenceItem;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
@@ -662,17 +662,15 @@ mod tests {
     }
 
     #[test]
-    fn canonical_origins_are_independent_of_insertion_order() {
+    fn origin_set_is_independent_of_insertion_order() {
         let first = origin(0, 20);
         let second = origin(0, 10);
         let third = origin(1, 5);
 
         let forward = [first, second, third, first]
             .into_iter()
-            .collect::<CanonicalOrigins>();
-        let reverse = [third, second, first]
-            .into_iter()
-            .collect::<CanonicalOrigins>();
+            .collect::<OriginSet>();
+        let reverse = [third, second, first].into_iter().collect::<OriginSet>();
 
         assert_eq!(forward, reverse);
         assert_eq!(forward.iter().collect::<Vec<_>>(), [second, first, third]);

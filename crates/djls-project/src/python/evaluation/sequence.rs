@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use djls_source::Origin;
 
 use super::BranchConstraints;
-use super::CanonicalOrigins;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
+use super::OriginSet;
 use super::PythonUnknown;
 use super::PythonValue;
 use super::PythonValueKind;
@@ -432,7 +432,7 @@ struct ConstrainedExactSequence {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SequenceAlternativeRemainder {
-    origins: CanonicalOrigins,
+    origins: OriginSet,
     constraints: BranchConstraints,
 }
 
@@ -522,7 +522,7 @@ impl SequenceAlternatives {
         }
 
         let mut remainder_constraints = None;
-        let mut remainder_origins = CanonicalOrigins::default();
+        let mut remainder_origins = OriginSet::default();
         if let Some(right_remainder) = &extension.remainder {
             for left in &self.exact {
                 let constraints = left.constraints.intersection(&right_remainder.constraints);
@@ -643,7 +643,7 @@ impl SequenceAlternatives {
         if self.exact.len() > MAX_EXACT_PYTHON_ALTERNATIVES {
             let omitted = self.exact.split_off(MAX_EXACT_PYTHON_ALTERNATIVES);
             let (mut constraints, mut origins) = self.remainder.take().map_or_else(
-                || (None, CanonicalOrigins::default()),
+                || (None, OriginSet::default()),
                 |remainder| (Some(remainder.constraints), remainder.origins),
             );
             for alternative in omitted {
@@ -799,7 +799,7 @@ impl PythonSequenceItem {
         }
     }
 
-    fn extend_origins(&self, origins: &mut CanonicalOrigins) {
+    fn extend_origins(&self, origins: &mut OriginSet) {
         match self {
             Self::Value(value) => origins.extend(value.origins()),
             Self::UnknownElement(unknown) | Self::UnknownUnpack(unknown) => {
@@ -849,10 +849,10 @@ mod tests {
 
     use super::super::PythonUnknownCause;
     use super::BranchConstraints;
-    use super::CanonicalOrigins;
     use super::ConstrainedExactSequence;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
+    use super::OriginSet;
     use super::PythonSequenceItem;
     use super::PythonUnknown;
     use super::PythonValue;
@@ -1385,7 +1385,7 @@ mod tests {
         }
 
         let remainder = |offset| SequenceAlternativeRemainder {
-            origins: [origin(offset)].into_iter().collect::<CanonicalOrigins>(),
+            origins: [origin(offset)].into_iter().collect::<OriginSet>(),
             constraints: BranchConstraints::unconstrained(),
         };
         let mut alternatives = SequenceAlternatives {

@@ -166,7 +166,7 @@ where
                 match alternative {
                     PythonBindingState::Bound(value) => {
                         let origin = value
-                            .first_binding_origin()
+                            .representative_binding_origin()
                             .or_else(|| value.value.origins().next());
                         for (case, correlation) in bound(value, constraints) {
                             add_case(case, correlation, origin);
