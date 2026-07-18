@@ -147,15 +147,15 @@ fn collect_incremental(bencher: Bencher) {
 struct ValidationRenderFixture<'a> {
     source: &'a str,
     path: &'a str,
-    check: djls_bench::CheckResult,
+    check: djls_ide::TemplateCheck,
 }
 
 fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRenderFixture<'_> {
     let mut db = primed_realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-    let check = djls_bench::check_file(&db, file);
+    let check = djls_ide::check_template(&db, file);
     assert!(
-        !check.validation_errors.is_empty(),
+        !check.validation_errors().is_empty(),
         "validation error rendering fixture '{}' produced no validation errors",
         fixture.label,
     );
@@ -179,8 +179,8 @@ fn render_validation_output(bencher: Bencher) {
     bencher.bench_local(move || {
         let mut rendered_count = 0;
         for fixture in &fixtures {
-            for error in &fixture.check.validation_errors {
-                if let Some(output) = djls_bench::render_validation_error(
+            for error in fixture.check.validation_errors() {
+                if let Some(output) = djls_ide::render_validation_error(
                     fixture.source,
                     fixture.path,
                     error,
@@ -201,9 +201,9 @@ fn render_validation_synthetic_output(bencher: Bencher) {
     let mut db = primed_realistic_db();
     let file = db.file_with_contents("/templates/bench.html", MANY_ERRORS_SOURCE);
 
-    let check = djls_bench::check_file(&db, file);
+    let check = djls_ide::check_template(&db, file);
     assert!(
-        !check.validation_errors.is_empty(),
+        !check.validation_errors().is_empty(),
         "synthetic validation error benchmark produced no validation errors",
     );
 
@@ -213,8 +213,8 @@ fn render_validation_synthetic_output(bencher: Bencher) {
     bencher.bench_local(move || {
         let mut rendered_count = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
-            for error in &check.validation_errors {
-                if let Some(output) = djls_bench::render_validation_error(
+            for error in check.validation_errors() {
+                if let Some(output) = djls_ide::render_validation_error(
                     MANY_ERRORS_SOURCE,
                     "bench.html",
                     error,

@@ -19,8 +19,6 @@
 use divan::Bencher;
 use djls_bench::CorpusLoadError;
 use djls_bench::CorpusTemplates;
-use djls_bench::Db;
-use djls_bench::FileCheckResult;
 use djls_bench::django_corpus_templates;
 use djls_bench::full_corpus_templates;
 use djls_bench::realistic_db;
@@ -29,21 +27,6 @@ use djls_source::DiagnosticRenderer;
 
 fn main() {
     divan::main();
-}
-
-/// Run `check_file` and capture the source for rendering (mirrors CLI pattern).
-fn run_check(db: &Db, file: djls_source::File) -> FileCheckResult {
-    let source = file
-        .try_source(db)
-        .expect("benchmark file should be readable");
-    let path = file.path(db).clone();
-    let check = djls_bench::check_file(db, file);
-
-    FileCheckResult {
-        source,
-        path,
-        check,
-    }
 }
 
 // Batch: all fixture templates through one fresh database.
@@ -72,7 +55,8 @@ fn fixtures(bencher: Bencher) {
         .bench_local_refs(|(db, files, config, fmt)| {
             let mut total_errors = 0;
             for &file in files.iter() {
-                let result = run_check(db, file);
+                let result = djls_ide::check_template_with_source(db, file)
+                    .expect("benchmark file should be readable");
                 total_errors += result.render(config, fmt).len();
             }
             divan::black_box(total_errors);
@@ -118,8 +102,9 @@ fn bench_corpus_check(
         .bench_local_refs(|(db, files, config, fmt)| {
             let mut total_errors = 0;
             for &file in files.iter() {
-                let result = run_check(db, file);
-                if result.has_diagnostics() {
+                let result = djls_ide::check_template_with_source(db, file)
+                    .expect("benchmark file should be readable");
+                if result.check().has_diagnostics() {
                     total_errors += result.render(config, fmt).len();
                 }
             }

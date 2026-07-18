@@ -3,11 +3,7 @@ mod db;
 mod fixtures;
 mod specs;
 
-pub use check::CheckResult;
-pub use check::FileCheckResult;
 pub use check::MANY_ERRORS_SOURCE;
-pub use check::check_file;
-pub use check::render_validation_error;
 pub use check::synthetic_render_diagnostics;
 pub use db::Db;
 pub use fixtures::CorpusLoadError;

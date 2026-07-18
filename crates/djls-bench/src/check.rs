@@ -1,20 +1,6 @@
-use camino::Utf8PathBuf;
-use djls_conf::DiagnosticsConfig;
-use djls_semantic::ValidationError;
-use djls_semantic::ValidationErrorAccumulator;
 use djls_source::Diagnostic;
-use djls_source::DiagnosticRenderer;
-use djls_source::File;
 use djls_source::Severity;
-use djls_source::SourceText;
 use djls_source::Span;
-use djls_templates::TemplateError;
-use djls_templates::TemplateErrorAccumulator;
-
-pub struct CheckResult {
-    template_errors: Vec<TemplateError>,
-    pub validation_errors: Vec<ValidationError>,
-}
 
 pub const MANY_ERRORS_SOURCE: &str = concat!(
     "{% if and x %}oops{% endif %}\n",
@@ -66,161 +52,6 @@ pub fn synthetic_render_diagnostics() -> [Diagnostic<'static>; 2] {
     ]
 }
 
-impl CheckResult {
-    #[must_use]
-    fn has_diagnostics(&self) -> bool {
-        !self.template_errors.is_empty() || !self.validation_errors.is_empty()
-    }
-}
-
-pub struct FileCheckResult {
-    pub path: Utf8PathBuf,
-    pub source: SourceText,
-    pub check: CheckResult,
-}
-
-impl FileCheckResult {
-    #[must_use]
-    pub fn has_diagnostics(&self) -> bool {
-        self.check.has_diagnostics()
-    }
-
-    #[must_use]
-    fn renderable_diagnostic_count(&self, config: &DiagnosticsConfig) -> usize {
-        self.check
-            .template_errors
-            .iter()
-            .filter(|error| diagnostic_is_enabled(config, error.diagnostic_code()))
-            .count()
-            + self
-                .check
-                .validation_errors
-                .iter()
-                .filter(|error| {
-                    diagnostic_is_enabled(config, error.code()) && error.primary_span().is_some()
-                })
-                .count()
-    }
-
-    #[must_use]
-    pub fn render(&self, config: &DiagnosticsConfig, fmt: &DiagnosticRenderer) -> Vec<String> {
-        let mut results = Vec::with_capacity(self.renderable_diagnostic_count(config));
-        let path = self.path.as_str();
-        let source = self.source.as_str();
-
-        for error in &self.check.template_errors {
-            if let Some(output) = render_template_error(source, path, error, config, fmt) {
-                results.push(output);
-            }
-        }
-
-        for error in &self.check.validation_errors {
-            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
-                results.push(output);
-            }
-        }
-
-        results
-    }
-}
-
-#[must_use]
-pub fn check_file(db: &dyn djls_semantic::Db, file: File) -> CheckResult {
-    djls_semantic::validate_template_file(db, file);
-
-    let template_errors: Vec<TemplateError> =
-        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
-            .iter()
-            .map(|acc| acc.0.clone())
-            .collect();
-
-    let accumulated =
-        djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file);
-
-    let mut validation_errors: Vec<ValidationError> =
-        accumulated.iter().map(|acc| acc.0.clone()).collect();
-    validation_errors.sort_by_cached_key(|e| e.primary_span().map_or(0, Span::start));
-
-    CheckResult {
-        template_errors,
-        validation_errors,
-    }
-}
-
-fn diagnostic_is_enabled(config: &DiagnosticsConfig, code: &str) -> bool {
-    config.get_severity(code) != djls_conf::DiagnosticSeverity::Off
-}
-
-fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
-    match severity {
-        djls_conf::DiagnosticSeverity::Error => Severity::Error,
-        djls_conf::DiagnosticSeverity::Warning => Severity::Warning,
-        djls_conf::DiagnosticSeverity::Info => Severity::Info,
-        djls_conf::DiagnosticSeverity::Hint | djls_conf::DiagnosticSeverity::Off => Severity::Hint,
-    }
-}
-
-#[must_use]
-pub fn render_validation_error(
-    source: &str,
-    path: &str,
-    error: &ValidationError,
-    config: &DiagnosticsConfig,
-    fmt: &DiagnosticRenderer,
-) -> Option<String> {
-    let code = error.code();
-    let severity = config.get_severity(code);
-    if severity == djls_conf::DiagnosticSeverity::Off {
-        return None;
-    }
-
-    let span = error.primary_span()?;
-    let message = error.to_string();
-    let render_severity = to_render_severity(severity);
-
-    let mut diag = Diagnostic::new(source, path, code, &message, render_severity, span, "");
-
-    if let ValidationError::UnbalancedStructure {
-        closing_span: Some(cs),
-        ..
-    } = error
-    {
-        diag = diag.annotation(*cs, "", false);
-    }
-
-    Some(fmt.render(&diag))
-}
-
-fn render_template_error(
-    source: &str,
-    path: &str,
-    error: &TemplateError,
-    config: &DiagnosticsConfig,
-    fmt: &DiagnosticRenderer,
-) -> Option<String> {
-    let code = error.diagnostic_code();
-    let severity = config.get_severity(code);
-    if severity == djls_conf::DiagnosticSeverity::Off {
-        return None;
-    }
-
-    let message = error.to_string();
-    let span = error.primary_span().map_or_else(
-        || Span::new(0, 0),
-        |(start, length)| Span::new(start, length),
-    );
-    let diag = Diagnostic::new(
-        source,
-        path,
-        code,
-        &message,
-        to_render_severity(severity),
-        span,
-        "",
-    );
-    Some(fmt.render(&diag))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -228,6 +59,10 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
 
+    use djls_conf::DiagnosticsConfig;
+    use djls_ide::TemplateCheck;
+    use djls_source::DiagnosticRenderer;
+    use djls_source::File;
     use salsa::Database as _;
     use serde::Serialize;
     use sha2::Digest;
@@ -253,18 +88,18 @@ mod tests {
     }
 
     impl CheckDigest {
-        fn from_check(check: &CheckResult) -> Self {
+        fn from_check(check: &TemplateCheck) -> Self {
             let mut codes = BTreeMap::new();
-            for error in &check.template_errors {
+            for error in check.template_errors() {
                 *codes.entry(error.diagnostic_code()).or_default() += 1;
             }
-            for error in &check.validation_errors {
+            for error in check.validation_errors() {
                 *codes.entry(error.code()).or_default() += 1;
             }
 
             Self {
-                parser_count: check.template_errors.len(),
-                validation_count: check.validation_errors.len(),
+                parser_count: check.template_errors().len(),
+                validation_count: check.validation_errors().len(),
                 codes,
             }
         }
@@ -294,10 +129,10 @@ mod tests {
         message: String,
     }
 
-    fn normalize_semantic_diagnostics(check: &CheckResult) -> Vec<NormalizedSemanticDiagnostic> {
+    fn normalize_semantic_diagnostics(check: &TemplateCheck) -> Vec<NormalizedSemanticDiagnostic> {
         let parser_diagnostics =
             check
-                .template_errors
+                .template_errors()
                 .iter()
                 .map(|error| NormalizedSemanticDiagnostic {
                     category: SemanticDiagnosticCategory::Parser,
@@ -309,7 +144,7 @@ mod tests {
                 });
         let validation_diagnostics =
             check
-                .validation_errors
+                .validation_errors()
                 .iter()
                 .map(|error| NormalizedSemanticDiagnostic {
                     category: SemanticDiagnosticCategory::Validation,
@@ -590,12 +425,10 @@ mod tests {
         let mut rendered_hasher = StableHasher::new();
 
         for &file in files {
-            let source = file
-                .try_source(db)
+            let checked = djls_ide::check_template_with_source(db, file)
                 .expect("benchmark snapshot file should be readable");
-            let path = file.path(db).clone();
-            let check = check_file(db, file);
-            let digest = CheckDigest::from_check(&check);
+            let path = checked.path();
+            let digest = CheckDigest::from_check(checked.check());
             parser_count += digest.parser_count;
             validation_count += digest.validation_count;
             for (&code, &count) in &digest.codes {
@@ -622,12 +455,7 @@ mod tests {
             }
 
             if render {
-                let result = FileCheckResult {
-                    path: path.clone(),
-                    source,
-                    check,
-                };
-                for output in result.render(&config, &renderer) {
+                for output in checked.render(&config, &renderer) {
                     rendered_count += 1;
                     rendered_bytes += output.len();
                     rendered_hasher.write(path.as_str().as_bytes());
@@ -726,7 +554,8 @@ mod tests {
         let priming_names = take_will_execute_names(&db, &events);
         assert_execution_count(&priming_names, "validate_template_file", 1);
 
-        let original_diagnostics = normalize_semantic_diagnostics(&check_file(&db, file));
+        let original_diagnostics =
+            normalize_semantic_diagnostics(&djls_ide::check_template(&db, file));
         assert!(
             !original_diagnostics.is_empty(),
             "incremental validation fixture should produce semantic diagnostics"
@@ -738,7 +567,8 @@ mod tests {
         djls_semantic::validate_template_file(&db, file);
         let modified_names = take_will_execute_names(&db, &events);
         assert_execution_count(&modified_names, "validate_template_file", 1);
-        let modified_diagnostics = normalize_semantic_diagnostics(&check_file(&db, file));
+        let modified_diagnostics =
+            normalize_semantic_diagnostics(&djls_ide::check_template(&db, file));
         let modified_output_names = take_will_execute_names(&db, &events);
         assert_execution_count(&modified_output_names, "validate_template_file", 0);
 
@@ -746,7 +576,8 @@ mod tests {
         djls_semantic::validate_template_file(&db, file);
         let restored_names = take_will_execute_names(&db, &events);
         assert_execution_count(&restored_names, "validate_template_file", 1);
-        let restored_diagnostics = normalize_semantic_diagnostics(&check_file(&db, file));
+        let restored_diagnostics =
+            normalize_semantic_diagnostics(&djls_ide::check_template(&db, file));
         let restored_output_names = take_will_execute_names(&db, &events);
         assert_execution_count(&restored_output_names, "validate_template_file", 0);
 
@@ -860,17 +691,9 @@ mod tests {
         let config = DiagnosticsConfig::default();
         let renderer = DiagnosticRenderer::plain();
         for file in &files {
-            let source = file
-                .try_source(&db)
+            let checked = djls_ide::check_template_with_source(&db, *file)
                 .expect("benchmark file should be readable");
-            let path = file.path(&db).clone();
-            let check = check_file(&db, *file);
-            let result = FileCheckResult {
-                path,
-                source,
-                check,
-            };
-            let _ = result.render(&config, &renderer);
+            let _ = checked.render(&config, &renderer);
         }
 
         let kernel_names = take_will_execute_names(&db, &events);
@@ -1095,15 +918,15 @@ mod tests {
         for fixture in validation_error_fixtures() {
             let mut db = primed_realistic_db();
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-            let check = check_file(&db, file);
+            let check = djls_ide::check_template(&db, file);
             assert!(
-                !check.validation_errors.is_empty(),
+                !check.validation_errors().is_empty(),
                 "validation error rendering fixture '{}' produced no validation errors",
                 fixture.label,
             );
-            validation_error_count += check.validation_errors.len();
-            for error in &check.validation_errors {
-                if let Some(output) = render_validation_error(
+            validation_error_count += check.validation_errors().len();
+            for error in check.validation_errors() {
+                if let Some(output) = djls_ide::render_validation_error(
                     &fixture.source,
                     fixture.path.as_str(),
                     error,
@@ -1143,9 +966,9 @@ mod tests {
     fn synthetic_validation_rendering_workload_is_stable() {
         let mut db = primed_realistic_db();
         let file = db.file_with_contents("/templates/bench.html", MANY_ERRORS_SOURCE);
-        let check = check_file(&db, file);
+        let check = djls_ide::check_template(&db, file);
         assert!(
-            !check.validation_errors.is_empty(),
+            !check.validation_errors().is_empty(),
             "synthetic validation error benchmark produced no validation errors",
         );
 
@@ -1154,10 +977,14 @@ mod tests {
         let mut rendered_count = 0;
         let mut rendered_bytes = 0;
         let mut hasher = StableHasher::new();
-        for error in &check.validation_errors {
-            if let Some(output) =
-                render_validation_error(MANY_ERRORS_SOURCE, "bench.html", error, &config, &renderer)
-            {
+        for error in check.validation_errors() {
+            if let Some(output) = djls_ide::render_validation_error(
+                MANY_ERRORS_SOURCE,
+                "bench.html",
+                error,
+                &config,
+                &renderer,
+            ) {
                 rendered_count += 1;
                 rendered_bytes += output.len();
                 hasher.write(output.as_bytes());
@@ -1169,7 +996,7 @@ mod tests {
             SyntheticValidationRenderSnapshot {
                 source_bytes: MANY_ERRORS_SOURCE.len(),
                 source_sha256: sha256(MANY_ERRORS_SOURCE.as_bytes()),
-                validation_error_count: check.validation_errors.len(),
+                validation_error_count: check.validation_errors().len(),
                 rendered_count_per_inner_iteration: rendered_count,
                 rendered_bytes_per_inner_iteration: rendered_bytes,
                 rendered_output_sha256: hasher.finish(),
