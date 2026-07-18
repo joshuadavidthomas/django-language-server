@@ -6,7 +6,7 @@ use serde::ser::SerializeStruct;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::evaluation::BranchConstraints;
-use crate::python::evaluation::origin_sort_key;
+use crate::python::evaluation::cmp_origin;
 
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 pub(crate) const MAX_EXACT_SETTING_ALTERNATIVES: usize = 64;
@@ -246,7 +246,7 @@ impl MergeEvidence for SettingIssue {
             return false;
         }
         self.origins.extend(other.origins.iter().copied());
-        self.origins.sort_by_key(origin_sort_key);
+        self.origins.sort_by(cmp_origin);
         self.origins.dedup();
         true
     }
@@ -1017,7 +1017,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_unknown_origins_setting_issue_merge_is_reversed_and_idempotent() {
+    fn typed_provenance_order_setting_issue_merge_is_reversed_and_idempotent() {
         let first = origin(1);
         let second = origin(2);
         let first_issue = SettingIssue {

@@ -1,4 +1,8 @@
+use std::cmp::Ordering;
+
+use djls_source::File;
 use djls_source::Origin;
+use salsa::plumbing::AsId as _;
 
 mod allocation;
 mod binding;
@@ -62,7 +66,7 @@ impl CanonicalOrigins {
             return;
         }
         self.0.push(origin);
-        self.0.sort_by_key(origin_sort_key);
+        self.0.sort_by(cmp_origin);
     }
 
     fn extend(&mut self, origins: impl IntoIterator<Item = Origin>) {
@@ -90,6 +94,20 @@ impl CanonicalOrigins {
     fn contains(&self, origin: Origin) -> bool {
         self.0.contains(&origin)
     }
+
+    #[allow(
+        dead_code,
+        reason = "composed by the typed aggregate ordering in Plans 047 and 048"
+    )]
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        for (left, right) in self.0.iter().zip(&other.0) {
+            let ordering = cmp_origin(left, right);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        self.0.len().cmp(&other.0.len())
+    }
 }
 
 impl FromIterator<Origin> for CanonicalOrigins {
@@ -100,9 +118,21 @@ impl FromIterator<Origin> for CanonicalOrigins {
     }
 }
 
-pub(crate) fn origin_sort_key(origin: &Origin) -> (String, u32, u32) {
+pub(crate) fn cmp_file(left: File, right: File) -> Ordering {
+    left.as_id().cmp(&right.as_id())
+}
+
+pub(crate) fn cmp_origin(left: &Origin, right: &Origin) -> Ordering {
+    cmp_file(left.file, right.file)
+        .then_with(|| left.span.start().cmp(&right.span.start()))
+        .then_with(|| left.span.length().cmp(&right.span.length()))
+}
+
+// Plans 047 and 048 still compose this leaf key with aggregate Debug keys. Keep
+// their aggregate policy unchanged while making the provenance fields typed.
+pub(crate) fn origin_sort_key(origin: &Origin) -> (salsa::Id, u32, u32) {
     (
-        format!("{:?}", origin.file),
+        origin.file.as_id(),
         origin.span.start(),
         origin.span.length(),
     )
@@ -110,25 +140,69 @@ pub(crate) fn origin_sort_key(origin: &Origin) -> (String, u32, u32) {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use djls_source::File;
     use djls_source::Span;
+    use salsa::plumbing::AsId as _;
     use salsa::plumbing::FromId as _;
 
     use super::CanonicalOrigins;
     use super::Origin;
-    use super::origin_sort_key;
+    use super::cmp_file;
+    use super::cmp_origin;
 
-    fn origin(file: u32, start: u32) -> Origin {
+    fn file(index: u32) -> File {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
         // files are compared only as opaque IDs and are never read.
-        let file = File::from_id(unsafe { salsa::Id::from_index(file) });
-        Origin::new(file, Span::new(start, 1))
+        File::from_id(unsafe { salsa::Id::from_index(index) })
+    }
+
+    fn origin(file_index: u32, start: u32, length: u32) -> Origin {
+        Origin::new(file(file_index), Span::new(start, length))
     }
 
     #[test]
-    fn canonical_unknown_origins_are_unique_and_order_independent() {
-        let first = origin(0, 1);
-        let second = origin(0, 2);
+    fn typed_provenance_order_uses_typed_salsa_file_identity() {
+        // Salsa renders IDs in unpadded hexadecimal, so 0x10 sorts lexically
+        // before 0xf. Typed identity must retain the numeric order instead.
+        let numerically_first = file(15);
+        let numerically_later = file(16);
+
+        assert_eq!(numerically_first.as_id().index(), 15);
+        assert_eq!(numerically_later.as_id().index(), 16);
+        assert_eq!(
+            cmp_file(numerically_first, numerically_later),
+            Ordering::Less
+        );
+        assert_eq!(
+            cmp_file(numerically_later, numerically_first),
+            Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn typed_provenance_order_compares_every_origin_field_without_collisions() {
+        let first_file = origin(15, 4, 3);
+        let later_file = origin(16, 1, 1);
+        let earlier_start = origin(15, 3, 9);
+        let shorter = origin(15, 4, 2);
+
+        assert_eq!(cmp_origin(&first_file, &later_file), Ordering::Less);
+        assert_eq!(cmp_origin(&earlier_start, &shorter), Ordering::Less);
+        assert_eq!(cmp_origin(&shorter, &first_file), Ordering::Less);
+
+        for unequal in [later_file, earlier_start, shorter] {
+            assert_ne!(cmp_origin(&first_file, &unequal), Ordering::Equal);
+            assert_ne!(cmp_origin(&unequal, &first_file), Ordering::Equal);
+        }
+        assert_eq!(cmp_origin(&first_file, &first_file), Ordering::Equal);
+    }
+
+    #[test]
+    fn typed_provenance_order_canonical_origins_are_unique_and_order_independent() {
+        let first = origin(15, 1, 1);
+        let second = origin(15, 2, 1);
 
         let empty = CanonicalOrigins::default();
         assert!(empty.iter().next().is_none());
@@ -136,25 +210,13 @@ mod tests {
         let forward: CanonicalOrigins = [second, first, second].into_iter().collect();
         let reversed: CanonicalOrigins = [first, second].into_iter().collect();
         assert_eq!(forward, reversed);
+        assert_eq!(forward.canonical_cmp(&reversed), Ordering::Equal);
         assert_eq!(forward.iter().collect::<Vec<_>>(), [first, second]);
-    }
+        assert!(forward.contains(first));
+        assert!(forward.contains(second));
 
-    #[test]
-    fn canonical_unknown_origins_use_the_shared_cross_file_debug_order() {
-        let numerically_first = origin(2, 1);
-        let numerically_later = origin(10, 1);
-        assert_ne!(
-            origin_sort_key(&numerically_first),
-            origin_sort_key(&numerically_later),
-            "unequal origins must have unequal canonical keys"
-        );
-
-        let origins: CanonicalOrigins =
-            [numerically_first, numerically_later].into_iter().collect();
-        let mut expected = vec![numerically_first, numerically_later];
-        expected.sort_by_key(origin_sort_key);
-        assert_eq!(origins.iter().collect::<Vec<_>>(), expected);
-        assert!(origins.contains(numerically_first));
-        assert!(origins.contains(numerically_later));
+        let extended: CanonicalOrigins = [first, second, origin(16, 0, 1)].into_iter().collect();
+        assert_eq!(forward.canonical_cmp(&extended), Ordering::Less);
+        assert_eq!(extended.canonical_cmp(&forward), Ordering::Greater);
     }
 }
