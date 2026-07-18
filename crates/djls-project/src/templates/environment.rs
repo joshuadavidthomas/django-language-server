@@ -8,49 +8,14 @@ use crate::templates::EnvironmentSymbolLookup;
 use crate::templates::LibraryName;
 use crate::templates::LoadableLibraryLookup;
 use crate::templates::MissingLibraryLookup;
+use crate::templates::TemplateBackendScope;
 use crate::templates::TemplateLibraries;
 use crate::templates::TemplateLibrary;
 use crate::templates::TemplateSymbolCandidate;
 use crate::templates::TemplateSymbolKind;
 use crate::templates::TemplateSymbolLookup;
-use crate::templates::resolution::BackendSelection;
 use crate::templates::template_libraries;
 use crate::templates::template_resolution;
-
-/// Compact evidence selecting the Template backends that can render a file.
-///
-/// The project-inventory case is intentional: files outside configured Template roots still use
-/// the independently useful project catalog rather than pretending the project has no libraries.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TemplateEnvironmentScope {
-    ProjectInventory,
-    BackendSelections(Vec<BackendSelection>),
-}
-
-impl TemplateEnvironmentScope {
-    const fn project_inventory() -> &'static Self {
-        static PROJECT_INVENTORY: TemplateEnvironmentScope =
-            TemplateEnvironmentScope::ProjectInventory;
-        &PROJECT_INVENTORY
-    }
-
-    fn from_backend_selections(mut selections: Vec<BackendSelection>) -> Self {
-        selections.sort_unstable();
-        selections.dedup();
-        if selections.is_empty() {
-            Self::ProjectInventory
-        } else {
-            Self::BackendSelections(selections)
-        }
-    }
-
-    pub(crate) fn backend_selections(&self) -> Option<&[BackendSelection]> {
-        match self {
-            Self::ProjectInventory => None,
-            Self::BackendSelections(selections) => Some(selections),
-        }
-    }
-}
 
 /// A borrowed Template Library environment attached to a concrete template scope.
 ///
@@ -60,7 +25,7 @@ impl TemplateEnvironmentScope {
 #[derive(Clone, Copy)]
 pub struct TemplateEnvironment<'db> {
     catalog: &'db TemplateLibraries,
-    scope: &'db TemplateEnvironmentScope,
+    scope: &'db TemplateBackendScope,
 }
 
 impl<'db> TemplateEnvironment<'db> {
@@ -69,7 +34,7 @@ impl<'db> TemplateEnvironment<'db> {
     pub fn from_project_inventory(catalog: &'db TemplateLibraries) -> Self {
         Self {
             catalog,
-            scope: TemplateEnvironmentScope::project_inventory(),
+            scope: TemplateBackendScope::project_inventory_ref(),
         }
     }
 
@@ -245,26 +210,6 @@ fn template_environment_scope(
     db: &dyn ProjectDb,
     project: Project,
     file: File,
-) -> TemplateEnvironmentScope {
-    let selections = template_resolution(db, project).backend_selections_for_file(db, file);
-    TemplateEnvironmentScope::from_backend_selections(selections.to_vec())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn backend_selection_scope_is_canonical() {
-        let first = BackendSelection::Known {
-            configuration: 0,
-            backend: 1,
-        };
-        let second = BackendSelection::Unknown { configuration: 1 };
-
-        assert_eq!(
-            TemplateEnvironmentScope::from_backend_selections(vec![second, first, second]),
-            TemplateEnvironmentScope::from_backend_selections(vec![first, second]),
-        );
-    }
+) -> TemplateBackendScope {
+    template_resolution(db, project).backend_scope_for_file(db, file)
 }

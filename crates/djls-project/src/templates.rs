@@ -1,4 +1,5 @@
 mod candidates;
+mod configurations;
 mod environment;
 mod filters;
 mod libraries;

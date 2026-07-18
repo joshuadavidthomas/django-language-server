@@ -18,14 +18,13 @@ use rustc_hash::FxHashSet;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::resolve_package_dirs;
-use crate::settings::EvaluatedPath;
-use crate::settings::django_settings;
-use crate::settings::settings_module_file;
 use crate::settings::types::InstalledAppEvidence;
-use crate::settings::types::PathListEvidence;
-use crate::settings::types::SettingCase;
-use crate::settings::types::TemplateListEvidence;
-use crate::settings::types::template_backend_evidence_slots;
+use crate::templates::configurations::TemplateBackendConfiguration;
+use crate::templates::configurations::TemplateBackendId;
+use crate::templates::configurations::TemplateConfigurationId;
+use crate::templates::configurations::TemplateConfigurationSlot;
+use crate::templates::configurations::TemplateDirectoryEvidence;
+use crate::templates::configurations::template_configurations;
 use crate::templates::installed_app_package_module;
 
 /// The feasible ordered template-root search sequences extracted from settings.
@@ -36,30 +35,31 @@ use crate::templates::installed_app_package_module;
 pub struct TemplateDirectories(Vec<TemplateDirectoryAlternative>);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct TemplateDirectoryAlternative(Vec<RootEntry>);
+struct TemplateDirectoryAlternative {
+    configuration: TemplateConfigurationId,
+    roots: Vec<RootEntry>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum RootEntry {
     Known {
         root: Utf8PathBuf,
-        backend: usize,
+        backend: TemplateBackendId,
     },
     /// One unenumerable element at this exact position; roots before and after it keep
-    /// their ordering guarantees. A missing backend means the backend itself is unknown.
-    Unknown {
-        backend: Option<usize>,
-    },
+    /// their ordering guarantees.
+    Unknown { selection: TemplateBackendSelection },
 }
 
 impl TemplateDirectoryAlternative {
-    fn push_root(&mut self, root: Utf8PathBuf, backend: usize) {
-        self.0.push(RootEntry::Known { root, backend });
+    fn push_root(&mut self, root: Utf8PathBuf, backend: TemplateBackendId) {
+        self.roots.push(RootEntry::Known { root, backend });
     }
 
-    fn mark_unknown_roots(&mut self, backend: Option<usize>) {
-        if !matches!(self.0.last(), Some(RootEntry::Unknown { backend: existing }) if *existing == backend)
+    fn mark_unknown_roots(&mut self, selection: TemplateBackendSelection) {
+        if !matches!(self.roots.last(), Some(RootEntry::Unknown { selection: existing }) if *existing == selection)
         {
-            self.0.push(RootEntry::Unknown { backend });
+            self.roots.push(RootEntry::Unknown { selection });
         }
     }
 }
@@ -69,7 +69,7 @@ impl TemplateDirectories {
         let mut seen = FxHashSet::default();
         self.0
             .iter()
-            .flat_map(|alternative| &alternative.0)
+            .flat_map(|alternative| &alternative.roots)
             .filter_map(move |entry| match entry {
                 RootEntry::Known { root, .. } if seen.insert(root.as_path()) => {
                     Some(root.as_path())
@@ -83,7 +83,7 @@ impl TemplateDirectories {
         self.0.len() > 1
             || self.0.iter().any(|alternative| {
                 alternative
-                    .0
+                    .roots
                     .iter()
                     .any(|entry| matches!(entry, RootEntry::Unknown { .. }))
             })
@@ -94,91 +94,84 @@ impl TemplateDirectories {
     }
 }
 
-enum InstalledAppEntry {
-    Known(String),
-    Unknown,
-}
-
-struct InstalledAppsProjection(Vec<InstalledAppEntry>);
-
-fn project_installed_apps(
-    case: &SettingCase<
-        crate::settings::types::InstalledAppsValue,
-        crate::settings::types::PartialInstalledApps,
-    >,
-) -> InstalledAppsProjection {
-    match case {
-        SettingCase::Known(value) => InstalledAppsProjection(
-            value
-                .apps
-                .iter()
-                .map(|app| InstalledAppEntry::Known(app.value.clone()))
-                .collect(),
-        ),
-        SettingCase::Dynamic(value) | SettingCase::Malformed(value) => InstalledAppsProjection(
-            value
-                .apps
-                .evidence
-                .iter()
-                .map(|evidence| match evidence {
-                    InstalledAppEvidence::Known(app) => InstalledAppEntry::Known(app.value.clone()),
-                    InstalledAppEvidence::Issue(_) => InstalledAppEntry::Unknown,
-                })
-                .collect(),
-        ),
-        SettingCase::Unset => InstalledAppsProjection(Vec::new()),
+fn known_roots_for_scope<'a>(
+    directories: &'a TemplateDirectories,
+    scope: &TemplateBackendScope,
+) -> Vec<&'a Utf8Path> {
+    let selections = match scope.kind() {
+        TemplateBackendScopeKind::ProjectInventory => {
+            return directories.known_roots().collect();
+        }
+        TemplateBackendScopeKind::Selected(selections) => selections.as_slice(),
+    };
+    let mut roots = Vec::new();
+    for selection in selections {
+        let TemplateBackendSelection::Backend(backend) = *selection else {
+            // A configuration remainder has no concrete roots to report as tried.
+            continue;
+        };
+        for entry in directories
+            .alternatives()
+            .iter()
+            .flat_map(|alternative| &alternative.roots)
+        {
+            let RootEntry::Known {
+                root,
+                backend: candidate,
+            } = entry
+            else {
+                continue;
+            };
+            if *candidate == backend && !roots.contains(&root.as_path()) {
+                roots.push(root.as_path());
+            }
+        }
     }
+    roots
 }
 
 fn add_backend_roots(
     db: &dyn ProjectDb,
     project: Project,
-    backend: &crate::settings::types::PartialTemplateBackend,
-    apps: &InstalledAppsProjection,
-    backend_index: usize,
+    backend: &TemplateBackendConfiguration,
+    installed_apps: &[InstalledAppEvidence],
     alternative: &mut TemplateDirectoryAlternative,
 ) {
-    if backend
-        .backend
-        .known
-        .as_ref()
-        .is_none_or(|name| name.value != "django.template.backends.django.DjangoTemplates")
-    {
+    if backend.backend_state().is_open() {
+        alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
+    }
+    if backend.backend_name() != Some("django.template.backends.django.DjangoTemplates") {
         return;
     }
-    for evidence in &backend.dirs.evidence {
+    for evidence in backend.directories() {
         match evidence {
-            PathListEvidence::Known(dir) => {
-                let EvaluatedPath::Resolved(path) = &dir.value;
-                alternative.push_root(path.clone(), backend_index);
+            TemplateDirectoryEvidence::Path(path) => {
+                alternative.push_root(path.clone(), backend.id());
             }
-            PathListEvidence::Issue(_) => alternative.mark_unknown_roots(Some(backend_index)),
+            TemplateDirectoryEvidence::Unknown => {
+                alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
+            }
         }
     }
-    if !backend.app_dirs.issues.is_empty() {
-        alternative.mark_unknown_roots(Some(backend_index));
+    if backend.app_directories_state().is_open() {
+        alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
     }
-    if backend
-        .app_dirs
-        .known
-        .as_ref()
-        .is_some_and(|app_dirs| app_dirs.value)
-    {
-        for entry in &apps.0 {
-            let InstalledAppEntry::Known(app) = entry else {
-                alternative.mark_unknown_roots(Some(backend_index));
+    if backend.app_directories() == Some(true) {
+        for evidence in installed_apps {
+            let InstalledAppEvidence::Known(app) = evidence else {
+                alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
                 continue;
             };
-            let Some(package_module) = installed_app_package_module(db, project, app) else {
-                alternative.mark_unknown_roots(Some(backend_index));
+            let Some(package_module) = installed_app_package_module(db, project, &app.value) else {
+                alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
                 continue;
             };
             let package_dirs = resolve_package_dirs(db, project, package_module);
             if package_dirs.dirs.is_empty() {
-                alternative.mark_unknown_roots(Some(backend_index));
+                alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
             }
             for package_dir in package_dirs.dirs {
-                alternative.push_root(package_dir.join("templates"), backend_index);
+                alternative.push_root(package_dir.join("templates"), backend.id());
             }
         }
     }
@@ -188,74 +181,39 @@ fn add_backend_roots(
 pub fn template_directories(db: &dyn ProjectDb, project: Project) -> TemplateDirectories {
     project.touch_search_path_roots(db);
 
-    if settings_module_file(db, project).is_none() {
-        return TemplateDirectories(vec![TemplateDirectoryAlternative(vec![
-            RootEntry::Unknown { backend: None },
-        ])]);
-    }
-
-    let settings = django_settings(db, project);
-    let mut alternatives = Vec::new();
-
-    for configuration in settings.feasible_configurations() {
-        let apps = project_installed_apps(configuration.installed_apps);
-        let mut alternative = TemplateDirectoryAlternative(Vec::new());
-
-        match configuration.templates {
-            SettingCase::Known(value) => {
-                for (backend_index, backend) in value.backends.iter().enumerate() {
-                    let partial = crate::settings::types::PartialTemplateBackend::from_complete(
-                        backend.clone(),
-                    );
-                    add_backend_roots(
-                        db,
-                        project,
-                        &partial,
-                        &apps,
-                        backend_index,
-                        &mut alternative,
-                    );
+    let configurations = template_configurations(db, project);
+    let alternatives = configurations
+        .configurations()
+        .iter()
+        .map(|configuration| {
+            let mut alternative = TemplateDirectoryAlternative {
+                configuration: configuration.id(),
+                roots: Vec::new(),
+            };
+            for slot in configuration.slots() {
+                match *slot {
+                    TemplateConfigurationSlot::Backend(backend) => {
+                        let backend = configurations
+                            .backend(backend)
+                            .expect("a canonical backend slot should resolve");
+                        add_backend_roots(
+                            db,
+                            project,
+                            backend,
+                            configuration.installed_apps(),
+                            &mut alternative,
+                        );
+                    }
+                    TemplateConfigurationSlot::Remainder => alternative.mark_unknown_roots(
+                        TemplateBackendSelection::ConfigurationRemainder(configuration.id()),
+                    ),
                 }
             }
-            SettingCase::Dynamic(value) | SettingCase::Malformed(value) => {
-                add_partial_backend_roots(
-                    db,
-                    project,
-                    &value.templates.evidence,
-                    &apps,
-                    &mut alternative,
-                );
-            }
-            SettingCase::Unset => {}
-        }
-        // Keep one entry per feasible settings configuration. Environment correlation relies on
-        // this index matching the Template Library configuration derived from the same branch.
-        alternatives.push(alternative);
-    }
+            alternative
+        })
+        .collect();
 
     TemplateDirectories(alternatives)
-}
-
-fn add_partial_backend_roots(
-    db: &dyn ProjectDb,
-    project: Project,
-    evidence: &[TemplateListEvidence],
-    apps: &InstalledAppsProjection,
-    alternative: &mut TemplateDirectoryAlternative,
-) {
-    for (backend_index, evidence) in template_backend_evidence_slots(evidence) {
-        match evidence {
-            TemplateListEvidence::Backend(backend) => {
-                if !backend.backend.issues.is_empty() {
-                    alternative.mark_unknown_roots(None);
-                }
-                add_backend_roots(db, project, backend, apps, backend_index, alternative);
-            }
-            TemplateListEvidence::Issue(_) => {
-                alternative.mark_unknown_roots(None);
-            }
-        }
-    }
 }
 
 #[salsa::interned]
@@ -405,20 +363,17 @@ impl<'db> TemplateResolution<'db> {
         self.resolve_excluding(db, name, &[])
     }
 
-    pub(crate) fn backend_selections_for_file(
+    #[must_use]
+    pub(crate) fn backend_scope_for_file(
         self,
         db: &'db dyn ProjectDb,
         file: File,
-    ) -> &'db [BackendSelection] {
+    ) -> TemplateBackendScope {
         template_directory_index(db, self)
-            .backend_selections_by_file(db)
+            .backend_scopes_by_file(db)
             .get(&file)
-            .map_or(&[], Vec::as_slice)
-    }
-
-    #[must_use]
-    fn backend_scope_for_file(self, db: &'db dyn ProjectDb, file: File) -> TemplateBackendScope {
-        TemplateBackendScope(self.backend_selections_for_file(db, file).to_vec())
+            .cloned()
+            .unwrap_or_else(TemplateBackendScope::project_inventory)
     }
 
     #[must_use]
@@ -427,15 +382,12 @@ impl<'db> TemplateResolution<'db> {
         db: &'db dyn ProjectDb,
         origin: TemplateOrigin<'db>,
     ) -> TemplateBackendScope {
-        let index = template_directory_index(db, self);
-        TemplateBackendScope(
-            index
-                .backend_selections_by_origin(db)
-                .get(&origin.file(db))
-                .and_then(|by_name| by_name.get(origin.template_name(db).name(db)))
-                .cloned()
-                .unwrap_or_default(),
-        )
+        template_directory_index(db, self)
+            .backend_scopes_by_origin(db)
+            .get(&origin.file(db))
+            .and_then(|by_name| by_name.get(origin.template_name(db).name(db)))
+            .cloned()
+            .unwrap_or_else(TemplateBackendScope::project_inventory)
     }
 
     #[must_use]
@@ -515,7 +467,12 @@ impl<'db> TemplateResolution<'db> {
         name: TemplateName<'db>,
         excluded: &[File],
     ) -> FindTemplateResult<'db> {
-        self.resolve_excluding_in_scope(db, name, excluded, &TemplateBackendScope::default())
+        self.resolve_excluding_in_scope(
+            db,
+            name,
+            excluded,
+            &TemplateBackendScope::project_inventory(),
+        )
     }
 
     #[must_use]
@@ -545,34 +502,52 @@ impl<'db> TemplateResolution<'db> {
     ) -> FindTemplateResult<'db> {
         let index = template_directory_index(db, self);
         let excluded: FxHashSet<_> = excluded.iter().copied().collect();
-        let outcomes = if scope.0.is_empty() {
-            index
+        let outcomes = match scope.kind() {
+            TemplateBackendScopeKind::ProjectInventory => index
                 .searches(db)
                 .iter()
-                .map(|search| resolve_alternative(db, search, name, &excluded))
-                .collect::<Vec<_>>()
-        } else {
-            scope
-                .0
-                .iter()
-                .map(|selection| match *selection {
-                    BackendSelection::Known {
-                        configuration,
-                        backend,
-                    } => {
-                        let search = &index.searches(db)[configuration];
-                        let filtered = search
-                            .iter()
-                            .filter(|evidence| evidence.matches_backend(backend))
-                            .cloned()
-                            .collect::<Vec<_>>();
-                        resolve_alternative(db, &filtered, name, &excluded)
-                    }
-                    BackendSelection::Unknown { .. } => AlternativeOutcome::Inconclusive {
-                        origins: Vec::new(),
-                    },
-                })
-                .collect::<Vec<_>>()
+                .map(|search| resolve_alternative(db, &search.evidence, name, &excluded))
+                .collect::<Vec<_>>(),
+            TemplateBackendScopeKind::Selected(selections) => {
+                let configurations = template_configurations(db, self.project(db));
+                selections
+                    .as_slice()
+                    .iter()
+                    .map(|selection| match *selection {
+                        TemplateBackendSelection::Backend(backend) => {
+                            let Some(configuration) = configurations
+                                .backend(backend)
+                                .map(TemplateBackendConfiguration::configuration)
+                            else {
+                                return AlternativeOutcome::Inconclusive {
+                                    origins: Vec::new(),
+                                };
+                            };
+                            let Some(search) = index
+                                .searches(db)
+                                .iter()
+                                .find(|search| search.configuration == configuration)
+                            else {
+                                return AlternativeOutcome::Inconclusive {
+                                    origins: Vec::new(),
+                                };
+                            };
+                            let filtered = search
+                                .evidence
+                                .iter()
+                                .filter(|evidence| evidence.matches_backend(backend))
+                                .cloned()
+                                .collect::<Vec<_>>();
+                            resolve_alternative(db, &filtered, name, &excluded)
+                        }
+                        TemplateBackendSelection::ConfigurationRemainder(_) => {
+                            AlternativeOutcome::Inconclusive {
+                                origins: Vec::new(),
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            }
         };
 
         let unanimous_file = outcomes.first().and_then(|outcome| match outcome {
@@ -595,37 +570,7 @@ impl<'db> TemplateResolution<'db> {
             .all(|outcome| matches!(outcome, AlternativeOutcome::DoesNotExist))
         {
             let directories = template_directories(db, self.project(db));
-            let mut roots = Vec::new();
-            if scope.0.is_empty() {
-                roots.extend(directories.known_roots());
-            } else {
-                for selection in &scope.0 {
-                    let BackendSelection::Known {
-                        configuration,
-                        backend,
-                    } = *selection
-                    else {
-                        // An open backend has no concrete roots to report as tried.
-                        continue;
-                    };
-                    let Some(alternative) = directories.alternatives().get(configuration) else {
-                        continue;
-                    };
-                    for entry in &alternative.0 {
-                        let RootEntry::Known {
-                            root,
-                            backend: candidate,
-                        } = entry
-                        else {
-                            continue;
-                        };
-                        if *candidate == backend && !roots.contains(&root.as_path()) {
-                            roots.push(root.as_path());
-                        }
-                    }
-                }
-            }
-            let tried = roots
+            let tried = known_roots_for_scope(directories, scope)
                 .into_iter()
                 .filter_map(|root| safe_join(root, name.name(db)).ok())
                 .collect();
@@ -655,8 +600,7 @@ fn collect_backend_selections_scan<'db>(
     search: &[TemplateSearchEvidence<'db>],
     name: TemplateName<'db>,
     file: File,
-    configuration: usize,
-    selections: &mut Vec<BackendSelection>,
+    selections: &mut Vec<TemplateBackendSelection>,
 ) {
     let file_path = file.path(db);
     for evidence in search {
@@ -664,20 +608,9 @@ fn collect_backend_selections_scan<'db>(
             TemplateSearchEvidence::Origin { origin, backend }
                 if origin.template_name(db) == name && origin.file(db) == file =>
             {
-                BackendSelection::Known {
-                    configuration,
-                    backend: *backend,
-                }
+                TemplateBackendSelection::Backend(*backend)
             }
-            TemplateSearchEvidence::UnknownRoots {
-                backend: Some(backend),
-            } => BackendSelection::Known {
-                configuration,
-                backend: *backend,
-            },
-            TemplateSearchEvidence::UnknownRoots { backend: None } => {
-                BackendSelection::Unknown { configuration }
-            }
+            TemplateSearchEvidence::UnknownRoots { selection } => *selection,
             TemplateSearchEvidence::Issue {
                 issue: TemplateSearchIssue::Walk { root, .. },
                 backend,
@@ -685,10 +618,7 @@ fn collect_backend_selections_scan<'db>(
                 .strip_prefix(root)
                 .is_ok_and(|relative| relative.clean().as_str() == name.name(db)) =>
             {
-                BackendSelection::Known {
-                    configuration,
-                    backend: *backend,
-                }
+                TemplateBackendSelection::Backend(*backend)
             }
             TemplateSearchEvidence::Issue {
                 issue:
@@ -698,10 +628,9 @@ fn collect_backend_selections_scan<'db>(
                         ..
                     },
                 backend,
-            } if issue_name == name.name(db) && path == file_path => BackendSelection::Known {
-                configuration,
-                backend: *backend,
-            },
+            } if issue_name == name.name(db) && path == file_path => {
+                TemplateBackendSelection::Backend(*backend)
+            }
             TemplateSearchEvidence::Origin { .. } | TemplateSearchEvidence::Issue { .. } => {
                 continue;
             }
@@ -714,45 +643,34 @@ fn collect_backend_selections_scan<'db>(
 
 #[derive(Default)]
 struct BackendSelectionEvidenceIndex<'db> {
-    concrete_by_origin: FxHashMap<(File, TemplateName<'db>), Vec<BackendSelection>>,
-    global: Vec<BackendSelection>,
-    file_issues: FxHashMap<Utf8PathBuf, FxHashMap<String, Vec<BackendSelection>>>,
-    walk_issues: Vec<(Utf8PathBuf, BackendSelection)>,
+    concrete_by_origin: FxHashMap<(File, TemplateName<'db>), Vec<TemplateBackendSelection>>,
+    global: Vec<TemplateBackendSelection>,
+    file_issues: FxHashMap<Utf8PathBuf, FxHashMap<String, Vec<TemplateBackendSelection>>>,
+    walk_issues: Vec<(Utf8PathBuf, TemplateBackendSelection)>,
+    canonical_order: Vec<TemplateBackendSelection>,
 }
 
 struct BackendSelectionIndexes {
-    by_origin: FxHashMap<File, FxHashMap<String, Vec<BackendSelection>>>,
-    by_file: FxHashMap<File, Vec<BackendSelection>>,
+    by_origin: FxHashMap<File, FxHashMap<String, TemplateBackendScope>>,
+    by_file: FxHashMap<File, TemplateBackendScope>,
 }
 
 impl<'db> BackendSelectionEvidenceIndex<'db> {
-    fn record(
-        &mut self,
-        db: &'db dyn ProjectDb,
-        configuration: usize,
-        evidence: &TemplateSearchEvidence<'db>,
-    ) {
+    fn record(&mut self, db: &'db dyn ProjectDb, evidence: &TemplateSearchEvidence<'db>) {
+        let selection = evidence.selection();
+        if !self.canonical_order.contains(&selection) {
+            self.canonical_order.push(selection);
+        }
         match evidence {
             TemplateSearchEvidence::Origin { origin, backend } => {
                 self.concrete_by_origin
                     .entry((origin.file(db), origin.template_name(db)))
                     .or_default()
-                    .push(BackendSelection::Known {
-                        configuration,
-                        backend: *backend,
-                    });
+                    .push(TemplateBackendSelection::Backend(*backend));
             }
             // Unknown roots are feasible for every discovered (file, name) pair. Keep one compact
-            // configuration-level selection rather than expanding them while consuming origins.
-            TemplateSearchEvidence::UnknownRoots { backend } => {
-                self.global.push(backend.map_or(
-                    BackendSelection::Unknown { configuration },
-                    |backend| BackendSelection::Known {
-                        configuration,
-                        backend,
-                    },
-                ));
-            }
+            // canonical selection rather than expanding them while consuming origins.
+            TemplateSearchEvidence::UnknownRoots { selection } => self.global.push(*selection),
             // File failures affect exactly one physical path and Template Name.
             TemplateSearchEvidence::Issue {
                 issue: TemplateSearchIssue::File { name, path, .. },
@@ -763,23 +681,16 @@ impl<'db> BackendSelectionEvidenceIndex<'db> {
                     .or_default()
                     .entry(name.clone())
                     .or_default()
-                    .push(BackendSelection::Known {
-                        configuration,
-                        backend: *backend,
-                    });
+                    .push(TemplateBackendSelection::Backend(*backend));
             }
             // Walk failures stay compact by root. They are matched only against discovered
             // (file, name) pairs after all concrete origins have been consumed.
             TemplateSearchEvidence::Issue {
                 issue: TemplateSearchIssue::Walk { root, .. },
                 backend,
-            } => self.walk_issues.push((
-                root.clone(),
-                BackendSelection::Known {
-                    configuration,
-                    backend: *backend,
-                },
-            )),
+            } => self
+                .walk_issues
+                .push((root.clone(), TemplateBackendSelection::Backend(*backend))),
         }
     }
 
@@ -788,10 +699,9 @@ impl<'db> BackendSelectionEvidenceIndex<'db> {
         db: &'db dyn ProjectDb,
         names_by_file: &FxHashMap<File, Vec<TemplateName<'db>>>,
     ) -> BackendSelectionIndexes {
-        canonicalize_backend_selections(&mut self.global);
+        stable_deduplicate_backend_selections(&mut self.global);
 
-        let mut by_origin: FxHashMap<File, FxHashMap<String, Vec<BackendSelection>>> =
-            FxHashMap::default();
+        let mut by_origin = FxHashMap::default();
         let mut by_file = FxHashMap::default();
         for (&file, names) in names_by_file {
             let file_path = file.path(db);
@@ -819,19 +729,21 @@ impl<'db> BackendSelectionEvidenceIndex<'db> {
                     }
                 }
 
-                canonicalize_backend_selections(&mut selections);
+                let selections =
+                    backend_selections_in_canonical_order(&self.canonical_order, &selections);
                 file_selections.extend_from_slice(&selections);
-                if !selections.is_empty() {
+                if let Some(scope) = TemplateBackendScope::selected(selections) {
                     by_origin
                         .entry(file)
-                        .or_default()
-                        .insert(name.name(db).clone(), selections);
+                        .or_insert_with(FxHashMap::default)
+                        .insert(name.name(db).clone(), scope);
                 }
             }
 
-            canonicalize_backend_selections(&mut file_selections);
-            if !file_selections.is_empty() {
-                by_file.insert(file, file_selections);
+            file_selections =
+                backend_selections_in_canonical_order(&self.canonical_order, &file_selections);
+            if let Some(scope) = TemplateBackendScope::selected(file_selections) {
+                by_file.insert(file, scope);
             }
         }
 
@@ -839,9 +751,28 @@ impl<'db> BackendSelectionEvidenceIndex<'db> {
     }
 }
 
-fn canonicalize_backend_selections(selections: &mut Vec<BackendSelection>) {
-    selections.sort_unstable();
-    selections.dedup();
+fn stable_deduplicate_backend_selections(selections: &mut Vec<TemplateBackendSelection>) {
+    let mut unique = Vec::with_capacity(selections.len());
+    for selection in selections.drain(..) {
+        if !unique.contains(&selection) {
+            unique.push(selection);
+        }
+    }
+    *selections = unique;
+}
+
+fn backend_selections_in_canonical_order(
+    canonical_order: &[TemplateBackendSelection],
+    selections: &[TemplateBackendSelection],
+) -> Vec<TemplateBackendSelection> {
+    let mut ordered = canonical_order
+        .iter()
+        .copied()
+        .filter(|selection| selections.contains(selection))
+        .collect::<Vec<_>>();
+    ordered.extend_from_slice(selections);
+    stable_deduplicate_backend_selections(&mut ordered);
+    ordered
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -851,17 +782,66 @@ pub struct ScopedTemplateReferenceResolution<'db> {
     pub result: FindTemplateResult<'db>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TemplateBackendScope(Vec<BackendSelection>);
+#[derive(Clone, PartialEq, Eq)]
+pub struct TemplateBackendScope(TemplateBackendScopeKind);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum BackendSelection {
-    Known {
-        configuration: usize,
-        backend: usize,
-    },
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum TemplateBackendScopeKind {
+    ProjectInventory,
+    Selected(SelectedTemplateBackends),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SelectedTemplateBackends(Vec<TemplateBackendSelection>);
+
+impl SelectedTemplateBackends {
+    pub(super) fn as_slice(&self) -> &[TemplateBackendSelection] {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TemplateBackendSelection {
+    Backend(TemplateBackendId),
     /// A feasible settings configuration whose backend and roots cannot be enumerated.
-    Unknown { configuration: usize },
+    ConfigurationRemainder(TemplateConfigurationId),
+}
+
+impl fmt::Debug for TemplateBackendScope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            TemplateBackendScopeKind::ProjectInventory => {
+                f.write_str("TemplateBackendScope::ProjectInventory")
+            }
+            TemplateBackendScopeKind::Selected(_) => f.write_str("TemplateBackendScope::Selected"),
+        }
+    }
+}
+
+static PROJECT_INVENTORY_SCOPE: TemplateBackendScope =
+    TemplateBackendScope(TemplateBackendScopeKind::ProjectInventory);
+
+impl TemplateBackendScope {
+    pub(super) const fn project_inventory() -> Self {
+        Self(TemplateBackendScopeKind::ProjectInventory)
+    }
+
+    pub(super) const fn project_inventory_ref() -> &'static Self {
+        &PROJECT_INVENTORY_SCOPE
+    }
+
+    pub(super) fn selected(mut selections: Vec<TemplateBackendSelection>) -> Option<Self> {
+        stable_deduplicate_backend_selections(&mut selections);
+        (!selections.is_empty()).then_some({
+            Self(TemplateBackendScopeKind::Selected(
+                SelectedTemplateBackends(selections),
+            ))
+        })
+    }
+
+    pub(super) const fn kind(&self) -> &TemplateBackendScopeKind {
+        &self.0
+    }
 }
 
 #[salsa::tracked]
@@ -884,36 +864,51 @@ struct TemplateDirectoryIndex<'db> {
     /// Equality-bearing direct scope evidence for each discovered Template Origin.
     #[tracked]
     #[returns(ref)]
-    backend_selections_by_origin: FxHashMap<File, FxHashMap<String, Vec<BackendSelection>>>,
+    backend_scopes_by_origin: FxHashMap<File, FxHashMap<String, TemplateBackendScope>>,
     /// Equality-bearing direct scope evidence for each discovered physical Template.
     ///
     /// This is derived beside the origin/search indexes so per-Template semantic analysis does
     /// not rescan every configuration and compare every candidate path.
     #[tracked]
     #[returns(ref)]
-    backend_selections_by_file: FxHashMap<File, Vec<BackendSelection>>,
+    backend_scopes_by_file: FxHashMap<File, TemplateBackendScope>,
     #[tracked]
     #[returns(ref)]
-    searches: Vec<Vec<TemplateSearchEvidence<'db>>>,
+    searches: Vec<ConfigurationSearch<'db>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
+struct ConfigurationSearch<'db> {
+    configuration: TemplateConfigurationId,
+    evidence: Vec<TemplateSearchEvidence<'db>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 enum TemplateSearchEvidence<'db> {
     Origin {
         origin: TemplateOrigin<'db>,
-        backend: usize,
+        backend: TemplateBackendId,
     },
     UnknownRoots {
-        backend: Option<usize>,
+        selection: TemplateBackendSelection,
     },
     Issue {
         issue: TemplateSearchIssue,
-        backend: usize,
+        backend: TemplateBackendId,
     },
 }
 
 impl TemplateSearchEvidence<'_> {
-    fn matches_backend(&self, backend: usize) -> bool {
+    fn selection(&self) -> TemplateBackendSelection {
+        match self {
+            Self::Origin { backend, .. } | Self::Issue { backend, .. } => {
+                TemplateBackendSelection::Backend(*backend)
+            }
+            Self::UnknownRoots { selection } => *selection,
+        }
+    }
+
+    fn matches_backend(&self, backend: TemplateBackendId) -> bool {
         match self {
             Self::Origin {
                 backend: candidate, ..
@@ -921,7 +916,9 @@ impl TemplateSearchEvidence<'_> {
             | Self::Issue {
                 backend: candidate, ..
             } => *candidate == backend,
-            Self::UnknownRoots { backend: candidate } => *candidate == Some(backend),
+            Self::UnknownRoots { selection } => {
+                *selection == TemplateBackendSelection::Backend(backend)
+            }
         }
     }
 }
@@ -953,9 +950,9 @@ fn template_directory_index<'db>(
     let mut origins = FxHashMap::default();
     let mut backend_selection_evidence = BackendSelectionEvidenceIndex::default();
 
-    for (configuration, alternative) in files.searches().iter().enumerate() {
+    for alternative in files.searches() {
         let mut search = Vec::new();
-        for evidence in alternative {
+        for evidence in &alternative.evidence {
             let evidence = match evidence {
                 ProjectTemplateSearchEvidence::File { template, backend } => {
                     let template_name = TemplateName::new(db, template.name().to_string());
@@ -981,8 +978,10 @@ fn template_directory_index<'db>(
                         backend: *backend,
                     }
                 }
-                ProjectTemplateSearchEvidence::UnknownRoots { backend } => {
-                    TemplateSearchEvidence::UnknownRoots { backend: *backend }
+                ProjectTemplateSearchEvidence::UnknownRoots { selection } => {
+                    TemplateSearchEvidence::UnknownRoots {
+                        selection: *selection,
+                    }
                 }
                 ProjectTemplateSearchEvidence::Issue { issue, backend } => {
                     TemplateSearchEvidence::Issue {
@@ -991,15 +990,18 @@ fn template_directory_index<'db>(
                     }
                 }
             };
-            backend_selection_evidence.record(db, configuration, &evidence);
+            backend_selection_evidence.record(db, &evidence);
             search.push(evidence);
         }
-        searches.push(search);
+        searches.push(ConfigurationSearch {
+            configuration: alternative.configuration,
+            evidence: search,
+        });
     }
 
     let BackendSelectionIndexes {
-        by_origin: backend_selections_by_origin,
-        by_file: backend_selections_by_file,
+        by_origin: backend_scopes_by_origin,
+        by_file: backend_scopes_by_file,
     } = backend_selection_evidence.finish(db, &names_by_file);
 
     tracing::debug!("Discovered {} total template origins", ordered.len());
@@ -1009,8 +1011,8 @@ fn template_directory_index<'db>(
         ordered,
         by_template_name,
         names_by_file,
-        backend_selections_by_origin,
-        backend_selections_by_file,
+        backend_scopes_by_origin,
+        backend_scopes_by_file,
         searches,
     )
 }
@@ -1074,18 +1076,18 @@ fn resolve_alternative<'db>(
                     }
                 };
             }
-            TemplateSearchEvidence::UnknownRoots { backend } => {
-                if !open_selections.contains(backend) {
-                    open_selections.push(*backend);
+            TemplateSearchEvidence::UnknownRoots { selection } => {
+                if !open_selections.contains(selection) {
+                    open_selections.push(*selection);
                 }
             }
             TemplateSearchEvidence::Issue {
                 issue: TemplateSearchIssue::Walk { .. },
                 backend,
             } => {
-                let backend = Some(*backend);
-                if !open_selections.contains(&backend) {
-                    open_selections.push(backend);
+                let selection = TemplateBackendSelection::Backend(*backend);
+                if !open_selections.contains(&selection) {
+                    open_selections.push(selection);
                 }
             }
             TemplateSearchEvidence::Issue {
@@ -1095,9 +1097,9 @@ fn resolve_alternative<'db>(
                     },
                 backend,
             } if issue_name == name.name(db) => {
-                let backend = Some(*backend);
-                if !open_selections.contains(&backend) {
-                    open_selections.push(backend);
+                let selection = TemplateBackendSelection::Backend(*backend);
+                if !open_selections.contains(&selection) {
+                    open_selections.push(selection);
                 }
             }
             TemplateSearchEvidence::Origin { .. } | TemplateSearchEvidence::Issue { .. } => {}
@@ -1127,13 +1129,19 @@ pub struct InconclusiveTemplateSearch<'db> {
 /// Positive template files and ordered evidence from searching configured roots.
 #[derive(Clone, Default, PartialEq, Eq)]
 struct ProjectTemplateFiles {
-    searches: Vec<Vec<ProjectTemplateSearchEvidence>>,
+    searches: Vec<ProjectConfigurationSearch>,
 }
 
 impl ProjectTemplateFiles {
-    fn searches(&self) -> &[Vec<ProjectTemplateSearchEvidence>] {
+    fn searches(&self) -> &[ProjectConfigurationSearch] {
         &self.searches
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProjectConfigurationSearch {
+    configuration: TemplateConfigurationId,
+    evidence: Vec<ProjectTemplateSearchEvidence>,
 }
 
 impl fmt::Debug for ProjectTemplateFiles {
@@ -1148,14 +1156,14 @@ impl fmt::Debug for ProjectTemplateFiles {
 enum ProjectTemplateSearchEvidence {
     File {
         template: ProjectTemplateFile,
-        backend: usize,
+        backend: TemplateBackendId,
     },
     UnknownRoots {
-        backend: Option<usize>,
+        selection: TemplateBackendSelection,
     },
     Issue {
         issue: TemplateSearchIssue,
-        backend: usize,
+        backend: TemplateBackendId,
     },
 }
 
@@ -1167,9 +1175,9 @@ impl fmt::Debug for ProjectTemplateSearchEvidence {
                 .field("template", template)
                 .field("backend", backend)
                 .finish(),
-            Self::UnknownRoots { backend } => f
+            Self::UnknownRoots { selection } => f
                 .debug_struct("UnknownRoots")
-                .field("backend", backend)
+                .field("selection", selection)
                 .finish(),
             Self::Issue { issue, backend } => f
                 .debug_struct("Issue")
@@ -1231,10 +1239,12 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
 
     for alternative in directories.alternatives() {
         let mut search = Vec::new();
-        for entry in &alternative.0 {
+        for entry in &alternative.roots {
             let (root, backend) = match entry {
-                RootEntry::Unknown { backend } => {
-                    search.push(ProjectTemplateSearchEvidence::UnknownRoots { backend: *backend });
+                RootEntry::Unknown { selection } => {
+                    search.push(ProjectTemplateSearchEvidence::UnknownRoots {
+                        selection: *selection,
+                    });
                     continue;
                 }
                 RootEntry::Known { root, backend } => (root, *backend),
@@ -1307,7 +1317,10 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
             });
             search.extend(root_evidence);
         }
-        searches.push(search);
+        searches.push(ProjectConfigurationSearch {
+            configuration: alternative.configuration,
+            evidence: search,
+        });
     }
 
     ProjectTemplateFiles { searches }
@@ -1320,12 +1333,20 @@ mod tests {
     use djls_testing::TestDatabase;
 
     use super::*;
+    use crate::templates::configurations::TemplateConfigurations;
 
     fn scan_selection_indexes<'db>(
         db: &'db TestDatabase,
         searches: &[Vec<TemplateSearchEvidence<'db>>],
         names_by_file: &FxHashMap<File, Vec<TemplateName<'db>>>,
     ) -> BackendSelectionIndexes {
+        let mut canonical_order = Vec::new();
+        for evidence in searches.iter().flatten() {
+            let selection = evidence.selection();
+            if !canonical_order.contains(&selection) {
+                canonical_order.push(selection);
+            }
+        }
         let mut by_origin = FxHashMap::default();
         let mut by_file = FxHashMap::default();
 
@@ -1333,28 +1354,23 @@ mod tests {
             let mut file_selections = Vec::new();
             for &name in names {
                 let mut selections = Vec::new();
-                for (configuration, search) in searches.iter().enumerate() {
-                    collect_backend_selections_scan(
-                        db,
-                        search,
-                        name,
-                        file,
-                        configuration,
-                        &mut selections,
-                    );
+                for search in searches {
+                    collect_backend_selections_scan(db, search, name, file, &mut selections);
                 }
-                canonicalize_backend_selections(&mut selections);
+                let selections =
+                    backend_selections_in_canonical_order(&canonical_order, &selections);
                 file_selections.extend_from_slice(&selections);
-                if !selections.is_empty() {
+                if let Some(scope) = TemplateBackendScope::selected(selections) {
                     by_origin
                         .entry(file)
                         .or_insert_with(FxHashMap::default)
-                        .insert(name.name(db).clone(), selections);
+                        .insert(name.name(db).clone(), scope);
                 }
             }
-            canonicalize_backend_selections(&mut file_selections);
-            if !file_selections.is_empty() {
-                by_file.insert(file, file_selections);
+            file_selections =
+                backend_selections_in_canonical_order(&canonical_order, &file_selections);
+            if let Some(scope) = TemplateBackendScope::selected(file_selections) {
+                by_file.insert(file, scope);
             }
         }
 
@@ -1376,32 +1392,51 @@ mod tests {
         let origin_a = test_template_origin(&db, page, file_a);
         let origin_a_alias = test_template_origin(&db, alias, file_a);
         let origin_b = test_template_origin(&db, page, file_b);
+        let identities = TemplateConfigurations::for_testing(&[7, 2], false);
+        let first_configuration = &identities.configurations()[0];
+        let second_configuration = &identities.configurations()[1];
+        let first_backends = first_configuration
+            .backends()
+            .iter()
+            .map(TemplateBackendConfiguration::id)
+            .collect::<Vec<_>>();
+        let second_backends = second_configuration
+            .backends()
+            .iter()
+            .map(TemplateBackendConfiguration::id)
+            .collect::<Vec<_>>();
 
         let searches = vec![
             vec![
                 TemplateSearchEvidence::Origin {
                     origin: origin_a,
-                    backend: 0,
+                    backend: first_backends[0],
                 },
                 TemplateSearchEvidence::Origin {
                     origin: origin_b,
-                    backend: 1,
+                    backend: first_backends[1],
                 },
-                TemplateSearchEvidence::UnknownRoots { backend: Some(2) },
-                TemplateSearchEvidence::UnknownRoots { backend: None },
+                TemplateSearchEvidence::UnknownRoots {
+                    selection: TemplateBackendSelection::Backend(first_backends[2]),
+                },
+                TemplateSearchEvidence::UnknownRoots {
+                    selection: TemplateBackendSelection::ConfigurationRemainder(
+                        first_configuration.id(),
+                    ),
+                },
                 TemplateSearchEvidence::Issue {
                     issue: TemplateSearchIssue::Walk {
                         root: Utf8PathBuf::from("/templates/a"),
                         kind: io::ErrorKind::PermissionDenied,
                     },
-                    backend: 3,
+                    backend: first_backends[3],
                 },
                 TemplateSearchEvidence::Issue {
                     issue: TemplateSearchIssue::Walk {
                         root: Utf8PathBuf::from("/unrelated"),
                         kind: io::ErrorKind::PermissionDenied,
                     },
-                    backend: 4,
+                    backend: first_backends[4],
                 },
                 TemplateSearchEvidence::Issue {
                     issue: TemplateSearchIssue::File {
@@ -1409,7 +1444,7 @@ mod tests {
                         path: Utf8PathBuf::from("/templates/a/page.html"),
                         error: FileError::NotFound,
                     },
-                    backend: 5,
+                    backend: first_backends[5],
                 },
                 TemplateSearchEvidence::Issue {
                     issue: TemplateSearchIssue::File {
@@ -1417,24 +1452,26 @@ mod tests {
                         path: Utf8PathBuf::from("/templates/a/page.html"),
                         error: FileError::NotFound,
                     },
-                    backend: 6,
+                    backend: first_backends[6],
                 },
             ],
             vec![
                 TemplateSearchEvidence::Origin {
                     origin: origin_a_alias,
-                    backend: 0,
+                    backend: second_backends[0],
                 },
-                TemplateSearchEvidence::UnknownRoots { backend: Some(1) },
+                TemplateSearchEvidence::UnknownRoots {
+                    selection: TemplateBackendSelection::Backend(second_backends[1]),
+                },
             ],
         ];
         let names_by_file =
             FxHashMap::from_iter([(file_a, vec![page, alias]), (file_b, vec![page])]);
 
         let mut evidence_index = BackendSelectionEvidenceIndex::default();
-        for (configuration, search) in searches.iter().enumerate() {
+        for search in &searches {
             for evidence in search {
-                evidence_index.record(&db, configuration, evidence);
+                evidence_index.record(&db, evidence);
             }
         }
         let indexed = evidence_index.finish(&db, &names_by_file);
@@ -1448,25 +1485,82 @@ mod tests {
             "a file with no concrete Template Origin must retain ProjectInventory scope"
         );
         assert!(
-            indexed.by_origin[&file_a]["page.html"].contains(&BackendSelection::Known {
-                configuration: 0,
-                backend: 3,
-            }),
+            matches!(
+                indexed.by_origin[&file_a]["page.html"].kind(),
+                TemplateBackendScopeKind::Selected(selections)
+                    if selections
+                        .as_slice()
+                        .contains(&TemplateBackendSelection::Backend(first_backends[3]))
+            ),
             "the matching walk issue must contribute uncertainty"
         );
         assert!(
-            indexed.by_origin[&file_a]["alias.html"].contains(&BackendSelection::Known {
-                configuration: 0,
-                backend: 5,
-            }),
+            matches!(
+                indexed.by_origin[&file_a]["alias.html"].kind(),
+                TemplateBackendScopeKind::Selected(selections)
+                    if selections
+                        .as_slice()
+                        .contains(&TemplateBackendSelection::Backend(first_backends[5]))
+            ),
             "the exact (path, name) file issue must contribute uncertainty"
         );
         assert!(
-            !indexed.by_origin[&file_a]["page.html"].contains(&BackendSelection::Known {
-                configuration: 0,
-                backend: 5,
-            }),
+            matches!(
+                indexed.by_origin[&file_a]["page.html"].kind(),
+                TemplateBackendScopeKind::Selected(selections)
+                    if !selections
+                        .as_slice()
+                        .contains(&TemplateBackendSelection::Backend(first_backends[5]))
+            ),
             "file issue evidence for an alias must not leak to another Template Name"
+        );
+    }
+
+    #[test]
+    fn selected_backend_scope_stably_deduplicates_canonical_order() {
+        let configurations = TemplateConfigurations::for_testing(&[2], true);
+        let configuration = &configurations.configurations()[0];
+        let first = configuration.backends()[0].id();
+        let second = configuration.backends()[1].id();
+        let remainder = TemplateBackendSelection::ConfigurationRemainder(configuration.id());
+        let scope = TemplateBackendScope::selected(vec![
+            TemplateBackendSelection::Backend(first),
+            remainder,
+            TemplateBackendSelection::Backend(second),
+            remainder,
+            TemplateBackendSelection::Backend(first),
+        ])
+        .expect("canonical selections should form a scope");
+
+        let TemplateBackendScopeKind::Selected(selections) = scope.kind() else {
+            panic!("non-empty selections should retain Selected scope")
+        };
+        assert_eq!(
+            selections.as_slice(),
+            [
+                TemplateBackendSelection::Backend(first),
+                remainder,
+                TemplateBackendSelection::Backend(second),
+            ]
+        );
+        assert!(
+            TemplateBackendScope::selected(Vec::new()).is_none(),
+            "an empty selection cannot construct a Selected scope"
+        );
+    }
+
+    #[test]
+    fn backend_scope_debug_is_opaque() {
+        let configurations = TemplateConfigurations::for_testing(&[1], false);
+        let backend = configurations.configurations()[0].backends()[0].id();
+        let scope =
+            TemplateBackendScope::selected(vec![TemplateBackendSelection::Backend(backend)])
+                .expect("one backend selection should form a scope");
+
+        assert_eq!(format!("{scope:?}"), "TemplateBackendScope::Selected");
+        assert_eq!(
+            format!("{:?}", TemplateBackendScope::project_inventory()),
+            "TemplateBackendScope::ProjectInventory"
         );
     }
 

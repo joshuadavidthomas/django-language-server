@@ -112,6 +112,65 @@ fn template_environment_correlates_libraries_with_resolving_backends() {
 }
 
 #[test]
+fn project_inventory_preserves_backend_remainder_slot_order() {
+    let db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'builtins': ['alpha_builtin']}},\n    *UNKNOWN,\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'builtins': ['beta_builtin']}},\n]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/alpha_builtin.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef marker(): pass\n",
+        )
+        .file(
+            "/test/project/beta_builtin.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef marker(): pass\n",
+        )
+        .build(&db);
+
+    let definitions = TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        .effective_definition_libraries("marker", TemplateSymbolKind::Tag, &[]);
+
+    assert!(matches!(
+        definitions.as_slice(),
+        [
+            EffectiveDefinitionLibrary::Known(Some(alpha)),
+            EffectiveDefinitionLibrary::Unknown,
+            EffectiveDefinitionLibrary::Known(Some(beta)),
+        ] if alpha.module_name_str() == "alpha_builtin"
+            && beta.module_name_str() == "beta_builtin"
+    ));
+}
+
+#[test]
+fn partial_known_backend_field_uncertainty_keeps_one_correlated_backend_alternative() {
+    let db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', unknown_key: 'maybe', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}},\n]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/test/project/templates/page.html", "{% load shared %}")
+        .build(&db);
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+
+    let environment = template_environment(&db, project, file);
+    assert!(matches!(
+        environment.loadable_library_str("shared"),
+        LoadableLibraryLookup::Inconclusive(candidates)
+            if candidates.len() == 1 && candidates[0].module_name_str() == "alpha_tags"
+    ));
+    assert_eq!(
+        environment.contextual_library_chains(&["shared"]).len(),
+        1,
+        "backend-field uncertainty must not fabricate a configuration remainder alternative"
+    );
+}
+
+#[test]
 fn template_environment_file_backend_index_invalidates_with_settings_evidence() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());

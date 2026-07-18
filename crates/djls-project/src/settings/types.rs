@@ -8,7 +8,6 @@ use crate::python::PythonModuleName;
 use crate::python::evaluation::BranchConstraints;
 use crate::python::evaluation::StructuralOrder;
 
-const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 pub(crate) const MAX_EXACT_SETTING_ALTERNATIVES: usize = 64;
 const MAX_SETTING_ALTERNATIVES: usize = MAX_EXACT_SETTING_ALTERNATIVES + 1;
 
@@ -77,10 +76,6 @@ where
             "a setting must have at least one semantic case"
         );
         alternatives
-    }
-
-    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = &SettingCase<T, P>> {
-        self.cases.iter().map(|case| &case.case)
     }
 
     fn cases_with_correlations(
@@ -374,17 +369,6 @@ pub(crate) enum TemplateListEvidence {
     Issue(SettingIssue),
 }
 
-/// Preserve source-list identity across all template projections.
-///
-/// Every list element owns exactly one backend slot. Consumers may disagree about whether the
-/// element contributes roots or libraries, but must not renumber later elements based on that
-/// decision.
-pub(crate) fn template_backend_evidence_slots(
-    evidence: &[TemplateListEvidence],
-) -> impl Iterator<Item = (usize, &TemplateListEvidence)> {
-    evidence.iter().enumerate()
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct OrderedTemplateList {
     pub(crate) evidence: Vec<TemplateListEvidence>,
@@ -407,12 +391,6 @@ pub(crate) struct TemplateBackend {
     pub(crate) context_processors: Vec<WithOrigin<TemplateContextProcessorPath>>,
 }
 
-impl TemplateBackend {
-    pub(crate) fn is_django_templates_backend(&self) -> bool {
-        self.backend.value == DJANGO_TEMPLATES_BACKEND
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PathListEvidence {
@@ -429,12 +407,6 @@ impl OrderedPathList {
     pub(crate) fn new() -> Self {
         Self {
             evidence: Vec::new(),
-        }
-    }
-
-    fn from_known(paths: Vec<WithOrigin<EvaluatedPath>>) -> Self {
-        Self {
-            evidence: paths.into_iter().map(PathListEvidence::Known).collect(),
         }
     }
 
@@ -505,19 +477,6 @@ pub(crate) struct PartialTemplateBackend {
 }
 
 impl PartialTemplateBackend {
-    pub(crate) fn from_complete(backend: TemplateBackend) -> Self {
-        Self {
-            correlation: BranchConstraints::unconstrained(),
-            backend: PartialSettingField::new(Some(backend.backend)),
-            dirs: OrderedPathList::from_known(backend.dirs),
-            app_dirs: PartialSettingField::new(backend.app_dirs),
-            options: PartialSettingField::new(()),
-            libraries: PartialSettingField::new(backend.libraries),
-            builtins: PartialSettingField::new(backend.builtins),
-            context_processors: PartialSettingField::new(backend.context_processors),
-        }
-    }
-
     pub(crate) fn has_issues(&self) -> bool {
         !self.backend.issues.is_empty()
             || self.dirs.has_issues()
