@@ -26,6 +26,58 @@ struct PythonValueEvidence {
     constraints: BranchConstraints,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PythonScalar<'a> {
+    String(&'a str),
+    Bool(bool),
+}
+
+/// A known scalar together with proof that it has source provenance.
+///
+/// Construction stays behind [`PythonValue::known_scalar`], which returns no
+/// projection when an internally malformed scalar has no evidence.
+pub(crate) struct PythonKnownScalar<'a> {
+    scalar: PythonScalar<'a>,
+    first_evidence: &'a PythonValueEvidence,
+    additional_evidence: &'a [PythonValueEvidence],
+}
+
+impl<'a> PythonKnownScalar<'a> {
+    pub(crate) fn string_value(&self) -> Option<&'a str> {
+        let PythonScalar::String(value) = self.scalar else {
+            return None;
+        };
+        Some(value)
+    }
+
+    pub(crate) fn bool_value(&self) -> Option<bool> {
+        let PythonScalar::Bool(value) = self.scalar else {
+            return None;
+        };
+        Some(value)
+    }
+
+    pub(crate) fn first_origin(&self) -> Origin {
+        self.first_evidence.origin
+    }
+
+    pub(crate) fn additional_origins(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
+        self.additional_evidence
+            .iter()
+            .map(|evidence| evidence.origin)
+    }
+
+    pub(crate) fn origins_with_constraints(
+        &self,
+    ) -> impl Iterator<Item = (Origin, &BranchConstraints)> {
+        std::iter::once((self.first_evidence.origin, &self.first_evidence.constraints)).chain(
+            self.additional_evidence
+                .iter()
+                .map(|evidence| (evidence.origin, &evidence.constraints)),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct PythonValueEvidenceSet(Vec<PythonValueEvidence>);
 
@@ -210,18 +262,22 @@ impl PythonValue {
         self.evidence.origins()
     }
 
-    pub(crate) fn string_value(&self) -> Option<&str> {
-        let PythonValueKind::Str(value) = &self.kind else {
-            return None;
+    pub(crate) fn known_scalar(&self) -> Option<PythonKnownScalar<'_>> {
+        let scalar = match &self.kind {
+            PythonValueKind::Str(value) => PythonScalar::String(value),
+            PythonValueKind::Bool(value) => PythonScalar::Bool(*value),
+            PythonValueKind::Path(_)
+            | PythonValueKind::List(_)
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Unknown(_) => return None,
         };
-        Some(value)
-    }
-
-    pub(crate) fn bool_value(&self) -> Option<bool> {
-        let PythonValueKind::Bool(value) = &self.kind else {
-            return None;
-        };
-        Some(*value)
+        let (first_evidence, additional_evidence) = self.evidence.0.split_first()?;
+        Some(PythonKnownScalar {
+            scalar,
+            first_evidence,
+            additional_evidence,
+        })
     }
 
     pub(crate) fn path_value(&self) -> Option<&Utf8PathBuf> {
@@ -1231,6 +1287,51 @@ mod tests {
         assert_ne!(merged.structural_cmp(&incoming), std::cmp::Ordering::Equal);
         merged.merge_semantically_equal(incoming, None);
         assert_eq!(merged.origins().collect::<Vec<_>>(), [origin(1), origin(2)]);
+    }
+
+    #[test]
+    fn known_scalar_projection_carries_nonempty_string_and_bool_evidence() {
+        let mut string = str_value(origin(2), "same");
+        string.merge_semantically_equal(str_value(origin(1), "same"), None);
+        let scalar = string
+            .known_scalar()
+            .expect("known string with evidence should project");
+
+        assert_eq!(scalar.string_value(), Some("same"));
+        assert_eq!(scalar.bool_value(), None);
+        assert_eq!(scalar.first_origin(), origin(1));
+        assert_eq!(scalar.additional_origins().collect::<Vec<_>>(), [origin(2)]);
+        assert_eq!(
+            scalar
+                .origins_with_constraints()
+                .map(|(origin, _)| origin)
+                .collect::<Vec<_>>(),
+            [origin(1), origin(2)]
+        );
+
+        let value = bool_value(origin(3), true);
+        let scalar = value
+            .known_scalar()
+            .expect("known bool with evidence should project");
+        assert_eq!(scalar.string_value(), None);
+        assert_eq!(scalar.bool_value(), Some(true));
+        assert_eq!(scalar.first_origin(), origin(3));
+        assert!(scalar.additional_origins().next().is_none());
+    }
+
+    #[test]
+    fn scalar_without_evidence_has_no_known_projection() {
+        let string = PythonValue {
+            kind: PythonValueKind::Str("malformed".to_string()),
+            evidence: PythonValueEvidenceSet::default(),
+        };
+        assert!(string.known_scalar().is_none());
+
+        let boolean = PythonValue {
+            kind: PythonValueKind::Bool(true),
+            evidence: PythonValueEvidenceSet::default(),
+        };
+        assert!(boolean.known_scalar().is_none());
     }
 
     #[test]

@@ -346,10 +346,13 @@ fn string_list_items(items: &[PythonSequenceItem]) -> (OrderedInstalledApps, boo
     for item in items {
         let item = match item {
             PythonSequenceItem::Value(value) => {
-                if let Some(text) = value.string_value() {
+                if let Some(scalar) = value.known_scalar()
+                    && let Some(text) = scalar.string_value()
+                {
                     InstalledAppEvidence::Known(WithOrigin::new(
                         text.to_string(),
-                        value.origins().collect(),
+                        scalar.first_origin(),
+                        scalar.additional_origins(),
                     ))
                 } else if value.unknown_value().is_some() {
                     InstalledAppEvidence::Issue(unknown_value_issue(value))
@@ -665,9 +668,14 @@ fn partial_backend(
     backend.backend.issues.append(&mut issues);
     match backend_value {
         Some(value) => {
-            if let Some(name) = value.string_value() {
-                backend.backend.known =
-                    Some(WithOrigin::new(name.to_string(), value.origins().collect()));
+            if let Some(scalar) = value.known_scalar()
+                && let Some(name) = scalar.string_value()
+            {
+                backend.backend.known = Some(WithOrigin::new(
+                    name.to_string(),
+                    scalar.first_origin(),
+                    scalar.additional_origins(),
+                ));
             } else if value.unknown_value().is_some() {
                 backend.backend.issues.push(unknown_value_issue(value));
             } else {
@@ -688,8 +696,14 @@ fn partial_backend(
     let (app_dirs_value, mut issues) = dict_field(mapping, "APP_DIRS");
     backend.app_dirs.issues.append(&mut issues);
     if let Some(value) = app_dirs_value {
-        if let Some(flag) = value.bool_value() {
-            backend.app_dirs.known = Some(WithOrigin::new(flag, value.origins().collect()));
+        if let Some(scalar) = value.known_scalar()
+            && let Some(flag) = scalar.bool_value()
+        {
+            backend.app_dirs.known = Some(WithOrigin::new(
+                flag,
+                scalar.first_origin(),
+                scalar.additional_origins(),
+            ));
         } else if value.unknown_value().is_some() {
             backend.app_dirs.issues.push(unknown_value_issue(value));
         } else {
@@ -766,12 +780,15 @@ fn extract_options(options: PythonMapping<'_>, backend: &mut PartialTemplateBack
             for item in sequence.semantic_items() {
                 match item {
                     PythonSequenceItem::Value(value) => {
-                        if let Some(path) = value.string_value() {
+                        if let Some(scalar) = value.known_scalar()
+                            && let Some(path) = scalar.string_value()
+                        {
                             match TemplateContextProcessorPath::parse(path) {
-                                Ok(path) => backend
-                                    .context_processors
-                                    .known
-                                    .push(WithOrigin::new(path, value.origins().collect())),
+                                Ok(path) => backend.context_processors.known.push(WithOrigin::new(
+                                    path,
+                                    scalar.first_origin(),
+                                    scalar.additional_origins(),
+                                )),
                                 Err(_) => backend
                                     .context_processors
                                     .issues
@@ -820,11 +837,17 @@ fn extract_libraries(
     for entry in mapping.effective_string_entries() {
         match entry {
             MappingStringEntry::Value { key: alias, value } => {
-                if let Some(module) = value.string_value() {
+                if let Some(scalar) = value.known_scalar()
+                    && let Some(module) = scalar.string_value()
+                {
                     match crate::python::PythonModuleName::parse(module) {
                         Ok(module) => libraries.known.push((
                             alias.to_string(),
-                            WithOrigin::new(module, value.origins().collect()),
+                            WithOrigin::new(
+                                module,
+                                scalar.first_origin(),
+                                scalar.additional_origins(),
+                            ),
                         )),
                         Err(_) => libraries
                             .issues
@@ -879,9 +902,15 @@ fn module_name_list(
     for item in sequence.semantic_items() {
         match item {
             PythonSequenceItem::Value(value) => {
-                if let Some(name) = value.string_value() {
+                if let Some(scalar) = value.known_scalar()
+                    && let Some(name) = scalar.string_value()
+                {
                     if let Ok(name) = crate::python::PythonModuleName::parse(name) {
-                        known.push(WithOrigin::new(name, value.origins().collect()));
+                        known.push(WithOrigin::new(
+                            name,
+                            scalar.first_origin(),
+                            scalar.additional_origins(),
+                        ));
                     } else {
                         malformed = true;
                         issues.push(value_issue(SettingIssueKind::InvalidModuleName, value));
@@ -1090,16 +1119,19 @@ fn evaluated_paths(db: &dyn ProjectDb, value: &PythonValue) -> Vec<EvaluatedPath
         return value
             .origins_with_constraints()
             .map(|(origin, constraints)| EvaluatedPathCandidate {
-                path: WithOrigin::new(EvaluatedPath::Resolved(path.clone()), vec![origin]),
+                path: WithOrigin::new(EvaluatedPath::Resolved(path.clone()), origin, []),
                 constraints: constraints.clone(),
             })
             .collect();
     }
-    let Some(path) = value.string_value() else {
+    let Some(scalar) = value.known_scalar() else {
+        return Vec::new();
+    };
+    let Some(path) = scalar.string_value() else {
         return Vec::new();
     };
     let path = Utf8Path::new(path);
-    value
+    scalar
         .origins_with_constraints()
         .filter_map(|(origin, constraints)| {
             let resolved = if path.is_absolute() {
@@ -1108,7 +1140,7 @@ fn evaluated_paths(db: &dyn ProjectDb, value: &PythonValue) -> Vec<EvaluatedPath
                 EvaluatedPath::Resolved(origin.file.path(db).parent()?.join(path))
             };
             Some(EvaluatedPathCandidate {
-                path: WithOrigin::new(resolved, vec![origin]),
+                path: WithOrigin::new(resolved, origin, []),
                 constraints: constraints.clone(),
             })
         })

@@ -623,7 +623,10 @@ mod tests {
                     let PythonBindingState::Bound(bound) = state else {
                         return None;
                     };
-                    bound.value.string_value()
+                    let PythonValueKind::Str(value) = &bound.value.kind else {
+                        return None;
+                    };
+                    Some(value.as_str())
                 })
                 .collect::<Vec<_>>(),
             (0..64)

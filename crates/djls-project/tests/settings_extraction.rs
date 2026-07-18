@@ -3173,7 +3173,7 @@ fn duplicate_mapping_keys_use_last_exact_value() {
 #[test]
 fn equivalent_template_cases_merge_all_value_origins() {
     let settings = extract(
-        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates']}]",
+        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': True}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': True}]",
     );
     let cases = cases(&settings, "/templates/cases");
 
@@ -3187,6 +3187,13 @@ fn equivalent_template_cases_merge_all_value_origins() {
     );
     assert_eq!(
         cases[0]["known"]["backends"][0]["dirs"][0]["spans"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        cases[0]["known"]["backends"][0]["app_dirs"]["spans"]
             .as_array()
             .unwrap()
             .len(),

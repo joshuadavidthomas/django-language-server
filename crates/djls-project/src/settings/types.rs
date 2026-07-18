@@ -267,12 +267,23 @@ pub(crate) enum SettingIssueKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WithOrigin<T> {
     pub(crate) value: T,
-    origins: Vec<Origin>,
+    origin: Origin,
+    additional_origins: Vec<Origin>,
 }
 
 impl<T> WithOrigin<T> {
-    pub(crate) fn new(value: T, origins: Vec<Origin>) -> Self {
-        Self { value, origins }
+    pub(crate) fn new(
+        value: T,
+        origin: Origin,
+        additional_origins: impl IntoIterator<Item = Origin>,
+    ) -> Self {
+        let (origin, additional_origins) =
+            normalize_origins(origin, additional_origins.into_iter());
+        Self {
+            value,
+            origin,
+            additional_origins,
+        }
     }
 
     pub(crate) fn value(&self) -> &T {
@@ -280,8 +291,24 @@ impl<T> WithOrigin<T> {
     }
 
     pub(crate) fn origin(&self) -> Origin {
-        *self.origins.first().expect("known values have an origin")
+        self.origin
     }
+
+    fn origins(&self) -> impl Iterator<Item = Origin> + '_ {
+        std::iter::once(self.origin).chain(self.additional_origins.iter().copied())
+    }
+}
+
+fn normalize_origins(
+    origin: Origin,
+    additional_origins: impl Iterator<Item = Origin>,
+) -> (Origin, Vec<Origin>) {
+    let mut origins = Vec::from([origin]);
+    origins.extend(additional_origins);
+    origins.sort_by(StructuralOrder::structural_cmp);
+    origins.dedup();
+    let origin = origins.remove(0);
+    (origin, origins)
 }
 
 impl<T: MergeEvidence + PartialEq> MergeEvidence for WithOrigin<T> {
@@ -290,11 +317,13 @@ impl<T: MergeEvidence + PartialEq> MergeEvidence for WithOrigin<T> {
             return false;
         }
         let _ = self.value.merge_evidence(&other.value);
-        for origin in &other.origins {
-            if !self.origins.contains(origin) {
-                self.origins.push(*origin);
-            }
-        }
+        (self.origin, self.additional_origins) = normalize_origins(
+            self.origin,
+            self.additional_origins
+                .iter()
+                .copied()
+                .chain(other.origins()),
+        );
         true
     }
 }
@@ -304,7 +333,7 @@ impl<T: Serialize> Serialize for WithOrigin<T> {
     where
         S: serde::Serializer,
     {
-        let spans: Vec<_> = self.origins.iter().map(|origin| origin.span).collect();
+        let spans: Vec<_> = self.origins().map(|origin| origin.span).collect();
         let mut state = serializer.serialize_struct("WithOrigin", 2)?;
         state.serialize_field("value", &self.value)?;
         state.serialize_field("spans", &spans)?;
@@ -754,10 +783,13 @@ impl MergeEvidence for OrderedPathList {
                 .zip(&other.evidence)
                 .any(|(left, right)| match (left, right) {
                     (PathListEvidence::Known(left), PathListEvidence::Known(right)) => {
-                        !same_origin_files(&left.origins, &right.origins)
+                        !same_origin_files(left.origins(), right.origins())
                     }
                     (PathListEvidence::Issue(left), PathListEvidence::Issue(right)) => {
-                        !same_origin_files(&left.origins, &right.origins)
+                        !same_origin_files(
+                            left.origins.iter().copied(),
+                            right.origins.iter().copied(),
+                        )
                     }
                     _ => true,
                 })
@@ -803,10 +835,13 @@ fn same_path_origin_files(
         && left
             .iter()
             .zip(right)
-            .all(|(left, right)| same_origin_files(&left.origins, &right.origins))
+            .all(|(left, right)| same_origin_files(left.origins(), right.origins()))
 }
 
-fn same_origin_files(left: &[Origin], right: &[Origin]) -> bool {
+fn same_origin_files(
+    left: impl Iterator<Item = Origin>,
+    right: impl Iterator<Item = Origin>,
+) -> bool {
     let mut left_files = Vec::new();
     for origin in left {
         if !left_files.contains(&origin.file) {
@@ -835,6 +870,7 @@ mod tests {
     use super::MergeEvidence;
     use super::SettingIssue;
     use super::SettingIssueKind;
+    use super::WithOrigin;
 
     fn origin(start: u32) -> djls_source::Origin {
         // SAFETY: The test index is below `salsa::Id::MAX_U32`; this synthetic
@@ -862,6 +898,63 @@ mod tests {
         assert!(reversed.merge_evidence(&first_issue));
         assert_eq!(forward, reversed);
         assert_eq!(forward.origins, [first, second]);
+
+        let merged = forward.clone();
+        assert!(forward.merge_evidence(&merged));
+        assert_eq!(forward, merged);
+    }
+
+    #[test]
+    fn with_origin_one_origin_accessors_and_serialization_are_total() {
+        let first = origin(1);
+        let value = WithOrigin::new("value".to_string(), first, []);
+
+        assert_eq!(value.value(), "value");
+        assert_eq!(value.origin(), first);
+        assert_eq!(value.origins().collect::<Vec<_>>(), [first]);
+        assert_eq!(
+            serde_json::to_value(&value).unwrap(),
+            serde_json::json!({
+                "value": "value",
+                "spans": [first.span],
+            })
+        );
+    }
+
+    #[test]
+    fn with_origin_construction_normalizes_and_deduplicates_origins() {
+        let first = origin(1);
+        let second = origin(2);
+        let value = WithOrigin::new("value".to_string(), second, [second, first, second]);
+
+        assert_eq!(value.origin(), first);
+        assert_eq!(value.origins().collect::<Vec<_>>(), [first, second]);
+        assert_eq!(
+            serde_json::to_value(&value).unwrap(),
+            serde_json::json!({
+                "value": "value",
+                "spans": [first.span, second.span],
+            })
+        );
+    }
+
+    #[test]
+    fn with_origin_merge_is_reversed_and_idempotent() {
+        let first = origin(1);
+        let second = origin(2);
+        let first_value = WithOrigin::new("value".to_string(), first, []);
+        let second_value = WithOrigin::new("value".to_string(), second, []);
+
+        let mut forward = second_value.clone();
+        assert!(forward.merge_evidence(&first_value));
+        let mut reversed = first_value;
+        assert!(reversed.merge_evidence(&second_value));
+        assert_eq!(forward, reversed);
+        assert_eq!(forward.origins().collect::<Vec<_>>(), [first, second]);
+        assert_eq!(
+            serde_json::to_value(&forward).unwrap(),
+            serde_json::to_value(&reversed).unwrap()
+        );
 
         let merged = forward.clone();
         assert!(forward.merge_evidence(&merged));
