@@ -771,8 +771,7 @@ mod tests {
             let generation = session.desired_generation();
             let primed = djls_ide::prime_template_library_products(session.db()).unwrap();
             assert!(session.publish_intrinsic_readiness(generation, &primed));
-            session.set_reprime_files_for_test(vec![file]);
-            session.set_full_reload_files_for_test(Vec::new());
+            session.install_ready_coverage_for_test(vec![file], Vec::new());
             generation
         };
 

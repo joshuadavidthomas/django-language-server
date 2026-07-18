@@ -59,26 +59,256 @@ pub(crate) enum IntrinsicReadinessState {
     Failed(IntrinsicGeneration),
 }
 
-struct IntrinsicReadiness {
-    generation: IntrinsicGeneration,
-    state: IntrinsicReadinessState,
-    reprime_files: Option<Arc<[File]>>,
-    full_reload_files: Option<Arc<[File]>>,
-    failed_reprime_revisions: Option<Arc<[(File, u64)]>>,
+struct IntrinsicCoverage {
+    reprime_files: Arc<[File]>,
+    full_reload_files: Arc<[File]>,
+}
+
+enum IntrinsicReadiness {
+    NoProject {
+        generation: IntrinsicGeneration,
+    },
+    FullDiscovery {
+        generation: IntrinsicGeneration,
+    },
+    Reprime {
+        generation: IntrinsicGeneration,
+        coverage: IntrinsicCoverage,
+    },
+    RetryReprime {
+        generation: IntrinsicGeneration,
+        coverage: IntrinsicCoverage,
+        admitted_revisions: Arc<[(File, u64)]>,
+    },
+    Ready {
+        generation: IntrinsicGeneration,
+        coverage: IntrinsicCoverage,
+    },
+    FailedFullDiscovery {
+        generation: IntrinsicGeneration,
+    },
+    FailedReprime {
+        generation: IntrinsicGeneration,
+        coverage: IntrinsicCoverage,
+        admitted_revisions: Arc<[(File, u64)]>,
+    },
 }
 
 impl IntrinsicReadiness {
-    fn new(has_project: bool) -> Self {
-        Self {
-            generation: 0,
-            state: if has_project {
-                IntrinsicReadinessState::Unready(0)
-            } else {
-                IntrinsicReadinessState::ReadyWithoutProject
+    const fn new(has_project: bool) -> Self {
+        if has_project {
+            Self::FullDiscovery { generation: 0 }
+        } else {
+            Self::NoProject { generation: 0 }
+        }
+    }
+
+    const fn desired_generation(&self) -> IntrinsicGeneration {
+        match self {
+            Self::NoProject { generation }
+            | Self::FullDiscovery { generation }
+            | Self::Reprime { generation, .. }
+            | Self::RetryReprime { generation, .. }
+            | Self::Ready { generation, .. }
+            | Self::FailedFullDiscovery { generation }
+            | Self::FailedReprime { generation, .. } => *generation,
+        }
+    }
+
+    const fn watched_state(&self) -> IntrinsicReadinessState {
+        match self {
+            Self::NoProject { .. } => IntrinsicReadinessState::ReadyWithoutProject,
+            Self::FullDiscovery { generation }
+            | Self::Reprime { generation, .. }
+            | Self::RetryReprime { generation, .. } => {
+                IntrinsicReadinessState::Unready(*generation)
+            }
+            Self::Ready { generation, .. } => IntrinsicReadinessState::Ready(*generation),
+            Self::FailedFullDiscovery { generation } | Self::FailedReprime { generation, .. } => {
+                IntrinsicReadinessState::Failed(*generation)
+            }
+        }
+    }
+
+    const fn ready_generation(&self) -> Option<IntrinsicGeneration> {
+        match self {
+            Self::Ready { generation, .. } => Some(*generation),
+            Self::NoProject { .. }
+            | Self::FullDiscovery { .. }
+            | Self::Reprime { .. }
+            | Self::RetryReprime { .. }
+            | Self::FailedFullDiscovery { .. }
+            | Self::FailedReprime { .. } => None,
+        }
+    }
+
+    const fn coverage(&self) -> Option<&IntrinsicCoverage> {
+        match self {
+            Self::Reprime { coverage, .. }
+            | Self::RetryReprime { coverage, .. }
+            | Self::Ready { coverage, .. }
+            | Self::FailedReprime { coverage, .. } => Some(coverage),
+            Self::NoProject { .. }
+            | Self::FullDiscovery { .. }
+            | Self::FailedFullDiscovery { .. } => None,
+        }
+    }
+
+    fn mark_project_changed(&mut self, has_project: bool) -> IntrinsicGeneration {
+        let generation = self.desired_generation();
+        *self = if has_project {
+            Self::FullDiscovery {
+                generation: generation + 1,
+            }
+        } else {
+            Self::NoProject { generation }
+        };
+        self.desired_generation()
+    }
+
+    fn begin_full_discovery(&mut self) -> IntrinsicGeneration {
+        let generation = self.desired_generation() + 1;
+        *self = Self::FullDiscovery { generation };
+        generation
+    }
+
+    fn begin_reprime(&mut self, file: File, revision: u64) -> bool {
+        let generation = self.desired_generation() + 1;
+        let next = match self {
+            Self::Reprime { coverage, .. } | Self::Ready { coverage, .. } => Self::Reprime {
+                generation,
+                coverage: IntrinsicCoverage {
+                    reprime_files: Arc::clone(&coverage.reprime_files),
+                    full_reload_files: Arc::clone(&coverage.full_reload_files),
+                },
             },
-            reprime_files: None,
-            full_reload_files: None,
-            failed_reprime_revisions: None,
+            Self::RetryReprime {
+                coverage,
+                admitted_revisions,
+                ..
+            }
+            | Self::FailedReprime {
+                coverage,
+                admitted_revisions,
+                ..
+            } => {
+                let mut admitted_revisions = Arc::clone(admitted_revisions);
+                let Some((_, admitted_revision)) = Arc::make_mut(&mut admitted_revisions)
+                    .iter_mut()
+                    .find(|(admitted_file, _)| *admitted_file == file)
+                else {
+                    return false;
+                };
+                if revision == *admitted_revision {
+                    return false;
+                }
+                *admitted_revision = revision;
+                Self::RetryReprime {
+                    generation,
+                    coverage: IntrinsicCoverage {
+                        reprime_files: Arc::clone(&coverage.reprime_files),
+                        full_reload_files: Arc::clone(&coverage.full_reload_files),
+                    },
+                    admitted_revisions,
+                }
+            }
+            Self::NoProject { .. }
+            | Self::FullDiscovery { .. }
+            | Self::FailedFullDiscovery { .. } => {
+                unreachable!("re-prime work requires complete intrinsic coverage")
+            }
+        };
+        *self = next;
+        true
+    }
+
+    fn publish(&mut self, generation: IntrinsicGeneration, coverage: IntrinsicCoverage) -> bool {
+        let accepts_generation = match self {
+            Self::FullDiscovery {
+                generation: current,
+            }
+            | Self::Reprime {
+                generation: current,
+                ..
+            }
+            | Self::RetryReprime {
+                generation: current,
+                ..
+            } => *current == generation,
+            Self::NoProject { .. }
+            | Self::Ready { .. }
+            | Self::FailedFullDiscovery { .. }
+            | Self::FailedReprime { .. } => false,
+        };
+        if !accepts_generation {
+            return false;
+        }
+
+        *self = Self::Ready {
+            generation,
+            coverage,
+        };
+        true
+    }
+
+    fn fail(
+        &mut self,
+        generation: IntrinsicGeneration,
+        revisions: impl FnOnce(&IntrinsicCoverage) -> Arc<[(File, u64)]>,
+    ) -> bool {
+        let next = match self {
+            Self::FullDiscovery {
+                generation: current,
+            } if *current == generation => Self::FailedFullDiscovery { generation },
+            Self::Reprime {
+                generation: current,
+                coverage,
+            } if *current == generation => Self::FailedReprime {
+                generation,
+                admitted_revisions: revisions(coverage),
+                coverage: IntrinsicCoverage {
+                    reprime_files: Arc::clone(&coverage.reprime_files),
+                    full_reload_files: Arc::clone(&coverage.full_reload_files),
+                },
+            },
+            Self::RetryReprime {
+                generation: current,
+                coverage,
+                admitted_revisions,
+            } if *current == generation => Self::FailedReprime {
+                generation,
+                coverage: IntrinsicCoverage {
+                    reprime_files: Arc::clone(&coverage.reprime_files),
+                    full_reload_files: Arc::clone(&coverage.full_reload_files),
+                },
+                admitted_revisions: Arc::clone(admitted_revisions),
+            },
+            Self::NoProject { .. }
+            | Self::FullDiscovery { .. }
+            | Self::Reprime { .. }
+            | Self::RetryReprime { .. }
+            | Self::Ready { .. }
+            | Self::FailedFullDiscovery { .. }
+            | Self::FailedReprime { .. } => return false,
+        };
+        *self = next;
+        true
+    }
+
+    #[cfg(test)]
+    fn admitted_revisions(&self) -> Option<&[(File, u64)]> {
+        match self {
+            Self::RetryReprime {
+                admitted_revisions, ..
+            }
+            | Self::FailedReprime {
+                admitted_revisions, ..
+            } => Some(admitted_revisions),
+            Self::NoProject { .. }
+            | Self::FullDiscovery { .. }
+            | Self::Reprime { .. }
+            | Self::Ready { .. }
+            | Self::FailedFullDiscovery { .. } => None,
         }
     }
 }
@@ -142,7 +372,7 @@ impl Session {
         );
 
         let intrinsic_readiness = IntrinsicReadiness::new(db.project().is_some());
-        let (readiness_tx, _readiness_rx) = watch::channel(intrinsic_readiness.state);
+        let (readiness_tx, _readiness_rx) = watch::channel(intrinsic_readiness.watched_state());
 
         Self {
             workspace,
@@ -166,31 +396,19 @@ impl Session {
     }
 
     pub(crate) const fn readiness_state(&self) -> IntrinsicReadinessState {
-        self.intrinsic_readiness.state
+        self.intrinsic_readiness.watched_state()
     }
 
     pub(crate) const fn desired_generation(&self) -> IntrinsicGeneration {
-        self.intrinsic_readiness.generation
+        self.intrinsic_readiness.desired_generation()
     }
 
     pub(crate) fn mark_project_changed(&mut self) -> IntrinsicGeneration {
-        if self.db.project().is_none() {
-            self.intrinsic_readiness.state = IntrinsicReadinessState::ReadyWithoutProject;
-            self.intrinsic_readiness.reprime_files = None;
-            self.intrinsic_readiness.full_reload_files = None;
-            self.intrinsic_readiness.failed_reprime_revisions = None;
-            self.publish_readiness();
-            return self.intrinsic_readiness.generation;
-        }
-
-        self.intrinsic_readiness.generation += 1;
-        self.intrinsic_readiness.state =
-            IntrinsicReadinessState::Unready(self.intrinsic_readiness.generation);
-        self.intrinsic_readiness.reprime_files = None;
-        self.intrinsic_readiness.full_reload_files = None;
-        self.intrinsic_readiness.failed_reprime_revisions = None;
+        let generation = self
+            .intrinsic_readiness
+            .mark_project_changed(self.db.project().is_some());
         self.publish_readiness();
-        self.intrinsic_readiness.generation
+        generation
     }
 
     pub(crate) fn publish_intrinsic_readiness(
@@ -198,70 +416,58 @@ impl Session {
         generation: IntrinsicGeneration,
         primed: &djls_ide::PrimedTemplateLibraries,
     ) -> bool {
-        if generation != self.intrinsic_readiness.generation
-            || !matches!(
-                self.intrinsic_readiness.state,
-                IntrinsicReadinessState::Unready(current) if current == generation
-            )
-        {
-            return false;
+        let published = self.intrinsic_readiness.publish(
+            generation,
+            IntrinsicCoverage {
+                reprime_files: primed.reprime_files().into(),
+                full_reload_files: primed.full_reload_files().into(),
+            },
+        );
+        if published {
+            self.publish_readiness();
         }
-
-        self.intrinsic_readiness.reprime_files = Some(primed.reprime_files().into());
-        self.intrinsic_readiness.full_reload_files = Some(primed.full_reload_files().into());
-        self.intrinsic_readiness.failed_reprime_revisions = None;
-        self.intrinsic_readiness.state = IntrinsicReadinessState::Ready(generation);
-        self.publish_readiness();
-        true
+        published
     }
 
     pub(crate) fn fail_intrinsic_readiness(&mut self, generation: IntrinsicGeneration) -> bool {
-        if generation != self.intrinsic_readiness.generation
-            || !matches!(
-                self.intrinsic_readiness.state,
-                IntrinsicReadinessState::Unready(current) if current == generation
-            )
-        {
-            return false;
-        }
-
-        self.intrinsic_readiness.failed_reprime_revisions = Some(
-            self.intrinsic_readiness
+        let db = &self.db;
+        let failed = self.intrinsic_readiness.fail(generation, |coverage| {
+            coverage
                 .reprime_files
-                .as_deref()
-                .unwrap_or_default()
                 .iter()
-                .map(|file| (*file, file.revision(&self.db)))
+                .map(|file| (*file, file.revision(db)))
                 .collect::<Vec<_>>()
-                .into(),
-        );
-        self.intrinsic_readiness.state = IntrinsicReadinessState::Failed(generation);
+                .into()
+        });
+        if failed {
+            self.publish_readiness();
+        }
+        failed
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_ready_coverage_for_test(
+        &mut self,
+        reprime_files: impl Into<Arc<[File]>>,
+        full_reload_files: impl Into<Arc<[File]>>,
+    ) {
+        self.intrinsic_readiness = IntrinsicReadiness::Ready {
+            generation: self.desired_generation(),
+            coverage: IntrinsicCoverage {
+                reprime_files: reprime_files.into(),
+                full_reload_files: full_reload_files.into(),
+            },
+        };
         self.publish_readiness();
-        true
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_reprime_files_for_test(&mut self, files: impl Into<Arc<[File]>>) {
-        self.intrinsic_readiness.reprime_files = Some(files.into());
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_full_reload_files_for_test(&mut self, files: impl Into<Arc<[File]>>) {
-        self.intrinsic_readiness.full_reload_files = Some(files.into());
     }
 
     fn ready_generation(&self) -> Option<IntrinsicGeneration> {
-        match self.intrinsic_readiness.state {
-            IntrinsicReadinessState::Ready(generation) => Some(generation),
-            IntrinsicReadinessState::ReadyWithoutProject
-            | IntrinsicReadinessState::Unready(_)
-            | IntrinsicReadinessState::Failed(_) => None,
-        }
+        self.intrinsic_readiness.ready_generation()
     }
 
     fn publish_readiness(&self) {
         self.readiness_tx
-            .send_replace(self.intrinsic_readiness.state);
+            .send_replace(self.intrinsic_readiness.watched_state());
     }
 
     fn mark_intrinsic_change(
@@ -285,25 +491,26 @@ impl Session {
             ChangeEvent::BecameVisible(_) | ChangeEvent::Deleted(_)
         );
 
-        let reprime_file = self
-            .intrinsic_readiness
-            .reprime_files
-            .as_deref()
-            .and_then(|files| files.iter().find(|file| file.path(&self.db) == path))
+        let coverage = self.intrinsic_readiness.coverage();
+        let reprime_file = coverage
+            .and_then(|coverage| {
+                coverage
+                    .reprime_files
+                    .iter()
+                    .find(|file| file.path(&self.db) == path)
+            })
             .copied();
         let work = if changed_membership
-            || self
-                .intrinsic_readiness
-                .full_reload_files
-                .as_deref()
-                .is_some_and(|files| files.iter().any(|file| file.path(&self.db) == path))
-        {
+            || coverage.is_some_and(|coverage| {
+                coverage
+                    .full_reload_files
+                    .iter()
+                    .any(|file| file.path(&self.db) == path)
+            }) {
             ProjectWork::FullReload
         } else if reprime_file.is_some() {
             ProjectWork::Reprime
-        } else if self.intrinsic_readiness.full_reload_files.is_none()
-            || self.intrinsic_readiness.reprime_files.is_none()
-        {
+        } else if coverage.is_none() {
             // Until current coverage publishes, every Python source is a
             // possible settings or catalog dependency. Full discovery is the
             // only operation that can safely classify it.
@@ -312,31 +519,20 @@ impl Session {
             return None;
         };
 
-        if work == ProjectWork::Reprime
-            && matches!(
-                self.intrinsic_readiness.state,
-                IntrinsicReadinessState::Failed(_) | IntrinsicReadinessState::Unready(_)
-            )
-            && let Some(revisions) = self.intrinsic_readiness.failed_reprime_revisions.as_mut()
-        {
-            let reprime_file = reprime_file?;
-            let current_revision = reprime_file.revision(&self.db);
-            let (_, admitted_revision) = Arc::make_mut(revisions)
-                .iter_mut()
-                .find(|(file, _)| *file == reprime_file)?;
-            if current_revision == *admitted_revision {
-                return None;
+        match work {
+            ProjectWork::Reprime => {
+                let reprime_file = reprime_file?;
+                let revision = reprime_file.revision(&self.db);
+                if !self
+                    .intrinsic_readiness
+                    .begin_reprime(reprime_file, revision)
+                {
+                    return None;
+                }
             }
-            *admitted_revision = current_revision;
-        }
-
-        self.intrinsic_readiness.generation += 1;
-        self.intrinsic_readiness.state =
-            IntrinsicReadinessState::Unready(self.intrinsic_readiness.generation);
-        if work == ProjectWork::FullReload {
-            self.intrinsic_readiness.reprime_files = None;
-            self.intrinsic_readiness.full_reload_files = None;
-            self.intrinsic_readiness.failed_reprime_revisions = None;
+            ProjectWork::FullReload => {
+                self.intrinsic_readiness.begin_full_discovery();
+            }
         }
         self.publish_readiness();
         Some(work)
@@ -799,10 +995,7 @@ mod tests {
         assert_eq!(project_work, Some(ProjectWork::FullReload));
 
         let file = path_to_file(session.db(), path).unwrap();
-        session.intrinsic_readiness.reprime_files = Some(vec![file].into());
-        session.intrinsic_readiness.full_reload_files = Some(Vec::new().into());
-        session.intrinsic_readiness.state =
-            IntrinsicReadinessState::Ready(session.desired_generation());
+        session.install_ready_coverage_for_test(vec![file], Vec::new());
 
         let DocumentMutation::Applied {
             document,
@@ -814,8 +1007,7 @@ mod tests {
         assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::Reprime));
 
-        session.intrinsic_readiness.state =
-            IntrinsicReadinessState::Ready(session.desired_generation());
+        session.install_ready_coverage_for_test(vec![file], Vec::new());
         let DocumentMutation::Applied {
             document,
             project_work,
@@ -836,8 +1028,7 @@ mod tests {
         assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::Reprime));
 
-        session.intrinsic_readiness.state =
-            IntrinsicReadinessState::Ready(session.desired_generation());
+        session.install_ready_coverage_for_test(vec![file], Vec::new());
         let DocumentMutation::Applied {
             document,
             project_work,
@@ -927,17 +1118,17 @@ mod tests {
             panic!("covered Python open should be applied");
         };
         let covered = path_to_file(session.db(), covered_path).unwrap();
-        session.intrinsic_readiness.generation = 0;
-        session.intrinsic_readiness.reprime_files = Some(vec![covered].into());
-        session.intrinsic_readiness.full_reload_files = Some(Vec::new().into());
-        session.intrinsic_readiness.state = IntrinsicReadinessState::Ready(0);
-        session.publish_readiness();
+        session.install_ready_coverage_for_test(vec![covered], Vec::new());
+        let generation = session.desired_generation();
 
         let unrelated_work = session.mark_intrinsic_change(
             &ChangeEvent::ContentChanged("/tmp/other.py".into()),
             FileKind::Python,
         );
-        assert_eq!(session.readiness_state(), IntrinsicReadinessState::Ready(0));
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Ready(generation)
+        );
         assert_eq!(unrelated_work, None);
 
         let covered_work = session.mark_intrinsic_change(
@@ -946,7 +1137,7 @@ mod tests {
         );
         assert_eq!(
             session.readiness_state(),
-            IntrinsicReadinessState::Unready(1)
+            IntrinsicReadinessState::Unready(generation + 1)
         );
         assert_eq!(covered_work, Some(ProjectWork::Reprime));
     }
@@ -964,17 +1155,20 @@ mod tests {
             panic!("Python open should be applied");
         };
         let file = path_to_file(session.db(), path).unwrap();
-        session.intrinsic_readiness.generation = 0;
-        session.intrinsic_readiness.reprime_files = Some(vec![file].into());
-        session.intrinsic_readiness.state = IntrinsicReadinessState::Unready(0);
-
-        let revision = file.revision(session.db());
-        assert!(session.fail_intrinsic_readiness(0));
+        session.install_ready_coverage_for_test(vec![file], Vec::new());
         assert_eq!(
-            session
-                .intrinsic_readiness
-                .failed_reprime_revisions
-                .as_deref(),
+            session.mark_intrinsic_change(
+                &ChangeEvent::ContentChanged(path.to_path_buf()),
+                FileKind::Python,
+            ),
+            Some(ProjectWork::Reprime)
+        );
+        let generation = session.desired_generation();
+        let revision = file.revision(session.db());
+
+        assert!(session.fail_intrinsic_readiness(generation));
+        assert_eq!(
+            session.intrinsic_readiness.admitted_revisions(),
             Some([(file, revision)].as_slice())
         );
     }
@@ -993,13 +1187,17 @@ mod tests {
             panic!("Python open should be applied");
         };
         let file = path_to_file(session.db(), path).unwrap();
-        session.intrinsic_readiness.generation = 0;
-        session.intrinsic_readiness.reprime_files = Some(vec![file].into());
-        session.intrinsic_readiness.full_reload_files = Some(Vec::new().into());
-        session.intrinsic_readiness.state = IntrinsicReadinessState::Unready(0);
-
+        session.install_ready_coverage_for_test(vec![file], Vec::new());
+        assert_eq!(
+            session.mark_intrinsic_change(
+                &ChangeEvent::ContentChanged(path.to_path_buf()),
+                FileKind::Python,
+            ),
+            Some(ProjectWork::Reprime)
+        );
+        let failed_generation = session.desired_generation();
         let failed_revision = file.revision(session.db());
-        assert!(session.fail_intrinsic_readiness(0));
+        assert!(session.fail_intrinsic_readiness(failed_generation));
         let DocumentMutation::Applied {
             project_work: identical_work,
             ..
@@ -1021,7 +1219,7 @@ mod tests {
         assert_eq!(identical_work, None);
         assert_eq!(
             session.readiness_state(),
-            IntrinsicReadinessState::Failed(0)
+            IntrinsicReadinessState::Failed(failed_generation)
         );
 
         let DocumentMutation::Applied {
@@ -1042,16 +1240,22 @@ mod tests {
         assert!(changed_revision > failed_revision);
         assert_eq!(changed_work, Some(ProjectWork::Reprime));
         assert_eq!(
-            session
-                .intrinsic_readiness
-                .failed_reprime_revisions
-                .as_deref(),
+            session.intrinsic_readiness.admitted_revisions(),
             Some([(file, changed_revision)].as_slice())
         );
+        let retry_generation = failed_generation + 1;
         assert_eq!(
             session.readiness_state(),
-            IntrinsicReadinessState::Unready(1)
+            IntrinsicReadinessState::Unready(retry_generation)
         );
+
+        let current_prime = djls_ide::prime_template_library_products(session.db()).unwrap();
+        assert!(session.publish_intrinsic_readiness(retry_generation, &current_prime));
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Ready(retry_generation)
+        );
+        assert!(session.intrinsic_readiness.admitted_revisions().is_none());
     }
 
     #[test]
@@ -1069,11 +1273,16 @@ mod tests {
             panic!("Python open should be applied");
         };
         let file = path_to_file(session.db(), path).unwrap();
-        session.intrinsic_readiness.generation = 0;
-        session.intrinsic_readiness.reprime_files = Some(vec![file].into());
-        session.intrinsic_readiness.full_reload_files = Some(Vec::new().into());
-        session.intrinsic_readiness.state = IntrinsicReadinessState::Unready(0);
-        assert!(session.fail_intrinsic_readiness(0));
+        session.install_ready_coverage_for_test(vec![file], Vec::new());
+        assert_eq!(
+            session.mark_intrinsic_change(
+                &ChangeEvent::ContentChanged(path.to_path_buf()),
+                FileKind::Python,
+            ),
+            Some(ProjectWork::Reprime)
+        );
+        let failed_generation = session.desired_generation();
+        assert!(session.fail_intrinsic_readiness(failed_generation));
 
         let DocumentMutation::Applied {
             project_work: changed_work,
@@ -1093,10 +1302,11 @@ mod tests {
             panic!("open Python document should update");
         };
         let changed_revision = file.revision(session.db());
+        let retry_generation = failed_generation + 1;
         assert_eq!(changed_work, Some(ProjectWork::Reprime));
         assert_eq!(
             session.readiness_state(),
-            IntrinsicReadinessState::Unready(1)
+            IntrinsicReadinessState::Unready(retry_generation)
         );
 
         let DocumentMutation::Applied {
@@ -1110,7 +1320,7 @@ mod tests {
         assert_eq!(unchanged_save_work, None);
         assert_eq!(
             session.readiness_state(),
-            IntrinsicReadinessState::Unready(1)
+            IntrinsicReadinessState::Unready(retry_generation)
         );
 
         let DocumentMutation::Applied {
@@ -1127,13 +1337,123 @@ mod tests {
         else {
             panic!("open Python document should update");
         };
-        assert!(file.revision(session.db()) > changed_revision);
+        let newer_revision = file.revision(session.db());
+        assert!(newer_revision > changed_revision);
         assert_eq!(newer_work, Some(ProjectWork::Reprime));
         assert_eq!(
-            session.readiness_state(),
-            IntrinsicReadinessState::Unready(2)
+            session.intrinsic_readiness.admitted_revisions(),
+            Some([(file, newer_revision)].as_slice())
         );
-        assert!(!session.fail_intrinsic_readiness(1));
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(failed_generation + 2)
+        );
+        assert!(!session.fail_intrinsic_readiness(retry_generation));
+    }
+
+    #[test]
+    fn retry_reprime_failure_retains_admission_and_accepts_newer_revision() {
+        let mut session = Session::default();
+        let path = Utf8Path::new("/tmp/templatetags/retry-failure.py");
+        let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
+        let DocumentMutation::Applied { .. } = session.open_document(&ls_types::TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "python".to_string(),
+            version: 1,
+            text: "failed".to_string(),
+        }) else {
+            panic!("Python open should be applied");
+        };
+        let file = path_to_file(session.db(), path).unwrap();
+        session.install_ready_coverage_for_test(vec![file], Vec::new());
+        assert_eq!(
+            session.mark_intrinsic_change(
+                &ChangeEvent::ContentChanged(path.to_path_buf()),
+                FileKind::Python,
+            ),
+            Some(ProjectWork::Reprime)
+        );
+        let failed_generation = session.desired_generation();
+        assert!(session.fail_intrinsic_readiness(failed_generation));
+
+        let DocumentMutation::Applied {
+            project_work: changed_work,
+            ..
+        } = session.update_document(
+            &ls_types::VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            vec![ls_types::TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "changed".to_string(),
+            }],
+        )
+        else {
+            panic!("open Python document should update");
+        };
+        let changed_revision = file.revision(session.db());
+        let retry_generation = failed_generation + 1;
+        assert_eq!(changed_work, Some(ProjectWork::Reprime));
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(retry_generation)
+        );
+
+        assert!(session.fail_intrinsic_readiness(retry_generation));
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Failed(retry_generation)
+        );
+        assert_eq!(
+            session.intrinsic_readiness.admitted_revisions(),
+            Some([(file, changed_revision)].as_slice())
+        );
+
+        let DocumentMutation::Applied {
+            project_work: unchanged_save_work,
+            ..
+        } = session.save_document(&ls_types::TextDocumentIdentifier { uri: uri.clone() })
+        else {
+            panic!("open Python document should save");
+        };
+        assert_eq!(file.revision(session.db()), changed_revision);
+        assert_eq!(unchanged_save_work, None);
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Failed(retry_generation)
+        );
+        assert_eq!(
+            session.intrinsic_readiness.admitted_revisions(),
+            Some([(file, changed_revision)].as_slice())
+        );
+
+        let DocumentMutation::Applied {
+            project_work: newer_work,
+            ..
+        } = session.update_document(
+            &ls_types::VersionedTextDocumentIdentifier { uri, version: 3 },
+            vec![ls_types::TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "newer".to_string(),
+            }],
+        )
+        else {
+            panic!("open Python document should update");
+        };
+        let newer_revision = file.revision(session.db());
+        assert!(newer_revision > changed_revision);
+        assert_eq!(newer_work, Some(ProjectWork::Reprime));
+        assert_eq!(
+            session.intrinsic_readiness.admitted_revisions(),
+            Some([(file, newer_revision)].as_slice())
+        );
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(retry_generation + 1)
+        );
     }
 
     #[test]
@@ -1144,9 +1464,7 @@ mod tests {
             "/tmp/missing_settings_candidate.py",
         ] {
             let mut session = Session::default();
-            session.intrinsic_readiness.reprime_files = Some(Vec::new().into());
-            session.intrinsic_readiness.full_reload_files = Some(Vec::new().into());
-            session.intrinsic_readiness.state = IntrinsicReadinessState::Ready(0);
+            session.install_ready_coverage_for_test(Vec::new(), Vec::new());
 
             let project_work = session
                 .mark_intrinsic_change(&ChangeEvent::BecameVisible(path.into()), FileKind::Python);
@@ -1172,17 +1490,13 @@ mod tests {
             panic!("settings Python open should be applied");
         };
         let settings_file = path_to_file(session.db(), settings_path).unwrap();
-        session.intrinsic_readiness.generation = 0;
-        session.intrinsic_readiness.reprime_files = Some(Vec::new().into());
-        session.intrinsic_readiness.full_reload_files = Some(vec![settings_file].into());
-        session.intrinsic_readiness.state = IntrinsicReadinessState::Ready(0);
+        session.install_ready_coverage_for_test(Vec::new(), vec![settings_file]);
 
         let settings_work = session.mark_intrinsic_change(
             &ChangeEvent::ContentChanged(settings_path.to_path_buf()),
             FileKind::Python,
         );
-        assert!(session.intrinsic_readiness.reprime_files.is_none());
-        assert!(session.intrinsic_readiness.full_reload_files.is_none());
+        assert!(session.intrinsic_readiness.coverage().is_none());
         assert_eq!(settings_work, Some(ProjectWork::FullReload));
 
         let conservative_work = session.mark_intrinsic_change(
@@ -1228,6 +1542,20 @@ mod tests {
         assert_eq!(
             *readiness.borrow_and_update(),
             IntrinsicReadinessState::Failed(0)
+        );
+        assert!(session.intrinsic_readiness.coverage().is_none());
+        assert!(session.intrinsic_readiness.admitted_revisions().is_none());
+
+        assert_eq!(
+            session.mark_intrinsic_change(
+                &ChangeEvent::ContentChanged("/tmp/unknown.py".into()),
+                FileKind::Python,
+            ),
+            Some(ProjectWork::FullReload)
+        );
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(1)
         );
     }
 
