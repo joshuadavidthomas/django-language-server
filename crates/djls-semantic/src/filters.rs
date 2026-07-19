@@ -1,13 +1,17 @@
+use std::sync::LazyLock;
+
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::SymbolKey;
+use djls_project::TemplateEnvironment;
 use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_library_filter_facts;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
+use crate::scoping::LoadState;
 
 /// Map from filter name → `FilterArity`, resolved for the current project.
 ///
@@ -24,8 +28,7 @@ pub struct FilterAritySpecs {
 impl FilterAritySpecs {
     #[must_use]
     pub fn empty_ref() -> &'static Self {
-        static EMPTY: std::sync::LazyLock<FilterAritySpecs> =
-            std::sync::LazyLock::new(FilterAritySpecs::new);
+        static EMPTY: LazyLock<FilterAritySpecs> = LazyLock::new(FilterAritySpecs::new);
         &EMPTY
     }
 
@@ -77,9 +80,9 @@ pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryKey) -> LibraryFilt
 /// Return the effective filter arity at one occurrence when every feasible backend agrees.
 pub(crate) fn effective_filter_arity_in_environment(
     db: &dyn Db,
-    environment: djls_project::TemplateEnvironment<'_>,
+    environment: TemplateEnvironment<'_>,
     filter_name: &str,
-    load_state: &crate::scoping::LoadState<'_>,
+    load_state: &LoadState<'_>,
 ) -> Option<FilterArity> {
     let loaded = load_state.libraries_loading_symbol(filter_name);
     let mut agreed = None;

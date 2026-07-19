@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::mem;
 
 use djls_source::File;
 use djls_source::FileReadError;
@@ -376,7 +377,7 @@ impl EvaluatedPythonModule {
         mut dependencies: PythonModuleDependencies,
         root: &PythonModule,
     ) -> Self {
-        let import_graph = PythonImportGraph::new(std::mem::take(&mut dependencies.imports));
+        let import_graph = PythonImportGraph::new(mem::take(&mut dependencies.imports));
         let root_is_in_cycle = import_graph.root_participates_in_cycle(root);
         let root_file = root.file();
         if let Ok(values) = &mut values {
@@ -634,6 +635,7 @@ impl PythonImportGraph {
 mod tests {
     use std::cmp::Ordering;
     use std::io::ErrorKind;
+    use std::slice;
 
     use camino::Utf8PathBuf;
     use djls_source::File;
@@ -642,8 +644,10 @@ mod tests {
     use salsa::plumbing::Id;
 
     use super::*;
+    use crate::python::InvalidModuleName;
     use crate::python::PythonSyntaxErrorClass;
     use crate::python::SearchPath;
+    use crate::python::evaluation::PythonValue;
 
     fn syntax_error(message: &str) -> PythonSyntaxError {
         PythonSyntaxError {
@@ -737,17 +741,14 @@ mod tests {
         previous_values.bindings.insert(
             "VALUE".to_string(),
             PythonBinding::bound(
-                super::super::PythonValue::string("before".to_string(), previous_origin),
+                PythonValue::string("before".to_string(), previous_origin),
                 previous_origin,
             ),
         );
         let mut computed_values = PythonModuleValues::default();
         computed_values.bindings.insert(
             "VALUE".to_string(),
-            PythonBinding::bound(
-                super::super::PythonValue::bool(true, computed_origin),
-                computed_origin,
-            ),
+            PythonBinding::bound(PythonValue::bool(true, computed_origin), computed_origin),
         );
         computed_values.namespace_remainder = Some(PythonNamespaceRemainder::new(vec![
             PythonNamespaceCause::unconstrained(PythonUnknown::new(
@@ -1017,7 +1018,7 @@ mod tests {
                 PythonImportOutcome::InvalidImport {
                     origin: edge.origin,
                     reason: PythonImportError::InvalidModuleName(
-                        crate::python::InvalidModuleName::InvalidSegment("!".to_string()),
+                        InvalidModuleName::InvalidSegment("!".to_string()),
                     ),
                 },
             ),
@@ -1161,7 +1162,7 @@ mod tests {
         let reversed_order =
             PythonImportGraph::new([reverse.clone(), forward.clone()].into_iter().collect())
                 .canonical_cycle_edges();
-        assert_eq!(first_order.as_slice(), std::slice::from_ref(expected_edge));
+        assert_eq!(first_order.as_slice(), slice::from_ref(expected_edge));
         assert_eq!(first_order, reversed_order);
 
         let first_outcomes =
@@ -1212,7 +1213,7 @@ mod tests {
                     },
                     error: FileReadError::new(
                         Utf8PathBuf::from("/project/imported.py"),
-                        std::io::ErrorKind::PermissionDenied,
+                        ErrorKind::PermissionDenied,
                     ),
                 },
                 PythonImportOutcome::Evaluated {

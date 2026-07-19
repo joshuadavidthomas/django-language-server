@@ -7,6 +7,7 @@ use crate::python::evaluation::python_module_dependencies;
 use crate::python::evaluation::python_module_values;
 use crate::settings::DjangoSettings;
 use crate::settings::extraction::settings_from_values;
+use crate::settings::settings_module;
 
 pub(super) fn django_settings_from_module(
     db: &dyn ProjectDb,
@@ -35,7 +36,7 @@ impl DjangoSettingsSources {
 
 #[salsa::tracked]
 pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSettingsSources {
-    let Some(module) = super::settings_module(db, project) else {
+    let Some(module) = settings_module(db, project) else {
         return DjangoSettingsSources(Vec::new());
     };
 

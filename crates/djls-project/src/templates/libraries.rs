@@ -1,6 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::slice::Iter;
+use std::sync::LazyLock;
 
 use djls_source::File;
 
@@ -817,16 +819,16 @@ impl<'a> AlternativeView<'a> {
 
 struct CurrentConfiguration<'a> {
     configuration: &'a TemplateLibraryConfiguration,
-    slots: std::slice::Iter<'a, TemplateLibrarySlot>,
+    slots: Iter<'a, TemplateLibrarySlot>,
 }
 
 enum AlternativeIterKind<'a> {
     ProjectInventory {
         standalone: Option<&'a TemplateBackendLibraries>,
-        configurations: std::slice::Iter<'a, TemplateLibraryConfiguration>,
+        configurations: Iter<'a, TemplateLibraryConfiguration>,
         current: Option<CurrentConfiguration<'a>>,
     },
-    Scoped(std::slice::Iter<'a, TemplateBackendSelection>),
+    Scoped(Iter<'a, TemplateBackendSelection>),
 }
 
 struct AlternativeIter<'a> {
@@ -1561,8 +1563,7 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn empty_ref() -> &'static Self {
-        static EMPTY: std::sync::LazyLock<TemplateLibraries> =
-            std::sync::LazyLock::new(TemplateLibraries::default);
+        static EMPTY: LazyLock<TemplateLibraries> = LazyLock::new(TemplateLibraries::default);
         &EMPTY
     }
 

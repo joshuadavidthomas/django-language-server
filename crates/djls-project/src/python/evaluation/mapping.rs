@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 
 use djls_source::Origin;
 
@@ -247,7 +248,7 @@ impl<'a> PythonMapping<'a> {
     /// evidence so consumers can report them.
     pub(crate) fn effective_string_entries(self) -> Vec<MappingStringEntry<'a>> {
         let mut reversed = Vec::new();
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = BTreeSet::new();
         let mut shadowed_by_unknown = false;
         for item in self.dict.items.iter().rev() {
             match item {
@@ -452,11 +453,15 @@ impl StructuralOrd for PythonDictItem {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::cmp::Ordering;
+
     use djls_source::File;
     use djls_source::Span;
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
+    use super::AllocationSites;
     use super::MappingOverride;
     use super::MappingProjection;
     use super::MappingStringEntry;
@@ -498,7 +503,7 @@ mod tests {
         unpack.extend_from_unpack(unknown(3), origin(3));
         assert_eq!(
             entry.structural_cmp(&unpack),
-            std::cmp::Ordering::Less,
+            Ordering::Less,
             "entries precede unknown unpacks"
         );
 
@@ -511,7 +516,7 @@ mod tests {
             (str_value("a", 1), str_value("first", 2)),
         ]);
         assert_ne!(forward, reversed);
-        assert_ne!(forward.structural_cmp(&reversed), std::cmp::Ordering::Equal);
+        assert_ne!(forward.structural_cmp(&reversed), Ordering::Equal);
         assert_eq!(
             forward.structural_cmp(&reversed),
             reversed.structural_cmp(&forward).reverse()
@@ -519,11 +524,8 @@ mod tests {
 
         let different_site = dict_with(vec![(str_value("a", 1), str_value("value", 2))]);
         let mut different_site = different_site;
-        different_site.allocation_sites = super::AllocationSites::one(origin(9));
-        assert_ne!(
-            entry.structural_cmp(&different_site),
-            std::cmp::Ordering::Equal
-        );
+        different_site.allocation_sites = AllocationSites::one(origin(9));
+        assert_ne!(entry.structural_cmp(&different_site), Ordering::Equal);
     }
 
     #[test]
@@ -531,7 +533,7 @@ mod tests {
         let mut first = dict_with(vec![(str_value("key", 1), str_value("value", 2))]);
         let second = dict_with(vec![(str_value("key", 3), str_value("value", 4))]);
         assert!(first.same_semantic_value(&second));
-        assert_ne!(first.structural_cmp(&second), std::cmp::Ordering::Equal);
+        assert_ne!(first.structural_cmp(&second), Ordering::Equal);
 
         first.merge_semantically_equal(second, None);
         let projection = first.mapping().projection().collect::<Vec<_>>();
@@ -635,7 +637,7 @@ mod tests {
     fn exact_mutable_traversal_rejects_shadowing_writes_transactionally() {
         let mut unpack_shadowed = dict_with(vec![(str_value("k", 1), str_value("v", 2))]);
         unpack_shadowed.extend_from_unpack(unknown(3), origin(3));
-        let unpack_applied = std::cell::Cell::new(false);
+        let unpack_applied = Cell::new(false);
         assert!(!unpack_shadowed.try_exact_string_value_mut("k", |_| {
             unpack_applied.set(true);
             true
@@ -649,7 +651,7 @@ mod tests {
             (str_value("k", 1), str_value("v", 2)),
             (unknown(3), str_value("maybe", 4)),
         ]);
-        let key_applied = std::cell::Cell::new(false);
+        let key_applied = Cell::new(false);
         assert!(!key_shadowed.try_exact_string_value_mut("k", |_| {
             key_applied.set(true);
             true

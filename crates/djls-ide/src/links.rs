@@ -1,6 +1,7 @@
 use djls_project::FindTemplateResult;
 use djls_project::template_resolution;
 use djls_semantic::resolve_reference_for_file;
+use djls_semantic::template_environment_for_file;
 use djls_semantic::template_library_references_in_file;
 use djls_semantic::template_references_in_file;
 use djls_source::File;
@@ -11,7 +12,7 @@ use crate::ext::Utf8PathExt;
 
 pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
     let line_index = file.line_index(db);
-    let environment = djls_semantic::template_environment_for_file(db, file);
+    let environment = template_environment_for_file(db, file);
     let mut links = Vec::new();
 
     if let Some(project) = db.project() {

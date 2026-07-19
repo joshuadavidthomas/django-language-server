@@ -12,8 +12,10 @@ use djls_templates::NodeList;
 use djls_templates::TagBit;
 
 use crate::db::Db;
+use crate::scoping::LoadState;
 use crate::scoping::LoadedLibraries;
 use crate::tags::TagSpec;
+use crate::tags::effective_tag_spec_from_environment;
 use crate::tags::library_tag_specs;
 
 /// Identity of an opening Tag Definition contributing semantic grammar.
@@ -259,7 +261,7 @@ impl SparseTagGrammar {
                 }
 
                 load_state.write_libraries_loading_symbol(name, &mut loaded_names);
-                let spec = crate::tags::effective_tag_spec_from_environment(
+                let spec = effective_tag_spec_from_environment(
                     db,
                     project,
                     environment,
@@ -336,7 +338,7 @@ fn classify_project_orphan(
     db: &dyn Db,
     project: Project,
     spelling: &str,
-    load_state: &crate::scoping::LoadState<'_>,
+    load_state: &LoadState<'_>,
     environment: TemplateEnvironment<'_>,
 ) -> TagClassification {
     let vocabulary = semantic_grammar_vocabulary(db, project);
@@ -389,9 +391,9 @@ fn classify_project_orphan(
 fn resolve_orphan_candidates(
     db: &dyn Db,
     project: Project,
-    environment: djls_project::TemplateEnvironment<'_>,
+    environment: TemplateEnvironment<'_>,
     candidates: &[GrammarOpeningDefinition],
-    load_state: &crate::scoping::LoadState<'_>,
+    load_state: &LoadState<'_>,
     matches_spelling: impl Fn(&TagSpec) -> bool,
 ) -> (Vec<String>, bool) {
     let mut openers = Vec::new();

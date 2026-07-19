@@ -1,3 +1,4 @@
+use djls_semantic::collect_template_diagnostics;
 use djls_source::File;
 use djls_source::FileKind;
 use tower_lsp_server::ls_types;
@@ -26,7 +27,7 @@ pub fn collect_diagnostics(
 
     let config = db.diagnostics_config();
 
-    let collected = djls_semantic::collect_template_diagnostics(db, file);
+    let collected = collect_template_diagnostics(db, file);
     let line_index = file.line_index(db);
 
     for error in collected.template_errors {

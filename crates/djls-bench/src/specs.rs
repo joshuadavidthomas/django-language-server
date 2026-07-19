@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use djls_conf::TagSpecDef;
+use djls_ide::prime_template_library_products;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::Interpreter;
@@ -211,7 +212,7 @@ fn configure_realistic_db(db: Db) -> Db {
 #[must_use]
 pub fn primed_realistic_db() -> Db {
     let db = realistic_db();
-    djls_ide::prime_template_library_products(&db)
+    prime_template_library_products(&db)
         .expect("realistic benchmark database should install a Project");
     db
 }
@@ -223,14 +224,21 @@ mod tests {
 
     use djls_project::Db as ProjectDb;
     use djls_project::TemplateEnvironment;
+    use djls_project::TemplateLibrary;
+    use djls_project::template_libraries;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::TagRole;
+    use djls_semantic::tag_spec_at;
     use djls_source::Offset;
+    use djls_templates::parse_template;
+    use salsa::Event;
 
-    use super::*;
+    use super::Db;
+    use super::configure_realistic_db;
+    use super::primed_realistic_db;
 
     impl Db {
-        pub(crate) fn realistic_with_event_log(events: Arc<Mutex<Vec<salsa::Event>>>) -> Self {
+        pub(crate) fn realistic_with_event_log(events: Arc<Mutex<Vec<Event>>>) -> Self {
             configure_realistic_db(Self::with_event_log(events))
         }
     }
@@ -241,14 +249,13 @@ mod tests {
         let project = db
             .project()
             .expect("realistic fixture should install a Project");
-        let environment = TemplateEnvironment::from_project_inventory(
-            djls_project::template_libraries(&db, project),
-        );
+        let environment =
+            TemplateEnvironment::from_project_inventory(template_libraries(&db, project));
         let builtin_modules: Vec<_> = environment
             .resolved_libraries()
             .into_iter()
             .filter(|library| library.load_name().is_none())
-            .map(djls_project::TemplateLibrary::module_name_str)
+            .map(TemplateLibrary::module_name_str)
             .collect();
         assert_eq!(
             builtin_modules,
@@ -261,12 +268,10 @@ mod tests {
 
         let source = "{% load i18n %}{% trans \"hello\" %}";
         let file = db.file_with_contents("/templates/semantic-contract.html", source);
-        let nodelist = djls_templates::parse_template(&db, file)
-            .expect("semantic contract template should parse");
+        let nodelist = parse_template(&db, file).expect("semantic contract template should parse");
         let load_position = u32::try_from(source.find("load").unwrap()).unwrap();
         assert_eq!(
-            djls_semantic::tag_spec_at(&db, file, nodelist, load_position, "load")
-                .and_then(|spec| spec.role()),
+            tag_spec_at(&db, file, nodelist, load_position, "load").and_then(|spec| spec.role()),
             Some(TagRole::TemplateLibraryLoader),
         );
 

@@ -2,6 +2,8 @@ use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
+use djls_project::TemplateLibraryKey;
+use djls_project::TemplateSymbolKind;
 use djls_project::template_library_definition_facts;
 use djls_project::template_library_filter_facts;
 use djls_project::template_library_tag_facts;
@@ -187,7 +189,7 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let file = db.file(path);
     let module_name = PythonModuleName::parse("test.templatetags.known").unwrap();
 
-    let key = djls_project::TemplateLibraryKey::new(&db, Some(file), module_name);
+    let key = TemplateLibraryKey::new(&db, Some(file), module_name);
     assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
     let _ = event_log.take();
 
@@ -211,19 +213,11 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
     db.add_file("/test/defaulttags.py", DEFAULTTAGS_SOURCE);
     let tags_file = db.file(Utf8Path::new("/test/defaulttags.py"));
     let tags_module = PythonModuleName::parse("django.template.defaulttags").unwrap();
-    let tags_key = djls_project::TemplateLibraryKey::new(&db, Some(tags_file), tags_module);
+    let tags_key = TemplateLibraryKey::new(&db, Some(tags_file), tags_module);
     let facts = template_library_definition_facts(&db, tags_key);
     assert!(facts.is_library());
-    assert!(
-        facts
-            .symbol(djls_project::TemplateSymbolKind::Tag, "for")
-            .is_some()
-    );
-    assert!(
-        facts
-            .symbol(djls_project::TemplateSymbolKind::Filter, "for")
-            .is_none()
-    );
+    assert!(facts.symbol(TemplateSymbolKind::Tag, "for").is_some());
+    assert!(facts.symbol(TemplateSymbolKind::Filter, "for").is_none());
     let tag_facts = template_library_tag_facts(&db, tags_key);
     assert!(
         tag_facts.tag_rules().keys().any(
@@ -256,7 +250,7 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
 
     db.add_file("/test/defaultfilters.py", DEFAULTFILTERS_SOURCE);
     let filters_file = db.file(Utf8Path::new("/test/defaultfilters.py"));
-    let filters_key = djls_project::TemplateLibraryKey::new(
+    let filters_key = TemplateLibraryKey::new(
         &db,
         Some(filters_file),
         PythonModuleName::parse("django.template.defaultfilters").unwrap(),

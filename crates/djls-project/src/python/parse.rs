@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::FileReadError;
@@ -36,7 +37,7 @@ pub(crate) struct RecoveredPythonModule<'db> {
 
 impl<'db> RecoveredPythonModule<'db> {
     pub(crate) fn from_file(
-        db: &'db dyn djls_source::Db,
+        db: &'db dyn SourceDb,
         file: File,
     ) -> Result<Option<Self>, FileReadError> {
         match parse_python_file(db, file) {
@@ -46,15 +47,15 @@ impl<'db> RecoveredPythonModule<'db> {
         }
     }
 
-    pub(crate) fn body(self, db: &'db dyn djls_source::Db) -> &'db [Stmt] {
+    pub(crate) fn body(self, db: &'db dyn SourceDb) -> &'db [Stmt] {
         self.parse.body(db)
     }
 
-    pub(crate) fn syntax_errors(self, db: &'db dyn djls_source::Db) -> &'db [PythonSyntaxError] {
+    pub(crate) fn syntax_errors(self, db: &'db dyn SourceDb) -> &'db [PythonSyntaxError] {
         self.parse.syntax_errors(db)
     }
 
-    pub(crate) fn has_ordinary_syntax_errors(self, db: &'db dyn djls_source::Db) -> bool {
+    pub(crate) fn has_ordinary_syntax_errors(self, db: &'db dyn SourceDb) -> bool {
         self.syntax_errors(db)
             .iter()
             .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
@@ -118,10 +119,7 @@ fn parse_python_source(source: &str) -> PythonParseOutput {
     }
 }
 
-pub(crate) fn python_syntax_errors(
-    db: &dyn djls_source::Db,
-    file: File,
-) -> Option<&[PythonSyntaxError]> {
+pub(crate) fn python_syntax_errors(db: &dyn SourceDb, file: File) -> Option<&[PythonSyntaxError]> {
     match parse_python_file(db, file) {
         PythonParseResult::Parsed(parse) => Some(parse.syntax_errors(db)),
         PythonParseResult::NotPython | PythonParseResult::Unreadable(_) => None,
@@ -129,7 +127,7 @@ pub(crate) fn python_syntax_errors(
 }
 
 #[salsa::tracked]
-fn parse_python_file(db: &dyn djls_source::Db, file: File) -> PythonParseResult<'_> {
+fn parse_python_file(db: &dyn SourceDb, file: File) -> PythonParseResult<'_> {
     let source = match file.try_source(db) {
         Ok(source) => source,
         Err(error) => return PythonParseResult::Unreadable(error),

@@ -531,6 +531,7 @@ mod tests {
     use djls_source::Span;
     use djls_testing::TestDatabase;
 
+    use super::extract_models_impl;
     use super::*;
     use crate::models::graph::ModelId;
     use crate::python::import_bindings;
@@ -545,7 +546,7 @@ mod tests {
             return ModelGraph::default();
         };
         let module = parsed.into_syntax();
-        super::extract_models_impl(&module.body, module_name, file, imports).graph
+        extract_models_impl(&module.body, module_name, file, imports).graph
     }
 
     fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {

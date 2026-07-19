@@ -1,3 +1,6 @@
+use std::collections::BTreeSet;
+use std::ptr;
+
 use camino::Utf8Path;
 use djls_project::*;
 use djls_source::ChangeEvent;
@@ -6,12 +9,14 @@ use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use salsa::Database as _;
+use salsa::Event;
+use salsa::EventKind;
 
-fn will_execute_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
+fn will_execute_count(db: &TestDatabase, events: &[Event], query_name: &str) -> usize {
     events
         .iter()
         .filter(|event| match &event.kind {
-            salsa::EventKind::WillExecute { database_key } => db
+            EventKind::WillExecute { database_key } => db
                 .ingredient_debug_name(database_key.ingredient_index())
                 .contains(query_name),
             _ => false,
@@ -102,11 +107,11 @@ fn template_environment_correlates_libraries_with_resolving_backends() {
         .find(|library| library.module_name_str() == "beta_tags")
         .expect("the shared catalog should contain backend B's library");
     assert!(
-        std::ptr::eq(alpha, catalog_alpha),
+        ptr::eq(alpha, catalog_alpha),
         "a file environment must borrow backend A's library from the shared catalog"
     );
     assert!(
-        std::ptr::eq(beta, catalog_beta),
+        ptr::eq(beta, catalog_beta),
         "a file environment must borrow backend B's library from the shared catalog"
     );
 }
@@ -785,7 +790,7 @@ fn scalar_path_alternatives_follow_unanimous_and_divergent_resolution_policy() {
         .possible_origins
         .iter()
         .map(|origin| origin.path_buf(&db).as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert_eq!(
         possible_paths,
         [
@@ -822,7 +827,7 @@ fn divergent_installed_app_alternatives_preserve_all_possible_origins() {
         .possible_origins
         .iter()
         .map(|origin| origin.path_buf(&db).as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(
         possible_paths,
@@ -861,7 +866,7 @@ fn same_branch_settings_exclude_impossible_template_roots() {
         .possible_origins
         .iter()
         .map(|origin| origin.path_buf(&db).as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(
         possible_paths,
@@ -907,7 +912,7 @@ fn conditional_star_import_keeps_imported_and_fallback_settings_correlated() {
         .possible_origins
         .iter()
         .map(|origin| origin.path_buf(&db).as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(
         possible_paths,
@@ -969,7 +974,7 @@ fn independently_joined_settings_keep_cross_product_feasible_after_branch_transl
         .possible_origins
         .iter()
         .map(|origin| origin.path_buf(&db).as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(
         possible_paths,
@@ -1018,7 +1023,7 @@ fn branch_specific_apps_correlate_with_equal_relative_template_lists() {
         .possible_origins
         .iter()
         .map(|origin| origin.path_buf(&db).as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(
         possible_paths,

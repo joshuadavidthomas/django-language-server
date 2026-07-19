@@ -1,18 +1,33 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
+use std::fs;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::TagDef;
+use djls_conf::TagLibraryDef;
+use djls_conf::TagSpecDef;
+use djls_conf::TagTypeDef;
 use djls_project::ArgumentCountConstraint;
+use djls_project::SymbolDefinition;
 use djls_project::TagRule;
+use djls_project::TemplateEnvironment;
+use djls_project::TemplateSymbolKind;
+use djls_project::template_libraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
+use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::builtin_tag_specs;
 use djls_semantic::library_tag_specs;
+use djls_semantic::semantic_grammar_vocabulary;
+use djls_semantic::tag_spec_at;
+use djls_semantic::tag_specs_for_file;
 use djls_semantic::validate_template_file;
+use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use djls_testing::collect_errors;
@@ -27,16 +42,14 @@ fn partial_db() -> TestDatabase {
     partial_validation_db()
 }
 
-fn configured_tag_specs(
-    definitions: &[(&str, &str, djls_conf::TagTypeDef)],
-) -> djls_conf::TagSpecDef {
-    djls_conf::TagSpecDef {
+fn configured_tag_specs(definitions: &[(&str, &str, TagTypeDef)]) -> TagSpecDef {
+    TagSpecDef {
         libraries: definitions
             .iter()
-            .map(|(module, name, tag_type)| djls_conf::TagLibraryDef {
+            .map(|(module, name, tag_type)| TagLibraryDef {
                 module: (*module).to_string(),
                 requires_engine: None,
-                tags: vec![djls_conf::TagDef {
+                tags: vec![TagDef {
                     name: (*name).to_string(),
                     tag_type: tag_type.clone(),
                     end: None,
@@ -47,7 +60,7 @@ fn configured_tag_specs(
                 extra: None,
             })
             .collect(),
-        ..djls_conf::TagSpecDef::default()
+        ..TagSpecDef::default()
     }
 }
 
@@ -117,7 +130,7 @@ fn repeated_project_symbols_keep_occurrence_diagnostics_across_load_prefixes() {
         .tag_specs(configured_tag_specs(&[(
             "custom_tags",
             "custom",
-            djls_conf::TagTypeDef::Standalone,
+            TagTypeDef::Standalone,
         )]))
         .file(
             "/proj/myproject/settings.py",
@@ -401,7 +414,7 @@ fn source_less_configured_library_preserves_block_structure() {
         .tag_specs(configured_tag_specs(&[(
             "missing.panel_tags",
             "panel",
-            djls_conf::TagTypeDef::Block,
+            TagTypeDef::Block,
         )]))
         .file(
             "/proj/myproject/settings.py",
@@ -478,7 +491,7 @@ fn source_less_default_builtins_keep_django_grammar_and_load_configured_library(
         .tag_specs(configured_tag_specs(&[(
             "missing.panel_tags",
             "panel",
-            djls_conf::TagTypeDef::Standalone,
+            TagTypeDef::Standalone,
         )]))
         .file(
             "/proj/myproject/settings.py",
@@ -491,8 +504,8 @@ fn source_less_default_builtins_keep_django_grammar_and_load_configured_library(
         .build(&db);
     db.set_project(project);
 
-    let libraries = djls_project::template_libraries(&db, project);
-    let environment = djls_project::TemplateEnvironment::from_project_inventory(libraries);
+    let libraries = template_libraries(&db, project);
+    let environment = TemplateEnvironment::from_project_inventory(libraries);
     for module in [
         "django.template.defaulttags",
         "django.template.defaultfilters",
@@ -559,8 +572,8 @@ fn configured_same_name_specs_remain_keyed_by_library() {
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
         .tag_specs(configured_tag_specs(&[
-            ("alpha_tags", "shared", djls_conf::TagTypeDef::Block),
-            ("beta_tags", "shared", djls_conf::TagTypeDef::Standalone),
+            ("alpha_tags", "shared", TagTypeDef::Block),
+            ("beta_tags", "shared", TagTypeDef::Standalone),
         ]))
         .file(
             "/proj/myproject/settings.py",
@@ -577,8 +590,8 @@ fn configured_same_name_specs_remain_keyed_by_library() {
         .file("/proj/templates/page.html", "")
         .install(&mut db);
 
-    let libraries = djls_project::template_libraries(&db, project);
-    let environment = djls_project::TemplateEnvironment::from_project_inventory(libraries);
+    let libraries = template_libraries(&db, project);
+    let environment = TemplateEnvironment::from_project_inventory(libraries);
     let alpha = environment
         .resolved_libraries()
         .into_iter()
@@ -613,7 +626,7 @@ fn configured_dynamic_registration_is_available_through_its_library_catalog() {
         .tag_specs(configured_tag_specs(&[(
             "dynamic_tags",
             "dynamic_panel",
-            djls_conf::TagTypeDef::Block,
+            TagTypeDef::Block,
         )]))
         .file(
             "/proj/myproject/settings.py",
@@ -629,25 +642,22 @@ fn configured_dynamic_registration_is_available_through_its_library_catalog() {
         )
         .install(&mut db);
 
-    let libraries = djls_project::template_libraries(&db, project);
-    let dynamic = djls_project::TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_libraries(&db, project);
+    let dynamic = TemplateEnvironment::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .find(|library| library.module_name_str() == "dynamic_tags")
         .expect("configured dynamic library should resolve");
     let symbol = dynamic
-        .symbol(djls_project::TemplateSymbolKind::Tag, "dynamic_panel")
+        .symbol(TemplateSymbolKind::Tag, "dynamic_panel")
         .expect("configured-only definition should enter the keyed catalog");
-    assert!(matches!(
-        symbol.definition,
-        djls_project::SymbolDefinition::Unknown
-    ));
+    assert!(matches!(symbol.definition, SymbolDefinition::Unknown));
     assert!(matches!(
         dynamic
-            .symbol(djls_project::TemplateSymbolKind::Tag, "sourced_tag")
+            .symbol(TemplateSymbolKind::Tag, "sourced_tag")
             .expect("source registration should remain cataloged")
             .definition,
-        djls_project::SymbolDefinition::Exact { .. }
+        SymbolDefinition::Exact { .. }
     ));
     assert!(
         library_tag_specs(&db, project, dynamic.key())
@@ -690,7 +700,7 @@ fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
         .file("/proj/templates/page.html", "{% load panels %}")
         .install(&mut db);
 
-    let vocabulary = djls_semantic::semantic_grammar_vocabulary(&db, project);
+    let vocabulary = semantic_grammar_vocabulary(&db, project);
     assert!(!vocabulary.is_open());
     let closer = vocabulary.closer_candidates("endif");
     let if_definition = closer
@@ -795,9 +805,7 @@ fn feasible_backend_builtin_if_collision_stays_semantically_inconclusive() {
 
     let file = db.file(Utf8Path::new("/proj/templates/page.html"));
     assert!(
-        djls_semantic::tag_specs_for_file(&db, file)
-            .get("if")
-            .is_none(),
+        tag_specs_for_file(&db, file).get("if").is_none(),
         "conflicting feasible definitions must not acquire builtin structure, arguments, or role"
     );
     let errors = collect_file_errors(&db, "/proj/templates/page.html");
@@ -991,23 +999,18 @@ fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
     let mut specs = builtin_tag_specs();
     specs.insert(
         "endif".to_string(),
-        TagSpec::new(
-            "test.tags".into(),
-            None,
-            std::borrow::Cow::Borrowed(&[]),
-            false,
-        ),
+        TagSpec::new("test.tags".into(), None, Cow::Borrowed(&[]), false),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
     let captured_source = "{% if condition %}{% endif collision %}";
     db.add_file("/captured.html", captured_source);
     let captured_file = db.file(Utf8Path::new("/captured.html"));
-    let captured_nodelist = djls_templates::parse_template(&db, captured_file)
-        .expect("captured closer fixture should parse");
+    let captured_nodelist =
+        parse_template(&db, captured_file).expect("captured closer fixture should parse");
     let captured_position = u32::try_from(captured_source.find("collision").unwrap()).unwrap();
     assert_eq!(
-        djls_semantic::tag_spec_at(
+        tag_spec_at(
             &db,
             captured_file,
             captured_nodelist,
@@ -1021,11 +1024,11 @@ fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
     let standalone_source = "{% endif collision %}";
     db.add_file("/standalone.html", standalone_source);
     let standalone_file = db.file(Utf8Path::new("/standalone.html"));
-    let standalone_nodelist = djls_templates::parse_template(&db, standalone_file)
-        .expect("standalone fixture should parse");
+    let standalone_nodelist =
+        parse_template(&db, standalone_file).expect("standalone fixture should parse");
     let standalone_position = u32::try_from(standalone_source.find("collision").unwrap()).unwrap();
     assert!(
-        djls_semantic::tag_spec_at(
+        tag_spec_at(
             &db,
             standalone_file,
             standalone_nodelist,
@@ -1042,20 +1045,15 @@ fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
     let mut specs = builtin_tag_specs();
     specs.insert(
         "else".to_string(),
-        TagSpec::new(
-            "test.loader".into(),
-            None,
-            std::borrow::Cow::Borrowed(&[]),
-            false,
-        )
-        .with_role(TagRole::TemplateLibraryLoader)
-        .with_extracted_rules(
-            TagRule {
-                arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
-                ..TagRule::default()
-            }
-            .into(),
-        ),
+        TagSpec::new("test.loader".into(), None, Cow::Borrowed(&[]), false)
+            .with_role(TagRole::TemplateLibraryLoader)
+            .with_extracted_rules(
+                TagRule {
+                    arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
+                    ..TagRule::default()
+                }
+                .into(),
+            ),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
@@ -1399,15 +1397,13 @@ fn extracted_block_db(source: &str) -> TestDatabase {
         )
         .install(&mut db);
 
-    let library = djls_project::TemplateEnvironment::from_project_inventory(
-        djls_project::template_libraries(&db, project),
-    )
-    .resolved_libraries()
-    .into_iter()
-    .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
-    .expect("fixture library should be discovered");
+    let library = TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        .resolved_libraries()
+        .into_iter()
+        .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
+        .expect("fixture library should be discovered");
     let library_specs = library_tag_specs(&db, project, library.key());
-    let mut specs = djls_semantic::TagSpecs::default();
+    let mut specs = TagSpecs::default();
     if let Some(spec) = library_specs.get("mystery") {
         specs.insert("mystery".to_string(), spec.clone());
     }
@@ -2583,7 +2579,7 @@ fn corpus_templates_have_no_argument_false_positives() {
             .with_projectless_filter_arity_specs(arities);
 
         for (i, template_path) in templates.into_iter().enumerate() {
-            let Ok(content) = std::fs::read_to_string(template_path.as_std_path()) else {
+            let Ok(content) = fs::read_to_string(template_path.as_std_path()) else {
                 continue;
             };
 

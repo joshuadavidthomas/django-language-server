@@ -1,6 +1,10 @@
 use std::io::Read as _;
+use std::io::Result as IoResult;
 use std::io::Write as _;
+use std::io::stdin;
+use std::io::stdout;
 use std::sync::Arc;
+use std::sync::mpsc::channel;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -9,7 +13,13 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use djls::CheckedTemplate;
+use djls::check_template;
+use djls_conf::DiagnosticSeverity;
+use djls_conf::DiagnosticsConfig;
+use djls_conf::Settings;
 use djls_db::DjangoDatabase;
+use djls_ide::prepare_project_template_analysis;
+use djls_project::run_django_discovery;
 use djls_source::CaseSensitivity;
 use djls_source::DiagnosticRenderer;
 use djls_source::FileSystem;
@@ -17,6 +27,7 @@ use djls_source::OsFileSystem;
 use djls_source::RootWalk;
 use djls_source::WalkOptions;
 use djls_source::path_to_file;
+use rayon::scope;
 
 use crate::args::Args;
 use crate::commands::Command;
@@ -59,7 +70,7 @@ impl CheckInput {
         }
 
         let mut source = String::new();
-        std::io::stdin()
+        stdin()
             .read_to_string(&mut source)
             .context("Failed to read stdin")?;
 
@@ -153,8 +164,7 @@ pub(crate) struct Check {
 impl Command for Check {
     fn execute(&self, args: &Args) -> Result<Exit> {
         let project_root = resolve_project_root()?;
-        let settings =
-            djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
+        let settings = Settings::new(&project_root, None).context("Failed to load settings")?;
         let input = CheckInput::collect(&self.paths)?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
@@ -163,7 +173,7 @@ impl Command for Check {
 
         let mut db = DjangoDatabase::new(input.file_system(), &settings, Some(&project_root));
         db.apply_project_settings(settings);
-        djls_project::run_django_discovery(&mut db).context("No Project configured for check")?;
+        run_django_discovery(&mut db).context("No Project configured for check")?;
 
         let walk_options = WalkOptions {
             hidden: self.hidden,
@@ -179,7 +189,7 @@ impl Command for Check {
 
         // Prime shared intrinsic and Template-index work before the database is
         // cloned into Rayon workers.
-        djls_ide::prepare_project_template_analysis(&db)
+        prepare_project_template_analysis(&db)
             .context("Failed to prepare project Template analysis")?;
 
         let results = check_files_parallel(db, files)?;
@@ -189,7 +199,7 @@ impl Command for Check {
 
 fn report_results(
     mut results: Vec<CheckedTemplate>,
-    config: &djls_conf::DiagnosticsConfig,
+    config: &DiagnosticsConfig,
     fmt: &DiagnosticRenderer,
     quiet: bool,
     summary_style: SummaryStyle,
@@ -198,7 +208,7 @@ fn report_results(
 
     let mut error_count = 0;
     let mut file_count = 0;
-    let stdout = std::io::stdout();
+    let stdout = stdout();
     let mut stdout = stdout.lock();
 
     for result in results {
@@ -249,8 +259,8 @@ fn check_files_parallel(
     // DjangoDatabase is Send + !Sync (salsa::Storage has RefCell). Clone the
     // already-primed database per task so validation cannot lazily become the
     // owner of shared intrinsic work.
-    let (tx, rx) = std::sync::mpsc::channel();
-    rayon::scope(move |scope| {
+    let (tx, rx) = channel();
+    scope(move |scope| {
         for path in files {
             let db = db.clone();
             let tx = tx.clone();
@@ -258,7 +268,7 @@ fn check_files_parallel(
                 let Ok(file) = path_to_file(&db, &path) else {
                     return;
                 };
-                match djls::check_template(&db, file) {
+                match check_template(&db, file) {
                     Ok(result) if result.has_diagnostics() => {
                         let _ = tx.send(Ok(result));
                     }
@@ -291,7 +301,7 @@ impl SingleFileOverlay {
 }
 
 impl FileSystem for SingleFileOverlay {
-    fn read_to_string(&self, path: &Utf8Path) -> std::io::Result<String> {
+    fn read_to_string(&self, path: &Utf8Path) -> IoResult<String> {
         if path == self.path {
             Ok(self.contents.clone())
         } else {
@@ -325,18 +335,18 @@ impl FileSystem for SingleFileOverlay {
 }
 
 fn build_diagnostics_config(
-    settings: &djls_conf::Settings,
+    settings: &Settings,
     select: &[String],
     ignore: &[String],
-) -> djls_conf::DiagnosticsConfig {
+) -> DiagnosticsConfig {
     let mut config = settings.diagnostics().clone();
 
     for code in select {
-        config.set_severity(code, djls_conf::DiagnosticSeverity::Error);
+        config.set_severity(code, DiagnosticSeverity::Error);
     }
 
     for code in ignore {
-        config.set_severity(code, djls_conf::DiagnosticSeverity::Off);
+        config.set_severity(code, DiagnosticSeverity::Off);
     }
 
     config

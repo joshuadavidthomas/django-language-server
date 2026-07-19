@@ -9,18 +9,30 @@
 use djls_project::EnvironmentSymbolLookup;
 use djls_project::LoadableLibraryLookup;
 use djls_project::TemplateEnvironment;
+use djls_project::TemplateLibrary;
+use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
+use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagRole;
+use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
+use djls_semantic::effective_symbol_candidate_at;
+use djls_semantic::tag_spec_at;
+use djls_semantic::tag_specs_at;
+use djls_semantic::tag_specs_for_file;
+use djls_semantic::template_environment_for_file;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_source::Span;
+use djls_templates::NodeList;
+use djls_templates::TemplateParseResult;
+use djls_templates::parse_template;
 use tower_lsp_server::ls_types;
 
 use crate::context::CompletionOffsetContext;
@@ -111,7 +123,7 @@ impl CompletionEdit {
 
     fn tag_snippet(
         name: &str,
-        spec: &djls_semantic::TagSpec,
+        spec: &TagSpec,
         prefix: &OffsetPrefix<'_>,
         needs_leading_space: bool,
         close: TagClose,
@@ -260,11 +272,11 @@ impl CompletionCandidate {
     }
 
     fn tag_name(
-        symbol: &djls_project::TemplateSymbol,
+        symbol: &TemplateSymbol,
         prefix: &OffsetPrefix<'_>,
         needs_leading_space: bool,
         close: TagClose,
-        spec: Option<&djls_semantic::TagSpec>,
+        spec: Option<&TagSpec>,
         availability: &TemplateSymbolAvailability,
         supports_snippets: bool,
     ) -> Self {
@@ -292,7 +304,7 @@ impl CompletionCandidate {
         prefix: &OffsetPrefix<'_>,
         needs_leading_space: bool,
         close: TagClose,
-        spec: &djls_semantic::TagSpec,
+        spec: &TagSpec,
         supports_snippets: bool,
     ) -> Self {
         let edit = if supports_snippets {
@@ -475,7 +487,7 @@ fn filter_completion_detail(availability: &TemplateSymbolAvailability) -> String
 #[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn completion(
-    db: &dyn djls_semantic::Db,
+    db: &dyn SemanticDb,
     file: File,
     offset: Offset,
     encoding: PositionEncoding,
@@ -502,11 +514,11 @@ pub fn completion(
             needs_leading_space,
             close,
         }) => {
-            let environment = djls_semantic::template_environment_for_file(db, file);
+            let environment = template_environment_for_file(db, file);
             let nodelist = parsed_nodelist(db, file);
             let tag_specs = nodelist.map_or_else(
-                || djls_semantic::tag_specs_for_file(db, file),
-                |nodelist| djls_semantic::tag_specs_at(db, file, nodelist, offset.get()),
+                || tag_specs_for_file(db, file),
+                |nodelist| tag_specs_at(db, file, nodelist, offset.get()),
             );
             generate_tag_name_candidates(
                 db,
@@ -530,9 +542,8 @@ pub fn completion(
             close,
             ..
         }) => {
-            let spec = parsed_nodelist(db, file).and_then(|nodelist| {
-                djls_semantic::tag_spec_at(db, file, nodelist, offset.get(), tag)
-            });
+            let spec = parsed_nodelist(db, file)
+                .and_then(|nodelist| tag_spec_at(db, file, nodelist, offset.get(), tag));
             generate_tag_argument_candidates(
                 tag,
                 *position,
@@ -551,9 +562,8 @@ pub fn completion(
             closed,
             close,
         }) => {
-            let spec = parsed_nodelist(db, file).and_then(|nodelist| {
-                djls_semantic::tag_spec_at(db, file, nodelist, offset.get(), tag)
-            });
+            let spec = parsed_nodelist(db, file)
+                .and_then(|nodelist| tag_spec_at(db, file, nodelist, offset.get(), tag));
             generate_template_name_candidates(
                 db,
                 Some(file),
@@ -577,7 +587,7 @@ pub fn completion(
                 == Some(TagRole::TemplateLibraryLoader)
             {
                 generate_library_name_candidates(
-                    djls_semantic::template_environment_for_file(db, file),
+                    template_environment_for_file(db, file),
                     prefix,
                     suffix,
                     *close,
@@ -600,7 +610,7 @@ pub fn completion(
                     suffix,
                     *library,
                     *needs_trailing_space,
-                    djls_semantic::template_environment_for_file(db, file),
+                    template_environment_for_file(db, file),
                 )
             } else {
                 Vec::new()
@@ -612,7 +622,7 @@ pub fn completion(
                 file,
                 parsed_nodelist(db, file),
                 offset,
-                djls_semantic::template_environment_for_file(db, file),
+                template_environment_for_file(db, file),
                 prefix,
             )
         }
@@ -633,24 +643,23 @@ pub fn completion(
     Some(ls_types::CompletionResponse::Array(items))
 }
 
-fn parsed_nodelist(db: &dyn djls_semantic::Db, file: File) -> Option<djls_templates::NodeList<'_>> {
-    match djls_templates::parse_template(db, file) {
-        djls_templates::TemplateParseResult::Parsed(nodelist) => Some(nodelist),
-        djls_templates::TemplateParseResult::NotTemplate
-        | djls_templates::TemplateParseResult::Unreadable(_) => None,
+fn parsed_nodelist(db: &dyn SemanticDb, file: File) -> Option<NodeList<'_>> {
+    match parse_template(db, file) {
+        TemplateParseResult::Parsed(nodelist) => Some(nodelist),
+        TemplateParseResult::NotTemplate | TemplateParseResult::Unreadable(_) => None,
     }
 }
 
 fn effective_tag_role_at(
-    db: &dyn djls_semantic::Db,
+    db: &dyn SemanticDb,
     file: File,
     offset: Offset,
     tag: &str,
 ) -> Option<TagRole> {
     let nodelist = parsed_nodelist(db, file)?;
-    djls_semantic::tag_spec_at(db, file, nodelist, offset.get(), tag)
+    tag_spec_at(db, file, nodelist, offset.get(), tag)
         .as_ref()
-        .and_then(djls_semantic::TagSpec::role)
+        .and_then(TagSpec::role)
 }
 
 #[derive(Clone, Copy)]
@@ -663,9 +672,9 @@ struct TagNameCandidateInput<'a> {
 }
 
 fn completion_symbol_candidates(
-    db: &dyn djls_semantic::Db,
+    db: &dyn SemanticDb,
     file: File,
-    nodelist: Option<djls_templates::NodeList<'_>>,
+    nodelist: Option<NodeList<'_>>,
     offset: Offset,
     environment: TemplateEnvironment<'_>,
     name: &str,
@@ -674,16 +683,9 @@ fn completion_symbol_candidates(
     nodelist.map_or_else(
         || environment.contextual_symbol_candidates(name, kind),
         |nodelist| {
-            djls_semantic::effective_symbol_candidate_at(
-                db,
-                file,
-                nodelist,
-                offset.get(),
-                name,
-                kind,
-            )
-            .into_iter()
-            .collect()
+            effective_symbol_candidate_at(db, file, nodelist, offset.get(), name, kind)
+                .into_iter()
+                .collect()
         },
     )
 }
@@ -701,9 +703,9 @@ fn environment_has_definite_symbols(
 }
 
 fn generate_tag_name_candidates(
-    db: &dyn djls_semantic::Db,
+    db: &dyn SemanticDb,
     file: File,
-    nodelist: Option<djls_templates::NodeList<'_>>,
+    nodelist: Option<NodeList<'_>>,
     offset: Offset,
     environment: TemplateEnvironment<'_>,
     input: TagNameCandidateInput<'_>,
@@ -786,7 +788,7 @@ fn generate_tag_argument_candidates(
     position: usize,
     prefix: &OffsetPrefix<'_>,
     close: TagClose,
-    spec: Option<&djls_semantic::TagSpec>,
+    spec: Option<&TagSpec>,
     supports_snippets: bool,
 ) -> Vec<CompletionCandidate> {
     let Some(spec) = spec else {
@@ -852,10 +854,10 @@ struct TemplateNameCandidateInput<'context, 'source> {
 }
 
 fn generate_template_name_candidates(
-    db: &dyn djls_semantic::Db,
+    db: &dyn SemanticDb,
     file: Option<File>,
     input: TemplateNameCandidateInput<'_, '_>,
-    spec: Option<&djls_semantic::TagSpec>,
+    spec: Option<&TagSpec>,
 ) -> Vec<CompletionCandidate> {
     let Some(spec) = spec else {
         return Vec::new();
@@ -941,7 +943,7 @@ fn generate_load_symbol_candidates(
     };
     let mut candidates = libraries
         .into_iter()
-        .flat_map(djls_project::TemplateLibrary::symbols)
+        .flat_map(TemplateLibrary::symbols)
         .filter(|symbol| symbol.name().starts_with(prefix.text))
         .map(|symbol| {
             CompletionCandidate::load_symbol(
@@ -959,9 +961,9 @@ fn generate_load_symbol_candidates(
 }
 
 fn generate_filter_candidates(
-    db: &dyn djls_semantic::Db,
+    db: &dyn SemanticDb,
     file: File,
-    nodelist: Option<djls_templates::NodeList<'_>>,
+    nodelist: Option<NodeList<'_>>,
     offset: Offset,
     environment: TemplateEnvironment<'_>,
     prefix: &OffsetPrefix<'_>,
@@ -1009,6 +1011,7 @@ mod tests {
     use djls_semantic::TagArgument;
     use djls_semantic::TagSpec;
     use djls_source::Span;
+    use djls_testing::TestDatabase;
 
     use super::*;
 
@@ -1038,7 +1041,7 @@ mod tests {
             .iter()
             .map(|(name, module)| ((*name).to_string(), (*module).to_string()))
             .collect::<HashMap<_, _>>();
-        let db = djls_testing::TestDatabase::new();
+        let db = TestDatabase::new();
         djls_testing::make_template_libraries(&db, &[], &[], &libraries, &[])
     }
 
@@ -1062,7 +1065,7 @@ mod tests {
         let mut filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
         filter["doc"] = "Translate text.".into();
 
-        let db = djls_testing::TestDatabase::new();
+        let db = TestDatabase::new();
         djls_testing::make_template_libraries(&db, &[], &[filter], &libraries, &[])
     }
 
@@ -1076,7 +1079,7 @@ mod tests {
             djls_testing::library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
         ];
 
-        let db = djls_testing::TestDatabase::new();
+        let db = TestDatabase::new();
         djls_testing::make_template_libraries(&db, &tags, &[], &libraries, &builtins)
     }
 
@@ -1333,7 +1336,7 @@ mod tests {
 
     #[test]
     fn template_name_candidates_are_role_and_position_gated() {
-        let db = djls_testing::TestDatabase::new();
+        let db = TestDatabase::new();
         let tag_specs = djls_semantic::builtin_tag_specs();
 
         let prefix = prefix("");
@@ -1402,7 +1405,7 @@ mod tests {
 
     #[test]
     fn filter_candidates_include_detail_and_documentation() {
-        let db = djls_testing::TestDatabase::new();
+        let db = TestDatabase::new();
         db.add_file("/test.html", "");
         let file = db.file(Utf8Path::new("/test.html"));
         let libraries = filter_libraries();
@@ -1431,7 +1434,7 @@ mod tests {
             ),
         );
 
-        let db = djls_testing::TestDatabase::new();
+        let db = TestDatabase::new();
         db.add_file("/test.html", "");
         let file = db.file(Utf8Path::new("/test.html"));
         let environment =

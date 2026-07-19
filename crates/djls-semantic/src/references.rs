@@ -1,3 +1,5 @@
+use std::slice;
+
 use djls_project::FindTemplateResult;
 use djls_project::InconclusiveTemplateSearch;
 use djls_project::LibraryName;
@@ -6,16 +8,20 @@ use djls_project::ScopedTemplateReferenceResolution;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
 use djls_project::TemplateResolution;
+use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::TagBit;
+use djls_templates::TemplateParseResult;
 use djls_templates::TemplateString;
 use djls_templates::parse_template;
 use rustc_hash::FxHashMap;
 
+use crate::TagSpec;
 use crate::db::Db as SemanticDb;
 use crate::scoping::LoadKind;
+use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::active_template_tags;
 use crate::tags::TagRole;
 
@@ -162,7 +168,7 @@ impl TemplateReferenceKind {
         raw_name: TemplateName<'db>,
     ) -> Option<ScopedTemplateReferenceResolution<'db>> {
         let excluded = match self {
-            Self::Extends => std::slice::from_ref(&source),
+            Self::Extends => slice::from_ref(&source),
             Self::Include => &[],
         };
         resolution.resolve_reference_from_origin(db, source, raw_name, excluded, self.allow_self())
@@ -203,7 +209,7 @@ pub fn resolve_reference_for_file<'db>(
         // scope or normalize a relative name. Absolute names can still use the project-wide
         // resolution, which keeps feasible settings alternatives separate when selecting a
         // winner; relative names deliberately remain unresolved.
-        djls_project::resolve_relative_name(None, raw_name.name(db), kind.allow_self())?;
+        resolve_relative_name(None, raw_name.name(db), kind.allow_self())?;
         return Some(resolution.resolve(db, raw_name));
     };
     let found_file = match first.result {
@@ -272,10 +278,10 @@ pub fn template_references_in_file(
     _project: Project,
     file: File,
 ) -> TemplateReferencesInFile<'_> {
-    let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
+    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateReferencesInFile::new(db, Vec::new());
     };
-    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
     let tree = projection.tree(db);
     let tag_facts = projection.scoped_tag_facts(db);
 
@@ -300,10 +306,10 @@ pub fn template_library_references_in_file(
     db: &dyn SemanticDb,
     file: File,
 ) -> TemplateLibraryReferencesInFile<'_> {
-    let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
+    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateLibraryReferencesInFile::new(db, Vec::new());
     };
-    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
     let tree = projection.tree(db);
     let tag_facts = projection.scoped_tag_facts(db);
 
@@ -313,7 +319,7 @@ pub fn template_library_references_in_file(
             tag_facts
                 .for_tag(*tag)
                 .and_then(|facts| facts.spec.as_ref())
-                .and_then(crate::TagSpec::role)
+                .and_then(TagSpec::role)
                 == Some(TagRole::TemplateLibraryLoader)
         })
         .flat_map(|tag| literal_load_references_from_tag(tag.bits))
@@ -398,7 +404,7 @@ pub(crate) struct LiteralTemplateReference<'bits> {
 }
 
 impl<'bits> LiteralTemplateReference<'bits> {
-    pub(crate) fn from_spec(spec: &crate::tags::TagSpec, bits: &'bits [TagBit]) -> Option<Self> {
+    pub(crate) fn from_spec(spec: &TagSpec, bits: &'bits [TagBit]) -> Option<Self> {
         let Some(TagRole::TemplateReference(kind)) = spec.role() else {
             return None;
         };

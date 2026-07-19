@@ -1,4 +1,6 @@
 use std::cmp::Ordering;
+use std::iter;
+use std::mem;
 
 use camino::Utf8PathBuf;
 use djls_source::FileReadError;
@@ -69,7 +71,7 @@ impl<'a> PythonKnownScalar<'a> {
     pub(crate) fn origins_with_constraints(
         &self,
     ) -> impl Iterator<Item = (Origin, &BranchConstraints)> {
-        std::iter::once((self.first_evidence.origin, &self.first_evidence.constraints)).chain(
+        iter::once((self.first_evidence.origin, &self.first_evidence.constraints)).chain(
             self.additional_evidence
                 .iter()
                 .map(|evidence| (evidence.origin, &evidence.constraints)),
@@ -157,7 +159,7 @@ impl PythonValueEvidenceSet {
     fn normalize(&mut self) {
         self.0.sort_by(PythonValueEvidence::structural_cmp);
         let mut normalized: Vec<PythonValueEvidence> = Vec::with_capacity(self.0.len());
-        for evidence in std::mem::take(&mut self.0) {
+        for evidence in mem::take(&mut self.0) {
             if let Some(existing) = normalized
                 .iter_mut()
                 .find(|existing| existing.origin == evidence.origin)
@@ -943,6 +945,7 @@ impl StructuralOrd for PythonUnknownCause {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
     use std::io::ErrorKind;
 
     use camino::Utf8PathBuf;
@@ -1046,7 +1049,7 @@ mod tests {
     }
 
     fn sorted(mut origins: Vec<Origin>) -> Vec<Origin> {
-        origins.sort_by(super::super::StructuralOrd::structural_cmp);
+        origins.sort_by(StructuralOrd::structural_cmp);
         origins
     }
 
@@ -1065,7 +1068,7 @@ mod tests {
             for (other_index, right) in values.iter().enumerate() {
                 let ordering = left.structural_cmp(right);
                 assert_eq!(ordering, right.structural_cmp(left).reverse());
-                assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
+                assert_eq!(ordering == Ordering::Equal, left == right);
                 assert_eq!(ordering, index.cmp(&other_index));
             }
         }
@@ -1097,7 +1100,7 @@ mod tests {
             for (other_index, right) in causes.iter().enumerate() {
                 let ordering = left.structural_cmp(right);
                 assert_eq!(ordering, right.structural_cmp(left).reverse());
-                assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
+                assert_eq!(ordering == Ordering::Equal, left == right);
                 assert_eq!(ordering, index.cmp(&other_index));
             }
         }
@@ -1127,7 +1130,7 @@ mod tests {
             for (other_index, right) in module_name_errors.iter().enumerate() {
                 let ordering = left.structural_cmp(right);
                 assert_eq!(ordering, right.structural_cmp(left).reverse());
-                assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
+                assert_eq!(ordering == Ordering::Equal, left == right);
                 assert_eq!(ordering, index.cmp(&other_index));
             }
         }
@@ -1200,7 +1203,7 @@ mod tests {
         ];
         for (left, right) in payload_pairs {
             assert_ne!(left, right);
-            assert_ne!(left.structural_cmp(&right), std::cmp::Ordering::Equal);
+            assert_ne!(left.structural_cmp(&right), Ordering::Equal);
         }
     }
 
@@ -1237,10 +1240,7 @@ mod tests {
             ]),
         ] {
             assert_ne!(ordinary, different);
-            assert_ne!(
-                ordinary.structural_cmp(&different),
-                std::cmp::Ordering::Equal
-            );
+            assert_ne!(ordinary.structural_cmp(&different), Ordering::Equal);
         }
     }
 
@@ -1248,7 +1248,7 @@ mod tests {
     fn typed_value_order_compares_unknown_origins_and_exact_value_evidence() {
         let left = PythonUnknown::new(PythonUnknownCause::Cycle, [origin(1)]);
         let right = PythonUnknown::new(PythonUnknownCause::Cycle, [origin(2)]);
-        assert_ne!(left.structural_cmp(&right), std::cmp::Ordering::Equal);
+        assert_ne!(left.structural_cmp(&right), Ordering::Equal);
 
         let join = origin(20);
         let mut first_constraints = BranchConstraints::unconstrained();
@@ -1269,7 +1269,7 @@ mod tests {
         }]);
         for other in [&different_constraints, &different_origin] {
             assert_ne!(&first, other);
-            assert_ne!(first.structural_cmp(other), std::cmp::Ordering::Equal);
+            assert_ne!(first.structural_cmp(other), Ordering::Equal);
         }
 
         let evidence = |entries: [(Origin, BranchConstraints); 2]| {
@@ -1291,12 +1291,12 @@ mod tests {
             (origin(11), BranchConstraints::unconstrained()),
         ]);
         assert_eq!(forward, reversed);
-        assert_eq!(forward.structural_cmp(&reversed), std::cmp::Ordering::Equal);
+        assert_eq!(forward.structural_cmp(&reversed), Ordering::Equal);
 
         let mut merged = str_value(origin(1), "same");
         let incoming = str_value(origin(2), "same");
         assert!(merged.same_semantic_value(&incoming));
-        assert_ne!(merged.structural_cmp(&incoming), std::cmp::Ordering::Equal);
+        assert_ne!(merged.structural_cmp(&incoming), Ordering::Equal);
         merged.merge_semantically_equal(incoming, None);
         assert_eq!(merged.origins().collect::<Vec<_>>(), [origin(1), origin(2)]);
     }

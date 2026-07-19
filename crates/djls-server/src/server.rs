@@ -3,11 +3,15 @@ use std::sync::Arc;
 
 use djls_source::FileKind;
 use djls_source::path_to_file;
+use salsa::Cancelled;
 use tokio::sync::Mutex;
+use tokio::task::spawn_blocking;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::ls_types;
+use tracing::debug;
+use tracing::error;
 
 use crate::document::TextDocument;
 use crate::ext::PositionEncodingExt;
@@ -96,7 +100,7 @@ impl DjangoLanguageServer {
             .with_session(|session| session.client_info().supports_pull_diagnostics())
             .await
         {
-            tracing::debug!("Client supports pull diagnostics, skipping push");
+            debug!("Client supports pull diagnostics, skipping push");
             return;
         }
 
@@ -121,10 +125,9 @@ impl DjangoLanguageServer {
             .publish_diagnostics(lsp_uri, diagnostics, Some(document.version()))
             .await;
 
-        tracing::debug!(
+        debug!(
             "Published {} diagnostics for {}",
-            diagnostic_count,
-            lsp_uri_text
+            diagnostic_count, lsp_uri_text
         );
     }
 }
@@ -137,27 +140,25 @@ where
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
         let snapshot = { session.lock().await.snapshot() };
         let f = Arc::clone(&f);
-        let result = match tokio::task::spawn_blocking(move || {
-            salsa::Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))
-        })
-        .await
-        {
-            Ok(result) => result,
-            Err(error) => {
-                tracing::error!(
-                    ?error,
-                    "Syntax-only request snapshot task failed; returning fallback"
-                );
-                return R::default();
-            }
-        };
+        let result =
+            match spawn_blocking(move || Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))).await
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    error!(
+                        ?error,
+                        "Syntax-only request snapshot task failed; returning fallback"
+                    );
+                    return R::default();
+                }
+            };
         match result {
             Ok(result) => return result,
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                tracing::debug!(?cancelled, "Syntax snapshot cancelled; retrying");
+                debug!(?cancelled, "Syntax snapshot cancelled; retrying");
             }
             Err(cancelled) => {
-                tracing::debug!(?cancelled, "Syntax snapshot cancelled; returning fallback");
+                debug!(?cancelled, "Syntax snapshot cancelled; returning fallback");
                 return R::default();
             }
         }
@@ -175,32 +176,30 @@ where
             return R::default();
         };
         let f = Arc::clone(&f);
-        let result = match tokio::task::spawn_blocking(move || {
-            salsa::Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))
-        })
-        .await
-        {
-            Ok(result) => result,
-            Err(error) => {
-                tracing::error!(
-                    ?error,
-                    "Project-aware request snapshot task failed; returning fallback"
-                );
-                return R::default();
-            }
-        };
+        let result =
+            match spawn_blocking(move || Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))).await
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    error!(
+                        ?error,
+                        "Project-aware request snapshot task failed; returning fallback"
+                    );
+                    return R::default();
+                }
+            };
 
         match result {
             Ok(result) => return result,
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                tracing::debug!(
+                debug!(
                     ?cancelled,
                     attempt = attempt + 1,
                     "Snapshot request cancelled; retrying from intrinsic readiness"
                 );
             }
             Err(cancelled) => {
-                tracing::debug!(
+                debug!(
                     ?cancelled,
                     retries = SNAPSHOT_CANCEL_RETRIES,
                     "Snapshot request cancelled; returning fallback"
@@ -474,7 +473,7 @@ impl LanguageServer for DjangoLanguageServer {
         &self,
         params: ls_types::DocumentDiagnosticParams,
     ) -> LspResult<ls_types::DocumentDiagnosticReportResult> {
-        tracing::debug!(
+        debug!(
             "Received diagnostic request for {:?}",
             params.text_document.uri
         );
@@ -680,10 +679,16 @@ impl LanguageServer for DjangoLanguageServer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex as StdMutex;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::sync::mpsc;
+    use std::thread::sleep as sleep_thread;
     use std::time::Duration;
 
+    use camino::Utf8PathBuf;
+    use djls_ide::prime_template_library_products;
+    use tokio::spawn as spawn_task;
     use tokio::time::timeout;
 
     use super::*;
@@ -711,7 +716,7 @@ mod tests {
     async fn project_aware_request_task_panic_returns_default() {
         let session = Arc::new(Mutex::new(Session::default()));
         let executions = Arc::new(AtomicUsize::new(0));
-        let mut request = tokio::spawn({
+        let mut request = spawn_task({
             let session = Arc::clone(&session);
             let executions = Arc::clone(&executions);
             async move {
@@ -736,7 +741,7 @@ mod tests {
 
         let primed = {
             let session = session.lock().await;
-            djls_ide::prime_template_library_products(session.db()).unwrap()
+            prime_template_library_products(session.db()).unwrap()
         };
         assert!(session.lock().await.publish_intrinsic_readiness(0, &primed));
 
@@ -750,10 +755,8 @@ mod tests {
 
     #[tokio::test]
     async fn cancellation_restarts_at_barrier_and_waits_for_reprime() {
-        use std::sync::Mutex as StdMutex;
-
         let session = Arc::new(Mutex::new(Session::default()));
-        let path = camino::Utf8PathBuf::from("/tmp/retry.py");
+        let path = Utf8PathBuf::from("/tmp/retry.py");
         let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
         let generation = {
             let mut session = session.lock().await;
@@ -769,17 +772,17 @@ mod tests {
             };
             let file = path_to_file(session.db(), &path).unwrap();
             let generation = session.desired_generation();
-            let primed = djls_ide::prime_template_library_products(session.db()).unwrap();
+            let primed = prime_template_library_products(session.db()).unwrap();
             assert!(session.publish_intrinsic_readiness(generation, &primed));
             session.install_ready_coverage_for_test(vec![file], Vec::new());
             generation
         };
 
         let attempts = Arc::new(AtomicUsize::new(0));
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
         let release_rx = Arc::new(StdMutex::new(release_rx));
-        let mut request = tokio::spawn({
+        let mut request = spawn_task({
             let session = Arc::clone(&session);
             let attempts = Arc::clone(&attempts);
             let release_rx = Arc::clone(&release_rx);
@@ -792,7 +795,7 @@ mod tests {
                         if attempt == 1 {
                             started_tx.send(()).unwrap();
                             release_rx.lock().unwrap().recv().unwrap();
-                            std::thread::sleep(Duration::from_millis(50));
+                            sleep_thread(Duration::from_millis(50));
                         }
                         path_to_file(snapshot.db(), &path)
                             .unwrap()
@@ -805,7 +808,7 @@ mod tests {
                 .await
             }
         });
-        tokio::task::spawn_blocking(move || started_rx.recv().unwrap())
+        spawn_blocking(move || started_rx.recv().unwrap())
             .await
             .unwrap();
 
@@ -836,7 +839,7 @@ mod tests {
 
         let current_prime = {
             let session = session.lock().await;
-            djls_ide::prime_template_library_products(session.db()).unwrap()
+            prime_template_library_products(session.db()).unwrap()
         };
         assert!(
             session
@@ -857,7 +860,7 @@ mod tests {
     #[tokio::test]
     async fn final_state_matrix_03_project_requests_wait_for_current_generation() {
         let session = Arc::new(Mutex::new(Session::default()));
-        let mut initial_waiter = tokio::spawn({
+        let mut initial_waiter = spawn_task({
             let session = Arc::clone(&session);
             async move { await_ready_session_snapshot(&session).await }
         });
@@ -870,7 +873,7 @@ mod tests {
 
         let initial_prime = {
             let session = session.lock().await;
-            djls_ide::prime_template_library_products(session.db()).unwrap()
+            prime_template_library_products(session.db()).unwrap()
         };
         assert!(
             session
@@ -889,7 +892,7 @@ mod tests {
         );
 
         let generation = session.lock().await.mark_project_changed();
-        let mut replacement_waiter = tokio::spawn({
+        let mut replacement_waiter = spawn_task({
             let session = Arc::clone(&session);
             async move { await_ready_session_snapshot(&session).await }
         });
@@ -908,7 +911,7 @@ mod tests {
 
         let current_prime = {
             let session = session.lock().await;
-            djls_ide::prime_template_library_products(session.db()).unwrap()
+            prime_template_library_products(session.db()).unwrap()
         };
         assert!(
             session

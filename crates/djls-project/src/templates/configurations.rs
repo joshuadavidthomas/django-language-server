@@ -1,3 +1,5 @@
+use std::iter;
+
 use camino::Utf8PathBuf;
 
 use crate::db::Db as ProjectDb;
@@ -192,7 +194,7 @@ impl TemplateConfigurations {
             configurations: Vec::new(),
         };
         for &backend_count in backend_counts {
-            let mut slots = std::iter::repeat_with(TemplateBackendData::for_testing)
+            let mut slots = iter::repeat_with(TemplateBackendData::for_testing)
                 .map(Some)
                 .take(backend_count)
                 .collect::<Vec<_>>();

@@ -13,10 +13,17 @@ use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_source::File;
+use djls_source::Span;
+use djls_templates::Filter;
+use djls_templates::Node;
 use djls_templates::NodeList;
 use salsa::Accumulator;
 
+use crate::ValidationErrorAccumulator;
 use crate::db::Db;
+use crate::db::template_environment_for_file;
+use crate::filters::effective_filter_arity_in_environment;
+use crate::scoping::loads::LoadArgument;
 pub(crate) use crate::scoping::loads::LoadKind;
 pub(crate) use crate::scoping::loads::LoadState;
 pub(crate) use crate::scoping::loads::LoadStatement;
@@ -28,6 +35,8 @@ use crate::structure::ActiveTemplateTag;
 use crate::structure::CapturedClosingTag;
 use crate::structure::StructuralOccurrenceMeaning;
 use crate::structure::TagClassification;
+use crate::structure::TemplateTree;
+use crate::structure::TemplateTreeBuilder;
 use crate::structure::active_template_nodes;
 use crate::structure::grammar::SparseTagGrammar;
 use crate::tags::TagRole;
@@ -37,7 +46,7 @@ use crate::tags::TagSpec;
 struct TagOccurrenceKey(u32);
 
 impl TagOccurrenceKey {
-    fn from_name_span(span: djls_source::Span) -> Self {
+    fn from_name_span(span: Span) -> Self {
         Self(span.start())
     }
 }
@@ -46,7 +55,7 @@ impl TagOccurrenceKey {
 struct FilterOccurrenceKey(u32);
 
 impl FilterOccurrenceKey {
-    fn from_filter(filter: &djls_templates::Filter) -> Self {
+    fn from_filter(filter: &Filter) -> Self {
         Self(filter.span.start())
     }
 }
@@ -102,7 +111,7 @@ struct ContextualFilterFact {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LoaderArgumentFact {
-    pub(crate) argument: crate::scoping::loads::LoadArgument,
+    pub(crate) argument: LoadArgument,
     pub(crate) availability: MissingLibraryLookup,
 }
 
@@ -125,7 +134,7 @@ impl ScopedTagFacts {
     }
 
     #[must_use]
-    pub(crate) fn for_name_span(&self, name_span: djls_source::Span) -> Option<&ScopedTagFact> {
+    pub(crate) fn for_name_span(&self, name_span: Span) -> Option<&ScopedTagFact> {
         self.0.get(&TagOccurrenceKey::from_name_span(name_span))
     }
 }
@@ -142,7 +151,7 @@ pub(crate) struct ScopedFilterFacts(BTreeMap<FilterOccurrenceKey, ScopedFilterFa
 
 impl ScopedFilterFacts {
     #[must_use]
-    pub(crate) fn for_filter(&self, filter: &djls_templates::Filter) -> Option<&ScopedFilterFact> {
+    pub(crate) fn for_filter(&self, filter: &Filter) -> Option<&ScopedFilterFact> {
         self.0.get(&FilterOccurrenceKey::from_filter(filter))
     }
 }
@@ -161,7 +170,7 @@ pub(crate) struct TemplateAnalysisProjection<'db> {
     #[tracked]
     #[returns(ref)]
     pub(crate) captured_closers: Vec<CapturedClosingTag>,
-    pub(crate) tree: crate::structure::TemplateTree<'db>,
+    pub(crate) tree: TemplateTree<'db>,
 }
 
 #[salsa::tracked]
@@ -178,12 +187,12 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
     let fixed_point_limit = nodelist
         .nodelist(db)
         .iter()
-        .filter(|node| matches!(node, djls_templates::Node::Tag { .. }))
+        .filter(|node| matches!(node, Node::Tag { .. }))
         .count()
         + 1;
 
     let project = db.project();
-    let environment = crate::db::template_environment_for_file(db, scope_file);
+    let environment = template_environment_for_file(db, scope_file);
     let mut loaded = LoadedLibraries::default();
     for _ in 0..fixed_point_limit {
         let grammar = project.map_or_else(
@@ -192,8 +201,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         );
         // Fixed-point passes are plain temporary values. No tracked Tree identity
         // or structural diagnostic is produced until this pass converges.
-        let tree_data =
-            crate::structure::TemplateTreeBuilder::new(db, &grammar).model_data(db, nodelist);
+        let tree_data = TemplateTreeBuilder::new(db, &grammar).model_data(db, nodelist);
         let mut active_nodes = active_template_nodes(&tree_data.regions, tree_data.root);
         active_nodes.extend(
             tree_data
@@ -317,7 +325,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                             &filter.name,
                                             TemplateSymbolKind::Filter,
                                         ),
-                                        crate::filters::effective_filter_arity_in_environment(
+                                        effective_filter_arity_in_environment(
                                             db,
                                             environment,
                                             &filter.name,
@@ -350,7 +358,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         }
 
         for error in &tree_data.diagnostics {
-            crate::ValidationErrorAccumulator(error.clone()).accumulate(db);
+            ValidationErrorAccumulator(error.clone()).accumulate(db);
         }
         let captured_closers = tree_data.captured_closers.clone();
         let tree = tree_data.into_tree(db);
@@ -401,7 +409,7 @@ pub fn effective_symbol_candidate_at(
     name: &str,
     kind: TemplateSymbolKind,
 ) -> Option<TemplateSymbolCandidate> {
-    let environment = crate::db::template_environment_for_file(db, file);
+    let environment = template_environment_for_file(db, file);
     let projection = template_analysis_projection_for_file(db, file, nodelist);
     let load_state = projection.loaded_libraries(db).available_at(position);
     let loaded_names = load_state.libraries_loading_symbol(name);
@@ -496,10 +504,10 @@ mod tests {
     use djls_source::Span;
 
     use super::ContextualFactCache;
+    use super::LoadArgument;
     use super::LoadKind;
     use super::LoadStatement;
     use super::LoadedLibraries;
-    use crate::scoping::loads::LoadArgument;
 
     #[test]
     fn contextual_fact_cache_resolves_once_per_visible_prefix_and_symbol() {

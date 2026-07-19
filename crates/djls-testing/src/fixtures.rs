@@ -36,11 +36,14 @@ use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::builtin_tag_specs;
+use djls_semantic::validate_template_file;
 use djls_source::Db as _;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::Severity;
 use djls_source::Span;
+use serde_json::from_value;
+use serde_json::json;
 
 use crate::Corpus;
 use crate::TestDatabase;
@@ -49,7 +52,7 @@ use crate::module_name_from_file;
 
 #[must_use]
 pub fn builtin_tag(name: &str, module: &str) -> serde_json::Value {
-    serde_json::json!({
+    json!({
         "kind": "tag",
         "name": name,
         "library_kind": "builtin",
@@ -61,7 +64,7 @@ pub fn builtin_tag(name: &str, module: &str) -> serde_json::Value {
 
 #[must_use]
 pub fn library_tag(name: &str, load_name: &str, module: &str) -> serde_json::Value {
-    serde_json::json!({
+    json!({
         "kind": "tag",
         "name": name,
         "library_kind": "installed",
@@ -74,7 +77,7 @@ pub fn library_tag(name: &str, load_name: &str, module: &str) -> serde_json::Val
 
 #[must_use]
 pub fn builtin_filter(name: &str, module: &str) -> serde_json::Value {
-    serde_json::json!({
+    json!({
         "kind": "filter",
         "name": name,
         "library_kind": "builtin",
@@ -86,7 +89,7 @@ pub fn builtin_filter(name: &str, module: &str) -> serde_json::Value {
 
 #[must_use]
 pub fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::Value {
-    serde_json::json!({
+    json!({
         "kind": "filter",
         "name": name,
         "library_kind": "installed",
@@ -135,7 +138,7 @@ pub fn make_template_libraries(
         .iter()
         .chain(filters.iter())
         .cloned()
-        .map(serde_json::from_value)
+        .map(from_value)
         .collect::<Result<Vec<TemplateSymbolFixture>, _>>()
         .unwrap()
     {
@@ -410,9 +413,9 @@ pub fn collect_errors_with_revision(
     db.add_file(path, source);
     let file = db.create_file_with_revision(Utf8Path::new(path), revision);
 
-    djls_semantic::validate_template_file(db, file);
+    validate_template_file(db, file);
 
-    djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
+    validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
         .into_iter()
         .map(|acc| acc.0.clone())
         .collect()
@@ -438,9 +441,9 @@ pub fn collect_argument_validation_errors_with_revision(
     db.add_file(path, source);
     let file = db.create_file_with_revision(Utf8Path::new(path), revision);
 
-    djls_semantic::validate_template_file(db, file);
+    validate_template_file(db, file);
 
-    djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
+    validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
         .into_iter()
         .map(|acc| acc.0.clone())
         .filter(is_argument_validation_error)
@@ -548,10 +551,10 @@ pub fn snapshot_validate_files<'a>(
 
     let file = db.create_file_with_revision(Utf8Path::new(primary_path), 0);
 
-    djls_semantic::validate_template_file(&db, file);
+    validate_template_file(&db, file);
 
     let mut errors: Vec<ValidationError> =
-        djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, file)
+        validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, file)
             .into_iter()
             .map(|acc| acc.0.clone())
             .collect();
@@ -581,9 +584,9 @@ fn validation_db(partial: bool) -> TestDatabase {
     let specs = standard_tag_specs();
     let configured_tags = specs
         .keys()
-        .map(|name| serde_json::json!({"name": name, "type": "standalone"}))
+        .map(|name| json!({"name": name, "type": "standalone"}))
         .collect::<Vec<_>>();
-    let configured_fallback = serde_json::from_value(serde_json::json!({
+    let configured_fallback = from_value(json!({
         "libraries": [{"module": "djls.testing.fallback", "tags": configured_tags}]
     }))
     .expect("validation fallback tag specs should deserialize");

@@ -17,8 +17,11 @@ use djls_templates::TemplateString;
 use djls_templates::parse_template;
 use rustc_hash::FxHashSet;
 
+use crate::TagSpec;
 use crate::db::Db;
 use crate::references::TemplateReferenceKind;
+use crate::scoping::ScopedTagFacts;
+use crate::scoping::template_analysis_projection_for_file_in_scope;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
@@ -371,9 +374,7 @@ fn template_symbols_in_scope<'db>(
     nodelist: NodeList<'db>,
     scope_file: File,
 ) -> TemplateSymbols {
-    let projection = crate::scoping::template_analysis_projection_for_file_in_scope(
-        db, file, nodelist, scope_file,
-    );
+    let projection = template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file);
     let tree = projection.tree(db);
     let regions = tree.regions(db);
     let mut builder = SymbolBuilder {
@@ -433,7 +434,7 @@ pub enum ExtendsTarget {
 }
 
 struct SymbolBuilder<'a> {
-    tag_facts: &'a crate::scoping::ScopedTagFacts,
+    tag_facts: &'a ScopedTagFacts,
     regions: &'a Regions,
     blocks: Vec<BlockDef>,
     partials: Vec<PartialDef>,
@@ -547,6 +548,6 @@ impl SymbolBuilder<'_> {
         self.tag_facts
             .for_name_span(name_span)
             .and_then(|facts| facts.spec.as_ref())
-            .and_then(crate::TagSpec::role)
+            .and_then(TagSpec::role)
     }
 }

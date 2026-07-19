@@ -16,6 +16,7 @@ use super::names::TemplateSymbolName;
 use super::symbols::SymbolDefinition;
 use super::symbols::SymbolKey;
 use super::symbols::TemplateSymbol;
+use super::symbols::TemplateSymbolKind;
 use super::tags::BlockSpec;
 use super::tags::BlockSpecs;
 use super::tags::TagRuleMap;
@@ -442,14 +443,10 @@ impl TemplateLibraryDefinitionFacts {
     }
 
     #[must_use]
-    pub fn symbol(
-        &self,
-        kind: super::symbols::TemplateSymbolKind,
-        name: &str,
-    ) -> Option<&TemplateSymbol> {
+    pub fn symbol(&self, kind: TemplateSymbolKind, name: &str) -> Option<&TemplateSymbol> {
         match kind {
-            super::symbols::TemplateSymbolKind::Tag => self.tags.get(name),
-            super::symbols::TemplateSymbolKind::Filter => self.filters.get(name),
+            TemplateSymbolKind::Tag => self.tags.get(name),
+            TemplateSymbolKind::Filter => self.filters.get(name),
         }
     }
 }
@@ -526,10 +523,10 @@ fn template_library_source_analysis(
                     doc: None,
                 };
                 match kind {
-                    super::symbols::TemplateSymbolKind::Tag => {
+                    TemplateSymbolKind::Tag => {
                         tags.insert(symbol.name().to_string(), symbol);
                     }
-                    super::symbols::TemplateSymbolKind::Filter => {
+                    TemplateSymbolKind::Filter => {
                         filters.insert(symbol.name().to_string(), symbol);
                     }
                 }

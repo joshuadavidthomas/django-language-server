@@ -1,8 +1,11 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::DiagnosticSeverity;
 use djls_conf::DiagnosticsConfig;
+use djls_semantic::Db as SemanticDb;
 use djls_semantic::TemplateDiagnostics;
 use djls_semantic::ValidationError;
+use djls_semantic::collect_template_diagnostics;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -74,12 +77,9 @@ impl CheckedTemplate {
 }
 
 /// Read, validate, and collect one Template for terminal reporting.
-pub fn check_template(
-    db: &dyn djls_semantic::Db,
-    file: File,
-) -> Result<CheckedTemplate, FileReadError> {
+pub fn check_template(db: &dyn SemanticDb, file: File) -> Result<CheckedTemplate, FileReadError> {
     let source = file.try_source(db)?;
-    let mut diagnostics = djls_semantic::collect_template_diagnostics(db, file);
+    let mut diagnostics = collect_template_diagnostics(db, file);
     diagnostics
         .validation_errors
         .sort_by_cached_key(|error| error.primary_span().map_or(0, Span::start));
@@ -92,15 +92,15 @@ pub fn check_template(
 }
 
 fn diagnostic_is_enabled(config: &DiagnosticsConfig, code: &str) -> bool {
-    config.get_severity(code) != djls_conf::DiagnosticSeverity::Off
+    config.get_severity(code) != DiagnosticSeverity::Off
 }
 
-fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
+fn to_render_severity(severity: DiagnosticSeverity) -> Severity {
     match severity {
-        djls_conf::DiagnosticSeverity::Error => Severity::Error,
-        djls_conf::DiagnosticSeverity::Warning => Severity::Warning,
-        djls_conf::DiagnosticSeverity::Info => Severity::Info,
-        djls_conf::DiagnosticSeverity::Hint | djls_conf::DiagnosticSeverity::Off => Severity::Hint,
+        DiagnosticSeverity::Error => Severity::Error,
+        DiagnosticSeverity::Warning => Severity::Warning,
+        DiagnosticSeverity::Info => Severity::Info,
+        DiagnosticSeverity::Hint | DiagnosticSeverity::Off => Severity::Hint,
     }
 }
 
@@ -113,7 +113,7 @@ fn render_template_error(
 ) -> Option<String> {
     let code = error.diagnostic_code();
     let severity = config.get_severity(code);
-    if severity == djls_conf::DiagnosticSeverity::Off {
+    if severity == DiagnosticSeverity::Off {
         return None;
     }
 
@@ -143,7 +143,7 @@ fn render_validation_error(
 ) -> Option<String> {
     let code = error.code();
     let severity = config.get_severity(code);
-    if severity == djls_conf::DiagnosticSeverity::Off {
+    if severity == DiagnosticSeverity::Off {
         return None;
     }
 

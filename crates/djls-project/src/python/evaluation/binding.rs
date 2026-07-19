@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::mem;
 
 use djls_source::Origin;
 
@@ -263,7 +264,7 @@ impl PythonBinding {
 
     fn normalize(&mut self, operation_origin: Option<Origin>) {
         let mut normalized = Vec::<PythonBindingCase>::new();
-        for mut incoming_case in std::mem::take(&mut self.cases) {
+        for mut incoming_case in mem::take(&mut self.cases) {
             match incoming_case.state {
                 PythonBindingState::Unbound => {
                     if let Some(existing) = normalized
@@ -385,8 +386,11 @@ impl PythonBoundValue {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use djls_source::File;
     use djls_source::Span;
+    use salsa::Id;
     use salsa::plumbing::FromId as _;
 
     use super::super::BranchConstraints;
@@ -398,6 +402,7 @@ mod tests {
     use super::PythonBinding;
     use super::PythonBindingCase;
     use super::PythonBindingState;
+    use super::PythonBoundValue;
     use super::PythonUnknownCause;
     use super::PythonValue;
     use super::PythonValueKind;
@@ -406,7 +411,7 @@ mod tests {
     fn origin(file: u32, start: u32) -> Origin {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
         // files are compared only as opaque IDs and are never read.
-        let file = File::from_id(unsafe { salsa::Id::from_index(file) });
+        let file = File::from_id(unsafe { Id::from_index(file) });
         Origin::new(file, Span::new(start, 1))
     }
 
@@ -488,14 +493,14 @@ mod tests {
         second_constraints.select(join, 1);
 
         let first = PythonBindingCase {
-            state: PythonBindingState::Bound(super::PythonBoundValue {
+            state: PythonBindingState::Bound(PythonBoundValue {
                 value: PythonValue::string("same".to_string(), origin(0, 10)),
                 binding_origins: [origin(0, 10)].into_iter().collect(),
             }),
             constraints: first_constraints,
         };
         let second = PythonBindingCase {
-            state: PythonBindingState::Bound(super::PythonBoundValue {
+            state: PythonBindingState::Bound(PythonBoundValue {
                 value: PythonValue::string("same".to_string(), origin(0, 20)),
                 binding_origins: [origin(0, 20)].into_iter().collect(),
             }),
@@ -505,9 +510,9 @@ mod tests {
             state: PythonBindingState::Unbound,
             constraints: BranchConstraints::unconstrained(),
         };
-        assert_eq!(unbound.structural_cmp(&first), std::cmp::Ordering::Less);
+        assert_eq!(unbound.structural_cmp(&first), Ordering::Less);
         assert_ne!(first, second);
-        assert_ne!(first.structural_cmp(&second), std::cmp::Ordering::Equal);
+        assert_ne!(first.structural_cmp(&second), Ordering::Equal);
         assert_eq!(
             first.structural_cmp(&second),
             second.structural_cmp(&first).reverse()

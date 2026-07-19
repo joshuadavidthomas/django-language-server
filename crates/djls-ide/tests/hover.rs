@@ -1,5 +1,6 @@
 use camino::Utf8Path;
 use djls_ide::hover;
+use djls_source::File;
 use djls_source::Offset;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
@@ -12,7 +13,7 @@ fn hover_markdown(hover: ls_types::Hover) -> String {
     contents.value
 }
 
-fn collision_fixture(source: &str) -> (TestDatabase, djls_source::File) {
+fn collision_fixture(source: &str) -> (TestDatabase, File) {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['builtin_tags'], 'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]\n";
     let library_source = |doc: &str| {

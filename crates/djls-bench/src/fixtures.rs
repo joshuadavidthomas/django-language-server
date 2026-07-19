@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_testing::Corpus;
 
 const TEMPLATE_ROOT: &str = "/templates";
 
@@ -150,15 +151,13 @@ fn read_corpus_templates(
 
 fn load_corpus_templates(
     selection: &'static str,
-    get_selection: impl FnOnce(
-        &djls_testing::Corpus,
-    ) -> Result<(Utf8PathBuf, Vec<Utf8PathBuf>), CorpusLoadError>,
+    get_selection: impl FnOnce(&Corpus) -> Result<(Utf8PathBuf, Vec<Utf8PathBuf>), CorpusLoadError>,
 ) -> Result<Option<CorpusTemplates>, CorpusLoadError> {
-    if !djls_testing::Corpus::is_available() {
+    if !Corpus::is_available() {
         return Ok(None);
     }
 
-    let corpus = djls_testing::Corpus::require();
+    let corpus = Corpus::require();
     let (selection_root, paths) = get_selection(&corpus)?;
     read_corpus_templates(corpus.root(), selection, &selection_root, paths).map(Some)
 }
@@ -265,13 +264,25 @@ fn collect_files(
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::fmt::Write as _;
 
+    use camino::Utf8Path;
+    use camino::Utf8PathBuf;
+    use insta::assert_yaml_snapshot;
     use serde::Serialize;
     use sha2::Digest;
     use sha2::Sha256;
 
-    use super::*;
+    use super::CorpusLoadError;
+    use super::Fixture;
+    use super::django_corpus_templates;
+    use super::full_corpus_templates;
+    use super::model_fixtures;
+    use super::python_fixtures;
+    use super::read_corpus_templates;
+    use super::template_fixtures;
+    use super::validation_error_fixtures;
 
     #[derive(Serialize)]
     struct FixtureSetSnapshot {
@@ -316,19 +327,19 @@ mod tests {
 
     #[test]
     fn fixture_identities_are_stable() {
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "fixture_identity_templates",
             fixture_set_snapshot(template_fixtures())
         );
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "fixture_identity_validation_errors",
             fixture_set_snapshot(validation_error_fixtures())
         );
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "fixture_identity_python",
             fixture_set_snapshot(python_fixtures())
         );
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "fixture_identity_models",
             fixture_set_snapshot(model_fixtures())
         );
@@ -385,7 +396,7 @@ mod tests {
 
     #[test]
     fn corpus_loader_synchronizes_every_discovered_template() {
-        let required = std::env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_some();
+        let required = env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_some();
         for (name, corpus) in [
             ("Django", django_corpus_templates()),
             ("full", full_corpus_templates()),

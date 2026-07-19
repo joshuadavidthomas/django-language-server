@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use camino::Utf8Path;
+use djls_project::Project;
 use djls_semantic::BlockDef;
 use djls_semantic::ChainEnd;
 use djls_semantic::EndTag;
@@ -9,6 +10,7 @@ use djls_semantic::PartialDef;
 use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
+use djls_semantic::TemplateReferenceKind;
 use djls_semantic::TemplateSymbols;
 use djls_semantic::block_overrides;
 use djls_semantic::builtin_tag_specs;
@@ -28,7 +30,7 @@ fn project_with_templates(
     db: &TestDatabase,
     template_dirs: Vec<&str>,
     templates: Vec<(&str, &str)>,
-) -> djls_project::Project {
+) -> Project {
     let dirs_literal = template_dirs
         .into_iter()
         .map(|dir| format!("'{dir}'"))
@@ -66,11 +68,7 @@ fn symbols_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Template
     template_symbols(db, file, nodelist)
 }
 
-fn inheritance_summary(
-    db: &TestDatabase,
-    project: djls_project::Project,
-    file: File,
-) -> (Vec<String>, ChainEnd) {
+fn inheritance_summary(db: &TestDatabase, project: Project, file: File) -> (Vec<String>, ChainEnd) {
     let inheritance = template_inheritance(db, project, file);
     let ancestors = inheritance
         .ancestors(db)
@@ -123,9 +121,7 @@ fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
             Cow::Borrowed(&[]),
             false,
         )
-        .with_role(TagRole::TemplateReference(
-            djls_semantic::TemplateReferenceKind::Extends,
-        )),
+        .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
     );
     let mut db = TestDatabase::new().with_projectless_tag_specs(specs);
     let project = ProjectFixture::new("/test/project")
@@ -535,9 +531,7 @@ fn template_inheritance_follows_extends_role_not_builtin_name() {
             Cow::Borrowed(&[]),
             false,
         )
-        .with_role(TagRole::TemplateReference(
-            djls_semantic::TemplateReferenceKind::Extends,
-        )),
+        .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let project = project_with_templates(
@@ -782,9 +776,7 @@ fn extracts_blocks_and_extends_by_role_not_builtin_names() {
                 Cow::Borrowed(&[]),
                 false,
             )
-            .with_role(TagRole::TemplateReference(
-                djls_semantic::TemplateReferenceKind::Extends,
-            )),
+            .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
         ),
     ])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);

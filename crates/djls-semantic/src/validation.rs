@@ -3,11 +3,14 @@ mod filters;
 mod if_expressions;
 mod scoping;
 
+use crate::TagSpec;
 use crate::db::Db;
+use crate::references::TemplateReferenceKind;
 use crate::scoping::TemplateAnalysisProjection;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
+use crate::structure::active_template_nodes;
 use crate::tags::TagRole;
 
 /// Tracks the validation state for `{% extends %}` positioning rules.
@@ -49,8 +52,7 @@ impl<'db> TemplateValidator<'db> {
 
     pub(crate) fn validate(mut self) {
         let tree = self.projection.tree(self.db);
-        let nodes =
-            crate::structure::active_template_nodes(tree.regions(self.db), tree.root(self.db));
+        let nodes = active_template_nodes(tree.regions(self.db), tree.root(self.db));
         for node in &nodes {
             match node {
                 ActiveTemplateNode::Tag(tag) => self.validate_tag(*tag),
@@ -67,13 +69,11 @@ impl<'db> TemplateValidator<'db> {
             return;
         };
         let effective_spec = facts.spec.as_ref();
-        let effective_role = effective_spec.and_then(crate::TagSpec::role);
+        let effective_role = effective_spec.and_then(TagSpec::role);
 
         if matches!(
             effective_role,
-            Some(TagRole::TemplateReference(
-                crate::references::TemplateReferenceKind::Extends
-            ))
+            Some(TagRole::TemplateReference(TemplateReferenceKind::Extends))
         ) {
             use salsa::Accumulator;
 

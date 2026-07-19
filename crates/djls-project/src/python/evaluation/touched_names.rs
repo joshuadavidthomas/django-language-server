@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::slice;
 
 use ruff_python_ast as ast;
 use rustc_hash::FxHashMap;
@@ -186,7 +187,7 @@ pub(super) fn collect_syntax_impacts(
                         .enumerate()
                         .find(|(_, statement)| statement.span().end() == error_start)
                 })?;
-            let touched = TouchedNames::from_body(std::slice::from_ref(statement));
+            let touched = TouchedNames::from_body(slice::from_ref(statement));
             let later_assignments = DefiniteWriteCollector::collect(
                 &body[statement_index + 1..],
                 &touched.names,

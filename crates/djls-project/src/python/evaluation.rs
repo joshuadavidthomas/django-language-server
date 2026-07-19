@@ -168,6 +168,7 @@ mod tests {
 
     use djls_source::File;
     use djls_source::Span;
+    use salsa::Id;
     use salsa::plumbing::AsId as _;
     use salsa::plumbing::FromId as _;
 
@@ -178,7 +179,7 @@ mod tests {
     fn file(index: u32) -> File {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
         // files are compared only as opaque IDs and are never read.
-        File::from_id(unsafe { salsa::Id::from_index(index) })
+        File::from_id(unsafe { Id::from_index(index) })
     }
 
     fn origin(file_index: u32, start: u32, length: u32) -> Origin {

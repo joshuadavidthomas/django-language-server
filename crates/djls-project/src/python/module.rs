@@ -558,9 +558,9 @@ mod tests {
             },
         ];
 
-        assert_eq!(base.structural_cmp(&base), std::cmp::Ordering::Equal);
+        assert_eq!(base.structural_cmp(&base), Ordering::Equal);
         for other in &unequal {
-            assert_ne!(base.structural_cmp(other), std::cmp::Ordering::Equal);
+            assert_ne!(base.structural_cmp(other), Ordering::Equal);
             assert_eq!(
                 base.structural_cmp(other),
                 other.structural_cmp(&base).reverse()

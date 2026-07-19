@@ -16,13 +16,20 @@
 //! Corpus benchmarks require a synced corpus (`just corpus sync`) and
 //! skip gracefully when unavailable.
 
+use std::env;
+
 use divan::Bencher;
+use divan::black_box;
+use divan::counter::ItemsCount;
+use djls::check_template;
 use djls_bench::CorpusLoadError;
 use djls_bench::CorpusTemplates;
 use djls_bench::django_corpus_templates;
 use djls_bench::full_corpus_templates;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
+use djls_conf::DiagnosticsConfig;
+use djls_ide::prepare_project_template_analysis;
 use djls_source::DiagnosticRenderer;
 
 fn main() {
@@ -43,25 +50,24 @@ fn fixtures(bencher: Bencher) {
                 .iter()
                 .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
                 .collect();
-            djls_ide::prepare_project_template_analysis(&db)
+            prepare_project_template_analysis(&db)
                 .expect("check benchmark database should install a Project");
             (
                 db,
                 files,
-                djls_conf::DiagnosticsConfig::default(),
+                DiagnosticsConfig::default(),
                 DiagnosticRenderer::plain(),
             )
         })
         .bench_local_refs(|(db, files, config, fmt)| {
             let mut total_errors = 0;
             for &file in files.iter() {
-                let result =
-                    djls::check_template(db, file).expect("benchmark file should be readable");
+                let result = check_template(db, file).expect("benchmark file should be readable");
                 if result.has_diagnostics() {
                     total_errors += result.render(config, fmt).len();
                 }
             }
-            divan::black_box(total_errors);
+            black_box(total_errors);
         });
 }
 
@@ -74,7 +80,7 @@ fn bench_corpus_check(
     let corpus = corpus.unwrap_or_else(|error| panic!("failed to load benchmark corpus: {error}"));
     let Some(corpus) = corpus else {
         assert!(
-            std::env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_none(),
+            env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_none(),
             "corpus not synced; run `just corpus sync` before benchmarks",
         );
         eprintln!("corpus not synced, skipping");
@@ -84,7 +90,7 @@ fn bench_corpus_check(
     let file_count = corpus.files.len();
 
     bencher
-        .counter(divan::counter::ItemsCount::new(file_count))
+        .counter(ItemsCount::new(file_count))
         .with_inputs(move || {
             let mut db = realistic_db();
             let files: Vec<_> = corpus
@@ -92,25 +98,24 @@ fn bench_corpus_check(
                 .iter()
                 .map(|(path, source)| db.file_with_contents(path.clone(), source))
                 .collect();
-            djls_ide::prepare_project_template_analysis(&db)
+            prepare_project_template_analysis(&db)
                 .expect("check benchmark database should install a Project");
             (
                 db,
                 files,
-                djls_conf::DiagnosticsConfig::default(),
+                DiagnosticsConfig::default(),
                 DiagnosticRenderer::plain(),
             )
         })
         .bench_local_refs(|(db, files, config, fmt)| {
             let mut total_errors = 0;
             for &file in files.iter() {
-                let result =
-                    djls::check_template(db, file).expect("benchmark file should be readable");
+                let result = check_template(db, file).expect("benchmark file should be readable");
                 if result.has_diagnostics() {
                     total_errors += result.render(config, fmt).len();
                 }
             }
-            divan::black_box(total_errors);
+            black_box(total_errors);
         });
 }
 

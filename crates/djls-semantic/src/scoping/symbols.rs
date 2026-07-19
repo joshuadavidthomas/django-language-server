@@ -1,4 +1,5 @@
 use djls_project::EnvironmentSymbolLookup;
+use djls_project::TemplateEnvironment;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolLookup;
 
@@ -27,7 +28,7 @@ pub(crate) enum SymbolAvailability {
 /// Template Environment or construct a complete per-Template symbol index.
 #[must_use]
 pub(crate) fn resolve_occurrence_availability(
-    environment: djls_project::TemplateEnvironment<'_>,
+    environment: TemplateEnvironment<'_>,
     load_state: &LoadState<'_>,
     name: &str,
     kind: TemplateSymbolKind,
@@ -74,8 +75,11 @@ mod tests {
     use std::collections::HashMap;
 
     use djls_project::TemplateEnvironment;
+    use djls_project::TemplateLibraries;
     use djls_project::TemplateSymbolKind;
     use djls_source::Span;
+    use djls_testing::make_template_libraries;
+    use serde_json::json;
 
     use super::*;
     use crate::scoping::LoadKind;
@@ -83,11 +87,11 @@ mod tests {
     use crate::scoping::LoadedLibraries;
     use crate::scoping::loads::LoadArgument;
 
-    fn environment() -> djls_project::TemplateLibraries {
+    fn environment() -> TemplateLibraries {
         let db = djls_testing::TestDatabase::new();
-        djls_testing::make_template_libraries(
+        make_template_libraries(
             &db,
-            &[serde_json::json!({
+            &[json!({
                 "kind": "tag",
                 "name": "custom",
                 "library_kind": "installed",

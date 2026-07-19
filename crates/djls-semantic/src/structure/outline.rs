@@ -1,9 +1,14 @@
+use djls_source::File;
 use djls_source::Span;
+use djls_templates::NodeList;
 use djls_templates::TagBit;
 use djls_templates::TemplateString;
 
+use crate::TagSpec;
 use crate::db::Db;
 use crate::scoping::LoadKind;
+use crate::scoping::ScopedTagFacts;
+use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
@@ -55,10 +60,10 @@ impl From<TagRole> for OutlineKind {
 #[salsa::tracked(returns(ref))]
 pub fn build_template_outline_for_file(
     db: &dyn Db,
-    file: djls_source::File,
-    nodelist: djls_templates::NodeList<'_>,
+    file: File,
+    nodelist: NodeList<'_>,
 ) -> Vec<OutlineItem> {
-    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
     let tree = projection.tree(db);
     let roles = OutlineTagRoles {
         facts: projection.scoped_tag_facts(db),
@@ -67,7 +72,7 @@ pub fn build_template_outline_for_file(
 }
 
 struct OutlineTagRoles<'a> {
-    facts: &'a crate::scoping::ScopedTagFacts,
+    facts: &'a ScopedTagFacts,
 }
 
 impl OutlineTagRoles<'_> {
@@ -75,7 +80,7 @@ impl OutlineTagRoles<'_> {
         self.facts
             .for_name_span(name_span)
             .and_then(|fact| fact.spec.as_ref())
-            .and_then(crate::TagSpec::role)
+            .and_then(TagSpec::role)
     }
 }
 

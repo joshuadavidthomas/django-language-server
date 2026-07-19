@@ -2,6 +2,7 @@ use djls_conf::DiagnosticsConfig;
 use djls_project::Db as ProjectDb;
 use djls_project::ModelGraph;
 use djls_project::TemplateEnvironment;
+use djls_project::TemplateLibraries;
 use djls_project::template_environment;
 use djls_source::File;
 
@@ -32,7 +33,7 @@ pub trait Db: ProjectDb {
 
 pub fn template_environment_for_file(db: &dyn Db, file: File) -> TemplateEnvironment<'_> {
     db.project().map_or_else(
-        || TemplateEnvironment::from_project_inventory(djls_project::TemplateLibraries::empty_ref()),
+        || TemplateEnvironment::from_project_inventory(TemplateLibraries::empty_ref()),
         |project| template_environment(db, project, file),
     )
 }

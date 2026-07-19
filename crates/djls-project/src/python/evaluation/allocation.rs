@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::mem;
 
 use djls_source::Origin;
 
@@ -74,7 +75,7 @@ impl AllocationSites {
     fn normalize(&mut self) {
         self.0.sort_by(AllocationSite::structural_cmp);
         let mut normalized: Vec<AllocationSite> = Vec::with_capacity(self.0.len());
-        for site in std::mem::take(&mut self.0) {
+        for site in mem::take(&mut self.0) {
             if let Some(existing) = normalized
                 .iter_mut()
                 .find(|existing| existing.origin == site.origin)
@@ -153,6 +154,8 @@ impl ReachableAllocationSites {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use djls_source::File;
     use djls_source::Span;
     use salsa::plumbing::FromId;
@@ -210,7 +213,7 @@ mod tests {
             (&first, &different_origin),
         ] {
             assert_ne!(left, right);
-            assert_ne!(left.structural_cmp(right), std::cmp::Ordering::Equal);
+            assert_ne!(left.structural_cmp(right), Ordering::Equal);
             assert_eq!(
                 left.structural_cmp(right),
                 right.structural_cmp(left).reverse()
@@ -222,7 +225,7 @@ mod tests {
         let mut reversed = constrained_site(origin(1), join, 1);
         reversed.merge(constrained_site(origin(2), join, 0));
         assert_eq!(forward, reversed);
-        assert_eq!(forward.structural_cmp(&reversed), std::cmp::Ordering::Equal);
+        assert_eq!(forward.structural_cmp(&reversed), Ordering::Equal);
     }
 
     #[test]

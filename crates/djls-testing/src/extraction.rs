@@ -1,13 +1,17 @@
 use std::collections::BTreeMap;
 
 use djls_project::BlockSpecs;
+use djls_project::Db as ProjectDb;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
+use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
+use djls_project::template_library_filter_facts;
+use djls_project::template_library_tag_facts;
 use djls_source::File;
 use serde::Serialize;
 
@@ -27,13 +31,13 @@ impl ExtractionBundle {
 
 #[must_use]
 pub fn extract_bundle(
-    db: &dyn djls_project::Db,
+    db: &dyn ProjectDb,
     file: File,
     registration_module: PythonModuleName,
 ) -> ExtractionBundle {
-    let key = djls_project::TemplateLibraryKey::new(db, Some(file), registration_module);
-    let tag_facts = djls_project::template_library_tag_facts(db, key);
-    let filter_facts = djls_project::template_library_filter_facts(db, key);
+    let key = TemplateLibraryKey::new(db, Some(file), registration_module);
+    let tag_facts = template_library_tag_facts(db, key);
+    let filter_facts = template_library_filter_facts(db, key);
     let tag_rules = tag_facts.tag_rules().to_owned();
     let filter_arities = filter_facts.filter_arities().to_owned();
     let block_specs = tag_facts.block_specs().to_owned();

@@ -14,8 +14,10 @@ use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::ast;
 use crate::python::PythonImportError;
+use crate::python::PythonModuleName;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
+use crate::python::evaluation::query::evaluate_python_module;
 use crate::python::evaluation::result::CycleMembership;
 use crate::python::evaluation::result::PythonModuleEvaluation;
 use crate::python::module::PythonImportRequest;
@@ -56,7 +58,7 @@ impl Evaluator<'_> {
         &self,
         module: PythonModule,
     ) -> Result<LoadedImport, ImportFailure> {
-        match super::super::query::evaluate_python_module(self.db, self.project, module.clone()) {
+        match evaluate_python_module(self.db, self.project, module.clone()) {
             PythonModuleEvaluation::CycleSeed => Err(ImportFailure::Cycle { module }),
             PythonModuleEvaluation::Evaluated(evaluated) => {
                 let (values, dependencies) = evaluated.into_parts();
@@ -147,8 +149,8 @@ struct UnreadableImport {
 
 enum ImportFailure {
     Invalid(PythonImportError),
-    NotFound(crate::python::PythonModuleName),
-    SkippedExternal(crate::python::PythonModuleName),
+    NotFound(PythonModuleName),
+    SkippedExternal(PythonModuleName),
     Cycle { module: PythonModule },
     Unreadable(Box<UnreadableImport>),
 }
@@ -328,7 +330,7 @@ impl EvaluationState {
 
     fn bind_named_import(
         &mut self,
-        module: &crate::python::PythonModuleName,
+        module: &PythonModuleName,
         values: &PythonModuleValues,
         imported_name: &str,
         bound_name: &str,

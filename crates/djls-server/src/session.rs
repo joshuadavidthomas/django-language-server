@@ -8,6 +8,7 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_db::DjangoDatabase;
+use djls_ide::PrimedTemplateLibraries;
 use djls_project::Db as ProjectDb;
 use djls_source::ChangeEvent;
 use djls_source::Db as _;
@@ -414,7 +415,7 @@ impl Session {
     pub(crate) fn publish_intrinsic_readiness(
         &mut self,
         generation: IntrinsicGeneration,
-        primed: &djls_ide::PrimedTemplateLibraries,
+        primed: &PrimedTemplateLibraries,
     ) -> bool {
         let published = self.intrinsic_readiness.publish(
             generation,
@@ -801,10 +802,15 @@ impl SessionSnapshot {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+    use std::time::Duration;
 
+    use djls_ide::prime_template_library_products;
     use djls_project::Db as ProjectDb;
     use djls_project::Interpreter;
     use tempfile::tempdir;
+    use tokio::spawn;
+    use tokio::task::yield_now;
+    use tokio::time::timeout;
 
     use super::*;
 
@@ -1082,8 +1088,8 @@ mod tests {
             session.readiness_state(),
             IntrinsicReadinessState::Unready(0)
         );
-        let stale_prime = djls_ide::prime_template_library_products(session.db())
-            .expect("default session has a Project");
+        let stale_prime =
+            prime_template_library_products(session.db()).expect("default session has a Project");
 
         let generation = session.mark_project_changed();
         assert_eq!(generation, 1);
@@ -1093,8 +1099,8 @@ mod tests {
             IntrinsicReadinessState::Unready(1)
         );
 
-        let current_prime = djls_ide::prime_template_library_products(session.db())
-            .expect("default session has a Project");
+        let current_prime =
+            prime_template_library_products(session.db()).expect("default session has a Project");
         assert!(session.publish_intrinsic_readiness(generation, &current_prime));
         assert_eq!(session.readiness_state(), IntrinsicReadinessState::Ready(1));
         assert_eq!(session.snapshot().intrinsic_generation(), Some(1));
@@ -1269,7 +1275,7 @@ mod tests {
             IntrinsicReadinessState::Unready(retry_generation)
         );
 
-        let current_prime = djls_ide::prime_template_library_products(session.db()).unwrap();
+        let current_prime = prime_template_library_products(session.db()).unwrap();
         assert!(session.publish_intrinsic_readiness(retry_generation, &current_prime));
         assert_eq!(
             session.readiness_state(),
@@ -1530,7 +1536,7 @@ mod tests {
     async fn readiness_watch_has_no_lost_wakeup_between_check_and_wait() {
         let mut session = Session::default();
         let mut readiness = session.readiness_receiver();
-        let waiter = tokio::spawn(async move {
+        let waiter = spawn(async move {
             loop {
                 let state = *readiness.borrow_and_update();
                 if !matches!(state, IntrinsicReadinessState::Unready(_)) {
@@ -1540,9 +1546,9 @@ mod tests {
             }
         });
 
-        tokio::task::yield_now().await;
+        yield_now().await;
         assert!(session.fail_intrinsic_readiness(0));
-        let observed = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+        let observed = timeout(Duration::from_secs(1), waiter)
             .await
             .unwrap()
             .unwrap();

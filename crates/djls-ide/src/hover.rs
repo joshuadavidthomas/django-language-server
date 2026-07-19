@@ -2,24 +2,30 @@ use std::fmt::Write as _;
 
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FindTemplateResult;
+use djls_project::LibraryName;
 use djls_project::LoadableLibraryLookup;
+use djls_project::PythonModuleName;
 use djls_project::TemplateEnvironment;
+use djls_project::TemplateLibrary;
 use djls_project::TemplateName;
+use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
+use djls_semantic::Db as SemanticDb;
 use djls_semantic::SemanticOffsetContext;
 use djls_semantic::TemplateReferenceKind;
 use djls_semantic::resolve_reference_for_file;
+use djls_semantic::template_environment_for_file;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
 
 use crate::ext::SpanExt;
 
-pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
-    let environment = djls_semantic::template_environment_for_file(db, file);
+pub fn hover(db: &dyn SemanticDb, file: File, offset: Offset) -> Option<ls_types::Hover> {
+    let environment = template_environment_for_file(db, file);
     let (markdown, span) = match SemanticOffsetContext::from_offset(db, file, offset) {
         SemanticOffsetContext::TemplateReference {
             name: template_name,
@@ -89,7 +95,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
 }
 
 fn render_template_reference_hover(
-    db: &dyn djls_semantic::Db,
+    db: &dyn SemanticDb,
     file: File,
     template_name: TemplateName<'_>,
     kind: TemplateReferenceKind,
@@ -174,7 +180,7 @@ fn render_effective_symbol_hover(
                 .filter(|doc| !doc.trim().is_empty())
                 .map(str::trim),
             library.module_name_str(),
-            library.load_name().map(djls_project::LibraryName::as_str),
+            library.load_name().map(LibraryName::as_str),
         )
     })?;
     render_symbol_hover(symbol, library.module_name(), None)
@@ -193,7 +199,7 @@ fn render_library_symbol_hover(
 }
 
 fn render_symbol_from_library(
-    library: &djls_project::TemplateLibrary,
+    library: &TemplateLibrary,
     name: &str,
     kind: Option<TemplateSymbolKind>,
 ) -> Option<String> {
@@ -217,8 +223,8 @@ fn render_symbol_from_library(
 }
 
 fn render_symbol_hover(
-    symbol: &djls_project::TemplateSymbol,
-    module_name: &djls_project::PythonModuleName,
+    symbol: &TemplateSymbol,
+    module_name: &PythonModuleName,
     availability: Option<TemplateSymbolAvailability>,
 ) -> Option<String> {
     let candidates = [TemplateSymbolCandidate {

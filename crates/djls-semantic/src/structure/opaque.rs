@@ -1,3 +1,6 @@
+use std::cmp::Ordering;
+
+use djls_source::File;
 use djls_source::Span;
 use djls_templates::NodeList;
 
@@ -29,11 +32,11 @@ impl OpaqueRegions {
         self.spans
             .binary_search_by(|span| {
                 if position < span.start() {
-                    std::cmp::Ordering::Greater
+                    Ordering::Greater
                 } else if position >= span.end() {
-                    std::cmp::Ordering::Less
+                    Ordering::Less
                 } else {
-                    std::cmp::Ordering::Equal
+                    Ordering::Equal
                 }
             })
             .is_ok()
@@ -48,7 +51,7 @@ impl OpaqueRegions {
 /// Compute opaque regions for a template by projecting from the template tree.
 pub fn compute_opaque_regions<'db>(
     db: &'db dyn Db,
-    file: djls_source::File,
+    file: File,
     nodelist: NodeList<'db>,
 ) -> OpaqueRegions {
     let tree = build_template_tree_for_file(db, file, nodelist);

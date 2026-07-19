@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -92,12 +93,12 @@ pub struct FileRoot {
 #[error("failed to read {path}: {kind:?}")]
 pub struct FileReadError {
     path: Utf8PathBuf,
-    kind: std::io::ErrorKind,
+    kind: ErrorKind,
 }
 
 impl FileReadError {
     #[must_use]
-    pub fn new(path: Utf8PathBuf, kind: std::io::ErrorKind) -> Self {
+    pub fn new(path: Utf8PathBuf, kind: ErrorKind) -> Self {
         Self { path, kind }
     }
 
@@ -107,7 +108,7 @@ impl FileReadError {
     }
 
     #[must_use]
-    pub const fn kind(&self) -> std::io::ErrorKind {
+    pub const fn kind(&self) -> ErrorKind {
         self.kind
     }
 }

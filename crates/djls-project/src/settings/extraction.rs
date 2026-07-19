@@ -3,6 +3,7 @@ use djls_source::File;
 use djls_source::Origin;
 
 use crate::db::Db as ProjectDb;
+use crate::python::PythonModuleName;
 use crate::python::evaluation::BranchConstraints;
 use crate::python::evaluation::MappingOverride;
 use crate::python::evaluation::MappingStringEntry;
@@ -832,7 +833,7 @@ fn extract_options(options: PythonMapping<'_>, backend: &mut PartialTemplateBack
 
 fn extract_libraries(
     mapping: PythonMapping<'_>,
-    libraries: &mut PartialSettingField<Vec<(String, WithOrigin<crate::python::PythonModuleName>)>>,
+    libraries: &mut PartialSettingField<Vec<(String, WithOrigin<PythonModuleName>)>>,
 ) {
     for entry in mapping.effective_string_entries() {
         match entry {
@@ -840,7 +841,7 @@ fn extract_libraries(
                 if let Some(scalar) = value.known_scalar()
                     && let Some(module) = scalar.string_value()
                 {
-                    match crate::python::PythonModuleName::parse(module) {
+                    match PythonModuleName::parse(module) {
                         Ok(module) => libraries.known.push((
                             alias.to_string(),
                             WithOrigin::new(
@@ -880,11 +881,7 @@ fn extract_libraries(
 
 fn module_name_list(
     value: &PythonValue,
-) -> (
-    Vec<WithOrigin<crate::python::PythonModuleName>>,
-    Vec<SettingIssue>,
-    bool,
-) {
+) -> (Vec<WithOrigin<PythonModuleName>>, Vec<SettingIssue>, bool) {
     let mut known = Vec::new();
     let mut issues = Vec::new();
     let mut malformed = false;
@@ -905,7 +902,7 @@ fn module_name_list(
                 if let Some(scalar) = value.known_scalar()
                     && let Some(name) = scalar.string_value()
                 {
-                    if let Ok(name) = crate::python::PythonModuleName::parse(name) {
+                    if let Ok(name) = PythonModuleName::parse(name) {
                         known.push(WithOrigin::new(
                             name,
                             scalar.first_origin(),

@@ -1,5 +1,6 @@
 mod python_evaluation;
 
+use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Span;
 pub use python_evaluation::PythonBindingAlternativeView;
@@ -20,35 +21,38 @@ pub use python_evaluation::PythonValueKindView;
 pub use python_evaluation::PythonValueView;
 pub use python_evaluation::python_module_evaluation;
 pub use python_evaluation::python_module_evaluation_for_module;
+use serde::Serialize;
 
 use crate::db::Db;
 pub use crate::discovery::compute_django_environment;
 pub use crate::discovery::compute_project_facts;
 use crate::models::ModelGraph;
+use crate::models::extract_models;
 pub use crate::models::model_modules;
 pub use crate::models::resolve_model_graph_from_modules;
 use crate::project::Project;
 use crate::python::PythonModuleName;
 pub use crate::python::PythonSyntaxError;
 pub use crate::python::PythonSyntaxErrorClass;
+use crate::python::python_syntax_errors as project_python_syntax_errors;
+use crate::settings::django_settings as project_django_settings;
+use crate::settings::settings_module_file as project_settings_module_file;
 use crate::templates::LibraryName;
 use crate::templates::TemplateLibraries;
 use crate::templates::TemplateLibrary;
+use crate::templates::TemplateLibraryKey;
 use crate::templates::TemplateSymbol;
 
-pub fn python_syntax_errors(
-    db: &dyn djls_source::Db,
-    file: djls_source::File,
-) -> Option<Vec<PythonSyntaxError>> {
-    crate::python::python_syntax_errors(db, file).map(<[PythonSyntaxError]>::to_vec)
+pub fn python_syntax_errors(db: &dyn SourceDb, file: File) -> Option<Vec<PythonSyntaxError>> {
+    project_python_syntax_errors(db, file).map(<[PythonSyntaxError]>::to_vec)
 }
 
 pub fn extract_model_graph(
-    db: &dyn djls_source::Db,
-    file: djls_source::File,
+    db: &dyn SourceDb,
+    file: File,
     module_name: PythonModuleName,
 ) -> &ModelGraph {
-    crate::models::extract_models(db, file, module_name).graph()
+    extract_models(db, file, module_name).graph()
 }
 
 #[must_use]
@@ -89,12 +93,12 @@ pub fn model_relation_locations(
         .unwrap_or_default()
 }
 
-pub fn settings_module_file(db: &dyn Db, project: Project) -> Option<djls_source::File> {
-    crate::settings::settings_module_file(db, project)
+pub fn settings_module_file(db: &dyn Db, project: Project) -> Option<File> {
+    project_settings_module_file(db, project)
 }
 
-pub fn django_settings(db: &dyn Db, project: Project) -> impl serde::Serialize + '_ {
-    crate::settings::django_settings(db, project)
+pub fn django_settings(db: &dyn Db, project: Project) -> impl Serialize + '_ {
+    project_django_settings(db, project)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -144,7 +148,7 @@ fn build_template_libraries(
         .into_iter()
         .map(|input| match input {
             TemplateLibraryInput::Builtin { module, symbols } => {
-                let key = crate::templates::TemplateLibraryKey::new(db, None, module.clone());
+                let key = TemplateLibraryKey::new(db, None, module.clone());
                 TemplateLibrary::configured_builtin(key, module, symbols)
             }
             TemplateLibraryInput::Installed {
@@ -152,7 +156,7 @@ fn build_template_libraries(
                 module,
                 symbols,
             } => {
-                let key = crate::templates::TemplateLibraryKey::new(db, None, module.clone());
+                let key = TemplateLibraryKey::new(db, None, module.clone());
                 TemplateLibrary::configured_installed(key, load_name, module, symbols)
             }
             TemplateLibraryInput::Available {
@@ -161,7 +165,7 @@ fn build_template_libraries(
                 module,
                 symbols,
             } => {
-                let key = crate::templates::TemplateLibraryKey::new(db, None, module.clone());
+                let key = TemplateLibraryKey::new(db, None, module.clone());
                 TemplateLibrary::configured_available(key, load_name, app, module, symbols)
             }
         })

@@ -1,5 +1,9 @@
+use std::io::ErrorKind;
+
 use camino::Utf8PathBuf;
 use djls_source::File;
+use djls_source::FileReadError;
+use djls_source::Origin;
 
 use crate::db::Db;
 use crate::project::Project;
@@ -49,13 +53,13 @@ pub enum PythonBindingAlternativeView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonBoundValueView {
     pub value: PythonValueView,
-    pub binding_origins: Vec<djls_source::Origin>,
+    pub binding_origins: Vec<Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonValueView {
     pub kind: PythonValueKindView,
-    pub origins: Vec<djls_source::Origin>,
+    pub origins: Vec<Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,7 +92,7 @@ pub enum PythonDictItemView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonUnknownView {
     pub cause: PythonUnknownCauseView,
-    pub origins: Vec<djls_source::Origin>,
+    pub origins: Vec<Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,7 +115,7 @@ pub enum PythonUnknownCauseView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonFileReadErrorView {
     pub path: Utf8PathBuf,
-    pub kind: std::io::ErrorKind,
+    pub kind: ErrorKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,39 +128,39 @@ pub enum PythonImportErrorView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PythonImportOutcomeView {
     Resolved {
-        origin: djls_source::Origin,
+        origin: Origin,
         file: File,
         importer_module: PythonModuleName,
         imported_module: PythonModuleName,
     },
     InvalidImport {
-        origin: djls_source::Origin,
+        origin: Origin,
         reason: PythonImportErrorView,
     },
     NotFound {
-        origin: djls_source::Origin,
+        origin: Origin,
         module: PythonModuleName,
     },
     SkippedExternal {
-        origin: djls_source::Origin,
+        origin: Origin,
         module: PythonModuleName,
     },
     Unreadable {
-        origin: djls_source::Origin,
+        origin: Origin,
         file: File,
         importer_module: PythonModuleName,
         imported_module: PythonModuleName,
         error: PythonFileReadErrorView,
     },
     SyntaxErrors {
-        origin: djls_source::Origin,
+        origin: Origin,
         file: File,
         importer_module: PythonModuleName,
         imported_module: PythonModuleName,
         errors: Vec<PythonSyntaxError>,
     },
     Cycle {
-        origin: djls_source::Origin,
+        origin: Origin,
         file: File,
         importer_module: PythonModuleName,
         imported_module: PythonModuleName,
@@ -169,7 +173,7 @@ pub struct PythonMutationView {
     pub binding: String,
     pub path: Vec<PythonMutationPathSegmentView>,
     pub operation: PythonMutationOperationView,
-    pub origin: djls_source::Origin,
+    pub origin: Origin,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -189,7 +193,7 @@ pub enum PythonMutationOperationView {
 pub fn python_module_evaluation(
     db: &dyn Db,
     project: Project,
-    file: djls_source::File,
+    file: File,
 ) -> PythonModuleEvaluationView {
     let module = file_to_module(db, project, file.path(db).to_path_buf())
         .expect("the evaluated file should have a canonical module identity");
@@ -374,7 +378,7 @@ fn unknown_view(unknown: evaluation::PythonUnknown) -> PythonUnknownView {
     }
 }
 
-fn file_read_error_view(error: &djls_source::FileReadError) -> PythonFileReadErrorView {
+fn file_read_error_view(error: &FileReadError) -> PythonFileReadErrorView {
     PythonFileReadErrorView {
         path: error.path().to_path_buf(),
         kind: error.kind(),

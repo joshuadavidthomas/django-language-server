@@ -20,9 +20,14 @@ pub(crate) mod opaque;
 pub(crate) mod outline;
 pub(crate) mod tree;
 
+use djls_source::File;
+use djls_templates::NodeList;
 use salsa::Accumulator;
 
+use crate::ValidationErrorAccumulator;
 use crate::db::Db;
+use crate::scoping::template_analysis_projection_for_file;
+use crate::scoping::template_analysis_projection_for_file_in_scope;
 pub(crate) use crate::structure::active::ActiveTemplateNode;
 pub(crate) use crate::structure::active::ActiveTemplateTag;
 pub(crate) use crate::structure::active::ActiveTemplateVariable;
@@ -50,34 +55,33 @@ pub use crate::structure::tree::TemplateTree;
 #[salsa::tracked]
 pub(crate) fn build_template_tree_for_file_in_scope<'db>(
     db: &'db dyn Db,
-    file: djls_source::File,
-    nodelist: djls_templates::NodeList<'db>,
-    scope_file: djls_source::File,
+    file: File,
+    nodelist: NodeList<'db>,
+    scope_file: File,
 ) -> TemplateTree<'db> {
-    crate::scoping::template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file)
-        .tree(db)
+    template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file).tree(db)
 }
 
 #[salsa::tracked]
 pub fn build_template_tree_for_file<'db>(
     db: &'db dyn Db,
-    file: djls_source::File,
-    nodelist: djls_templates::NodeList<'db>,
+    file: File,
+    nodelist: NodeList<'db>,
 ) -> TemplateTree<'db> {
     if db.project().is_none() {
         return build_projectless_template_tree(db, nodelist);
     }
-    crate::scoping::template_analysis_projection_for_file(db, file, nodelist).tree(db)
+    template_analysis_projection_for_file(db, file, nodelist).tree(db)
 }
 
 fn build_projectless_template_tree<'db>(
     db: &'db dyn Db,
-    nodelist: djls_templates::NodeList<'db>,
+    nodelist: NodeList<'db>,
 ) -> TemplateTree<'db> {
     let grammar = grammar::SparseTagGrammar::projectless(db, nodelist);
     let tree_data = TemplateTreeBuilder::new(db, &grammar).model_data(db, nodelist);
     for error in &tree_data.diagnostics {
-        crate::ValidationErrorAccumulator(error.clone()).accumulate(db);
+        ValidationErrorAccumulator(error.clone()).accumulate(db);
     }
     tree_data.into_tree(db)
 }

@@ -1,12 +1,18 @@
 mod rules;
 mod specs;
 
+use std::collections::HashSet;
+
 use djls_project::ContextualLibraryStep;
 use djls_project::Project;
+use djls_project::TemplateEnvironment;
 use djls_project::TemplateLibraryKey;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_environment;
 use djls_project::template_library_tag_facts;
+use djls_source::File;
+use djls_source::Offset;
+use djls_templates::NodeList;
 pub(crate) use rules::evaluate_tag_rules;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
@@ -17,6 +23,10 @@ pub use specs::builtin_tag_specs;
 use crate::db::Db;
 use crate::references::TemplateReferenceKind;
 use crate::scoping::LoadState;
+use crate::scoping::LoadedLibraries;
+use crate::scoping::template_analysis_projection_for_file;
+use crate::structure::CapturedClosingTag;
+use crate::structure::active_template_tags;
 
 /// Durable Django template meaning for a tag.
 ///
@@ -94,7 +104,7 @@ fn configured_library_tag_specs(
 /// Return the effective tag spec at one occurrence, but only when every feasible backend agrees.
 fn effective_tag_spec(
     db: &dyn Db,
-    file: djls_source::File,
+    file: File,
     name: &str,
     load_state: &LoadState<'_>,
 ) -> Option<TagSpec> {
@@ -107,7 +117,7 @@ fn effective_tag_spec(
 fn effective_tag_spec_in_project(
     db: &dyn Db,
     project: Project,
-    file: djls_source::File,
+    file: File,
     name: &str,
     load_state: &LoadState<'_>,
 ) -> Option<TagSpec> {
@@ -124,7 +134,7 @@ fn effective_tag_spec_in_project(
 pub(crate) fn effective_tag_spec_from_environment(
     db: &dyn Db,
     project: Project,
-    environment: djls_project::TemplateEnvironment<'_>,
+    environment: TemplateEnvironment<'_>,
     name: &str,
     loaded: &[&str],
 ) -> Option<TagSpec> {
@@ -177,8 +187,8 @@ pub(crate) fn effective_tag_spec_from_environment(
 
 /// Specs effective before any file-local `{% load %}` statement.
 #[salsa::tracked(returns(ref))]
-pub fn tag_specs_for_file(db: &dyn Db, file: djls_source::File) -> TagSpecs {
-    let empty = crate::scoping::LoadedLibraries::default();
+pub fn tag_specs_for_file(db: &dyn Db, file: File) -> TagSpecs {
+    let empty = LoadedLibraries::default();
     completion_tag_specs_for_load_state(db, file, &empty.available_at(0))
 }
 
@@ -189,17 +199,17 @@ pub fn tag_specs_for_file(db: &dyn Db, file: djls_source::File) -> TagSpecs {
 #[must_use]
 pub fn tag_spec_at(
     db: &dyn Db,
-    file: djls_source::File,
-    nodelist: djls_templates::NodeList<'_>,
+    file: File,
+    nodelist: NodeList<'_>,
     position: u32,
     name: &str,
 ) -> Option<TagSpec> {
-    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
-    let offset = djls_source::Offset::new(position);
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
+    let offset = Offset::new(position);
     if let Some(closer) = projection
         .captured_closers(db)
         .iter()
-        .map(crate::structure::CapturedClosingTag::as_active)
+        .map(CapturedClosingTag::as_active)
         .find(|closer| closer.tag == name && closer.full_span.contains(offset))
     {
         return projection
@@ -209,7 +219,7 @@ pub fn tag_spec_at(
     }
 
     let tree = projection.tree(db);
-    if let Some(tag) = crate::structure::active_template_tags(tree.regions(db), tree.root(db))
+    if let Some(tag) = active_template_tags(tree.regions(db), tree.root(db))
         .into_iter()
         .find(|tag| tag.tag == name && tag.full_span.contains(offset))
     {
@@ -231,13 +241,8 @@ pub fn tag_spec_at(
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn tag_specs_at(
-    db: &dyn Db,
-    file: djls_source::File,
-    nodelist: djls_templates::NodeList<'_>,
-    position: u32,
-) -> TagSpecs {
-    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+pub fn tag_specs_at(db: &dyn Db, file: File, nodelist: NodeList<'_>, position: u32) -> TagSpecs {
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
     completion_tag_specs_for_load_state(
         db,
         file,
@@ -247,7 +252,7 @@ pub fn tag_specs_at(
 
 fn completion_tag_specs_for_load_state(
     db: &dyn Db,
-    file: djls_source::File,
+    file: File,
     load_state: &LoadState<'_>,
 ) -> TagSpecs {
     let names = if let Some(project) = db.project() {
@@ -277,9 +282,9 @@ fn hardcoded_tag_inventory_is_complete(module: &str) -> bool {
 fn completion_tag_candidate_names(
     db: &dyn Db,
     project: Project,
-    environment: djls_project::TemplateEnvironment<'_>,
-) -> std::collections::HashSet<String> {
-    let mut names: std::collections::HashSet<_> = environment
+    environment: TemplateEnvironment<'_>,
+) -> HashSet<String> {
+    let mut names: HashSet<_> = environment
         .inventory_symbol_names(TemplateSymbolKind::Tag)
         .map(str::to_owned)
         .collect();

@@ -1,6 +1,7 @@
 use djls_source::File;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
+use djls_templates::parse_template;
 
 use crate::Db;
 use crate::ValidationError;
@@ -28,11 +29,10 @@ impl TemplateDiagnostics {
 pub fn collect_template_diagnostics(db: &dyn Db, file: File) -> TemplateDiagnostics {
     validate_template_file(db, file);
 
-    let template_errors =
-        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
-            .iter()
-            .map(|accumulator| accumulator.0.clone())
-            .collect();
+    let template_errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
+        .iter()
+        .map(|accumulator| accumulator.0.clone())
+        .collect();
     let validation_errors =
         validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
             .iter()

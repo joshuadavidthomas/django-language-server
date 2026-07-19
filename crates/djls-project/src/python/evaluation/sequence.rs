@@ -847,6 +847,8 @@ impl PythonSequenceItem {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use djls_source::File;
     use djls_source::Span;
     use salsa::plumbing::FromId;
@@ -997,7 +999,7 @@ mod tests {
             for (other_index, right) in items.iter().enumerate() {
                 let ordering = left.structural_cmp(right);
                 assert_eq!(ordering, right.structural_cmp(left).reverse());
-                assert_eq!(ordering == std::cmp::Ordering::Equal, left == right);
+                assert_eq!(ordering == Ordering::Equal, left == right);
                 assert_eq!(ordering, index.cmp(&other_index));
             }
         }
@@ -1014,17 +1016,14 @@ mod tests {
         let first = constrained(0);
         let second = constrained(1);
         assert_ne!(first, second);
-        assert_ne!(first.structural_cmp(&second), std::cmp::Ordering::Equal);
+        assert_ne!(first.structural_cmp(&second), Ordering::Equal);
 
         let different_evidence = ConstrainedExactSequence {
             items: vec![str_item("same", 2)],
             constraints: first.constraints.clone(),
         };
         assert_ne!(first, different_evidence);
-        assert_ne!(
-            first.structural_cmp(&different_evidence),
-            std::cmp::Ordering::Equal
-        );
+        assert_ne!(first.structural_cmp(&different_evidence), Ordering::Equal);
 
         let alternatives = |remainder_origin, remainder_constraints| SequenceAlternatives {
             exact: vec![first.clone()],
@@ -1046,10 +1045,7 @@ mod tests {
             &different_remainder_constraints,
         ] {
             assert_ne!(&first_remainder, other);
-            assert_ne!(
-                first_remainder.structural_cmp(other),
-                std::cmp::Ordering::Equal
-            );
+            assert_ne!(first_remainder.structural_cmp(other), Ordering::Equal);
         }
     }
 

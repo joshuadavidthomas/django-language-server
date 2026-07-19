@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use djls_project::ProjectFactsPhase;
+use djls_project::TemplateEnvironment;
 use djls_project::template_directories;
 use djls_project::template_libraries;
 use djls_project::template_library_definition_facts;
@@ -67,7 +68,7 @@ impl PrimedTemplateLibraries {
 pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemplateLibraries> {
     let project = db.project()?;
     let libraries = template_libraries(db, project);
-    let environment = djls_project::TemplateEnvironment::from_project_inventory(libraries);
+    let environment = TemplateEnvironment::from_project_inventory(libraries);
     let mut reprime_files = Vec::new();
     let mut library_count = 0;
 
@@ -202,9 +203,9 @@ impl WarmCachePhase {
                 Some(template_directories(db, project).known_roots().count())
             }
             Self::IndexTemplateLibraries => {
-                let libraries = djls_project::template_libraries(db, project);
+                let libraries = template_libraries(db, project);
                 Some(
-                    djls_project::TemplateEnvironment::from_project_inventory(libraries)
+                    TemplateEnvironment::from_project_inventory(libraries)
                         .installed_library_count(),
                 )
             }
@@ -245,6 +246,7 @@ pub const fn warm_cache_phases() -> &'static [WarmCachePhase] {
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8Path;
     use djls_project::Db as _;
     use djls_project::template_resolution;
     use djls_testing::ProjectFixture;
@@ -294,7 +296,7 @@ mod tests {
             primed
                 .reprime_files()
                 .iter()
-                .any(|file| file.path(&db) == camino::Utf8Path::new("/project/tags.py"))
+                .any(|file| file.path(&db) == Utf8Path::new("/project/tags.py"))
         );
         assert_eq!(primed.full_reload_files().len(), 1);
 

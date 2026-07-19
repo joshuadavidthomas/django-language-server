@@ -3,6 +3,7 @@ use djls_source::File;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::templates::ContextualLibraryChain;
+use crate::templates::ContextualLibraryStep;
 use crate::templates::EffectiveDefinitionLibrary;
 use crate::templates::EnvironmentSymbolLookup;
 use crate::templates::LibraryName;
@@ -77,7 +78,7 @@ impl<'db> TemplateEnvironment<'db> {
         self,
         loaded_names: &[&str],
         initial: impl FnMut() -> State,
-        step: impl FnMut(&mut State, crate::templates::ContextualLibraryStep<'db>),
+        step: impl FnMut(&mut State, ContextualLibraryStep<'db>),
         finish: impl FnMut(State),
     ) {
         self.catalog.fold_contextual_library_chains_in_scope(

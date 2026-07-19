@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::fmt;
 use std::io;
 
@@ -14,6 +15,8 @@ use djls_source::path_to_file;
 use djls_source::safe_join;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use tracing::debug;
+use tracing::warn;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
@@ -1004,7 +1007,7 @@ fn template_directory_index<'db>(
         by_file: backend_scopes_by_file,
     } = backend_selection_evidence.finish(db, &names_by_file);
 
-    tracing::debug!("Discovered {} total template origins", ordered.len());
+    debug!("Discovered {} total template origins", ordered.len());
 
     TemplateDirectoryIndex::new(
         db,
@@ -1226,7 +1229,7 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
         if let Some(root) = db.files().root(db, search_path.path()) {
             let _ = root.revision(db);
         } else {
-            tracing::warn!(
+            warn!(
                 "Search path has no registered source root: {}",
                 search_path.path()
             );
@@ -1259,10 +1262,9 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
             // A traversal issue can hide a matching file anywhere in this root, so it must precede
             // every positive retained from the same walk.
             for kind in issues {
-                tracing::warn!(
+                warn!(
                     "Failed to fully walk template directory {}: {:?}",
-                    root,
-                    kind
+                    root, kind
                 );
                 search.push(ProjectTemplateSearchEvidence::Issue {
                     issue: TemplateSearchIssue::Walk {
@@ -1283,7 +1285,7 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
                         backend,
                     }),
                     Err(error) => {
-                        tracing::warn!("Failed to index template file {}: {}", entry.path, error);
+                        warn!("Failed to index template file {}: {}", entry.path, error);
                         root_evidence.push(ProjectTemplateSearchEvidence::Issue {
                             issue: TemplateSearchIssue::File {
                                 name,
@@ -1311,9 +1313,9 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
                         ..
                     },
                 ) => a.cmp(b),
-                (ProjectTemplateSearchEvidence::File { .. }, _) => std::cmp::Ordering::Less,
-                (_, ProjectTemplateSearchEvidence::File { .. }) => std::cmp::Ordering::Greater,
-                _ => std::cmp::Ordering::Equal,
+                (ProjectTemplateSearchEvidence::File { .. }, _) => Ordering::Less,
+                (_, ProjectTemplateSearchEvidence::File { .. }) => Ordering::Greater,
+                _ => Ordering::Equal,
             });
             search.extend(root_evidence);
         }

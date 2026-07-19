@@ -2,7 +2,9 @@ use std::borrow::Cow;
 
 use camino::Utf8Path;
 use djls_semantic::BlockRole;
+use djls_semantic::Db;
 use djls_semantic::EndTag;
+use djls_semantic::IntermediateTag;
 use djls_semantic::RegionId;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -15,6 +17,7 @@ use djls_semantic::build_template_tree_for_file;
 use djls_semantic::builtin_tag_specs;
 use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
+use djls_templates::Filter;
 use djls_templates::Node;
 use djls_templates::TagBit;
 use djls_templates::parse_template;
@@ -30,7 +33,7 @@ struct TemplateTreeSnapshot {
 }
 
 impl TemplateTreeSnapshot {
-    fn from_tree(tree: TemplateTree<'_>, db: &dyn djls_semantic::Db) -> Self {
+    fn from_tree(tree: TemplateTree<'_>, db: &dyn Db) -> Self {
         let root = tree.root(db);
         let regions_ref = tree.regions(db);
 
@@ -52,7 +55,7 @@ impl TemplateTreeSnapshot {
 
 #[derive(serde::Serialize)]
 struct RegionSnapshot {
-    span: djls_source::Span,
+    span: Span,
     parent: Option<u32>,
     nodes: Vec<NodeSnapshot>,
 }
@@ -62,40 +65,40 @@ struct RegionSnapshot {
 enum NodeSnapshot {
     BlockTag {
         tag: String,
-        name_span: djls_source::Span,
-        bits: Vec<djls_templates::TagBit>,
-        full_span: djls_source::Span,
+        name_span: Span,
+        bits: Vec<TagBit>,
+        full_span: Span,
         body: u32,
         role: String,
     },
     Opaque {
         tag: String,
-        name_span: djls_source::Span,
-        bits: Vec<djls_templates::TagBit>,
-        full_span: djls_source::Span,
-        body_span: djls_source::Span,
+        name_span: Span,
+        bits: Vec<TagBit>,
+        full_span: Span,
+        body_span: Span,
     },
     StandaloneTag {
         tag: String,
-        name_span: djls_source::Span,
-        bits: Vec<djls_templates::TagBit>,
-        full_span: djls_source::Span,
+        name_span: Span,
+        bits: Vec<TagBit>,
+        full_span: Span,
     },
     Variable {
         var: String,
-        var_span: djls_source::Span,
-        filters: Vec<djls_templates::Filter>,
-        span: djls_source::Span,
+        var_span: Span,
+        filters: Vec<Filter>,
+        span: Span,
     },
     Comment {
-        span: djls_source::Span,
+        span: Span,
     },
     Text {
-        span: djls_source::Span,
+        span: Span,
     },
     Error {
-        span: djls_source::Span,
-        full_span: djls_source::Span,
+        span: Span,
+        full_span: Span,
     },
 }
 
@@ -173,13 +176,13 @@ enum NodeView {
     Tag {
         name: String,
         name_span: Span,
-        bits: Vec<djls_templates::TagBit>,
+        bits: Vec<TagBit>,
         span: Span,
     },
     Variable {
         var: String,
         var_span: Span,
-        filters: Vec<djls_templates::Filter>,
+        filters: Vec<Filter>,
         span: Span,
     },
     Comment {
@@ -387,10 +390,7 @@ fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> TemplateTree<'db
     build_template_tree_for_file(db, file, nodelist)
 }
 
-fn root_region<'db>(
-    tree: TemplateTree<'db>,
-    db: &'db dyn djls_semantic::Db,
-) -> &'db TemplateRegion {
+fn root_region<'db>(tree: TemplateTree<'db>, db: &'db dyn Db) -> &'db TemplateRegion {
     let root = tree.root(db);
     tree.regions(db).get(root)
 }
@@ -473,7 +473,7 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
                 name: Cow::Borrowed("endopaque_if"),
                 required: true,
             }),
-            Cow::Owned(vec![djls_semantic::IntermediateTag {
+            Cow::Owned(vec![IntermediateTag {
                 name: Cow::Borrowed("else"),
             }]),
             true,

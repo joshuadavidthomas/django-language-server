@@ -1,4 +1,8 @@
 use camino::Utf8Path;
+use djls_conf::TagDef;
+use djls_conf::TagLibraryDef;
+use djls_conf::TagSpecDef;
+use djls_conf::TagTypeDef;
 use djls_ide::document_links;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
@@ -133,13 +137,13 @@ fn document_links_do_not_invent_origin_for_source_less_configured_library() {
     let template_path = "/test/project/templates/load.html";
     ProjectFixture::new("/test/project")
         .django_settings_module("project.settings")
-        .tag_specs(djls_conf::TagSpecDef {
-            libraries: vec![djls_conf::TagLibraryDef {
+        .tag_specs(TagSpecDef {
+            libraries: vec![TagLibraryDef {
                 module: "missing.panel_tags".to_string(),
                 requires_engine: None,
-                tags: vec![djls_conf::TagDef {
+                tags: vec![TagDef {
                     name: "panel".to_string(),
-                    tag_type: djls_conf::TagTypeDef::Block,
+                    tag_type: TagTypeDef::Block,
                     end: None,
                     intermediates: Vec::new(),
                     args: Vec::new(),
@@ -147,7 +151,7 @@ fn document_links_do_not_invent_origin_for_source_less_configured_library() {
                 }],
                 extra: None,
             }],
-            ..djls_conf::TagSpecDef::default()
+            ..TagSpecDef::default()
         })
         .file(
             "/test/project/project/settings.py",

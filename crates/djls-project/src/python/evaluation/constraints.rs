@@ -138,6 +138,7 @@ mod tests {
 
     use djls_source::File;
     use djls_source::Span;
+    use salsa::Id;
     use salsa::plumbing::FromId as _;
 
     use super::BranchConstraints;
@@ -147,7 +148,7 @@ mod tests {
     fn origin(file_index: u32, start: u32) -> Origin {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
         // files are compared only as opaque IDs and are never read.
-        let file = File::from_id(unsafe { salsa::Id::from_index(file_index) });
+        let file = File::from_id(unsafe { Id::from_index(file_index) });
         Origin::new(file, Span::new(start, 1))
     }
 

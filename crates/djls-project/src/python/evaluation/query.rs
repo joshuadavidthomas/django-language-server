@@ -1,9 +1,13 @@
 use djls_source::FileReadError;
+use salsa::Cycle;
+use salsa::Id;
 
 use super::PythonModuleDependencies;
 use super::PythonModuleValues;
+use super::evaluator::evaluate_body;
 use super::result::EvaluatedPythonModule;
 use super::result::PythonModuleEvaluation;
+use super::touched_names::collect_syntax_impacts;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
@@ -39,11 +43,9 @@ pub(super) fn evaluate_python_module(
         }
     };
     let body = parsed.body(db);
-    let (mut module_values, dependencies) =
-        super::evaluator::evaluate_body(db, project, module.clone(), body);
+    let (mut module_values, dependencies) = evaluate_body(db, project, module.clone(), body);
     module_values.syntax_errors = parsed.syntax_errors(db).to_vec();
-    module_values.syntax_impacts =
-        super::touched_names::collect_syntax_impacts(body, &module_values.syntax_errors);
+    module_values.syntax_impacts = collect_syntax_impacts(body, &module_values.syntax_errors);
     PythonModuleEvaluation::Evaluated(EvaluatedPythonModule::new(
         Ok(module_values),
         dependencies,
@@ -85,7 +87,7 @@ pub(crate) fn python_module_dependencies(
 
 fn evaluate_python_module_cycle_initial(
     _db: &dyn ProjectDb,
-    _id: salsa::Id,
+    _id: Id,
     _project: Project,
     _module: PythonModule,
 ) -> PythonModuleEvaluation {
@@ -96,7 +98,7 @@ fn evaluate_python_module_cycle_initial(
 #[allow(clippy::needless_pass_by_value)]
 fn evaluate_python_module_cycle_recover(
     _db: &dyn ProjectDb,
-    cycle: &salsa::Cycle,
+    cycle: &Cycle,
     previous: &PythonModuleEvaluation,
     computed: PythonModuleEvaluation,
     _project: Project,

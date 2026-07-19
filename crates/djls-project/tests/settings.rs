@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io;
+use std::mem;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -8,14 +10,17 @@ use std::sync::atomic::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::Settings;
+use djls_project::Db as ProjectDb;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::compute_django_environment;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::django_settings;
 use djls_project::testing::python_syntax_errors;
 use djls_project::*;
+use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
-use djls_source::Db as _;
+use djls_source::Db as SourceDb;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
 use djls_source::RootWalk;
@@ -27,7 +32,13 @@ use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use salsa::Database;
+use salsa::Event;
+use salsa::EventKind;
+use salsa::Storage;
 use serde::Deserialize;
+use serde_json::Value;
+use serde_json::to_value;
 
 #[derive(Deserialize)]
 struct DjangoFactsGolden {
@@ -64,7 +75,7 @@ fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
         .collect()
 }
 
-fn has_case(value: &serde_json::Value, kind: &str) -> bool {
+fn has_case(value: &Value, kind: &str) -> bool {
     value["cases"].as_array().is_some_and(|cases| {
         cases
             .iter()
@@ -72,15 +83,11 @@ fn has_case(value: &serde_json::Value, kind: &str) -> bool {
     })
 }
 
-fn execution_count(
-    db: &(impl salsa::Database + ?Sized),
-    events: &[salsa::Event],
-    query_name: &str,
-) -> usize {
+fn execution_count(db: &(impl Database + ?Sized), events: &[Event], query_name: &str) -> usize {
     events
         .iter()
         .filter(|event| match &event.kind {
-            salsa::EventKind::WillExecute { database_key } => db
+            EventKind::WillExecute { database_key } => db
                 .ingredient_debug_name(database_key.ingredient_index())
                 .contains(query_name),
             _ => false,
@@ -172,7 +179,7 @@ fn star_imported_name_scoped_syntax_impact_does_not_open_namespace() {
         .file("/proj/myproject/settings/local.py", "from .base import *\n")
         .install(&mut db);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     let app_cases = settings["installed_apps"]["cases"].as_array().unwrap();
     assert_eq!(app_cases.len(), 3);
     assert!(app_cases.iter().any(|case| case == "unset"));
@@ -213,7 +220,7 @@ fn later_exact_assignment_dominates_syntax_impact_through_named_import() {
         )
         .install(&mut db);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     let cases = settings["installed_apps"]["cases"].as_array().unwrap();
 
     assert_eq!(cases.len(), 1);
@@ -234,7 +241,7 @@ fn later_exact_assignment_dominates_syntax_impact_through_star_import() {
         .file("/proj/myproject/settings/local.py", "from .base import *\n")
         .install(&mut db);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     let cases = settings["installed_apps"]["cases"].as_array().unwrap();
 
     assert_eq!(cases.len(), 1);
@@ -260,7 +267,7 @@ fn namespace_wide_syntax_exclusion_survives_named_and_star_imports() {
             .file("/proj/myproject/settings.py", root_import)
             .install(&mut db);
 
-        let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+        let settings = to_value(django_settings(&db, project)).unwrap();
         let cases = settings["installed_apps"]["cases"].as_array().unwrap();
 
         assert_eq!(cases.len(), 1, "{root_import}");
@@ -404,13 +411,13 @@ fn dependency_change_backdates_value_projection() {
         .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']")
         .install(&mut db);
 
-    let before = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let before = to_value(django_settings(&db, project)).unwrap();
     let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
     let _ = event_log.take();
 
     update_settings_file(&mut db, "INSTALLED_APPS = ['a']\nfrom .extra import *");
     let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let after = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let after = to_value(django_settings(&db, project)).unwrap();
     let events = event_log.take();
 
     assert_eq!(after, before);
@@ -435,12 +442,12 @@ fn origin_shift_changes_values_but_backdates_dependency_projection() {
         .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']\n")
         .install(&mut db);
 
-    let before = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let before = to_value(django_settings(&db, project)).unwrap();
     let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
     let _ = event_log.take();
 
     update_settings_file(&mut db, "\nINSTALLED_APPS = ['a']\n");
-    let after = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let after = to_value(django_settings(&db, project)).unwrap();
     let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
     let events = event_log.take();
 
@@ -502,7 +509,7 @@ fn direct_settings_cycle_is_bounded_and_retains_local_values() {
         )
         .install(&mut db);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
     let events = event_log.take();
 
@@ -533,13 +540,13 @@ fn imported_uncertain_namespace_preserves_local_setting_alternatives() {
         .file("/proj/myproject/plugins.py", "from .missing import *\n")
         .install(&mut db);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     let cases = settings["installed_apps"]["cases"].as_array().unwrap();
     let known = cases
         .iter()
         .filter_map(|case| case.get("known"))
         .map(|known| known["apps"][0]["value"].as_str().unwrap())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(known, ["first", "second"].into_iter().collect());
     assert!(has_case(&settings["installed_apps"], "dynamic"));
@@ -561,7 +568,7 @@ fn named_import_of_absent_open_setting_is_dynamic_without_domain_absence() {
         )
         .install(&mut db);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     assert!(!has_case(&settings["templates"], "unset"), "{settings:#}");
     assert!(has_case(&settings["templates"], "dynamic"), "{settings:#}");
 }
@@ -582,13 +589,13 @@ fn conditional_star_binding_falls_back_to_the_pre_import_local_value() {
         )
         .install(&mut db);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     let cases = settings["installed_apps"]["cases"].as_array().unwrap();
     let known = cases
         .iter()
         .filter_map(|case| case.get("known"))
         .map(|known| known["apps"][0]["value"].as_str().unwrap())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(known, ["imported", "local"].into_iter().collect());
     assert!(!cases.iter().any(|case| case == "unset"));
@@ -611,7 +618,7 @@ fn two_file_settings_cycle_is_bounded_and_retains_local_values() {
         )
         .install(&mut db);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
     let events = event_log.take();
 
@@ -659,7 +666,7 @@ impl FileSystem for ToggleReadFileSystem {
         self.inner.is_dir(path)
     }
 
-    fn case_sensitivity(&self) -> djls_source::CaseSensitivity {
+    fn case_sensitivity(&self) -> CaseSensitivity {
         self.inner.case_sensitivity()
     }
 
@@ -675,17 +682,17 @@ impl FileSystem for ToggleReadFileSystem {
 #[salsa::db]
 #[derive(Clone)]
 struct EventTestDatabase {
-    storage: salsa::Storage<Self>,
+    storage: Storage<Self>,
     fs: Arc<dyn FileSystem>,
     files: SourceFiles,
     project: Option<Project>,
 }
 
 #[salsa::db]
-impl salsa::Database for EventTestDatabase {}
+impl Database for EventTestDatabase {}
 
 #[salsa::db]
-impl djls_source::Db for EventTestDatabase {
+impl SourceDb for EventTestDatabase {
     fn files(&self) -> &SourceFiles {
         &self.files
     }
@@ -696,7 +703,7 @@ impl djls_source::Db for EventTestDatabase {
 }
 
 #[salsa::db]
-impl djls_project::Db for EventTestDatabase {
+impl ProjectDb for EventTestDatabase {
     fn project(&self) -> Option<Project> {
         self.project
     }
@@ -718,7 +725,7 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
     );
     inner.add_file(leaf_path.clone(), "TEMPLATES = []\n".to_string());
     let mut db = EventTestDatabase {
-        storage: salsa::Storage::new(Some(Box::new({
+        storage: Storage::new(Some(Box::new({
             let events = events.clone();
             move |event| events.lock().unwrap().push(event)
         }))),
@@ -748,7 +755,7 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
         Some(PythonModuleName::parse("myproject.settings").unwrap()),
         pythonpath,
         Vec::new(),
-        djls_conf::Settings::default().tagspecs().clone(),
+        Settings::default().tagspecs().clone(),
     );
     db.project = Some(project);
 
@@ -767,7 +774,7 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
             ProjectFactsPhase::SettingsSources.run(&db, project).count(),
             2
         );
-        let transition_events = std::mem::take(&mut *events.lock().unwrap());
+        let transition_events = mem::take(&mut *events.lock().unwrap());
 
         assert_eq!(
             execution_count(&db, &transition_events, "evaluate_python_module"),
@@ -911,7 +918,7 @@ fn project_with_file_system_failure(
     (db, project)
 }
 
-fn complete_template_dirs(db: &dyn djls_project::Db, project: Project) -> Vec<Utf8PathBuf> {
+fn complete_template_dirs(db: &dyn ProjectDb, project: Project) -> Vec<Utf8PathBuf> {
     let directories = template_directories(db, project);
     assert!(!directories.configuration_may_omit_roots());
     directories
@@ -943,7 +950,7 @@ fn project_requiring_environment_application(db: &mut TestDatabase) -> Project {
         Some(PythonModuleName::parse("settings").unwrap()),
         vec![Utf8PathBuf::from("/vendor")],
         Vec::new(),
-        djls_conf::Settings::default().tagspecs().clone(),
+        Settings::default().tagspecs().clone(),
     );
     db.set_project(project);
     project
@@ -1033,7 +1040,7 @@ fn django_discovery_run_applies_environment_before_computing_facts() {
         project
             .search_paths(&db)
             .iter()
-            .map(djls_project::SearchPath::path)
+            .map(SearchPath::path)
             .collect::<Vec<_>>(),
         [Utf8Path::new("/proj"), Utf8Path::new("/vendor")]
     );
@@ -1287,11 +1294,11 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
         Some(PythonModuleName::parse("myproject.settings").unwrap()),
         pythonpath,
         Vec::new(),
-        djls_conf::Settings::default().tagspecs().clone(),
+        Settings::default().tagspecs().clone(),
     );
     db.set_project(project);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     assert_eq!(
         settings["installed_apps"]["cases"][0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"],
         "unreadable"
@@ -1599,9 +1606,7 @@ fn template_dirs_keep_different_explicit_backend_alternatives() {
         .map(|origin| origin.path_buf(&db).clone())
         .collect();
     assert_eq!(
-        origins
-            .into_iter()
-            .collect::<std::collections::BTreeSet<_>>(),
+        origins.into_iter().collect::<BTreeSet<_>>(),
         [
             Utf8PathBuf::from("/proj/a/index.html"),
             Utf8PathBuf::from("/proj/b/index.html"),
@@ -2151,7 +2156,7 @@ fn template_libraries_cross_product_divergent_installed_apps_with_templates() {
     let modules = candidates
         .iter()
         .map(|library| library.module_name_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert_eq!(
         modules,
         ["first.templatetags.shared", "second.templatetags.shared",]

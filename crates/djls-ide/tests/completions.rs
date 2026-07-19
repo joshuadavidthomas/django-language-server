@@ -1,7 +1,15 @@
 use std::borrow::Cow;
 
 use camino::Utf8Path;
+use djls_conf::TagDef;
+use djls_conf::TagLibraryDef;
+use djls_conf::TagSpecDef;
+use djls_conf::TagTypeDef;
 use djls_ide::completion;
+use djls_project::SymbolDefinition;
+use djls_project::TemplateEnvironment;
+use djls_project::TemplateSymbolKind;
+use djls_project::template_libraries;
 use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagSpec;
@@ -317,13 +325,13 @@ fn multi_backend_same_definition_uses_loaded_availability_presentation() {
 fn configured_only_tag_survives_effective_candidates_and_completion() {
     let mut db = TestDatabase::new();
     let (source, offset) = source_and_offset("{% load dynamic %}\n{% dynamic_§ %}");
-    let tag_specs = djls_conf::TagSpecDef {
-        libraries: vec![djls_conf::TagLibraryDef {
+    let tag_specs = TagSpecDef {
+        libraries: vec![TagLibraryDef {
             module: "dynamic_tags".to_string(),
             requires_engine: None,
-            tags: vec![djls_conf::TagDef {
+            tags: vec![TagDef {
                 name: "dynamic_panel".to_string(),
-                tag_type: djls_conf::TagTypeDef::Standalone,
+                tag_type: TagTypeDef::Standalone,
                 end: None,
                 intermediates: Vec::new(),
                 args: Vec::new(),
@@ -331,7 +339,7 @@ fn configured_only_tag_survives_effective_candidates_and_completion() {
             }],
             extra: None,
         }],
-        ..djls_conf::TagSpecDef::default()
+        ..TagSpecDef::default()
     };
     let project = ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
@@ -351,17 +359,16 @@ fn configured_only_tag_survives_effective_candidates_and_completion() {
         .file("/test/project/templates/page.html", &source)
         .install(&mut db);
     let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
-    let configured_symbol = djls_project::TemplateEnvironment::from_project_inventory(
-        djls_project::template_libraries(&db, project),
-    )
-    .resolved_libraries()
-    .into_iter()
-    .find(|library| library.module_name_str() == "dynamic_tags")
-    .and_then(|library| library.symbol(djls_project::TemplateSymbolKind::Tag, "dynamic_panel"))
-    .expect("configured-only tag should enter its Template Library catalog");
+    let configured_symbol =
+        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            .resolved_libraries()
+            .into_iter()
+            .find(|library| library.module_name_str() == "dynamic_tags")
+            .and_then(|library| library.symbol(TemplateSymbolKind::Tag, "dynamic_panel"))
+            .expect("configured-only tag should enter its Template Library catalog");
     assert!(matches!(
         configured_symbol.definition,
-        djls_project::SymbolDefinition::Unknown
+        SymbolDefinition::Unknown
     ));
 
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)

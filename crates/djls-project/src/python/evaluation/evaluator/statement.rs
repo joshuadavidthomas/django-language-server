@@ -1,5 +1,4 @@
-use std::collections::BTreeSet;
-
+use djls_source::Origin;
 use djls_source::Span;
 use ruff_python_ast as ast;
 
@@ -278,7 +277,7 @@ impl Evaluator<'_> {
         left: PythonValue,
         right: &PythonValue,
         target: &ast::Expr,
-        origin: djls_source::Origin,
+        origin: Origin,
     ) {
         let extend_fact = || {
             MutationTarget::from_expr(target)
@@ -381,31 +380,16 @@ impl Evaluator<'_> {
 
     fn degrade_loop_bodies(&mut self, bodies: &[&[ast::Stmt]], control_span: Span) {
         let baseline = self.fork();
-        let mut changed_names = BTreeSet::new();
+        let mut evaluated_bodies = Vec::with_capacity(bodies.len());
         for body in bodies {
-            let mut branch = baseline.fork();
-            branch.evaluate_body(body);
-            changed_names.extend(branch.state.changed_names_from(&baseline.state));
-            self.state
-                .dependencies
-                .files
-                .extend(branch.state.dependencies.files.iter().copied());
-            self.state
-                .dependencies
-                .imports
-                .extend(branch.state.dependencies.imports.iter().cloned());
-            self.state
-                .mutations
-                .extend(branch.state.mutations.iter().cloned());
-            self.state
-                .namespace_causes
-                .extend(branch.state.namespace_causes);
+            let mut evaluator = baseline.fork();
+            evaluator.evaluate_body(body);
+            evaluated_bodies.push(evaluator.state);
         }
-        self.state.degrade_names(
-            changed_names,
-            &PythonUnknownCause::UnsupportedExpression,
-            self.origin_at(control_span),
-        );
+
+        self.state = baseline
+            .state
+            .degrade_loop_effects(evaluated_bodies, self.origin_at(control_span));
     }
 
     fn assign_target(&mut self, target: &ast::Expr, expression: &ast::Expr, value: PythonBinding) {

@@ -1,6 +1,9 @@
+use std::iter;
+
 use camino::Utf8PathBuf;
 use djls_source::Origin;
 use serde::Serialize;
+use serde::Serializer;
 use serde::ser::SerializeStruct;
 
 use crate::python::InvalidModuleName;
@@ -38,7 +41,7 @@ where
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         let mut state = serializer.serialize_struct("SettingAlternatives", 1)?;
         state.serialize_field(
@@ -222,7 +225,7 @@ pub(crate) struct SettingIssue {
 impl Serialize for SettingIssue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         let spans: Vec<_> = self.origins.iter().map(|origin| origin.span).collect();
         let mut state = serializer.serialize_struct("SettingIssue", 2)?;
@@ -286,7 +289,7 @@ impl<T> WithOrigin<T> {
     }
 
     fn origins(&self) -> impl Iterator<Item = Origin> + '_ {
-        std::iter::once(self.origin).chain(self.additional_origins.iter().copied())
+        iter::once(self.origin).chain(self.additional_origins.iter().copied())
     }
 }
 
@@ -322,7 +325,7 @@ impl<T: MergeEvidence + PartialEq> MergeEvidence for WithOrigin<T> {
 impl<T: Serialize> Serialize for WithOrigin<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         let spans: Vec<_> = self.origins().map(|origin| origin.span).collect();
         let mut state = serializer.serialize_struct("WithOrigin", 2)?;
@@ -815,19 +818,23 @@ merge_struct_fields!(DjangoSettings {
 #[cfg(test)]
 mod tests {
     use djls_source::File;
+    use djls_source::Origin;
     use djls_source::Span;
+    use salsa::Id;
     use salsa::plumbing::FromId as _;
+    use serde_json::json;
+    use serde_json::to_value;
 
     use super::MergeEvidence;
     use super::SettingIssue;
     use super::SettingIssueKind;
     use super::WithOrigin;
 
-    fn origin(start: u32) -> djls_source::Origin {
+    fn origin(start: u32) -> Origin {
         // SAFETY: The test index is below `salsa::Id::MAX_U32`; this synthetic
         // file is used only as an opaque identity and is never read.
-        let file = File::from_id(unsafe { salsa::Id::from_index(0) });
-        djls_source::Origin::new(file, Span::new(start, 1))
+        let file = File::from_id(unsafe { Id::from_index(0) });
+        Origin::new(file, Span::new(start, 1))
     }
 
     #[test]
@@ -863,8 +870,8 @@ mod tests {
         assert_eq!(value.origin(), first);
         assert_eq!(value.origins().collect::<Vec<_>>(), [first]);
         assert_eq!(
-            serde_json::to_value(&value).unwrap(),
-            serde_json::json!({
+            to_value(&value).unwrap(),
+            json!({
                 "value": "value",
                 "spans": [first.span],
             })
@@ -880,8 +887,8 @@ mod tests {
         assert_eq!(value.origin(), first);
         assert_eq!(value.origins().collect::<Vec<_>>(), [first, second]);
         assert_eq!(
-            serde_json::to_value(&value).unwrap(),
-            serde_json::json!({
+            to_value(&value).unwrap(),
+            json!({
                 "value": "value",
                 "spans": [first.span, second.span],
             })
@@ -901,10 +908,7 @@ mod tests {
         assert!(reversed.merge_evidence(&second_value));
         assert_eq!(forward, reversed);
         assert_eq!(forward.origins().collect::<Vec<_>>(), [first, second]);
-        assert_eq!(
-            serde_json::to_value(&forward).unwrap(),
-            serde_json::to_value(&reversed).unwrap()
-        );
+        assert_eq!(to_value(&forward).unwrap(), to_value(&reversed).unwrap());
 
         let merged = forward.clone();
         assert!(forward.merge_evidence(&merged));

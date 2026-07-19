@@ -7,6 +7,7 @@ use salsa::Accumulator;
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
+use crate::scoping::LoaderArgumentFact;
 use crate::scoping::symbols::SymbolAvailability;
 
 pub(crate) fn check_tag_scoping_rule(
@@ -102,10 +103,7 @@ pub(crate) fn check_filter_scoping_rule(
     }
 }
 
-pub(crate) fn check_load_libraries_rule(
-    db: &dyn Db,
-    arguments: &[crate::scoping::LoaderArgumentFact],
-) {
+pub(crate) fn check_load_libraries_rule(db: &dyn Db, arguments: &[LoaderArgumentFact]) {
     for fact in arguments {
         let lib = &fact.argument;
         match &fact.availability {

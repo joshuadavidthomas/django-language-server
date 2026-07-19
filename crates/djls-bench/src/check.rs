@@ -55,23 +55,41 @@ pub fn synthetic_render_diagnostics() -> [Diagnostic<'static>; 2] {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::env;
     use std::fmt::Write as _;
+    use std::mem::take;
     use std::sync::Arc;
     use std::sync::Mutex;
 
+    use djls::check_template;
     use djls_conf::DiagnosticsConfig;
+    use djls_ide::collect_diagnostics;
+    use djls_ide::prepare_project_template_analysis;
+    use djls_ide::prime_template_library_products;
     use djls_semantic::TemplateDiagnostics;
+    use djls_semantic::build_template_tree_for_file;
+    use djls_semantic::collect_template_diagnostics;
+    use djls_semantic::compute_opaque_regions;
+    use djls_semantic::validate_template_file;
     use djls_source::DiagnosticRenderer;
     use djls_source::File;
+    use djls_templates::parse_template;
+    use insta::assert_yaml_snapshot;
     use salsa::Database as _;
+    use salsa::Event;
+    use salsa::EventKind;
     use serde::Serialize;
     use sha2::Digest;
     use sha2::Sha256;
+    use tower_lsp_server::ls_types::Diagnostic as LspDiagnostic;
     use tower_lsp_server::ls_types::DiagnosticSeverity;
     use tower_lsp_server::ls_types::NumberOrString;
 
-    use super::*;
+    use super::MANY_ERRORS_SOURCE;
+    use super::synthetic_render_diagnostics;
     use crate::CorpusTemplates;
+    use crate::DIAGNOSTICS_WARMUP_ITERS;
+    use crate::Db;
     use crate::django_corpus_templates;
     use crate::full_corpus_templates;
     use crate::primed_realistic_db;
@@ -260,7 +278,7 @@ mod tests {
 
     fn normalize_lsp_diagnostics(
         path: &str,
-        diagnostics: Vec<tower_lsp_server::ls_types::Diagnostic>,
+        diagnostics: Vec<LspDiagnostic>,
     ) -> Vec<NormalizedDiagnostic> {
         let mut normalized = diagnostics
             .into_iter()
@@ -408,7 +426,7 @@ mod tests {
     }
 
     fn checked_workload_snapshot(
-        db: &crate::Db,
+        db: &Db,
         files: &[File],
         detail: WorkloadDetail,
         render: bool,
@@ -428,7 +446,7 @@ mod tests {
 
         for &file in files {
             let path = file.path(db);
-            let diagnostics = djls_semantic::collect_template_diagnostics(db, file);
+            let diagnostics = collect_template_diagnostics(db, file);
             let digest = CheckDigest::from_diagnostics(&diagnostics);
             parser_count += digest.parser_count;
             validation_count += digest.validation_count;
@@ -449,15 +467,15 @@ mod tests {
                     .collect(),
             });
 
-            if let Some(diagnostics) = djls_ide::collect_diagnostics(db, file) {
+            if let Some(diagnostics) = collect_diagnostics(db, file) {
                 ide_eligible_file_count += 1;
                 normalized_ide_diagnostics
                     .extend(normalize_lsp_diagnostics(path.as_str(), diagnostics));
             }
 
             if render {
-                let checked = djls::check_template(db, file)
-                    .expect("benchmark snapshot file should be readable");
+                let checked =
+                    check_template(db, file).expect("benchmark snapshot file should be readable");
                 for output in checked.render(&config, &renderer) {
                     rendered_count += 1;
                     rendered_bytes += output.len();
@@ -502,18 +520,15 @@ mod tests {
         }
     }
 
-    fn take_will_execute_names(
-        db: &crate::Db,
-        events: &Arc<Mutex<Vec<salsa::Event>>>,
-    ) -> Vec<String> {
-        std::mem::take(
+    fn take_will_execute_names(db: &Db, events: &Arc<Mutex<Vec<Event>>>) -> Vec<String> {
+        take(
             &mut *events
                 .lock()
                 .expect("benchmark event log lock should not be poisoned"),
         )
         .into_iter()
         .filter_map(|event| match event.kind {
-            salsa::EventKind::WillExecute { database_key } => Some(
+            EventKind::WillExecute { database_key } => Some(
                 db.ingredient_debug_name(database_key.ingredient_index())
                     .to_string(),
             ),
@@ -544,7 +559,7 @@ mod tests {
             .find(|fixture| fixture.label == "large/views_technical_500.html")
             .expect("benchmark should have the views_technical_500.html Template fixture");
         let events = Arc::new(Mutex::new(Vec::new()));
-        let mut db = crate::Db::realistic_with_event_log(Arc::clone(&events));
+        let mut db = Db::realistic_with_event_log(Arc::clone(&events));
         let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
         let original = fixture.source.clone();
         let modified = {
@@ -553,12 +568,12 @@ mod tests {
             text
         };
 
-        djls_semantic::validate_template_file(&db, file);
+        validate_template_file(&db, file);
         let priming_names = take_will_execute_names(&db, &events);
         assert_execution_count(&priming_names, "validate_template_file", 1);
 
         let original_diagnostics =
-            normalize_semantic_diagnostics(&djls_semantic::collect_template_diagnostics(&db, file));
+            normalize_semantic_diagnostics(&collect_template_diagnostics(&db, file));
         assert!(
             !original_diagnostics.is_empty(),
             "incremental validation fixture should produce semantic diagnostics"
@@ -567,24 +582,24 @@ mod tests {
         assert_execution_count(&original_output_names, "validate_template_file", 0);
 
         db.set_file_contents(file, &modified);
-        djls_semantic::validate_template_file(&db, file);
+        validate_template_file(&db, file);
         let modified_names = take_will_execute_names(&db, &events);
         assert_execution_count(&modified_names, "validate_template_file", 1);
         let modified_diagnostics =
-            normalize_semantic_diagnostics(&djls_semantic::collect_template_diagnostics(&db, file));
+            normalize_semantic_diagnostics(&collect_template_diagnostics(&db, file));
         let modified_output_names = take_will_execute_names(&db, &events);
         assert_execution_count(&modified_output_names, "validate_template_file", 0);
 
         db.set_file_contents(file, &original);
-        djls_semantic::validate_template_file(&db, file);
+        validate_template_file(&db, file);
         let restored_names = take_will_execute_names(&db, &events);
         assert_execution_count(&restored_names, "validate_template_file", 1);
         let restored_diagnostics =
-            normalize_semantic_diagnostics(&djls_semantic::collect_template_diagnostics(&db, file));
+            normalize_semantic_diagnostics(&collect_template_diagnostics(&db, file));
         let restored_output_names = take_will_execute_names(&db, &events);
         assert_execution_count(&restored_output_names, "validate_template_file", 0);
 
-        djls_semantic::validate_template_file(&db, file);
+        validate_template_file(&db, file);
         let repeated_names = take_will_execute_names(&db, &events);
         assert_execution_count(&repeated_names, "validate_template_file", 0);
 
@@ -599,8 +614,8 @@ mod tests {
             .find(|fixture| fixture.label == "large/views_technical_500.html")
             .expect("benchmark should have the views_technical_500.html Template fixture");
         let events = Arc::new(Mutex::new(Vec::new()));
-        let mut db = crate::Db::realistic_with_event_log(Arc::clone(&events));
-        djls_ide::prime_template_library_products(&db)
+        let mut db = Db::realistic_with_event_log(Arc::clone(&events));
+        prime_template_library_products(&db)
             .expect("realistic benchmark database should install a Project");
 
         let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
@@ -611,8 +626,8 @@ mod tests {
             text
         };
         let mut original_diagnostics = Vec::new();
-        for _ in 0..crate::DIAGNOSTICS_WARMUP_ITERS {
-            original_diagnostics = djls_ide::collect_diagnostics(&db, file)
+        for _ in 0..DIAGNOSTICS_WARMUP_ITERS {
+            original_diagnostics = collect_diagnostics(&db, file)
                 .expect("Template fixture should be eligible for diagnostics");
         }
         let original_diagnostics =
@@ -624,7 +639,7 @@ mod tests {
         let _ = take_will_execute_names(&db, &events);
 
         db.set_file_contents(file, &modified);
-        let modified_diagnostics = djls_ide::collect_diagnostics(&db, file)
+        let modified_diagnostics = collect_diagnostics(&db, file)
             .expect("Template fixture should be eligible for diagnostics");
         let modified_diagnostics =
             normalize_lsp_diagnostics(fixture.path.as_str(), modified_diagnostics);
@@ -632,14 +647,14 @@ mod tests {
         assert_execution_count(&modified_names, "validate_template_file", 1);
 
         db.set_file_contents(file, &original);
-        let restored_diagnostics = djls_ide::collect_diagnostics(&db, file)
+        let restored_diagnostics = collect_diagnostics(&db, file)
             .expect("Template fixture should be eligible for diagnostics");
         let restored_diagnostics =
             normalize_lsp_diagnostics(fixture.path.as_str(), restored_diagnostics);
         let restored_names = take_will_execute_names(&db, &events);
         assert_execution_count(&restored_names, "validate_template_file", 1);
 
-        let repeated_diagnostics = djls_ide::collect_diagnostics(&db, file)
+        let repeated_diagnostics = collect_diagnostics(&db, file)
             .expect("Template fixture should be eligible for diagnostics");
         let repeated_diagnostics =
             normalize_lsp_diagnostics(fixture.path.as_str(), repeated_diagnostics);
@@ -654,13 +669,13 @@ mod tests {
     #[test]
     fn check_preparation_orders_shared_work_and_kernel_reuses_it() {
         let events = Arc::new(Mutex::new(Vec::new()));
-        let mut db = crate::Db::realistic_with_event_log(Arc::clone(&events));
+        let mut db = Db::realistic_with_event_log(Arc::clone(&events));
         let files = template_fixtures()
             .iter()
             .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
             .collect::<Vec<_>>();
 
-        djls_ide::prepare_project_template_analysis(&db)
+        prepare_project_template_analysis(&db)
             .expect("check benchmark database should install a Project");
         let setup_names = take_will_execute_names(&db, &events);
         let intrinsic_position = setup_names
@@ -677,7 +692,7 @@ mod tests {
         );
         assert_eq!(execution_count(&setup_names, "template_directory_index"), 1);
 
-        djls_ide::prepare_project_template_analysis(&db)
+        prepare_project_template_analysis(&db)
             .expect("check benchmark database should install a Project");
         let repeated_setup_names = take_will_execute_names(&db, &events);
         assert_eq!(
@@ -694,8 +709,7 @@ mod tests {
         let config = DiagnosticsConfig::default();
         let renderer = DiagnosticRenderer::plain();
         for file in &files {
-            let checked =
-                djls::check_template(&db, *file).expect("benchmark file should be readable");
+            let checked = check_template(&db, *file).expect("benchmark file should be readable");
             let _ = checked.render(&config, &renderer);
         }
 
@@ -718,10 +732,10 @@ mod tests {
             .iter()
             .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
             .collect::<Vec<_>>();
-        djls_ide::prepare_project_template_analysis(&db)
+        prepare_project_template_analysis(&db)
             .expect("check benchmark database should install a Project");
 
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "check_workload_fixtures",
             checked_workload_snapshot(&db, &files, WorkloadDetail::Small, true)
         );
@@ -750,14 +764,12 @@ mod tests {
             .collect::<Vec<_>>();
         let mut snapshots = Vec::new();
         for file in files {
-            let nodelist =
-                djls_templates::parse_template(&db, file).expect("benchmark template should parse");
-            let tree = djls_semantic::build_template_tree_for_file(&db, file, nodelist);
+            let nodelist = parse_template(&db, file).expect("benchmark template should parse");
+            let tree = build_template_tree_for_file(&db, file, nodelist);
             snapshots.push(SemanticFileSnapshot {
                 path: file.path(&db).to_string(),
                 template_tree_regions: tree.regions(&db).iter().count(),
-                has_opaque_regions: !djls_semantic::compute_opaque_regions(&db, file, nodelist)
-                    .is_empty(),
+                has_opaque_regions: !compute_opaque_regions(&db, file, nodelist).is_empty(),
             });
         }
         snapshots.sort_by(|left, right| left.path.cmp(&right.path));
@@ -771,7 +783,7 @@ mod tests {
             .map(|snapshot| snapshot.path.clone())
             .collect();
 
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "semantic_projectless_fixtures",
             SemanticWorkloadSnapshot {
                 files: snapshots,
@@ -790,7 +802,7 @@ mod tests {
     fn snapshot_corpus(name: &str, corpus: Option<&CorpusTemplates>) {
         let Some(corpus) = corpus else {
             assert!(
-                std::env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_none(),
+                env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_none(),
                 "{name} benchmark corpus is not synchronized"
             );
             eprintln!("{name} benchmark corpus is not synchronized; skipping snapshot");
@@ -804,9 +816,9 @@ mod tests {
             .iter()
             .map(|(path, source)| db.file_with_contents(path.clone(), source))
             .collect::<Vec<_>>();
-        djls_ide::prepare_project_template_analysis(&db)
+        prepare_project_template_analysis(&db)
             .expect("check benchmark database should install a Project");
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             name,
             CorpusWorkloadSnapshot {
                 input: corpus_input_snapshot(corpus),
@@ -838,7 +850,7 @@ mod tests {
             .map(|index| db.file_with_contents(format!("/templates/empty/{index}.html"), ""))
             .collect();
 
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "diagnostics_cached_empty",
             checked_workload_snapshot(&db, &files, WorkloadDetail::Small, false)
         );
@@ -852,7 +864,7 @@ mod tests {
             .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
             .collect();
 
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "diagnostics_cached_validation_errors",
             checked_workload_snapshot(&db, &files, WorkloadDetail::Dense, false)
         );
@@ -866,7 +878,7 @@ mod tests {
             .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
             .collect();
 
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "diagnostics_cached_realistic_end_to_end",
             checked_workload_snapshot(&db, &files, WorkloadDetail::Small, false)
         );
@@ -898,7 +910,7 @@ mod tests {
             })
             .collect();
 
-        insta::assert_yaml_snapshot!("diagnostics_render_synthetic", snapshot);
+        assert_yaml_snapshot!("diagnostics_render_synthetic", snapshot);
     }
 
     #[derive(Serialize)]
@@ -921,7 +933,7 @@ mod tests {
         for fixture in validation_error_fixtures() {
             let mut db = primed_realistic_db();
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-            let diagnostics = djls_semantic::collect_template_diagnostics(&db, file);
+            let diagnostics = collect_template_diagnostics(&db, file);
             assert!(
                 !diagnostics.validation_errors.is_empty(),
                 "validation error rendering fixture '{}' produced no validation errors",
@@ -929,8 +941,7 @@ mod tests {
             );
             validation_error_count += diagnostics.validation_errors.len();
 
-            let checked =
-                djls::check_template(&db, file).expect("benchmark file should be readable");
+            let checked = check_template(&db, file).expect("benchmark file should be readable");
             for output in checked.render(&config, &renderer) {
                 rendered_count += 1;
                 rendered_bytes += output.len();
@@ -939,7 +950,7 @@ mod tests {
             }
         }
 
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "diagnostics_render_validation_fixtures",
             ValidationRenderSnapshot {
                 validation_error_count,
@@ -964,7 +975,7 @@ mod tests {
     fn synthetic_validation_rendering_workload_is_stable() {
         let mut db = primed_realistic_db();
         let file = db.file_with_contents("bench.html", MANY_ERRORS_SOURCE);
-        let check = djls_semantic::collect_template_diagnostics(&db, file);
+        let check = collect_template_diagnostics(&db, file);
         assert!(
             !check.validation_errors.is_empty(),
             "synthetic validation error benchmark produced no validation errors",
@@ -975,14 +986,14 @@ mod tests {
         let mut rendered_count = 0;
         let mut rendered_bytes = 0;
         let mut hasher = StableHasher::new();
-        let checked = djls::check_template(&db, file).expect("benchmark file should be readable");
+        let checked = check_template(&db, file).expect("benchmark file should be readable");
         for output in checked.render(&config, &renderer) {
             rendered_count += 1;
             rendered_bytes += output.len();
             hasher.write(output.as_bytes());
         }
 
-        insta::assert_yaml_snapshot!(
+        assert_yaml_snapshot!(
             "diagnostics_render_validation_synthetic",
             SyntheticValidationRenderSnapshot {
                 source_bytes: MANY_ERRORS_SOURCE.len(),

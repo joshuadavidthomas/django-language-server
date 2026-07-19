@@ -1,3 +1,7 @@
+use djls_conf::TagDef;
+use djls_conf::TagLibraryDef;
+use djls_conf::TagSpecDef;
+use djls_conf::TagTypeDef;
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::EnvironmentSymbolLookup;
 use djls_project::LibraryName;
@@ -291,13 +295,13 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .django_settings_module("project.settings")
-        .tag_specs(djls_conf::TagSpecDef {
-            libraries: vec![djls_conf::TagLibraryDef {
+        .tag_specs(TagSpecDef {
+            libraries: vec![TagLibraryDef {
                 module: "missing.panel_tags".to_string(),
                 requires_engine: None,
-                tags: vec![djls_conf::TagDef {
+                tags: vec![TagDef {
                     name: "panel".to_string(),
-                    tag_type: djls_conf::TagTypeDef::Block,
+                    tag_type: TagTypeDef::Block,
                     end: None,
                     intermediates: Vec::new(),
                     args: Vec::new(),
@@ -305,7 +309,7 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
                 }],
                 extra: None,
             }],
-            ..djls_conf::TagSpecDef::default()
+            ..TagSpecDef::default()
         })
         .file(
             "/project/project/settings.py",

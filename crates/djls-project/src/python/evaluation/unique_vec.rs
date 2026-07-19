@@ -1,4 +1,6 @@
 use std::cmp::Ordering;
+use std::slice::Iter;
+use std::vec::IntoIter;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct UniqueVec<T>(Vec<T>);
@@ -13,7 +15,7 @@ impl<T> UniqueVec<T> {
         &self.0
     }
 
-    pub(crate) fn iter(&self) -> std::slice::Iter<'_, T> {
+    pub(crate) fn iter(&self) -> Iter<'_, T> {
         self.0.iter()
     }
 
@@ -71,7 +73,7 @@ impl<T: Eq> From<Vec<T>> for UniqueVec<T> {
 
 impl<T> IntoIterator for UniqueVec<T> {
     type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
+    type IntoIter = IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -80,7 +82,7 @@ impl<T> IntoIterator for UniqueVec<T> {
 
 impl<'a, T> IntoIterator for &'a UniqueVec<T> {
     type Item = &'a T;
-    type IntoIter = std::slice::Iter<'a, T>;
+    type IntoIter = Iter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()

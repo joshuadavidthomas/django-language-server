@@ -23,6 +23,7 @@ use djls_source::WalkEntry;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 use djls_source::path_to_file;
+use salsa::Storage;
 
 #[derive(Clone)]
 struct SourceMapFileSystem {
@@ -129,16 +130,16 @@ pub struct Db {
     projectless_tag_specs: Arc<TagSpecs>,
     projectless_filter_arity_specs: Arc<FilterAritySpecs>,
     project: Option<Project>,
-    storage: salsa::Storage<Self>,
+    storage: Storage<Self>,
 }
 
 impl Db {
     #[must_use]
     pub fn new() -> Self {
-        Self::with_storage(salsa::Storage::default())
+        Self::with_storage(Storage::default())
     }
 
-    fn with_storage(storage: salsa::Storage<Self>) -> Self {
+    fn with_storage(storage: Storage<Self>) -> Self {
         Self {
             fs: SourceMapFileSystem {
                 sources: Arc::new(FxDashMap::default()),
@@ -241,13 +242,22 @@ impl SemanticDb for Db {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::Mutex;
 
-    use super::*;
+    use camino::Utf8Path;
+    use camino::Utf8PathBuf;
+    use djls_source::Db as SourceDb;
+    use djls_source::RootWalk;
+    use djls_source::WalkOptions;
+    use salsa::Event;
+    use salsa::Storage;
+
+    use super::Db;
 
     impl Db {
-        pub(crate) fn with_event_log(events: Arc<Mutex<Vec<salsa::Event>>>) -> Self {
-            Self::with_storage(salsa::Storage::new(Some(Box::new(move |event| {
+        pub(crate) fn with_event_log(events: Arc<Mutex<Vec<Event>>>) -> Self {
+            Self::with_storage(Storage::new(Some(Box::new(move |event| {
                 events
                     .lock()
                     .expect("benchmark event log lock should not be poisoned")

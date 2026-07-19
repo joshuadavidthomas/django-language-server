@@ -2,17 +2,23 @@ use djls_project::TemplateName;
 use djls_source::File;
 use djls_source::Offset;
 use djls_source::Span;
+use djls_templates::TemplateParseResult;
 use djls_templates::parse_template;
 
+use crate::TagSpec;
 use crate::db::Db as SemanticDb;
 use crate::references::LiteralTemplateReference;
 use crate::references::TemplateReferenceKind;
 use crate::scoping::LoadKind;
+use crate::scoping::LoadedLibraries;
+use crate::scoping::ScopedTagFacts;
+use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
 use crate::structure::StructuralOccurrenceMeaning;
 use crate::structure::active_template_nodes;
+use crate::tags::TagRole;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SemanticOffsetContext<'db> {
@@ -49,11 +55,11 @@ pub enum SemanticOffsetContext<'db> {
 
 impl<'db> SemanticOffsetContext<'db> {
     pub fn from_offset(db: &'db dyn SemanticDb, file: File, offset: Offset) -> Self {
-        let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
+        let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
             return Self::None;
         };
 
-        let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+        let projection = template_analysis_projection_for_file(db, file, nodelist);
         let tree = projection.tree(db);
         let loaded = projection.loaded_libraries(db);
         let tag_facts = projection.scoped_tag_facts(db);
@@ -78,7 +84,7 @@ impl<'db> SemanticOffsetContext<'db> {
     }
 
     fn from_variable(
-        loaded: &crate::scoping::LoadedLibraries,
+        loaded: &LoadedLibraries,
         variable: ActiveTemplateVariable<'_>,
         offset: Offset,
     ) -> Self {
@@ -111,8 +117,8 @@ impl<'db> SemanticOffsetContext<'db> {
 
     fn from_tag(
         db: &'db dyn SemanticDb,
-        loaded: &crate::scoping::LoadedLibraries,
-        tag_facts: &crate::scoping::ScopedTagFacts,
+        loaded: &LoadedLibraries,
+        tag_facts: &ScopedTagFacts,
         tag: ActiveTemplateTag<'_>,
         offset: Offset,
     ) -> Self {
@@ -138,8 +144,7 @@ impl<'db> SemanticOffsetContext<'db> {
 
         let spec = tag_facts.for_tag(tag).and_then(|facts| facts.spec.as_ref());
 
-        if spec.and_then(crate::TagSpec::role) == Some(crate::tags::TagRole::TemplateLibraryLoader)
-        {
+        if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
             let Some(load_kind) = LoadKind::from_loader_bits(tag.bits) else {
                 return Self::None;
             };

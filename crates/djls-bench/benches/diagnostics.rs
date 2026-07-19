@@ -1,6 +1,11 @@
 use divan::Bencher;
+use divan::black_box;
+use divan::black_box_drop;
+use djls::CheckedTemplate;
+use djls::check_template;
 use djls_bench::DIAGNOSTICS_INNER_ITERS;
 use djls_bench::DIAGNOSTICS_WARMUP_ITERS;
+use djls_bench::Db;
 use djls_bench::MANY_ERRORS_SOURCE;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::ValidationErrorFixture;
@@ -9,7 +14,10 @@ use djls_bench::primed_realistic_db;
 use djls_bench::synthetic_render_diagnostics;
 use djls_bench::template_fixtures;
 use djls_bench::validation_error_fixtures;
+use djls_conf::DiagnosticsConfig;
+use djls_ide::collect_diagnostics;
 use djls_source::DiagnosticRenderer;
+use djls_source::File;
 
 fn main() {
     divan::main();
@@ -28,14 +36,14 @@ fn render_synthetic(bencher: Bencher) {
             total += plain.render(&diagnostics[1]).len();
             total += styled.render(&diagnostics[0]).len();
         }
-        divan::black_box(total);
+        black_box(total);
     });
 }
 
-fn bench_cached_diagnostics(bencher: Bencher, db: djls_bench::Db, files: Vec<djls_source::File>) {
+fn bench_cached_diagnostics(bencher: Bencher, db: Db, files: Vec<File>) {
     for &file in &files {
         prime(DIAGNOSTICS_WARMUP_ITERS, || {
-            let _ = djls_ide::collect_diagnostics(&db, file);
+            let _ = collect_diagnostics(&db, file);
         });
     }
 
@@ -43,12 +51,12 @@ fn bench_cached_diagnostics(bencher: Bencher, db: djls_bench::Db, files: Vec<djl
         let mut total = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for &file in &files {
-                total += djls_ide::collect_diagnostics(&db, file)
+                total += collect_diagnostics(&db, file)
                     .expect("template fixture should be eligible for diagnostics")
                     .len();
             }
         }
-        divan::black_box(total);
+        black_box(total);
     });
 }
 
@@ -85,7 +93,7 @@ fn collect_cached_realistic_end_to_end(bencher: Bencher) {
 }
 
 struct IncrementalTemplate {
-    file: djls_source::File,
+    file: File,
     original: String,
     modified: String,
     use_modified: bool,
@@ -118,7 +126,7 @@ fn collect_incremental(bencher: Bencher) {
 
     for template in &templates {
         prime(DIAGNOSTICS_WARMUP_ITERS, || {
-            let _ = djls_ide::collect_diagnostics(&db, template.file);
+            let _ = collect_diagnostics(&db, template.file);
         });
     }
 
@@ -135,19 +143,19 @@ fn collect_incremental(bencher: Bencher) {
 
                 db.set_file_contents(template.file, contents);
 
-                total += djls_ide::collect_diagnostics(&db, template.file)
+                total += collect_diagnostics(&db, template.file)
                     .expect("template fixture should be eligible for diagnostics")
                     .len();
             }
         }
-        divan::black_box(total);
+        black_box(total);
     });
 }
 
-fn validation_render_fixture(fixture: &ValidationErrorFixture) -> djls::CheckedTemplate {
+fn validation_render_fixture(fixture: &ValidationErrorFixture) -> CheckedTemplate {
     let mut db = primed_realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-    let checked = djls::check_template(&db, file).expect("benchmark file should be readable");
+    let checked = check_template(&db, file).expect("benchmark file should be readable");
     assert!(
         checked.has_diagnostics(),
         "validation error rendering fixture '{}' produced no diagnostics",
@@ -162,18 +170,18 @@ fn render_validation_output(bencher: Bencher) {
         .iter()
         .map(validation_render_fixture)
         .collect();
-    let config = djls_conf::DiagnosticsConfig::default();
+    let config = DiagnosticsConfig::default();
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
         let mut rendered_count = 0;
         for checked in &fixtures {
             for output in checked.render(&config, &renderer) {
-                divan::black_box_drop(output);
+                black_box_drop(output);
                 rendered_count += 1;
             }
         }
-        divan::black_box(rendered_count);
+        black_box(rendered_count);
     });
 }
 
@@ -182,23 +190,23 @@ fn render_validation_synthetic_output(bencher: Bencher) {
     let mut db = primed_realistic_db();
     let file = db.file_with_contents("bench.html", MANY_ERRORS_SOURCE);
 
-    let checked = djls::check_template(&db, file).expect("benchmark file should be readable");
+    let checked = check_template(&db, file).expect("benchmark file should be readable");
     assert!(
         checked.has_diagnostics(),
         "synthetic validation error benchmark produced no diagnostics",
     );
 
-    let config = djls_conf::DiagnosticsConfig::default();
+    let config = DiagnosticsConfig::default();
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
         let mut rendered_count = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for output in checked.render(&config, &renderer) {
-                divan::black_box_drop(output);
+                black_box_drop(output);
                 rendered_count += 1;
             }
         }
-        divan::black_box(rendered_count);
+        black_box(rendered_count);
     });
 }

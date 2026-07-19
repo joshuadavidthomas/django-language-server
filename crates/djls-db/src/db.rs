@@ -5,15 +5,19 @@
 //! Ruff's architecture pattern where the concrete database lives at the top level.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
+use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_project::compute_model_graph;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
+use djls_semantic::builtin_tag_specs;
 use djls_source::Db as SourceDb;
 use djls_source::FileSystem;
 use djls_source::SourceFiles;
@@ -138,8 +142,7 @@ impl SourceDb for DjangoDatabase {
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn projectless_tag_specs(&self) -> &TagSpecs {
-        static DEFAULT: std::sync::LazyLock<TagSpecs> =
-            std::sync::LazyLock::new(djls_semantic::builtin_tag_specs);
+        static DEFAULT: LazyLock<TagSpecs> = LazyLock::new(builtin_tag_specs);
         assert!(
             self.project.is_none(),
             "project-backed analysis must derive tag specs from keyed Template Libraries"
@@ -147,16 +150,16 @@ impl SemanticDb for DjangoDatabase {
         &DEFAULT
     }
 
-    fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
+    fn diagnostics_config(&self) -> DiagnosticsConfig {
         self.settings().diagnostics().clone()
     }
 
-    fn projectless_filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
+    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
         assert!(
             self.project.is_none(),
             "project-backed analysis must derive filter specs from keyed Template Libraries"
         );
-        djls_semantic::FilterAritySpecs::empty_ref()
+        FilterAritySpecs::empty_ref()
     }
 
     fn model_graph(&self) -> &djls_project::ModelGraph {
@@ -189,23 +192,45 @@ mod marker_tests {
 #[cfg(test)]
 mod invalidation_tests {
     use std::collections::BTreeMap;
+    use std::fs::write;
     use std::io;
     use std::sync::Arc;
+    use std::sync::Barrier;
     use std::sync::Mutex;
+    use std::thread::spawn as spawn_thread;
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
     use djls_conf::Settings;
+    use djls_conf::TagDef;
+    use djls_conf::TagLibraryDef;
+    use djls_conf::TagSpecDef;
+    use djls_conf::TagTypeDef;
+    use djls_ide::prime_template_library_products;
     use djls_project::Db as ProjectDb;
+    use djls_project::LibraryName;
+    use djls_project::LoadableLibraryLookup;
     use djls_project::Project;
     use djls_project::PythonModule;
     use djls_project::PythonModuleName;
+    use djls_project::SymbolKey;
     use djls_project::TemplateEnvironment;
+    use djls_project::TemplateLibrary;
+    use djls_project::TemplateLibraryKey;
+    use djls_project::TemplateSymbolKind;
     use djls_project::template_libraries;
+    use djls_project::template_library_definition_facts;
+    use djls_project::template_library_filter_facts;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
+    use djls_semantic::ValidationErrorAccumulator;
+    use djls_semantic::build_template_tree_for_file;
+    use djls_semantic::library_filter_specs;
+    use djls_semantic::library_tag_specs;
+    use djls_semantic::template_environment_for_file;
     use djls_semantic::template_inheritance;
     use djls_semantic::template_symbols;
+    use djls_semantic::validate_template_file;
     use djls_source::ChangeEvent;
     use djls_source::Db as SourceDb;
     use djls_source::File;
@@ -219,7 +244,10 @@ mod invalidation_tests {
     use djls_source::path_to_file;
     use djls_templates::parse_template;
     use salsa::Database;
+    use salsa::Event;
+    use salsa::EventKind;
     use salsa::Setter;
+    use salsa::Storage;
     use tempfile::TempDir;
     use tempfile::tempdir;
 
@@ -321,15 +349,11 @@ mod invalidation_tests {
             .count()
     }
 
-    fn exact_execution_count(
-        db: &DjangoDatabase,
-        events: &[salsa::Event],
-        query_name: &str,
-    ) -> usize {
+    fn exact_execution_count(db: &DjangoDatabase, events: &[Event], query_name: &str) -> usize {
         events
             .iter()
             .filter(|event| match &event.kind {
-                salsa::EventKind::WillExecute { database_key } => db
+                EventKind::WillExecute { database_key } => db
                     .ingredient_debug_name(database_key.ingredient_index())
                     .rsplit("::")
                     .next()
@@ -483,8 +507,8 @@ mod invalidation_tests {
         } = template_inheritance_fixture();
         event_log.take();
 
-        let primed = djls_ide::prime_template_library_products(&db)
-            .expect("matrix fixture should install a Project");
+        let primed =
+            prime_template_library_products(&db).expect("matrix fixture should install a Project");
         assert_eq!(primed.library_count(), 3);
         assert_eq!(primed.reprime_files().len(), 2);
         assert_eq!(primed.full_reload_files().len(), 1);
@@ -514,10 +538,9 @@ mod invalidation_tests {
             assert_eq!(exact_execution_count(&db, &prime_events, forbidden), 0);
         }
 
-        djls_semantic::validate_template_file(&db, child_file);
-        let errors = djls_semantic::validate_template_file::accumulated::<
-            djls_semantic::ValidationErrorAccumulator,
-        >(&db, child_file);
+        validate_template_file(&db, child_file);
+        let errors =
+            validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, child_file);
         assert!(errors.is_empty());
         let first_request = event_log.take();
         assert_eq!(
@@ -540,7 +563,7 @@ mod invalidation_tests {
             assert_eq!(exact_execution_count(&db, &first_request, intrinsic), 0);
         }
 
-        djls_semantic::validate_template_file(&db, child_file);
+        validate_template_file(&db, child_file);
         let repeated = event_log.take();
         for cached in [
             "parse_template",
@@ -563,8 +586,8 @@ mod invalidation_tests {
             other_file,
             ..
         } = template_inheritance_fixture();
-        let primed = djls_ide::prime_template_library_products(&db)
-            .expect("matrix fixture should install a Project");
+        let primed =
+            prime_template_library_products(&db).expect("matrix fixture should install a Project");
         assert_eq!(primed.reprime_files().len(), 2);
         assert_eq!(primed.full_reload_files().len(), 1);
         let prime_events = event_log.take();
@@ -577,18 +600,19 @@ mod invalidation_tests {
             0
         );
 
-        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let barrier = Arc::new(Barrier::new(3));
         let handles: Vec<_> = [child_file, other_file]
             .into_iter()
             .map(|file| {
                 let validation_db = db.clone();
                 let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
+                spawn_thread(move || {
                     barrier.wait();
-                    djls_semantic::validate_template_file(&validation_db, file);
-                    djls_semantic::validate_template_file::accumulated::<
-                        djls_semantic::ValidationErrorAccumulator,
-                    >(&validation_db, file)
+                    validate_template_file(&validation_db, file);
+                    validate_template_file::accumulated::<ValidationErrorAccumulator>(
+                        &validation_db,
+                        file,
+                    )
                     .len()
                 })
             })
@@ -637,7 +661,7 @@ mod invalidation_tests {
             .resolved_libraries()
             .into_iter()
             .filter(|library| library.source_file().is_some())
-            .map(djls_project::TemplateLibrary::module_name_str)
+            .map(TemplateLibrary::module_name_str)
             .collect();
         assert_eq!(
             modules,
@@ -652,10 +676,10 @@ mod invalidation_tests {
             .filter(|library| library.source_file().is_some())
         {
             let key = library.key();
-            let facts = djls_project::template_library_definition_facts(&db, key);
+            let facts = template_library_definition_facts(&db, key);
             assert!(facts.is_library());
-            let tags = djls_semantic::library_tag_specs(&db, project, key);
-            let filters = djls_semantic::library_filter_specs(&db, key);
+            let tags = library_tag_specs(&db, project, key);
+            let filters = library_filter_specs(&db, key);
             if library.module_name_str() == "django.template.defaulttags" {
                 assert!(tags.get("load").is_some());
             }
@@ -673,9 +697,9 @@ mod invalidation_tests {
             2
         );
 
-        let environment = djls_semantic::template_environment_for_file(&db, child_file);
+        let environment = template_environment_for_file(&db, child_file);
         let names = environment
-            .inventory_symbol_names(djls_project::TemplateSymbolKind::Tag)
+            .inventory_symbol_names(TemplateSymbolKind::Tag)
             .collect::<Vec<_>>();
         assert!(names.contains(&"load"));
         assert!(names.contains(&"block"));
@@ -687,7 +711,7 @@ mod invalidation_tests {
 
         let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
         event_log.take();
-        let tree = djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let tree = build_template_tree_for_file(&db, child_file, nodelist);
         assert!(tree.regions(&db).iter().next().is_some());
         let events = event_log.take();
         assert_eq!(
@@ -703,10 +727,9 @@ mod invalidation_tests {
             1
         );
 
-        djls_semantic::validate_template_file(&db, child_file);
-        let errors = djls_semantic::validate_template_file::accumulated::<
-            djls_semantic::ValidationErrorAccumulator,
-        >(&db, child_file);
+        validate_template_file(&db, child_file);
+        let errors =
+            validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, child_file);
         assert!(errors.is_empty());
         let events = event_log.take();
         assert_eq!(
@@ -723,7 +746,7 @@ mod invalidation_tests {
             "validation should reuse the correlated analysis projection built above",
         );
 
-        djls_semantic::validate_template_file(&db, child_file);
+        validate_template_file(&db, child_file);
         let events = event_log.take();
         assert_eq!(
             exact_execution_count(&db, &events, "validate_template_file"),
@@ -742,8 +765,8 @@ mod invalidation_tests {
             child_path,
             ..
         } = template_inheritance_fixture();
-        djls_ide::prime_template_library_products(&db).unwrap();
-        djls_semantic::validate_template_file(&db, child_file);
+        prime_template_library_products(&db).unwrap();
+        validate_template_file(&db, child_file);
         event_log.take();
 
         let cases = [
@@ -767,10 +790,9 @@ mod invalidation_tests {
                 .add_file(child_path.clone(), source.to_string());
             SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
                 .apply(&mut db);
-            djls_semantic::validate_template_file(&db, child_file);
-            let errors = djls_semantic::validate_template_file::accumulated::<
-                djls_semantic::ValidationErrorAccumulator,
-            >(&db, child_file);
+            validate_template_file(&db, child_file);
+            let errors =
+                validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, child_file);
             let codes: Vec<_> = errors.iter().map(|error| error.0.code()).collect();
             match expected_code {
                 Some(code) => assert!(codes.contains(&code), "expected {code}, got {codes:?}"),
@@ -812,9 +834,9 @@ mod invalidation_tests {
             child_path,
             ..
         } = template_inheritance_fixture();
-        djls_ide::prime_template_library_products(&db).unwrap();
-        djls_semantic::validate_template_file(&db, child_file);
-        djls_semantic::validate_template_file(&db, other_file);
+        prime_template_library_products(&db).unwrap();
+        validate_template_file(&db, child_file);
+        validate_template_file(&db, other_file);
         event_log.take();
 
         fs.lock().unwrap().add_file(
@@ -823,11 +845,10 @@ mod invalidation_tests {
         );
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
             .apply(&mut db);
-        djls_semantic::validate_template_file(&db, child_file);
-        djls_semantic::validate_template_file(&db, other_file);
-        let errors = djls_semantic::validate_template_file::accumulated::<
-            djls_semantic::ValidationErrorAccumulator,
-        >(&db, child_file);
+        validate_template_file(&db, child_file);
+        validate_template_file(&db, other_file);
+        let errors =
+            validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, child_file);
         assert!(errors.is_empty());
         let events = event_log.take();
         assert_eq!(exact_execution_count(&db, &events, "parse_template"), 1);
@@ -867,10 +888,10 @@ mod invalidation_tests {
         } = template_inheritance_fixture();
 
         let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
-        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_tree_for_file(&db, child_file, nodelist);
         event_log.take();
 
-        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             exact_execution_count(
@@ -888,7 +909,7 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(other_file.path(&db).clone())])
             .apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             exact_execution_count(
@@ -915,7 +936,7 @@ mod invalidation_tests {
         )])
         .apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             exact_execution_count(
@@ -939,7 +960,7 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
             .apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("edited child should parse");
-        djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             exact_execution_count(
@@ -959,7 +980,7 @@ mod invalidation_tests {
         );
         SourceChanges::new([ChangeEvent::ContentChanged(loader_tags_path)]).apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        let _ = djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let _ = build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             exact_execution_count(
@@ -984,7 +1005,7 @@ mod invalidation_tests {
         } = template_inheritance_fixture();
 
         let nodelist = parse_template(&db, parent_file).expect("parent fixture should parse");
-        djls_semantic::build_template_tree_for_file(&db, parent_file, nodelist);
+        build_template_tree_for_file(&db, parent_file, nodelist);
         event_log.take();
 
         // Template text nodes carry source positions, not their presentation text.
@@ -996,7 +1017,7 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(parent_file.path(&db).clone())])
             .apply(&mut db);
         let nodelist = parse_template(&db, parent_file).expect("edited parent should parse");
-        djls_semantic::build_template_tree_for_file(&db, parent_file, nodelist);
+        build_template_tree_for_file(&db, parent_file, nodelist);
         let events = event_log.take();
 
         assert_eq!(
@@ -1025,7 +1046,7 @@ mod invalidation_tests {
             child_file,
             ..
         } = template_inheritance_fixture();
-        let environment = djls_semantic::template_environment_for_file(&db, child_file);
+        let environment = template_environment_for_file(&db, child_file);
         assert!(environment.completion_library_names().is_empty());
         event_log.take();
 
@@ -1043,10 +1064,10 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
             .apply(&mut db);
 
-        let environment = djls_semantic::template_environment_for_file(&db, child_file);
+        let environment = template_environment_for_file(&db, child_file);
         assert_eq!(
             environment.completion_library_names(),
-            [djls_project::LibraryName::parse("custom").unwrap()]
+            [LibraryName::parse("custom").unwrap()]
         );
         let events = event_log.take();
         assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
@@ -1072,12 +1093,12 @@ mod invalidation_tests {
             .next()
             .expect("fixture should discover a builtin library");
         let key = library.key();
-        let _ = djls_semantic::library_tag_specs(&db, project, key);
-        let _ = djls_semantic::library_filter_specs(&db, key);
+        let _ = library_tag_specs(&db, project, key);
+        let _ = library_filter_specs(&db, key);
         event_log.take();
 
-        let _ = djls_semantic::library_tag_specs(&db, project, key);
-        let _ = djls_semantic::library_filter_specs(&db, key);
+        let _ = library_tag_specs(&db, project, key);
+        let _ = library_filter_specs(&db, key);
         let events = event_log.take();
         assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
         assert_eq!(
@@ -1137,7 +1158,7 @@ mod invalidation_tests {
             .find(|library| library.module_name_str() == "project_tags")
             .expect("configured builtin should resolve before settings change");
         assert!(
-            djls_semantic::library_tag_specs(&db, project, library.key())
+            library_tag_specs(&db, project, library.key())
                 .get("project_tag")
                 .is_some(),
             "configured builtin tag should be extracted before settings change"
@@ -1173,7 +1194,7 @@ mod invalidation_tests {
         let source = "{% extends \"base.html\" %}";
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
-        std::fs::write(
+        write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
@@ -1765,35 +1786,35 @@ env_file = ".env.local"
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == "django.template.defaulttags")
-            .map(djls_project::TemplateLibrary::key)
+            .map(TemplateLibrary::key)
             .expect("defaulttags should be active");
         let loader_tags = TemplateEnvironment::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == "django.template.loader_tags")
-            .map(djls_project::TemplateLibrary::key)
+            .map(TemplateLibrary::key)
             .expect("loader_tags should be active");
         let defaulttags_identity = (defaulttags.file(&db), defaulttags.module(&db).clone());
         let loader_tags_identity = (loader_tags.file(&db), loader_tags.module(&db).clone());
-        let _ = djls_semantic::library_tag_specs(&db, project, defaulttags);
-        let _ = djls_semantic::library_tag_specs(&db, project, loader_tags);
+        let _ = library_tag_specs(&db, project, defaulttags);
+        let _ = library_tag_specs(&db, project, loader_tags);
         {
             let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
-            let _ = djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+            let _ = build_template_tree_for_file(&db, child_file, nodelist);
         }
         event_log.take();
 
-        let new_tagspecs = djls_conf::TagSpecDef {
+        let new_tagspecs = TagSpecDef {
             version: "0.6.0".to_string(),
             engine: "django".to_string(),
             requires_engine: None,
             extends: vec![],
-            libraries: vec![djls_conf::TagLibraryDef {
+            libraries: vec![TagLibraryDef {
                 module: "django.template.defaulttags".to_string(),
                 requires_engine: None,
-                tags: vec![djls_conf::TagDef {
+                tags: vec![TagDef {
                     name: "switch".to_string(),
-                    tag_type: djls_conf::TagTypeDef::Block,
+                    tag_type: TagTypeDef::Block,
                     end: None,
                     intermediates: vec![],
                     args: vec![],
@@ -1805,23 +1826,17 @@ env_file = ".env.local"
         };
 
         project.set_tagspecs(&mut db).to(new_tagspecs);
-        let defaulttags = djls_project::TemplateLibraryKey::new(
-            &db,
-            defaulttags_identity.0,
-            defaulttags_identity.1,
-        );
-        let loader_tags = djls_project::TemplateLibraryKey::new(
-            &db,
-            loader_tags_identity.0,
-            loader_tags_identity.1,
-        );
+        let defaulttags =
+            TemplateLibraryKey::new(&db, defaulttags_identity.0, defaulttags_identity.1);
+        let loader_tags =
+            TemplateLibraryKey::new(&db, loader_tags_identity.0, loader_tags_identity.1);
 
         assert!(
-            djls_semantic::library_tag_specs(&db, project, defaulttags)
+            library_tag_specs(&db, project, defaulttags)
                 .get("switch")
                 .is_some()
         );
-        let _ = djls_semantic::library_tag_specs(&db, project, loader_tags);
+        let _ = library_tag_specs(&db, project, loader_tags);
         let events = event_log.take();
         assert_eq!(
             exact_execution_count(&db, &events, "configured_library_tag_specs"),
@@ -1834,7 +1849,7 @@ env_file = ".env.local"
         );
 
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        let _ = djls_semantic::build_template_tree_for_file(&db, child_file, nodelist);
+        let _ = build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             exact_execution_count(
@@ -1853,7 +1868,7 @@ env_file = ".env.local"
         let event_log = EventLog::default();
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
-        std::fs::write(
+        write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
@@ -1885,7 +1900,7 @@ env_file = ".env.local"
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            storage: salsa::Storage::new(Some(Box::new({
+            storage: Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| log.events.lock().unwrap().push(event)
             }))),
@@ -1898,10 +1913,10 @@ env_file = ".env.local"
             .resolved_libraries()
             .into_iter()
             .filter(|library| matches!(library.module_name_str(), "alpha_tags" | "beta_tags"))
-            .map(djls_project::TemplateLibrary::key)
+            .map(TemplateLibrary::key)
             .collect();
         assert_eq!(keys.len(), 2);
-        let primed = djls_ide::prime_template_library_products(&db).unwrap();
+        let primed = prime_template_library_products(&db).unwrap();
         assert_eq!(primed.reprime_files().len(), 2);
         assert_eq!(primed.full_reload_files().len(), 1);
         event_log.take();
@@ -1914,19 +1929,19 @@ env_file = ".env.local"
             .unwrap()
             .add_file(alpha_path.clone(), alpha_source("", ", arg"));
         SourceChanges::new([ChangeEvent::ContentChanged(alpha_path.clone())]).apply(&mut db);
-        let reprime = djls_ide::prime_template_library_products(&db).unwrap();
+        let reprime = prime_template_library_products(&db).unwrap();
         assert_eq!(reprime.reprime_files().len(), 2);
         assert_eq!(reprime.full_reload_files().len(), 1);
-        let alpha_tags = djls_semantic::library_tag_specs(&db, project, alpha_key);
-        let alpha_filters = djls_semantic::library_filter_specs(&db, alpha_key);
+        let alpha_tags = library_tag_specs(&db, project, alpha_key);
+        let alpha_filters = library_filter_specs(&db, alpha_key);
         assert_eq!(alpha_tags.get("alpha_tag").unwrap().arguments().len(), 1);
         assert!(alpha_filters.get("alpha_filter").unwrap().expects_arg);
         for key in keys
             .iter()
             .filter(|key| key.module(&db).as_str() == "beta_tags")
         {
-            let _ = djls_semantic::library_tag_specs(&db, project, *key);
-            let _ = djls_semantic::library_filter_specs(&db, *key);
+            let _ = library_tag_specs(&db, project, *key);
+            let _ = library_filter_specs(&db, *key);
         }
         let events = event_log.take();
         assert_eq!(
@@ -1944,19 +1959,19 @@ env_file = ".env.local"
             .unwrap()
             .add_file(alpha_path.clone(), alpha_source(", extra", ", arg"));
         SourceChanges::new([ChangeEvent::ContentChanged(alpha_path)]).apply(&mut db);
-        let reprime = djls_ide::prime_template_library_products(&db).unwrap();
+        let reprime = prime_template_library_products(&db).unwrap();
         assert_eq!(reprime.reprime_files().len(), 2);
         assert_eq!(reprime.full_reload_files().len(), 1);
-        let alpha_tags = djls_semantic::library_tag_specs(&db, project, alpha_key);
-        let alpha_filters = djls_semantic::library_filter_specs(&db, alpha_key);
+        let alpha_tags = library_tag_specs(&db, project, alpha_key);
+        let alpha_filters = library_filter_specs(&db, alpha_key);
         assert_eq!(alpha_tags.get("alpha_tag").unwrap().arguments().len(), 2);
         assert!(alpha_filters.get("alpha_filter").unwrap().expects_arg);
         for key in keys
             .iter()
             .filter(|key| key.module(&db).as_str() == "beta_tags")
         {
-            let _ = djls_semantic::library_tag_specs(&db, project, *key);
-            let _ = djls_semantic::library_filter_specs(&db, *key);
+            let _ = library_tag_specs(&db, project, *key);
+            let _ = library_filter_specs(&db, *key);
         }
         let events = event_log.take();
         assert_eq!(
@@ -1979,14 +1994,14 @@ env_file = ".env.local"
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
 
-        let library = djls_project::TemplateLibraryKey::new(
+        let library = TemplateLibraryKey::new(
             &db,
             Some(file),
-            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
+            PythonModuleName::parse("test.project.tags").unwrap(),
         );
 
         // First extraction
-        let _result1 = djls_project::template_library_filter_facts(&db, library);
+        let _result1 = template_library_filter_facts(&db, library);
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "template_library_filter_facts"),
@@ -1994,7 +2009,7 @@ env_file = ".env.local"
         );
 
         // Second call — cached
-        let _result2 = djls_project::template_library_filter_facts(&db, library);
+        let _result2 = template_library_filter_facts(&db, library);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "template_library_filter_facts"),
@@ -2009,12 +2024,12 @@ env_file = ".env.local"
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
-        let library = djls_project::TemplateLibraryKey::new(
+        let library = TemplateLibraryKey::new(
             &db,
             Some(file),
-            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
+            PythonModuleName::parse("test.project.tags").unwrap(),
         );
-        let _result = djls_project::template_library_filter_facts(&db, library);
+        let _result = template_library_filter_facts(&db, library);
         event_log.take();
 
         // Bump the file revision — but the source is still empty (file not in FS)
@@ -2022,7 +2037,7 @@ env_file = ".env.local"
 
         // Salsa's backdate optimization: file.try_source() returns the same empty text,
         // so the per-library Filter facts do not re-execute.
-        let _result = djls_project::template_library_filter_facts(&db, library);
+        let _result = template_library_filter_facts(&db, library);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "template_library_filter_facts"),
@@ -2068,28 +2083,28 @@ def my_filter(value, arg):
 
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
-        let library = djls_project::TemplateLibraryKey::new(
+        let library = TemplateLibraryKey::new(
             &db,
             Some(file),
-            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
+            PythonModuleName::parse("test.project.tags").unwrap(),
         );
-        let result = djls_project::template_library_filter_facts(&db, library);
+        let result = template_library_filter_facts(&db, library);
 
         // Should extract the filter
-        let key = djls_project::SymbolKey::filter("test.project.tags", "my_filter");
+        let key = SymbolKey::filter("test.project.tags", "my_filter");
         assert!(
             result.filter_arities().contains_key(&key),
             "should extract filter from file content"
         );
         assert!(result.filter_arities()[&key].expects_arg);
 
-        let other_library = djls_project::TemplateLibraryKey::new(
+        let other_library = TemplateLibraryKey::new(
             &db,
             Some(file),
-            djls_project::PythonModuleName::parse("other.project.tags").unwrap(),
+            PythonModuleName::parse("other.project.tags").unwrap(),
         );
-        let other_module_result = djls_project::template_library_filter_facts(&db, other_library);
-        let other_key = djls_project::SymbolKey::filter("other.project.tags", "my_filter");
+        let other_module_result = template_library_filter_facts(&db, other_library);
+        let other_key = SymbolKey::filter("other.project.tags", "my_filter");
         assert!(
             other_module_result
                 .filter_arities()
@@ -2117,12 +2132,12 @@ def my_filter(value, arg):
             djls_project::LoadableLibraryLookup::Found(custom) => {
                 assert_eq!(custom.module_name_str(), module_name);
             }
-            djls_project::LoadableLibraryLookup::Inconclusive(candidates)
-            | djls_project::LoadableLibraryLookup::Ambiguous(candidates) => {
+            LoadableLibraryLookup::Inconclusive(candidates)
+            | LoadableLibraryLookup::Ambiguous(candidates) => {
                 assert_eq!(candidates.len(), 1);
                 assert_eq!(candidates[0].module_name_str(), module_name);
             }
-            djls_project::LoadableLibraryLookup::Absent => {
+            LoadableLibraryLookup::Absent => {
                 panic!("custom library candidate should be known");
             }
         }

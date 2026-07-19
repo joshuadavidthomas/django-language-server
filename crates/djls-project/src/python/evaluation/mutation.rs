@@ -512,6 +512,8 @@ mod tests {
     use djls_source::File;
     use djls_source::Origin;
     use djls_source::Span;
+    use ruff_python_parser::parse_module;
+    use salsa::Id;
     use salsa::plumbing::FromId as _;
 
     use super::MutationTarget;
@@ -523,8 +525,7 @@ mod tests {
     use super::ast;
 
     fn target(source: &str) -> Option<(String, Vec<PythonMutationPathSegment>)> {
-        let parsed =
-            ruff_python_parser::parse_module(source).expect("test expression should parse");
+        let parsed = parse_module(source).expect("test expression should parse");
         let module = parsed.into_syntax();
         let [ast::Stmt::Expr(statement)] = module.body.as_slice() else {
             panic!("test source should contain one expression statement");
@@ -539,7 +540,7 @@ mod tests {
 
     fn origin(file_index: u32, start: u32) -> Origin {
         // SAFETY: Synthetic files are compared only as opaque IDs and never read.
-        let file = File::from_id(unsafe { salsa::Id::from_index(file_index) });
+        let file = File::from_id(unsafe { Id::from_index(file_index) });
         Origin::new(file, Span::new(start, 1))
     }
 

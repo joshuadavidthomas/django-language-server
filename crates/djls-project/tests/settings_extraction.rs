@@ -1,10 +1,13 @@
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::io;
+use std::iter;
 use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::TagSpecDef;
+use djls_project::Db;
 use djls_project::FindTemplateResult;
 use djls_project::Interpreter;
 use djls_project::Project;
@@ -30,9 +33,12 @@ use djls_project::testing::django_settings;
 use djls_project::testing::python_module_evaluation;
 use djls_project::testing::python_module_evaluation_for_module;
 use djls_project::testing::settings_module_file;
+use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
+use djls_source::File;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
+use djls_source::Origin;
 use djls_source::RootWalk;
 use djls_source::SourceChanges;
 use djls_source::Span;
@@ -43,6 +49,7 @@ use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use serde_json::Value;
 use serde_json::json;
+use serde_json::to_value;
 
 fn extract_project(source: &str, modules: &[(&str, &str)]) -> (TestDatabase, Project, Value) {
     let mut fixture = ProjectFixture::new("/project/settings")
@@ -57,7 +64,7 @@ fn extract_project(source: &str, modules: &[(&str, &str)]) -> (TestDatabase, Pro
     }
     let mut db = TestDatabase::new();
     let project = fixture.install(&mut db);
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
     (db, project, settings)
 }
 
@@ -69,7 +76,7 @@ fn cases<'a>(settings: &'a Value, pointer: &str) -> &'a [Value] {
     settings.pointer(pointer).unwrap().as_array().unwrap()
 }
 
-fn binding_unknown_origin(source: &str, name: &str) -> djls_source::Origin {
+fn binding_unknown_origin(source: &str, name: &str) -> Origin {
     let (db, project, _) = extract_project(source, &[]);
     let file = settings_module_file(&db, project).unwrap();
     let evaluation = python_module_evaluation(&db, project, file);
@@ -88,11 +95,11 @@ fn binding_unknown_origin(source: &str, name: &str) -> djls_source::Origin {
         .expect("unknown should retain an origin")
 }
 
-fn python_project(db: &dyn djls_project::Db) -> Project {
+fn python_project(db: &dyn Db) -> Project {
     python_project_with_paths(db, &[])
 }
 
-fn python_project_with_paths(db: &dyn djls_project::Db, pythonpath: &[Utf8PathBuf]) -> Project {
+fn python_project_with_paths(db: &dyn Db, pythonpath: &[Utf8PathBuf]) -> Project {
     let root = Utf8Path::new("/project");
     let interpreter = Interpreter::Auto;
     let search_paths =
@@ -145,7 +152,7 @@ impl FileSystem for ReadFailingFileSystem {
         self.inner.is_dir(path)
     }
 
-    fn case_sensitivity(&self) -> djls_source::CaseSensitivity {
+    fn case_sensitivity(&self) -> CaseSensitivity {
         self.inner.case_sensitivity()
     }
 
@@ -162,7 +169,7 @@ fn is_alternative_limit_unknown(alternative: &PythonBindingAlternativeView) -> b
     matches!(
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 ..
             },
@@ -302,14 +309,14 @@ fn python_evaluator_produces_unbound_for_a_path_without_assignment() {
     assert!(binding.alternatives.iter().any(|alternative| matches!(
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Str(value),
                 origins,
             },
             binding_origins,
         }) if value == "set"
-            && origins.as_slice() == [djls_source::Origin::new(settings, expected_span(source, "'set'"))]
-            && binding_origins.as_slice() == [djls_source::Origin::new(settings, expected_span(source, "'set'"))]
+            && origins.as_slice() == [Origin::new(settings, expected_span(source, "'set'"))]
+            && binding_origins.as_slice() == [Origin::new(settings, expected_span(source, "'set'"))]
     )));
 }
 
@@ -386,7 +393,7 @@ fn unresolved_moduleless_relative_import_records_canonical_failure() {
     assert!(matches!(
         evaluation.imports.as_slice(),
         [PythonImportOutcomeView::NotFound { origin, module }]
-            if *origin == djls_source::Origin::new(
+            if *origin == Origin::new(
                 settings,
                 expected_span(source, "from . import VALUE"),
             ) && module.as_str() == "pkg"
@@ -397,7 +404,7 @@ fn unresolved_moduleless_relative_import_records_canonical_failure() {
     assert!(matches!(
         binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 ..
             },
@@ -420,7 +427,7 @@ fn relative_import_cannot_escape_the_importer_package() {
     assert!(matches!(
         evaluation.imports.as_slice(),
         [PythonImportOutcomeView::InvalidImport { origin, reason }]
-            if *origin == djls_source::Origin::new(
+            if *origin == Origin::new(
                 settings,
                 expected_span(source, source.trim_end()),
             ) && *reason == PythonImportErrorView::TooManyDots
@@ -461,7 +468,7 @@ fn relative_import_uses_the_inbound_module_identity() {
     assert!(matches!(
         binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Str(value),
                 ..
             },
@@ -476,7 +483,7 @@ fn relative_import_uses_the_inbound_module_identity() {
     assert!(matches!(
         canonical_binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Str(value),
                 ..
             },
@@ -506,7 +513,7 @@ fn python_module_package_identity_relative_import_from_init_alias_uses_parent_pa
     assert!(matches!(
         binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Str(value),
                 ..
             },
@@ -539,7 +546,7 @@ fn missing_resolved_named_import_member_is_typed_dynamic_and_replaces_stale_bind
     let binding = evaluation
         .binding("INSTALLED_APPS")
         .expect("the named import should replace the stale local binding");
-    let import_origin = djls_source::Origin::new(
+    let import_origin = Origin::new(
         settings_file,
         expected_span(source, "MISSING as INSTALLED_APPS"),
     );
@@ -608,7 +615,7 @@ fn python_module_evaluation_keeps_typed_import_and_namespace_outcomes() {
     assert!(value.alternatives.iter().any(|alternative| matches!(
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 ..
             },
@@ -641,8 +648,7 @@ fn named_import_of_absent_open_name_preserves_member_and_namespace_uncertainty()
             .alternatives
             .contains(&PythonBindingAlternativeView::Unbound)
     );
-    let import_origin =
-        djls_source::Origin::new(settings_file, expected_span(source, "INSTALLED_APPS"));
+    let import_origin = Origin::new(settings_file, expected_span(source, "INSTALLED_APPS"));
     assert!(binding.alternatives.iter().any(|alternative| matches!(
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
@@ -786,9 +792,11 @@ fn named_import_of_conditional_binding_preserves_known_member_and_namespace_outc
             .iter()
             .any(|case| case.get("dynamic").is_some())
     );
-    assert!(setting_cases.iter().any(|case| {
-        case.pointer("/known/apps/0/value") == Some(&serde_json::json!("imported"))
-    }));
+    assert!(
+        setting_cases
+            .iter()
+            .any(|case| { case.pointer("/known/apps/0/value") == Some(&json!("imported")) })
+    );
 }
 
 #[test]
@@ -812,7 +820,7 @@ fn star_import_translates_every_typed_namespace_cause_to_the_import_site() {
         .filter_map(|alternative| match alternative {
             PythonBindingAlternativeView::Bound(PythonBoundValueView {
                 value:
-                    djls_project::testing::PythonValueView {
+                    PythonValueView {
                         kind: PythonValueKindView::Unknown(unknown),
                         ..
                     },
@@ -832,7 +840,7 @@ fn star_import_translates_every_typed_namespace_cause_to_the_import_site() {
     }));
     assert!(unknowns.iter().all(|unknown| {
         unknown.origins.as_slice()
-            == [djls_source::Origin::new(
+            == [Origin::new(
                 settings_file,
                 expected_span(source, "from plugin import *"),
             )]
@@ -886,7 +894,7 @@ fn ambiguous_while_degrades_writes_and_retains_branch_effects() {
                 && mutation.operation == PythonMutationOperationView::Append
                 && mutation.path.is_empty()
                 && mutation.origin
-                    == djls_source::Origin::new(
+                    == Origin::new(
                         file,
                         expected_span(source, "INSTALLED_APPS.append('loop')"),
                     )
@@ -936,7 +944,7 @@ fn ambiguous_branch_same_value_reassignment_preserves_origins() {
     let expected_origins = source
         .match_indices("'same'")
         .map(|(start, value)| {
-            djls_source::Origin::new(
+            Origin::new(
                 settings,
                 Span::saturating_from_parts_usize(start, value.len()),
             )
@@ -963,7 +971,7 @@ fn ambiguous_branch_restoration_preserves_only_base_and_restoration_origins() {
     let expected_origins = source
         .match_indices("'base'")
         .map(|(start, value)| {
-            djls_source::Origin::new(
+            Origin::new(
                 settings,
                 Span::saturating_from_parts_usize(start, value.len()),
             )
@@ -1042,7 +1050,7 @@ fn ambiguous_branch_reassignment_clears_prior_mutation_evidence() {
     );
 }
 
-fn evaluate_module(source: &str) -> (djls_source::File, PythonModuleEvaluationView) {
+fn evaluate_module(source: &str) -> (File, PythonModuleEvaluationView) {
     let db = TestDatabase::new();
     db.add_file("/project/settings.py", source);
     let project = python_project(&db);
@@ -1122,7 +1130,7 @@ fn tuple_index_augmented_add_mutates_nested_list_transactionally() {
     assert_eq!(string_list_items(nested), vec!["str:a"]);
     // Ancestor provenance: the operation origin is recorded up the path onto
     // the root tuple value.
-    let op_origin = djls_source::Origin::new(file, expected_span(source, "ROOT[0] += ['a']"));
+    let op_origin = Origin::new(file, expected_span(source, "ROOT[0] += ['a']"));
     assert!(
         bound.value.origins.contains(&op_origin),
         "the augmented-add origin should be recorded on the tuple ancestor",
@@ -1282,7 +1290,7 @@ fn name_target_list_augmented_add_preserves_prior_append_fact() {
     assert_eq!(string_list_items(&bound.value), vec!["str:a", "str:b"]);
     assert_eq!(
         bound.binding_origins,
-        vec![djls_source::Origin::new(file, expected_span(source, "[]"))],
+        vec![Origin::new(file, expected_span(source, "[]"))],
         "in-place `+=` preserves the original assignment origin",
     );
     let operations = evaluation
@@ -1605,7 +1613,7 @@ fn ambiguous_branch_mutations_remain_uncorrelated_may_have_evidence() {
         .map(|alternative| match alternative {
             PythonBindingAlternativeView::Bound(PythonBoundValueView {
                 value:
-                    djls_project::testing::PythonValueView {
+                    PythonValueView {
                         kind: PythonValueKindView::List(items),
                         ..
                     },
@@ -1714,7 +1722,7 @@ fn python_module_evaluation_keeps_failed_star_import_from_loop_body() {
         evaluation.namespace_unknowns.as_slice(),
         [unknown]
             if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing_star")
-                && unknown.origins.as_slice() == [djls_source::Origin::new(
+                && unknown.origins.as_slice() == [Origin::new(
                     settings,
                     expected_span(source, "from missing_star import *"),
                 )]
@@ -1743,13 +1751,13 @@ fn python_module_evaluation_reports_invalid_import_with_typed_cause() {
     assert!(matches!(
         binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 ..
             },
             ..
         })] if unknown.cause == PythonUnknownCauseView::InvalidImport(PythonImportErrorView::TooManyDots)
-            && unknown.origins.as_slice() == [djls_source::Origin::new(
+            && unknown.origins.as_slice() == [Origin::new(
                 settings,
                 expected_span(source, source.trim_end()),
             )]
@@ -1775,7 +1783,7 @@ fn python_module_evaluation_follows_named_and_star_imports_from_extra_roots() {
         assert!(matches!(
             evaluation.binding("VALUE").unwrap().alternatives.as_slice(),
             [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-                value: djls_project::testing::PythonValueView {
+                value: PythonValueView {
                     kind: PythonValueKindView::Str(value),
                     ..
                 },
@@ -1806,7 +1814,7 @@ fn python_module_evaluation_reports_skipped_external_import() {
     assert!(matches!(
         binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 ..
             },
@@ -1901,7 +1909,7 @@ fn python_module_evaluation_reports_unreadable_import() {
     assert!(matches!(
         binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 ..
             },
@@ -1951,7 +1959,7 @@ fn python_module_evaluation_reports_import_syntax_errors() {
         matches!(
             alternative,
             PythonBindingAlternativeView::Bound(PythonBoundValueView {
-                value: djls_project::testing::PythonValueView {
+                value: PythonValueView {
                     kind: PythonValueKindView::Unknown(unknown),
                     ..
                 },
@@ -1998,7 +2006,7 @@ fn python_module_evaluation_records_mutation_origins_on_values_and_effects() {
     assert!(mutation.path.is_empty());
     assert_eq!(
         mutation.origin,
-        djls_source::Origin::new(settings, expected_span(source, "VALUES.append('added')"))
+        Origin::new(settings, expected_span(source, "VALUES.append('added')"))
     );
     let binding = evaluation
         .binding("VALUES")
@@ -2036,7 +2044,7 @@ fn python_module_evaluation_records_typed_nested_mutation_facts() {
     assert_eq!(append.operation, PythonMutationOperationView::Append);
     assert_eq!(
         append.origin,
-        djls_source::Origin::new(
+        Origin::new(
             settings,
             expected_span(source, "TEMPLATES[0]['DIRS'].append('/one')"),
         )
@@ -2046,7 +2054,7 @@ fn python_module_evaluation_records_typed_nested_mutation_facts() {
     assert_eq!(augmented_add.operation, PythonMutationOperationView::Extend);
     assert_eq!(
         augmented_add.origin,
-        djls_source::Origin::new(
+        Origin::new(
             settings,
             expected_span(source, "TEMPLATES[0]['DIRS'] += ['/two']"),
         )
@@ -2069,13 +2077,13 @@ fn python_module_evaluation_discards_facts_after_unsupported_mutation() {
     assert!(matches!(
         binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 ..
             },
             ..
         })] if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
-            && unknown.origins.as_slice() == [djls_source::Origin::new(
+            && unknown.origins.as_slice() == [Origin::new(
                 settings,
                 expected_span(source, "VALUES.clear()"),
             )]
@@ -2109,7 +2117,7 @@ fn python_module_evaluation_records_nested_string_augmented_add_as_iterable_exte
         matches!(
             alternative,
             PythonBindingAlternativeView::Bound(PythonBoundValueView {
-                value: djls_project::testing::PythonValueView {
+                value: PythonValueView {
                     kind: PythonValueKindView::List(_),
                     ..
                 },
@@ -2136,16 +2144,11 @@ fn python_module_evaluation_keeps_mutation_from_loop_body() {
     assert!(mutation.path.is_empty());
     assert_eq!(
         mutation.origin,
-        djls_source::Origin::new(settings, expected_span(source, "VALUES.append(item)")),
+        Origin::new(settings, expected_span(source, "VALUES.append(item)")),
     );
 }
 
-fn cycle_products(
-    query_a_first: bool,
-) -> (
-    djls_project::testing::PythonModuleEvaluationView,
-    djls_project::testing::PythonModuleEvaluationView,
-) {
+fn cycle_products(query_a_first: bool) -> (PythonModuleEvaluationView, PythonModuleEvaluationView) {
     let db = TestDatabase::new();
     db.add_file("/project/a.py", "from b import B\nA = B\nAFTER_A = 'a'\n");
     db.add_file("/project/b.py", "from a import A\nB = A\nAFTER_B = 'b'\n");
@@ -2290,7 +2293,7 @@ fn python_module_cycle_widens_cyclic_values_but_keeps_post_cycle_assignments() {
         assert!(matches!(
             cycle.alternatives.as_slice(),
             [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-                value: djls_project::testing::PythonValueView {
+                value: PythonValueView {
                     kind: PythonValueKindView::Unknown(unknown),
                     ..
                 },
@@ -2303,7 +2306,7 @@ fn python_module_cycle_widens_cyclic_values_but_keeps_post_cycle_assignments() {
         assert!(matches!(
             stable.alternatives.as_slice(),
             [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-                value: djls_project::testing::PythonValueView {
+                value: PythonValueView {
                     kind: PythonValueKindView::Str(value),
                     ..
                 },
@@ -2323,7 +2326,7 @@ fn canonical_unknown_origins_merge_dynamic_namespace_import_edges() {
     let settings_file = settings_module_file(&db, project).unwrap();
     let evaluation = python_module_evaluation(&db, project, settings_file);
     let expected_origins = ["from a import *", "from b import *"]
-        .map(|statement| djls_source::Origin::new(settings_file, expected_span(source, statement)));
+        .map(|statement| Origin::new(settings_file, expected_span(source, statement)));
     let [unknown] = evaluation.namespace_unknowns.as_slice() else {
         panic!("cycle causes should merge into one plural unknown: {evaluation:#?}");
     };
@@ -2342,7 +2345,7 @@ fn canonical_unknown_origins_merge_dynamic_namespace_import_edges() {
     assert_eq!(evidence["issue"]["kind"], "dynamic_namespace");
     assert_eq!(
         evidence["issue"]["spans"],
-        serde_json::to_value(expected_origins.map(|origin| origin.span)).unwrap()
+        to_value(expected_origins.map(|origin| origin.span)).unwrap()
     );
 }
 
@@ -2357,8 +2360,7 @@ fn canonical_unknown_origins_import_rebase_is_exactly_local() {
         ],
     );
     let settings_file = settings_module_file(&db, project).unwrap();
-    let import_origin =
-        djls_source::Origin::new(settings_file, expected_span(source, "from a import *"));
+    let import_origin = Origin::new(settings_file, expected_span(source, "from a import *"));
     let evaluation = python_module_evaluation(&db, project, settings_file);
     let binding = evaluation
         .binding("INSTALLED_APPS")
@@ -2366,7 +2368,7 @@ fn canonical_unknown_origins_import_rebase_is_exactly_local() {
     assert!(matches!(
         binding.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 origins,
             },
@@ -2384,16 +2386,11 @@ fn canonical_unknown_origins_import_rebase_is_exactly_local() {
     assert_eq!(evidence[0]["issue"]["kind"], "dynamic_expression");
     assert_eq!(
         evidence[0]["issue"]["spans"],
-        serde_json::to_value([import_origin.span]).unwrap()
+        to_value([import_origin.span]).unwrap()
     );
 }
 
-fn external_star_cycle_product(
-    query_a_first: bool,
-) -> (
-    djls_project::testing::PythonModuleEvaluationView,
-    djls_source::File,
-) {
+fn external_star_cycle_product(query_a_first: bool) -> (PythonModuleEvaluationView, File) {
     let db = TestDatabase::new();
     db.add_file("/project/a.py", "from b import *\n");
     db.add_file("/project/b.py", "from a import *\n");
@@ -2422,7 +2419,7 @@ fn external_star_import_of_cycle_is_entry_order_independent() {
             evaluation.namespace_unknowns.as_slice(),
             [unknown]
                 if unknown.cause == PythonUnknownCauseView::Cycle
-                    && unknown.origins.as_slice() == [djls_source::Origin::new(
+                    && unknown.origins.as_slice() == [Origin::new(
                         external,
                         expected_span("from a import *\n", "from a import *"),
                     )]
@@ -2452,12 +2449,7 @@ fn python_module_cycle_preserves_stable_side_dependencies() {
 
 #[test]
 fn python_module_cycle_unions_all_feasible_mutations_independent_of_entry_order() {
-    fn products(
-        query_a_first: bool,
-    ) -> (
-        djls_project::testing::PythonModuleEvaluationView,
-        djls_project::testing::PythonModuleEvaluationView,
-    ) {
+    fn products(query_a_first: bool) -> (PythonModuleEvaluationView, PythonModuleEvaluationView) {
         let db = TestDatabase::new();
         db.add_file(
             "/project/a.py",
@@ -2516,7 +2508,7 @@ fn python_module_cycle_side_dependency_change_invalidates_the_product() {
     assert!(matches!(
         before.binding("SIDE").unwrap().alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Str(value),
                 ..
             },
@@ -2531,7 +2523,7 @@ fn python_module_cycle_side_dependency_change_invalidates_the_product() {
     assert!(matches!(
         after.binding("SIDE").unwrap().alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Str(value),
                 ..
             },
@@ -2562,7 +2554,7 @@ fn python_module_long_cycle_stays_within_the_internal_iteration_guard() {
     assert!(matches!(
         value.alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: djls_project::testing::PythonValueView {
+            value: PythonValueView {
                 kind: PythonValueKindView::Str(value),
                 ..
             },
@@ -2944,7 +2936,7 @@ fn try_match_and_loop_preserve_settings_alternatives() {
     let try_apps = cases(&try_settings, "/installed_apps/cases")
         .iter()
         .map(|case| case["known"]["apps"][0]["value"].as_str().unwrap())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert_eq!(try_apps, ["except", "try"].into_iter().collect());
 
     let match_settings = extract(
@@ -2953,7 +2945,7 @@ fn try_match_and_loop_preserve_settings_alternatives() {
     let match_apps = cases(&match_settings, "/installed_apps/cases")
         .iter()
         .map(|case| case["known"]["apps"][0]["value"].as_str().unwrap())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert_eq!(match_apps, ["one", "other"].into_iter().collect());
 
     let loop_settings =
@@ -2993,7 +2985,7 @@ fn templates_keep_mutually_exclusive_configurations_separate() {
     let cases = cases(&settings, "/templates/cases");
 
     assert_eq!(cases.len(), 2);
-    let roots: std::collections::BTreeSet<_> = cases
+    let roots: BTreeSet<_> = cases
         .iter()
         .map(|case| {
             case["known"]["backends"][0]["dirs"][0]["value"]["resolved"]
@@ -3255,7 +3247,7 @@ fn branch_merged_unknown_appended_to_installed_apps_retains_all_origins() {
     assert_eq!(evidence[0]["issue"]["kind"], "dynamic_expression");
     assert_eq!(
         evidence[0]["issue"]["spans"],
-        serde_json::to_value([
+        to_value([
             expected_span(source, "first_dynamic()"),
             expected_span(source, "second_dynamic()"),
         ])
@@ -3267,7 +3259,7 @@ fn branch_merged_unknown_appended_to_installed_apps_retains_all_origins() {
 fn typed_unknowns_reach_module_name_and_path_extractors_with_all_origins() {
     let source = "if FLAG:\n    VALUE = []\n    VALUE.clear()\nelse:\n    VALUE = []\n    VALUE.clear()\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': VALUE, 'OPTIONS': {'builtins': VALUE}},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': []},\n]\nTEMPLATES[1]['DIRS'].append(VALUE)";
     let settings = extract(source);
-    let expected_spans = serde_json::to_value([
+    let expected_spans = to_value([
         expected_span(source, "VALUE.clear()"),
         Span::saturating_from_parts_usize(
             source.rfind("VALUE.clear()").unwrap(),
@@ -3323,7 +3315,7 @@ fn uncertain_star_import_preserves_known_setting_alternatives() {
         .iter()
         .filter_map(|case| case.get("known"))
         .map(|known| known["apps"][0]["value"].as_str().unwrap())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(known, ["first", "second"].into_iter().collect());
     assert!(cases.iter().any(|case| case.get("dynamic").is_some()));
@@ -3339,7 +3331,7 @@ fn conditional_uncertain_star_import_preserves_known_setting_alternatives() {
         .iter()
         .filter_map(|case| case.get("known"))
         .map(|known| known["apps"][0]["value"].as_str().unwrap())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(known, ["first", "second"].into_iter().collect());
     assert!(cases.iter().any(|case| case.get("dynamic").is_some()));
@@ -4059,7 +4051,7 @@ fn differing_branch_scalars_distribute_through_settings_collections() {
                 .map(|app| app["value"].as_str().unwrap())
                 .collect::<Vec<_>>()
         })
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert_eq!(
         apps,
         [vec!["one", "local"], vec!["two", "local"]]
@@ -4074,7 +4066,7 @@ fn differing_branch_scalars_distribute_through_settings_collections() {
                 .as_str()
                 .unwrap()
         })
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert_eq!(paths, ["/one", "/two"].into_iter().collect());
 }
 
@@ -4099,7 +4091,7 @@ fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
                 .map(|dir| dir["value"]["resolved"].as_str().unwrap())
                 .collect::<Vec<_>>()
         })
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     let expected = [
         vec![
             "/project/settings/one/first",
@@ -4127,9 +4119,7 @@ fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
 
 #[test]
 fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
-    let repeated = std::iter::repeat_n("SHARED", 7)
-        .collect::<Vec<_>>()
-        .join(", ");
+    let repeated = iter::repeat_n("SHARED", 7).collect::<Vec<_>>().join(", ");
     let source = format!(
         "if FLAG:\n    from one.values import SHARED\nelse:\n    from two.values import SHARED\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{repeated}]}}]"
     );
@@ -4158,7 +4148,7 @@ fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
             );
             root
         })
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert_eq!(
         roots,
         [
@@ -4340,7 +4330,7 @@ fn two_backends_sharing_a_branch_path_keep_only_feasible_configurations() {
             assert_eq!(first, second, "both backends must select the same branch");
             first
         })
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert_eq!(
         roots,
         [
@@ -4384,7 +4374,7 @@ fn same_join_settings_reach_only_matching_template_winners() {
         .possible_origins
         .iter()
         .map(|origin| origin.path_buf(&db).as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(
         possible_paths,
@@ -4544,7 +4534,7 @@ fn equal_mixed_origin_path_lists_retain_each_original_configuration() {
         ],
     ]
     .into_iter()
-    .collect::<std::collections::BTreeSet<_>>();
+    .collect::<BTreeSet<_>>();
     let template_dirs = cases(&settings, "/templates/cases")
         .iter()
         .map(|case| {
@@ -4555,7 +4545,7 @@ fn equal_mixed_origin_path_lists_retain_each_original_configuration() {
                 .map(|dir| dir["value"]["resolved"].as_str().unwrap())
                 .collect::<Vec<_>>()
         })
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     assert_eq!(template_dirs, expected);
 }
@@ -4681,7 +4671,7 @@ fn canonical_unknown_origins_project_mapping_unpack_spans() {
     assert_eq!(issue["kind"], "unknown_unpack");
     assert_eq!(
         issue["spans"],
-        serde_json::to_value([
+        to_value([
             expected_span(source, "first()"),
             expected_span(source, "second()"),
         ])

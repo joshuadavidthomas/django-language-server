@@ -26,6 +26,7 @@ use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
+use super::ReachableAllocationSites;
 use super::UniqueVec;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
@@ -187,7 +188,7 @@ impl EvaluationState {
         name: &str,
         path: &PythonMutationPath,
     ) -> Vec<String> {
-        let mut wanted = super::ReachableAllocationSites::default();
+        let mut wanted = ReachableAllocationSites::default();
         let Some(binding) = self.binding(name) else {
             return Vec::new();
         };
@@ -289,6 +290,33 @@ impl EvaluationState {
             };
             self.bindings.insert(name, binding);
         }
+    }
+
+    fn degrade_loop_effects(mut self, evaluated_bodies: Vec<Self>, origin: Origin) -> Self {
+        let changed_names = evaluated_bodies
+            .iter()
+            .flat_map(|body| body.changed_names_from(&self))
+            .collect::<BTreeSet<_>>();
+
+        for body in evaluated_bodies {
+            let Self {
+                bindings: _,
+                namespace_causes,
+                mutations,
+                dependencies,
+            } = body;
+            self.namespace_causes.extend(namespace_causes);
+            self.mutations.extend(mutations);
+            self.dependencies.files.extend(dependencies.files);
+            self.dependencies.imports.extend(dependencies.imports);
+        }
+
+        self.degrade_names(
+            changed_names,
+            &PythonUnknownCause::UnsupportedExpression,
+            origin,
+        );
+        self
     }
 
     fn join_branches(mut base: Self, branches: &[Self], origin: Origin) -> Self {
@@ -522,6 +550,70 @@ mod tests {
             });
 
         assert!(changed.changed_names_from(&base).is_empty());
+    }
+
+    #[test]
+    fn loop_effect_degradation_aggregates_effects_and_degrades_changed_names() {
+        let base = state_with_binding();
+        let loop_origin = origin(6);
+        let expected_binding = base
+            .binding("VALUE")
+            .expect("the fixture binding should exist")
+            .clone()
+            .join(
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, loop_origin),
+                loop_origin,
+            );
+        let mut first_mutation = mutation(PythonMutationOperation::Extend, 2);
+        first_mutation.binding = "OTHER".to_string();
+        let mut later_mutation = mutation(PythonMutationOperation::Append, 3);
+        later_mutation.binding = "OTHER".to_string();
+        let first_cause = PythonNamespaceCause::unconstrained(PythonUnknown::new(
+            PythonUnknownCause::UnsupportedExpression,
+            [origin(4)],
+        ));
+        let second_cause = PythonNamespaceCause::unconstrained(PythonUnknown::new(
+            PythonUnknownCause::UnsupportedMutation,
+            [origin(5)],
+        ));
+
+        let mut first_body = base.clone();
+        first_body.assign_value(
+            "VALUE",
+            PythonValue::string("changed".to_string(), origin(2)),
+            origin(2),
+        );
+        first_body.mutations.insert(first_mutation.clone());
+        first_body.dependencies.files.insert(test_file(1));
+        first_body.namespace_causes.push(first_cause.clone());
+
+        let mut second_body = base.clone();
+        second_body.assign_value(
+            "VALUE",
+            PythonValue::string("changed".to_string(), origin(2)),
+            origin(2),
+        );
+        second_body
+            .mutations
+            .extend([later_mutation.clone(), first_mutation.clone()]);
+        second_body
+            .dependencies
+            .files
+            .extend([test_file(2), test_file(1)]);
+        second_body.namespace_causes.push(second_cause.clone());
+
+        let degraded = base.degrade_loop_effects(vec![first_body, second_body], loop_origin);
+
+        assert_eq!(degraded.binding("VALUE"), Some(&expected_binding));
+        assert_eq!(
+            degraded.dependencies.files.as_slice(),
+            [test_file(0), test_file(1), test_file(2)]
+        );
+        assert_eq!(
+            degraded.mutations.as_slice(),
+            [first_mutation, later_mutation]
+        );
+        assert_eq!(degraded.namespace_causes, [first_cause, second_cause]);
     }
 
     #[test]

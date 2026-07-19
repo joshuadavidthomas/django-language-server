@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use djls_project::LoadableLibraryLookup;
+use djls_project::TemplateEnvironment;
 use djls_project::TemplateSymbolKind;
 use djls_source::Span;
 use djls_templates::TagBit;
@@ -233,7 +234,7 @@ impl<'a> LoadState<'a> {
         self,
         symbol: &str,
         kind: TemplateSymbolKind,
-        environment: djls_project::TemplateEnvironment<'_>,
+        environment: TemplateEnvironment<'_>,
     ) -> bool {
         let mut can_shadow = false;
         let mut fold_library =

@@ -17,6 +17,9 @@ pub use diagnostics::TemplateDiagnostics;
 pub use diagnostics::collect_template_diagnostics;
 pub use djls_project::TagArgument;
 pub use djls_project::TagArgumentKind;
+use djls_source::File;
+use djls_templates::TemplateParseResult;
+use djls_templates::parse_template;
 pub use errors::ValidationError;
 pub use filters::FilterAritySpecs;
 pub use filters::LibraryFilterSpecs;
@@ -75,6 +78,7 @@ pub use tags::tag_spec_at;
 pub use tags::tag_specs_at;
 pub use tags::tag_specs_for_file;
 
+use crate::scoping::template_analysis_projection_for_file;
 use crate::validation::TemplateValidator;
 
 /// Validate a Django template file.
@@ -83,13 +87,11 @@ use crate::validation::TemplateValidator;
 /// `djls-templates`, while this function triggers validation for callers that
 /// need Django meaning for a file.
 #[salsa::tracked]
-pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
-    let djls_templates::TemplateParseResult::Parsed(nodelist) =
-        djls_templates::parse_template(db, file)
-    else {
+pub fn validate_template_file(db: &dyn Db, file: File) {
+    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return;
     };
 
-    let projection = crate::scoping::template_analysis_projection_for_file(db, file, nodelist);
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
     TemplateValidator::new(db, projection).validate();
 }

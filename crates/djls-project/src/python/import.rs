@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use djls_source::File;
 use djls_source::Span;
 use ruff_python_ast::Alias;
+use ruff_python_ast::Identifier;
 use ruff_python_ast::Stmt;
 use thiserror::Error;
 
@@ -51,10 +52,7 @@ impl ImportBindings {
                     module_name,
                     module_kind,
                     import_from.level,
-                    import_from
-                        .module
-                        .as_ref()
-                        .map(ruff_python_ast::Identifier::as_str),
+                    import_from.module.as_ref().map(Identifier::as_str),
                     &import_from.names,
                 ),
                 _ => {}
