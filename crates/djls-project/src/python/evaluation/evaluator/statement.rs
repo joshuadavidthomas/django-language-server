@@ -28,7 +28,12 @@ impl Evaluator<'_> {
     fn walk_stmt(&mut self, stmt: &ast::Stmt) {
         match stmt {
             ast::Stmt::Assign(assign) => self.walk_assign(assign),
-            ast::Stmt::AnnAssign(assign) => self.walk_ann_assign(assign),
+            ast::Stmt::AnnAssign(assign) => {
+                if let Some(value) = &assign.value {
+                    let evaluated = self.evaluate_binding(value);
+                    self.assign_target(&assign.target, value, evaluated);
+                }
+            }
             ast::Stmt::AugAssign(assign) => self.walk_aug_assign(assign),
             ast::Stmt::Expr(expr) => self.evaluate_expression_statement(&expr.value),
             ast::Stmt::Import(import) => self.walk_import(import),
@@ -54,14 +59,23 @@ impl Evaluator<'_> {
                 self.evaluate_body(&stmt_with.body);
             }
             ast::Stmt::Try(stmt_try) => self.walk_try(stmt_try),
-            ast::Stmt::FunctionDef(function) => self.bind_function(function),
-            ast::Stmt::ClassDef(class) => self.bind_class(class),
+            ast::Stmt::FunctionDef(function) => self.state.bind_unknown(
+                function.name.as_str(),
+                &PythonUnknownCause::UnsupportedExpression,
+                self.origin(function),
+            ),
+            ast::Stmt::ClassDef(class) => self.state.bind_unknown(
+                class.name.as_str(),
+                &PythonUnknownCause::UnsupportedExpression,
+                self.origin(class),
+            ),
             ast::Stmt::Delete(delete) => {
                 for target in &delete.targets {
-                    self.bind_delete_target(target);
+                    self.bind_unknown_targets(target, &PythonUnknownCause::UnsupportedMutation);
                 }
             }
-            ast::Stmt::TypeAlias(type_alias) => self.bind_type_alias(type_alias),
+            ast::Stmt::TypeAlias(type_alias) => self
+                .bind_unknown_targets(&type_alias.name, &PythonUnknownCause::UnsupportedExpression),
             ast::Stmt::Match(stmt_match) => self.walk_match(stmt_match),
             ast::Stmt::Return(_)
             | ast::Stmt::Raise(_)
@@ -79,34 +93,32 @@ impl Evaluator<'_> {
         match self.test_truthiness(&stmt_if.test) {
             Truthiness::AlwaysTrue => self.evaluate_body(&stmt_if.body),
             Truthiness::AlwaysFalse => {
-                self.walk_false_if_clauses(&stmt_if.elif_else_clauses, stmt_if.span());
+                let clauses = &stmt_if.elif_else_clauses;
+                let control_span = stmt_if.span();
+                for (index, clause) in clauses.iter().enumerate() {
+                    let Some(test) = &clause.test else {
+                        self.evaluate_body(&clause.body);
+                        return;
+                    };
+
+                    match self.test_truthiness(test) {
+                        Truthiness::AlwaysTrue => {
+                            self.evaluate_body(&clause.body);
+                            return;
+                        }
+                        Truthiness::AlwaysFalse => {}
+                        Truthiness::Ambiguous => {
+                            self.join_reachable_if_bodies(None, &clauses[index..], control_span);
+                            return;
+                        }
+                    }
+                }
             }
             Truthiness::Ambiguous => self.join_reachable_if_bodies(
                 Some(&stmt_if.body),
                 &stmt_if.elif_else_clauses,
                 stmt_if.span(),
             ),
-        }
-    }
-
-    fn walk_false_if_clauses(&mut self, clauses: &[ast::ElifElseClause], control_span: Span) {
-        for (index, clause) in clauses.iter().enumerate() {
-            let Some(test) = &clause.test else {
-                self.evaluate_body(&clause.body);
-                return;
-            };
-
-            match self.test_truthiness(test) {
-                Truthiness::AlwaysTrue => {
-                    self.evaluate_body(&clause.body);
-                    return;
-                }
-                Truthiness::AlwaysFalse => {}
-                Truthiness::Ambiguous => {
-                    self.join_reachable_if_bodies(None, &clauses[index..], control_span);
-                    return;
-                }
-            }
         }
     }
 
@@ -142,7 +154,14 @@ impl Evaluator<'_> {
         if has_fallthrough {
             bodies.push(&[]);
         }
-        self.join_ambiguous_bodies(&bodies, control_span);
+
+        let mut branches = Vec::with_capacity(bodies.len());
+        for body in bodies {
+            let mut branch = self.fork();
+            branch.evaluate_body(body);
+            branches.push(branch);
+        }
+        self.join_forks(branches, self.origin_at(control_span));
     }
 
     fn walk_try(&mut self, stmt_try: &ast::StmtTry) {
@@ -185,7 +204,17 @@ impl Evaluator<'_> {
             return;
         }
 
-        self.join_match_cases(&stmt_match.cases, stmt_match.span());
+        let mut branches = Vec::with_capacity(stmt_match.cases.len() + 1);
+        for case in &stmt_match.cases {
+            let mut branch = self.fork();
+            branch.bind_pattern_names(&case.pattern);
+            branch.evaluate_body(&case.body);
+            branches.push(branch);
+        }
+        if !stmt_match.cases.iter().any(is_irrefutable_match_case) {
+            branches.push(self.fork());
+        }
+        self.join_forks(branches, self.origin(stmt_match));
     }
 
     fn walk_assign(&mut self, assign: &ast::StmtAssign) {
@@ -206,13 +235,6 @@ impl Evaluator<'_> {
         }
         for target in &assign.targets {
             self.assign_target(target, &assign.value, value.clone());
-        }
-    }
-
-    fn walk_ann_assign(&mut self, assign: &ast::StmtAnnAssign) {
-        if let Some(value) = &assign.value {
-            let evaluated = self.evaluate_binding(value);
-            self.assign_target(&assign.target, value, evaluated);
         }
     }
 
@@ -347,30 +369,6 @@ impl Evaluator<'_> {
         self.bind_unknown_targets(target, &PythonUnknownCause::UnsupportedExpression);
     }
 
-    fn bind_function(&mut self, function: &ast::StmtFunctionDef) {
-        self.state.bind_unknown(
-            function.name.as_str(),
-            &PythonUnknownCause::UnsupportedExpression,
-            self.origin(function),
-        );
-    }
-
-    fn bind_class(&mut self, class: &ast::StmtClassDef) {
-        self.state.bind_unknown(
-            class.name.as_str(),
-            &PythonUnknownCause::UnsupportedExpression,
-            self.origin(class),
-        );
-    }
-
-    fn bind_delete_target(&mut self, target: &ast::Expr) {
-        self.bind_unknown_targets(target, &PythonUnknownCause::UnsupportedMutation);
-    }
-
-    fn bind_type_alias(&mut self, alias: &ast::StmtTypeAlias) {
-        self.bind_unknown_targets(&alias.name, &PythonUnknownCause::UnsupportedExpression);
-    }
-
     fn bind_pattern_names(&mut self, pattern: &ast::Pattern) {
         for name in pattern_bound_names(pattern) {
             self.state.bind_unknown(
@@ -408,30 +406,6 @@ impl Evaluator<'_> {
             &PythonUnknownCause::UnsupportedExpression,
             self.origin_at(control_span),
         );
-    }
-
-    fn join_ambiguous_bodies(&mut self, bodies: &[&[ast::Stmt]], control_span: Span) {
-        let mut branches = Vec::with_capacity(bodies.len());
-        for body in bodies {
-            let mut branch = self.fork();
-            branch.evaluate_body(body);
-            branches.push(branch);
-        }
-        self.join_forks(branches, self.origin_at(control_span));
-    }
-
-    fn join_match_cases(&mut self, cases: &[ast::MatchCase], control_span: Span) {
-        let mut branches = Vec::with_capacity(cases.len() + 1);
-        for case in cases {
-            let mut branch = self.fork();
-            branch.bind_pattern_names(&case.pattern);
-            branch.evaluate_body(&case.body);
-            branches.push(branch);
-        }
-        if !cases.iter().any(is_irrefutable_match_case) {
-            branches.push(self.fork());
-        }
-        self.join_forks(branches, self.origin_at(control_span));
     }
 
     fn assign_target(&mut self, target: &ast::Expr, expression: &ast::Expr, value: PythonBinding) {

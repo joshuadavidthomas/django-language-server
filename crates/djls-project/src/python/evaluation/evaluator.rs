@@ -40,9 +40,15 @@ pub(super) fn evaluate_body(
     module: PythonModule,
     body: &[ast::Stmt],
 ) -> (PythonModuleValues, PythonModuleDependencies) {
-    let mut evaluator = Evaluator::new(db, project, module);
+    let state = EvaluationState::new(module.file());
+    let mut evaluator = Evaluator {
+        db,
+        project,
+        module,
+        state,
+    };
     evaluator.evaluate_body(body);
-    evaluator.finish()
+    evaluator.state.finish()
 }
 
 /// Context-bearing interpreter that evaluates Python syntax into a forkable state.
@@ -53,17 +59,7 @@ pub(super) struct Evaluator<'db> {
     pub(super) state: EvaluationState,
 }
 
-impl<'db> Evaluator<'db> {
-    fn new(db: &'db dyn ProjectDb, project: Project, module: PythonModule) -> Self {
-        let state = EvaluationState::new(module.file());
-        Self {
-            db,
-            project,
-            module,
-            state,
-        }
-    }
-
+impl Evaluator<'_> {
     fn fork(&self) -> Self {
         Self {
             db: self.db,
@@ -79,10 +75,6 @@ impl<'db> Evaluator<'db> {
             .map(|evaluator| evaluator.state)
             .collect::<Vec<_>>();
         self.state = EvaluationState::join_branches(self.state.clone(), &branches, origin);
-    }
-
-    fn finish(self) -> (PythonModuleValues, PythonModuleDependencies) {
-        self.state.finish()
     }
 
     pub(super) fn origin<T: RangedExt>(&self, ranged: &T) -> Origin {
