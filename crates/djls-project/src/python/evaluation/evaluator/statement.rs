@@ -15,7 +15,7 @@ use super::super::truthiness::Truthiness;
 use super::Evaluator;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
-use crate::python::import::first_import_segment;
+use crate::python::import::DirectImportClause;
 
 impl Evaluator<'_> {
     pub(super) fn evaluate_body(&mut self, body: &[ast::Stmt]) {
@@ -351,15 +351,11 @@ impl Evaluator<'_> {
     }
 
     fn walk_import(&mut self, import: &ast::StmtImport) {
-        for alias in &import.names {
-            let bound_name = alias.asname.as_ref().map_or_else(
-                || first_import_segment(alias.name.as_str()),
-                ast::Identifier::as_str,
-            );
+        for clause in DirectImportClause::lower(import) {
             self.state.bind_unknown(
-                bound_name,
+                clause.bound(),
                 &PythonUnknownCause::UnsupportedExpression,
-                self.origin(alias),
+                self.origin_at(clause.binding_span()),
             );
         }
     }

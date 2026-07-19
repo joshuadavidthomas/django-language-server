@@ -1,9 +1,8 @@
 mod discovery;
 mod extract;
 mod graph;
+mod imports;
 mod resolve;
-
-use std::collections::BTreeMap;
 
 pub use discovery::model_modules;
 use djls_source::File;
@@ -17,7 +16,7 @@ use crate::models::resolve::resolve_deferred_models;
 use crate::project::Project;
 use crate::python::PythonModuleName;
 use crate::python::RecoveredPythonModule;
-use crate::python::import_bindings;
+use crate::python::import::ModuleKind;
 
 /// Compute a merged `ModelGraph` from discovered model sources.
 #[salsa::tracked(returns(ref))]
@@ -40,13 +39,9 @@ pub fn resolve_model_graph_from_modules(
     modules: impl IntoIterator<Item = (File, PythonModuleName)>,
 ) -> ModelGraph {
     let mut graph = ModelGraph::new();
-    let mut import_bindings_by_module = BTreeMap::new();
     let mut deferred = Vec::new();
 
     for (file, module_name) in modules {
-        let bindings = import_bindings(db, file, module_name.clone());
-        import_bindings_by_module.insert(module_name.clone(), bindings);
-
         let extraction = extract_models(db, file, module_name);
         if !extraction.graph.is_empty() {
             graph.merge(extraction.graph.clone());
@@ -55,7 +50,7 @@ pub fn resolve_model_graph_from_modules(
     }
 
     resolve_deferred_models(db, project, &mut graph, deferred);
-    graph.resolve_relation_targets(db, project, &import_bindings_by_module);
+    graph.resolve_relation_targets(db, project);
     #[cfg(debug_assertions)]
     graph.debug_assert_no_file_local_placeholders();
     graph
@@ -65,6 +60,8 @@ pub fn resolve_model_graph_from_modules(
 ///
 /// This is a separate query from `compute_model_graph` so project-wide graph
 /// recomputation can reuse unchanged per-file data.
+// Salsa tracked-query keys are by-value; `module_name` is a key, not a borrow.
+#[allow(clippy::needless_pass_by_value)]
 #[salsa::tracked(returns(ref))]
 pub fn extract_models(
     db: &dyn djls_source::Db,
@@ -75,6 +72,10 @@ pub fn extract_models(
         return ModelExtraction::default();
     };
 
-    let imports = import_bindings(db, file, module_name.clone());
-    extract_models_impl(module.body(db), module_name, file, imports)
+    let module_kind = if file.path(db).file_name() == Some("__init__.py") {
+        ModuleKind::PackageInit
+    } else {
+        ModuleKind::Module
+    };
+    extract_models_impl(module.body(db), &module_name, file, module_kind)
 }

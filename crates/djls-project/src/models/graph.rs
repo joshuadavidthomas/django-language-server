@@ -13,9 +13,9 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::db::Db as ProjectDb;
+use crate::models::imports::ModelImportPathResolutionError;
+use crate::models::imports::ModelImportReference;
 use crate::project::Project;
-use crate::python::ImportBindings;
-use crate::python::ImportPathResolutionError;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::resolve_prefix;
@@ -316,6 +316,11 @@ pub(crate) struct Relation {
     pub(crate) relation_type: RelationType,
     #[serde(skip_serializing_if = "RelationTargetResolution::is_file_local_placeholder")]
     resolution: RelationTargetResolution,
+    // Occurrence-local symbolic reference for `Bare`/`Attribute` targets,
+    // resolved against the aliases in scope where the relation appeared.
+    // Not part of the serialized fact schema.
+    #[serde(skip)]
+    pub(crate) import_reference: Option<ModelImportReference>,
 }
 
 impl Relation {
@@ -332,6 +337,7 @@ impl Relation {
             resolution: RelationTargetResolution::Unresolved {
                 reason: RelationTargetUnresolvedReason::FileLocal,
             },
+            import_reference: None,
         }
     }
 
@@ -481,18 +487,19 @@ fn django_name_matches(candidate: &str, query: &str) -> bool {
 }
 
 fn unresolved_import_path_reason(
-    error: ImportPathResolutionError,
+    error: ModelImportPathResolutionError,
 ) -> RelationTargetUnresolvedReason {
     match error {
-        ImportPathResolutionError::EmptyPath => {
+        ModelImportPathResolutionError::EmptyPath => {
             RelationTargetUnresolvedReason::InvalidImportedTarget {
                 target: String::new(),
             }
         }
-        ImportPathResolutionError::MissingBinding(binding) => {
+        ModelImportPathResolutionError::MissingBinding(binding)
+        | ModelImportPathResolutionError::ShadowedBinding(binding) => {
             RelationTargetUnresolvedReason::MissingImportBinding { binding }
         }
-        ImportPathResolutionError::InvalidTarget(target) => {
+        ModelImportPathResolutionError::InvalidTarget(target) => {
             RelationTargetUnresolvedReason::InvalidImportedTarget { target }
         }
     }
@@ -588,8 +595,19 @@ impl ModelGraph {
 
     pub(crate) fn add_model(&mut self, model: ModelDef) {
         let id = ModelId::new(model.module_name.clone(), model.name.value().clone());
-        if self.models.insert(id.clone(), model).is_some() {
-            self.overwritten_model_ids.push(id.clone());
+        match self.models.entry(id.clone()) {
+            Entry::Occupied(mut entry) => {
+                self.overwritten_model_ids.push(id.clone());
+                let existing = entry.get();
+                let incoming_is_later = existing.file != model.file
+                    || existing.name.span().start() <= model.name.span().start();
+                if incoming_is_later {
+                    entry.insert(model);
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(model);
+            }
         }
         self.model_ids_by_name
             .entry(id.name.clone())
@@ -795,25 +813,14 @@ impl ModelGraph {
         None
     }
 
-    pub(crate) fn resolve_relation_targets(
-        &mut self,
-        db: &dyn ProjectDb,
-        project: Project,
-        import_bindings_by_module: &BTreeMap<PythonModuleName, &ImportBindings>,
-    ) {
+    pub(crate) fn resolve_relation_targets(&mut self, db: &dyn ProjectDb, project: Project) {
         let mut updates = Vec::new();
         for (scope, model) in &self.models {
             for (index, relation) in model.relations.iter().enumerate() {
                 updates.push((
                     scope.clone(),
                     index,
-                    self.resolve_relation_target(
-                        db,
-                        project,
-                        scope,
-                        relation,
-                        import_bindings_by_module,
-                    ),
+                    self.resolve_relation_target(db, project, scope, relation),
                 ));
             }
         }
@@ -833,7 +840,6 @@ impl ModelGraph {
         project: Project,
         scope: &ModelId,
         relation: &Relation,
-        import_bindings_by_module: &BTreeMap<PythonModuleName, &ImportBindings>,
     ) -> RelationTargetResolution {
         let Some(target) = relation.target_model() else {
             return RelationTargetResolution::Unresolved {
@@ -851,42 +857,40 @@ impl ModelGraph {
                     name: name.clone(),
                 },
             ),
-            RelationTarget::Bare { name } => {
-                let Some(imports) = import_bindings_by_module.get(&scope.module_name) else {
-                    return self.resolve_same_app_target(scope, name);
-                };
-                match imports.resolve_qualified_path(std::iter::once(name.as_str())) {
-                    Ok(target) => self.resolve_imported_relation_target(db, project, &target),
-                    Err(ImportPathResolutionError::MissingBinding(_)) => {
-                        self.resolve_same_app_target(scope, name)
-                    }
-                    Err(error) => RelationTargetResolution::Unresolved {
-                        reason: unresolved_import_path_reason(error),
-                    },
+            RelationTarget::Bare { name } => match &relation.import_reference {
+                Some(ModelImportReference::Qualified(target)) => {
+                    self.resolve_imported_relation_target(db, project, target)
                 }
-            }
-            RelationTarget::Attribute { path } => {
-                let Some(root) = path.first() else {
-                    return RelationTargetResolution::Unresolved {
-                        reason: RelationTargetUnresolvedReason::InvalidImportedTarget {
-                            target: String::new(),
-                        },
-                    };
-                };
-                let Some(imports) = import_bindings_by_module.get(&scope.module_name) else {
-                    return RelationTargetResolution::Unresolved {
-                        reason: RelationTargetUnresolvedReason::MissingImportBinding {
+                Some(ModelImportReference::Unresolved(
+                    ModelImportPathResolutionError::MissingBinding(_),
+                ))
+                | None => self.resolve_same_app_target(scope, name),
+                Some(ModelImportReference::Unresolved(error)) => {
+                    RelationTargetResolution::Unresolved {
+                        reason: unresolved_import_path_reason(error.clone()),
+                    }
+                }
+            },
+            RelationTarget::Attribute { path } => match &relation.import_reference {
+                Some(ModelImportReference::Qualified(target)) => {
+                    self.resolve_imported_relation_target(db, project, target)
+                }
+                Some(ModelImportReference::Unresolved(error)) => {
+                    RelationTargetResolution::Unresolved {
+                        reason: unresolved_import_path_reason(error.clone()),
+                    }
+                }
+                None => RelationTargetResolution::Unresolved {
+                    reason: match path.first() {
+                        Some(root) => RelationTargetUnresolvedReason::MissingImportBinding {
                             binding: root.clone(),
                         },
-                    };
-                };
-                match imports.resolve_qualified_path(path.iter().map(String::as_str)) {
-                    Ok(target) => self.resolve_imported_relation_target(db, project, &target),
-                    Err(error) => RelationTargetResolution::Unresolved {
-                        reason: unresolved_import_path_reason(error),
+                        None => RelationTargetUnresolvedReason::InvalidImportedTarget {
+                            target: String::new(),
+                        },
                     },
-                }
-            }
+                },
+            },
         }
     }
 

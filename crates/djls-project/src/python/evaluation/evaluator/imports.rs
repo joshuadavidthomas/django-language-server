@@ -20,6 +20,7 @@ use crate::python::evaluation::PythonImportEvaluationStatus;
 use crate::python::evaluation::query::evaluate_python_module;
 use crate::python::evaluation::result::CycleMembership;
 use crate::python::evaluation::result::PythonModuleEvaluation;
+use crate::python::import::FromImportSyntax;
 use crate::python::module::PythonImportRequest;
 use crate::python::module::PythonImportResolutionError;
 use crate::python::module::PythonModule;
@@ -89,27 +90,18 @@ struct FromImport<'ast> {
 
 impl<'ast> FromImport<'ast> {
     fn lower(evaluator: &Evaluator<'_>, statement: &'ast ast::StmtImportFrom) -> Self {
-        let selection = if statement
-            .names
-            .iter()
-            .any(|alias| alias.name.as_str() == "*")
-        {
+        let syntax = FromImportSyntax::lower(statement);
+        let selection = if syntax.has_star() {
             ImportSelection::Star
         } else {
             ImportSelection::Named(
-                statement
-                    .names
+                syntax
+                    .named_members()
                     .iter()
-                    .map(|alias| {
-                        let imported = alias.name.as_str();
-                        ImportedBinding {
-                            imported,
-                            bound: alias
-                                .asname
-                                .as_ref()
-                                .map_or(imported, ast::Identifier::as_str),
-                            origin: evaluator.origin(alias),
-                        }
+                    .map(|clause| ImportedBinding {
+                        imported: clause.imported(),
+                        bound: clause.bound(),
+                        origin: evaluator.origin_at(clause.binding_span()),
                     })
                     .collect(),
             )
@@ -117,8 +109,8 @@ impl<'ast> FromImport<'ast> {
         Self {
             origin: evaluator.origin(statement),
             importer: evaluator.module.clone(),
-            level: statement.level,
-            module: statement.module.as_ref().map(ast::Identifier::as_str),
+            level: syntax.level(),
+            module: syntax.module(),
             selection,
         }
     }

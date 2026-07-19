@@ -1,15 +1,12 @@
 pub(crate) mod evaluation;
-mod import;
+pub(crate) mod import;
 mod interpreter;
-mod module;
+pub(crate) mod module;
 mod name;
 mod parse;
 mod path_eval;
 mod search_paths;
 
-pub(crate) use import::ImportBindings;
-pub(crate) use import::ImportPathResolutionError;
-pub(crate) use import::import_bindings;
 pub use interpreter::Interpreter;
 pub use module::FileModuleCandidate;
 pub use module::FileModuleResolution;

@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 use std::ops::ControlFlow;
 
 use djls_source::Span;
-use ruff_python_ast::Alias;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprStringLiteral;
@@ -225,21 +224,6 @@ pub(crate) trait RangedExt: Ranged {
 }
 
 impl<T> RangedExt for T where T: Ranged {}
-
-pub(crate) trait AliasExt {
-    /// Span of the local binding for an unaliased import: the leading
-    /// `local_name` portion of the alias name.
-    fn unaliased_binding_span(&self, local_name: &str) -> Span;
-}
-
-impl AliasExt for Alias {
-    fn unaliased_binding_span(&self, local_name: &str) -> Span {
-        Span::new(
-            self.name.span().start(),
-            u32::try_from(local_name.len()).unwrap_or(u32::MAX),
-        )
-    }
-}
 
 #[cfg(test)]
 mod tests {

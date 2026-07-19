@@ -14,7 +14,8 @@ use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::python::PythonSyntaxError;
-use crate::python::import::first_import_segment;
+use crate::python::import::DirectImportClause;
+use crate::python::import::FromImportSyntax;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct TouchedNames {
@@ -61,24 +62,17 @@ impl TouchedNames {
                 }
             }
             ast::Stmt::Import(import) => {
-                for alias in &import.names {
-                    let bound_name = alias.asname.as_ref().map_or_else(
-                        || first_import_segment(alias.name.as_str()),
-                        ast::Identifier::as_str,
-                    );
-                    self.record(bound_name);
+                for clause in DirectImportClause::lower(import) {
+                    self.record(clause.bound());
                 }
             }
             ast::Stmt::ImportFrom(import) => {
-                if import.names.iter().any(|alias| alias.name.as_str() == "*") {
+                let syntax = FromImportSyntax::lower(import);
+                if syntax.has_star() {
                     self.record_all();
                 } else {
-                    for alias in &import.names {
-                        let bound_name = alias
-                            .asname
-                            .as_ref()
-                            .map_or_else(|| alias.name.as_str(), ast::Identifier::as_str);
-                        self.record(bound_name);
+                    for clause in syntax.named_members() {
+                        self.record(clause.bound());
                     }
                 }
             }
@@ -255,23 +249,13 @@ impl DefiniteWriteCollector {
                 self.record_targets(&assign.target, exact_bool, dominates);
             }
             ast::Stmt::Import(import) => {
-                for alias in &import.names {
-                    let name = alias.asname.as_ref().map_or_else(
-                        || first_import_segment(alias.name.as_str()),
-                        ast::Identifier::as_str,
-                    );
-                    self.record_name(name, None, true);
+                for clause in DirectImportClause::lower(import) {
+                    self.record_name(clause.bound(), None, true);
                 }
             }
             ast::Stmt::ImportFrom(import) => {
-                for alias in &import.names {
-                    if alias.name.as_str() != "*" {
-                        let name = alias
-                            .asname
-                            .as_ref()
-                            .map_or_else(|| alias.name.as_str(), ast::Identifier::as_str);
-                        self.record_name(name, None, true);
-                    }
+                for clause in FromImportSyntax::lower(import).named_members() {
+                    self.record_name(clause.bound(), None, true);
                 }
             }
             ast::Stmt::FunctionDef(function) => {
@@ -490,6 +474,23 @@ mod tests {
     use rustc_hash::FxHashSet;
 
     use super::DefiniteWriteCollector;
+    use super::TouchedNames;
+
+    #[test]
+    fn direct_imports_touch_python_bound_names_in_clause_order() {
+        let module = parse_module("import alpha.beta, gamma.delta as local\n")
+            .expect("imports should parse")
+            .into_syntax();
+        let touched = TouchedNames::from_body(&module.body);
+
+        assert_eq!(
+            touched.names,
+            ["alpha".to_string(), "local".to_string()]
+                .into_iter()
+                .collect()
+        );
+        assert!(!touched.all);
+    }
 
     #[test]
     fn definite_writes_reject_attribute_and_subscript_targets() {

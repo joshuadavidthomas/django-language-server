@@ -1,386 +1,288 @@
-use std::collections::BTreeMap;
-
-use djls_source::File;
 use djls_source::Span;
-use ruff_python_ast::Alias;
-use ruff_python_ast::Identifier;
-use ruff_python_ast::Stmt;
-use thiserror::Error;
+use ruff_python_ast as ast;
 
-use crate::ast::AliasExt;
 use crate::ast::RangedExt;
-use crate::python::PythonModuleName;
-use crate::python::RecoveredPythonModule;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ImportBindings(BTreeMap<String, ImportBinding>);
-
-impl ImportBindings {
-    pub(crate) fn resolve_qualified_path<'a>(
-        &self,
-        path: impl IntoIterator<Item = &'a str>,
-    ) -> Result<PythonModuleName, ImportPathResolutionError> {
-        let mut parts = path.into_iter();
-        let Some(root) = parts.next() else {
-            return Err(ImportPathResolutionError::EmptyPath);
-        };
-        let Some(binding) = self.0.get(root) else {
-            return Err(ImportPathResolutionError::MissingBinding(root.to_string()));
-        };
-
-        let tail: Vec<&str> = parts.collect();
-        let target = if tail.is_empty() {
-            binding.target.as_str().to_string()
-        } else {
-            format!("{}.{}", binding.target.as_str(), tail.join("."))
-        };
-
-        PythonModuleName::parse(&target)
-            .map_err(|_| ImportPathResolutionError::InvalidTarget(target))
-    }
-
-    fn from_statements(
-        stmts: &[Stmt],
-        module_name: &PythonModuleName,
-        module_kind: ModuleKind,
-    ) -> Self {
-        let mut bindings = Self::default();
-        for stmt in stmts {
-            match stmt {
-                Stmt::Import(import) => bindings.record_import(&import.names),
-                Stmt::ImportFrom(import_from) => bindings.record_import_from(
-                    module_name,
-                    module_kind,
-                    import_from.level,
-                    import_from.module.as_ref().map(Identifier::as_str),
-                    &import_from.names,
-                ),
-                _ => {}
-            }
-        }
-
-        bindings
-    }
-
-    fn record_import(&mut self, aliases: &[Alias]) {
-        for alias in aliases {
-            let imported_name = alias.name.as_str();
-            let (local_name, target, binding_range) = if let Some(asname) = &alias.asname {
-                (
-                    asname.as_str().to_string(),
-                    imported_name.to_string(),
-                    asname.span(),
-                )
-            } else {
-                let local_name = first_import_segment(imported_name);
-                (
-                    local_name.to_string(),
-                    local_name.to_string(),
-                    alias.unaliased_binding_span(local_name),
-                )
-            };
-
-            let Ok(target) = PythonModuleName::parse(&target) else {
-                continue;
-            };
-            self.0.insert(
-                local_name,
-                ImportBinding {
-                    target,
-                    binding_range,
-                },
-            );
-        }
-    }
-
-    fn record_import_from(
-        &mut self,
-        module_name: &PythonModuleName,
-        module_kind: ModuleKind,
-        level: u32,
-        imported_from: Option<&str>,
-        aliases: &[Alias],
-    ) {
-        let Some(base) = import_from_base(module_name, module_kind, level, imported_from) else {
-            return;
-        };
-
-        for alias in aliases {
-            let imported_name = alias.name.as_str();
-            if imported_name == "*" {
-                continue;
-            }
-
-            let (local_name, binding_range) = if let Some(asname) = &alias.asname {
-                (asname.as_str().to_string(), asname.span())
-            } else {
-                (imported_name.to_string(), alias.name.span())
-            };
-            let target = if base.is_empty() {
-                imported_name.to_string()
-            } else {
-                format!("{base}.{imported_name}")
-            };
-            let Ok(target) = PythonModuleName::parse(&target) else {
-                continue;
-            };
-
-            self.0.insert(
-                local_name,
-                ImportBinding {
-                    target,
-                    binding_range,
-                },
-            );
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ImportBinding {
-    target: PythonModuleName,
-    binding_range: Span,
-}
-
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
-pub(crate) enum ImportPathResolutionError {
-    #[error("import path is empty")]
-    EmptyPath,
-    #[error("no import binding exists for `{0}`")]
-    MissingBinding(String),
-    #[error("resolved import target `{0}` is not a valid module name")]
-    InvalidTarget(String),
-}
-
+/// Whether a Python source file is an ordinary module or a package's
+/// `__init__.py`. Relative-import base construction differs between the two:
+/// a module strips its own final segment, while a package init does not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ModuleKind {
+pub(crate) enum ModuleKind {
     Module,
     PackageInit,
 }
 
-// Salsa tracked-query keys are by-value; `module_name` is a key, not a borrow.
-#[allow(clippy::needless_pass_by_value)]
-#[salsa::tracked(returns(ref))]
-pub(crate) fn import_bindings(
-    db: &dyn djls_source::Db,
-    file: File,
-    module_name: PythonModuleName,
-) -> ImportBindings {
-    let Ok(Some(module)) = RecoveredPythonModule::from_file(db, file) else {
-        return ImportBindings::default();
-    };
-
-    let module_kind = if file.path(db).file_name() == Some("__init__.py") {
-        ModuleKind::PackageInit
-    } else {
-        ModuleKind::Module
-    };
-    ImportBindings::from_statements(module.body(db), &module_name, module_kind)
-}
-
-#[cfg(test)]
-fn extract_import_bindings_for_source(
-    source: &str,
-    module_name: &PythonModuleName,
-    module_kind: ModuleKind,
-) -> ImportBindings {
-    let Ok(parsed) = ruff_python_parser::parse_module(source) else {
-        return ImportBindings::default();
-    };
-
-    let module = parsed.into_syntax();
-    ImportBindings::from_statements(&module.body, module_name, module_kind)
-}
-
-pub(super) fn first_import_segment(name: &str) -> &str {
+/// The local root name bound by `import a.b.c` (`a`). Pure source-name rule
+/// used only by the syntax lowering below.
+fn first_import_segment(name: &str) -> &str {
     name.split('.').next().unwrap_or(name)
 }
 
-fn import_from_base(
-    module_name: &PythonModuleName,
-    module_kind: ModuleKind,
+enum DirectImportBinding<'ast> {
+    Root,
+    Alias(&'ast str),
+}
+
+/// A single clause of an `import ...` statement.
+///
+/// The requested spelling and binding form are lossless syntax facts. Local
+/// binding and symbolic-target spelling are derived source-name rules rather
+/// than duplicated strings.
+pub(crate) struct DirectImportClause<'ast> {
+    requested: &'ast str,
+    binding: DirectImportBinding<'ast>,
+    binding_span: Span,
+}
+
+impl<'ast> DirectImportClause<'ast> {
+    pub(crate) fn lower(import: &'ast ast::StmtImport) -> Vec<Self> {
+        import.names.iter().map(Self::from_alias).collect()
+    }
+
+    fn from_alias(alias: &'ast ast::Alias) -> Self {
+        Self {
+            requested: alias.name.as_str(),
+            binding: alias
+                .asname
+                .as_ref()
+                .map_or(DirectImportBinding::Root, |alias| {
+                    DirectImportBinding::Alias(alias.as_str())
+                }),
+            binding_span: alias.span(),
+        }
+    }
+
+    /// The dotted spelling exactly as written (`a.b` in `import a.b as c`).
+    fn requested(&self) -> &'ast str {
+        self.requested
+    }
+
+    /// The local name introduced into scope.
+    pub(crate) fn bound(&self) -> &'ast str {
+        match self.binding {
+            DirectImportBinding::Root => first_import_segment(self.requested()),
+            DirectImportBinding::Alias(alias) => alias,
+        }
+    }
+
+    /// The module the local name refers to (the top package for unaliased
+    /// dotted imports, the full requested spelling for aliased imports).
+    pub(crate) fn target(&self) -> &'ast str {
+        match self.binding {
+            DirectImportBinding::Root => first_import_segment(self.requested()),
+            DirectImportBinding::Alias(_) => self.requested(),
+        }
+    }
+
+    /// Span of the whole alias clause, for consumers that record binding
+    /// origins.
+    pub(crate) fn binding_span(&self) -> Span {
+        self.binding_span
+    }
+}
+
+/// A single member of a `from ... import a as b` statement.
+pub(crate) struct FromImportClause<'ast> {
+    imported: &'ast str,
+    bound: &'ast str,
+    binding_span: Span,
+}
+
+impl<'ast> FromImportClause<'ast> {
+    fn from_alias(alias: &'ast ast::Alias) -> Self {
+        let imported = alias.name.as_str();
+        let bound = alias
+            .asname
+            .as_ref()
+            .map_or(imported, ast::Identifier::as_str);
+        Self {
+            imported,
+            bound,
+            binding_span: alias.span(),
+        }
+    }
+
+    /// The name imported from the source module.
+    pub(crate) fn imported(&self) -> &'ast str {
+        self.imported
+    }
+
+    /// The local name introduced into scope.
+    pub(crate) fn bound(&self) -> &'ast str {
+        self.bound
+    }
+
+    /// Span of the whole alias clause, for consumers that record binding
+    /// origins.
+    pub(crate) fn binding_span(&self) -> Span {
+        self.binding_span
+    }
+}
+
+/// A `from [.]module import ...` statement, lowered into its relative level,
+/// optional source module, explicit star, and named members.
+pub(crate) struct FromImportSyntax<'ast> {
     level: u32,
-    imported_from: Option<&str>,
-) -> Option<String> {
-    if level == 0 {
-        return imported_from.map(str::to_string);
+    module: Option<&'ast str>,
+    has_star: bool,
+    members: Vec<FromImportClause<'ast>>,
+}
+
+impl<'ast> FromImportSyntax<'ast> {
+    pub(crate) fn lower(import: &'ast ast::StmtImportFrom) -> Self {
+        let mut has_star = false;
+        let mut members = Vec::new();
+        for alias in &import.names {
+            if alias.name.as_str() == "*" {
+                has_star = true;
+            } else {
+                members.push(FromImportClause::from_alias(alias));
+            }
+        }
+        Self {
+            level: import.level,
+            module: import.module.as_ref().map(ast::Identifier::as_str),
+            has_star,
+            members,
+        }
     }
 
-    let mut parts: Vec<&str> = module_name.as_str().split('.').collect();
-    if module_kind == ModuleKind::Module {
-        parts.pop();
+    pub(crate) fn level(&self) -> u32 {
+        self.level
     }
 
-    if level as usize > parts.len() {
-        return None;
+    pub(crate) fn module(&self) -> Option<&'ast str> {
+        self.module
     }
 
-    for _ in 1..level {
-        parts.pop();
+    /// Whether the statement contains an explicit `*` member.
+    pub(crate) fn has_star(&self) -> bool {
+        self.has_star
     }
 
-    if let Some(imported_from) = imported_from {
-        parts.extend(imported_from.split('.').filter(|part| !part.is_empty()));
-    }
-
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("."))
+    /// The explicitly-named members (never the `*`).
+    pub(crate) fn named_members(&self) -> &[FromImportClause<'ast>] {
+        &self.members
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use djls_testing::TestDatabase;
+    use ruff_python_ast::PySourceType;
+    use ruff_python_ast::Stmt;
+    use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::db::Db as ProjectDb;
-    use crate::project::Project;
 
-    fn bindings(source: &str, module_name: &str, module_kind: ModuleKind) -> ImportBindings {
-        let module_name = PythonModuleName::parse(module_name).unwrap();
-        extract_import_bindings_for_source(source, &module_name, module_kind)
+    fn direct(source: &str) -> Vec<(String, String, String)> {
+        let module = parse_module(source).unwrap().into_syntax();
+        let Some(Stmt::Import(import)) = module.body.first() else {
+            panic!("expected a direct import");
+        };
+        DirectImportClause::lower(import)
+            .iter()
+            .map(|clause| {
+                (
+                    clause.requested().to_string(),
+                    clause.bound().to_string(),
+                    clause.target().to_string(),
+                )
+            })
+            .collect()
     }
 
-    fn binding<'a>(table: &'a ImportBindings, name: &str) -> &'a ImportBinding {
-        table.0.get(name).expect("binding should exist")
-    }
-
-    #[test]
-    fn plain_import_binds_top_level_module() {
-        let table = bindings("import os\n", "pkg.mod", ModuleKind::Module);
-
-        assert_eq!(binding(&table, "os").target.as_str(), "os");
-        assert_eq!(binding(&table, "os").binding_range, Span::new(7, 2));
-    }
-
-    #[test]
-    fn aliased_import_binds_alias_to_full_target() {
-        let table = bindings("import a.b as c\n", "pkg.mod", ModuleKind::Module);
-
-        assert_eq!(binding(&table, "c").target.as_str(), "a.b");
-    }
-
-    #[test]
-    fn submodule_import_binds_only_top_level_module() {
-        let table = bindings("import os.path\n", "pkg.mod", ModuleKind::Module);
-
-        assert_eq!(table.0.len(), 1);
-        assert_eq!(binding(&table, "os").target.as_str(), "os");
+    fn from_import(source: &str) -> FromImportSyntax<'_> {
+        // Leak the parsed module so the borrowed facts can outlive this helper
+        // within a single test; acceptable in test-only code.
+        let module = Box::leak(Box::new(parse_module(source).unwrap().into_syntax()));
+        let Some(Stmt::ImportFrom(import)) = module.body.first() else {
+            panic!("expected a from import");
+        };
+        FromImportSyntax::lower(import)
     }
 
     #[test]
-    fn from_import_binds_imported_name_to_qualified_target() {
-        let table = bindings("from m import x\n", "pkg.mod", ModuleKind::Module);
-
-        assert_eq!(binding(&table, "x").target.as_str(), "m.x");
-    }
-
-    #[test]
-    fn aliased_from_import_binds_alias_to_qualified_target() {
-        let table = bindings("from m import x as y\n", "pkg.mod", ModuleKind::Module);
-
-        assert_eq!(binding(&table, "y").target.as_str(), "m.x");
-    }
-
-    #[test]
-    fn relative_import_level_one_uses_containing_package() {
-        let table = bindings("from . import x\n", "pkg.sub.mod", ModuleKind::Module);
-
-        assert_eq!(binding(&table, "x").target.as_str(), "pkg.sub.x");
-    }
-
-    #[test]
-    fn relative_import_level_two_strips_one_package_segment() {
-        let table = bindings("from ..m import y\n", "pkg.sub.mod", ModuleKind::Module);
-
-        assert_eq!(binding(&table, "y").target.as_str(), "pkg.m.y");
-    }
-
-    #[test]
-    fn relative_import_from_package_init_uses_package_as_base() {
-        let table = bindings("from . import x\n", "pkg.sub", ModuleKind::PackageInit);
-
-        assert_eq!(binding(&table, "x").target.as_str(), "pkg.sub.x");
-    }
-
-    #[test]
-    fn relative_import_level_overflow_records_no_binding() {
-        let table = bindings("from ..m import y\n", "pkg.mod", ModuleKind::Module);
-
-        assert!(table.0.is_empty());
-    }
-
-    #[test]
-    fn star_import_records_no_binding() {
-        let table = bindings("from m import *\n", "pkg.mod", ModuleKind::Module);
-
-        assert!(table.0.is_empty());
-    }
-
-    #[test]
-    fn duplicate_bindings_shadow_with_last_assignment_wins() {
-        let table = bindings(
-            "from a import x\nfrom b import x\n",
-            "pkg.mod",
-            ModuleKind::Module,
-        );
-
-        assert_eq!(binding(&table, "x").target.as_str(), "b.x");
-    }
-
-    #[test]
-    fn qualified_paths_resolve_from_recorded_bindings() {
-        let table = bindings("import package as alias\n", "pkg.mod", ModuleKind::Module);
-
+    fn direct_import_preserves_requested_bound_and_target() {
+        // (requested, bound, target)
         assert_eq!(
-            table
-                .resolve_qualified_path(["alias", "nested"])
-                .expect("binding should resolve")
-                .as_str(),
-            "package.nested"
-        );
-    }
-
-    #[test]
-    fn qualified_path_resolution_errors_are_specific() {
-        let table = ImportBindings::default();
-
-        assert_eq!(
-            table.resolve_qualified_path([]),
-            Err(ImportPathResolutionError::EmptyPath)
-        );
-        let missing = table
-            .resolve_qualified_path(["missing"])
-            .expect_err("missing binding should fail");
-        assert_eq!(
-            missing,
-            ImportPathResolutionError::MissingBinding("missing".to_string())
+            direct("import os\n"),
+            vec![("os".into(), "os".into(), "os".into())]
         );
         assert_eq!(
-            missing.to_string(),
-            "no import binding exists for `missing`"
+            direct("import os.path\n"),
+            vec![("os.path".into(), "os".into(), "os".into())]
+        );
+        assert_eq!(
+            direct("import a.b as c\n"),
+            vec![("a.b".into(), "c".into(), "a.b".into())]
         );
     }
 
     #[test]
-    fn import_bindings_query_reads_python_file_source() {
-        let db = TestDatabase::new();
-        db.add_file("/project/pkg/mod.py", "import os\n");
-        let file = db.file(camino::Utf8Path::new("/project/pkg/mod.py"));
-        let table = import_bindings(&db, file, PythonModuleName::parse("pkg.mod").unwrap());
+    fn direct_import_preserves_clause_order_and_spans() {
+        let source = "import alpha.beta as first, gamma.delta\n";
+        let module = parse_module(source).unwrap().into_syntax();
+        let Some(Stmt::Import(import)) = module.body.first() else {
+            panic!("expected a direct import");
+        };
+        let clauses = DirectImportClause::lower(import);
 
-        assert_eq!(binding(table, "os").target.as_str(), "os");
+        assert_eq!(clauses[0].requested(), "alpha.beta");
+        assert_eq!(clauses[0].bound(), "first");
+        assert_eq!(clauses[0].binding_span(), Span::new(7, 19));
+        assert_eq!(clauses[1].requested(), "gamma.delta");
+        assert_eq!(clauses[1].bound(), "gamma");
+        assert_eq!(clauses[1].binding_span(), Span::new(28, 11));
     }
 
-    // djls-testing's ProjectDb impl is for the dependency-graph copy of this
-    // crate, not this test build (dev-dependency cycle), so the trait must be
-    // bridged here.
-    #[salsa::db]
-    impl ProjectDb for TestDatabase {
-        fn project(&self) -> Option<Project> {
-            None
-        }
+    #[test]
+    fn from_import_preserves_relative_source_syntax() {
+        let syntax = from_import("from ...parent.child import value as local\n");
+        assert_eq!(syntax.level(), 3);
+        assert_eq!(syntax.module(), Some("parent.child"));
+        assert!(!syntax.has_star());
+        assert_eq!(syntax.named_members()[0].imported(), "value");
+        assert_eq!(syntax.named_members()[0].bound(), "local");
+    }
+
+    #[test]
+    fn recovered_from_import_preserves_star_and_named_members() {
+        let parsed = ruff_python_parser::parse_unchecked_source(
+            "from module import *, named as alias\n",
+            PySourceType::Python,
+        );
+        assert!(!parsed.errors().is_empty());
+        let module = parsed.into_syntax();
+        let Some(Stmt::ImportFrom(import)) = module.body.first() else {
+            panic!("expected a recovered from import");
+        };
+        let syntax = FromImportSyntax::lower(import);
+
+        assert!(syntax.has_star());
+        let members: Vec<_> = syntax
+            .named_members()
+            .iter()
+            .map(|clause| (clause.imported(), clause.bound(), clause.binding_span()))
+            .collect();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].0, "named");
+        assert_eq!(members[0].1, "alias");
+        assert_eq!(members[0].2, Span::new(22, 14));
+    }
+
+    #[test]
+    fn from_import_names_and_star() {
+        let plain = from_import("from m import x, y as z\n");
+        assert!(!plain.has_star());
+        let members: Vec<_> = plain
+            .named_members()
+            .iter()
+            .map(|clause| (clause.imported(), clause.bound()))
+            .collect();
+        assert_eq!(members, vec![("x", "x"), ("y", "z")]);
+
+        let star = from_import("from m import *\n");
+        assert!(star.has_star());
+        assert!(star.named_members().is_empty());
     }
 }

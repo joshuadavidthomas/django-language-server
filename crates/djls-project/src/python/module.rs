@@ -258,6 +258,44 @@ fn file_module_candidate(
     }
 }
 
+/// Construct the dotted source-module name a `from [.]module import ...`
+/// clause targets, given the importing file's containing `package`.
+///
+/// This is the single owner of relative-import name construction, shared by
+/// import evaluation ([`PythonModule::resolve_import`]) and Model alias
+/// resolution. It never infers package semantics from a dotted name alone: the
+/// caller supplies the package identity explicitly. Returns `None` when a
+/// relative level climbs past the package root or nothing remains.
+pub(crate) fn relative_import_source(
+    package: Option<&PythonModuleName>,
+    level: u32,
+    module: Option<&str>,
+) -> Option<String> {
+    if level == 0 {
+        return module.map(str::to_string);
+    }
+
+    let mut parts: Vec<&str> = package
+        .map(|package| package.as_str().split('.').collect())
+        .unwrap_or_default();
+    if level as usize > parts.len() {
+        return None;
+    }
+    for _ in 1..level {
+        parts.pop();
+    }
+
+    if let Some(module) = module {
+        parts.extend(module.split('.').filter(|part| !part.is_empty()));
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("."))
+    }
+}
+
 pub fn resolve_prefix(db: &dyn ProjectDb, project: Project, dotted_path: &str) -> ResolvedPrefix {
     let segments: Vec<&str> = dotted_path.split('.').collect();
 
@@ -416,29 +454,13 @@ impl PythonModule {
                 .ok_or(PythonImportError::EmptyAbsoluteImport)?;
             PythonModuleName::parse(module).map_err(PythonImportError::from)?
         } else {
-            let mut module_parts: Vec<String> = import
-                .importer
-                .package
-                .as_ref()
-                .map(|package| package.as_str().split('.').map(str::to_string).collect())
-                .unwrap_or_default();
-            if import.level as usize > module_parts.len() {
-                return Err(PythonImportError::TooManyDots.into());
-            }
-            for _ in 1..import.level {
-                module_parts.pop().ok_or(PythonImportError::TooManyDots)?;
-            }
-
-            if let Some(module) = import.module {
-                module_parts.extend(
-                    module
-                        .split('.')
-                        .filter(|part| !part.is_empty())
-                        .map(str::to_string),
-                );
-            }
-
-            PythonModuleName::parse(&module_parts.join(".")).map_err(PythonImportError::from)?
+            let source = relative_import_source(
+                import.importer.package.as_ref(),
+                import.level,
+                import.module,
+            )
+            .ok_or(PythonImportError::TooManyDots)?;
+            PythonModuleName::parse(&source).map_err(PythonImportError::from)?
         };
 
         Self::resolve(db, project, name.clone()).ok_or(PythonImportResolutionError::NotFound(name))
