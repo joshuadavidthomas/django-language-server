@@ -404,15 +404,15 @@ impl DeferredModel {
 impl DeferredBaseRef {
     fn from_expr(expr: &Expr, aliases: &ModelImportAliases) -> Option<Self> {
         let path = expr.path_segments()?;
-        match aliases.resolve_qualified_path(path.iter().map(String::as_str)) {
+        let (root, tail) = path.split_first()?;
+        match aliases.resolve_qualified_path(root, tail) {
             Ok(path) => Some(Self::Qualified(path)),
-            Err(ModelImportPathResolutionError::MissingBinding(_)) if path.len() == 1 => {
+            Err(ModelImportPathResolutionError::MissingBinding) if path.len() == 1 => {
                 Some(Self::SameModule(ModelName::new(path[0].clone())))
             }
             Err(
-                ModelImportPathResolutionError::EmptyPath
-                | ModelImportPathResolutionError::MissingBinding(_)
-                | ModelImportPathResolutionError::ShadowedBinding(_)
+                ModelImportPathResolutionError::MissingBinding
+                | ModelImportPathResolutionError::ShadowedBinding
                 | ModelImportPathResolutionError::InvalidTarget(_),
             ) => None,
         }
@@ -426,9 +426,8 @@ fn is_django_model<'a>(
     bases
         .filter_map(ExprExt::path_segments)
         .filter_map(|path| {
-            aliases
-                .resolve_qualified_path(path.iter().map(String::as_str))
-                .ok()
+            let (root, tail) = path.split_first()?;
+            aliases.resolve_qualified_path(root, tail).ok()
         })
         .any(|path| {
             matches!(
@@ -496,10 +495,10 @@ fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportAliases) -> Op
     };
 
     let first_arg = call.arguments.args.first()?;
-    let (target, import_reference) = match first_arg {
+    let target = match first_arg {
         Expr::StringLiteral(string) => {
             let value = string.value.to_string();
-            let target = if value == "self" {
+            if value == "self" {
                 RelationTarget::SelfRef
             } else if let Some((app_label, name)) = value.rsplit_once('.') {
                 RelationTarget::Qualified {
@@ -509,21 +508,25 @@ fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportAliases) -> Op
             } else {
                 RelationTarget::Bare {
                     name: ModelName::new(value),
+                    import_reference: None,
                 }
-            };
-            (target, None)
+            }
         }
         expression => {
             let path = expression.path_segments()?;
-            let reference = aliases.resolve_reference(path.iter().map(String::as_str));
-            let target = if path.len() == 1 {
+            let (root, tail) = path.split_first()?;
+            let import_reference = aliases.resolve_reference(root, tail);
+            if path.len() == 1 {
                 RelationTarget::Bare {
                     name: ModelName::new(path[0].clone()),
+                    import_reference: Some(import_reference),
                 }
             } else {
-                RelationTarget::Attribute { path }
-            };
-            (target, Some(reference))
+                RelationTarget::Attribute {
+                    path,
+                    import_reference,
+                }
+            }
         }
     };
     let related_name = extract_related_name(call);
@@ -534,16 +537,14 @@ fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportAliases) -> Op
         related_name,
     )?;
 
-    let mut relation = Relation::new(
+    Some(Relation::new(
         file,
         Spanned::new(
             FieldName::new(target_name.id.to_string()),
             target_name.span(),
         ),
         relation_type,
-    );
-    relation.import_reference = import_reference;
-    Some(relation)
+    ))
 }
 
 fn push_name_targets(target: &Expr, out: &mut BTreeSet<String>) {
@@ -841,7 +842,7 @@ mod tests {
 
     fn bare_target_name(relation: &Relation) -> Option<&str> {
         match relation.target_model()? {
-            RelationTarget::Bare { name } => Some(name.as_str()),
+            RelationTarget::Bare { name, .. } => Some(name.as_str()),
             RelationTarget::SelfRef
             | RelationTarget::Qualified { .. }
             | RelationTarget::Attribute { .. } => None,

@@ -160,9 +160,24 @@ impl From<ModelId> for String {
 #[serde(tag = "kind")]
 pub(crate) enum RelationTarget {
     SelfRef,
-    Qualified { app_label: String, name: ModelName },
-    Bare { name: ModelName },
-    Attribute { path: Vec<String> },
+    Qualified {
+        app_label: String,
+        name: ModelName,
+    },
+    Bare {
+        name: ModelName,
+        // String targets have no import semantics; expression targets capture
+        // the alias state at this source occurrence.
+        #[serde(skip)]
+        import_reference: Option<ModelImportReference>,
+    },
+    Attribute {
+        path: Vec<String>,
+        // Attribute targets always come from expressions, so their
+        // occurrence-local import evidence is required.
+        #[serde(skip)]
+        import_reference: ModelImportReference,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
@@ -316,11 +331,6 @@ pub(crate) struct Relation {
     pub(crate) relation_type: RelationType,
     #[serde(skip_serializing_if = "RelationTargetResolution::is_file_local_placeholder")]
     resolution: RelationTargetResolution,
-    // Occurrence-local symbolic reference for `Bare`/`Attribute` targets,
-    // resolved against the aliases in scope where the relation appeared.
-    // Not part of the serialized fact schema.
-    #[serde(skip)]
-    pub(crate) import_reference: Option<ModelImportReference>,
 }
 
 impl Relation {
@@ -337,7 +347,6 @@ impl Relation {
             resolution: RelationTargetResolution::Unresolved {
                 reason: RelationTargetUnresolvedReason::FileLocal,
             },
-            import_reference: None,
         }
     }
 
@@ -488,16 +497,14 @@ fn django_name_matches(candidate: &str, query: &str) -> bool {
 
 fn unresolved_import_path_reason(
     error: ModelImportPathResolutionError,
+    binding: Option<&str>,
 ) -> RelationTargetUnresolvedReason {
     match error {
-        ModelImportPathResolutionError::EmptyPath => {
-            RelationTargetUnresolvedReason::InvalidImportedTarget {
-                target: String::new(),
+        ModelImportPathResolutionError::MissingBinding
+        | ModelImportPathResolutionError::ShadowedBinding => {
+            RelationTargetUnresolvedReason::MissingImportBinding {
+                binding: binding.unwrap_or_default().to_string(),
             }
-        }
-        ModelImportPathResolutionError::MissingBinding(binding)
-        | ModelImportPathResolutionError::ShadowedBinding(binding) => {
-            RelationTargetUnresolvedReason::MissingImportBinding { binding }
         }
         ModelImportPathResolutionError::InvalidTarget(target) => {
             RelationTargetUnresolvedReason::InvalidImportedTarget { target }
@@ -737,7 +744,7 @@ impl ModelGraph {
     ) -> Option<(&ModelId, &ModelDef)> {
         match target {
             RelationTarget::SelfRef => self.models.get_key_value(scope),
-            RelationTarget::Bare { name } => {
+            RelationTarget::Bare { name, .. } => {
                 let app_label = app_label_from_module_name(scope.module_name.as_str())?;
                 self.lookup_entry(app_label, name.as_str())
             }
@@ -857,38 +864,35 @@ impl ModelGraph {
                     name: name.clone(),
                 },
             ),
-            RelationTarget::Bare { name } => match &relation.import_reference {
+            RelationTarget::Bare {
+                name,
+                import_reference,
+            } => match import_reference {
                 Some(ModelImportReference::Qualified(target)) => {
                     self.resolve_imported_relation_target(db, project, target)
                 }
                 Some(ModelImportReference::Unresolved(
-                    ModelImportPathResolutionError::MissingBinding(_),
+                    ModelImportPathResolutionError::MissingBinding,
                 ))
                 | None => self.resolve_same_app_target(scope, name),
                 Some(ModelImportReference::Unresolved(error)) => {
                     RelationTargetResolution::Unresolved {
-                        reason: unresolved_import_path_reason(error.clone()),
+                        reason: unresolved_import_path_reason(error.clone(), Some(name.as_str())),
                     }
                 }
             },
-            RelationTarget::Attribute { path } => match &relation.import_reference {
-                Some(ModelImportReference::Qualified(target)) => {
+            RelationTarget::Attribute {
+                path,
+                import_reference,
+            } => match import_reference {
+                ModelImportReference::Qualified(target) => {
                     self.resolve_imported_relation_target(db, project, target)
                 }
-                Some(ModelImportReference::Unresolved(error)) => {
-                    RelationTargetResolution::Unresolved {
-                        reason: unresolved_import_path_reason(error.clone()),
-                    }
-                }
-                None => RelationTargetResolution::Unresolved {
-                    reason: match path.first() {
-                        Some(root) => RelationTargetUnresolvedReason::MissingImportBinding {
-                            binding: root.clone(),
-                        },
-                        None => RelationTargetUnresolvedReason::InvalidImportedTarget {
-                            target: String::new(),
-                        },
-                    },
+                ModelImportReference::Unresolved(error) => RelationTargetResolution::Unresolved {
+                    reason: unresolved_import_path_reason(
+                        error.clone(),
+                        path.first().map(String::as_str),
+                    ),
                 },
             },
         }
@@ -1211,6 +1215,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1231,6 +1236,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1251,6 +1257,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1271,6 +1278,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("Title"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1291,6 +1299,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1313,6 +1322,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1334,6 +1344,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1438,6 +1449,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),

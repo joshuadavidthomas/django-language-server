@@ -94,23 +94,19 @@ impl ModelImportAliases {
 
     /// Resolve a dotted source spelling into the qualified module path the
     /// current aliases imply.
-    pub(crate) fn resolve_qualified_path<'a>(
+    pub(crate) fn resolve_qualified_path(
         &self,
-        path: impl IntoIterator<Item = &'a str>,
+        root: &str,
+        tail: &[String],
     ) -> Result<PythonModuleName, ModelImportPathResolutionError> {
-        let mut parts = path.into_iter();
-        let Some(root) = parts.next() else {
-            return Err(ModelImportPathResolutionError::EmptyPath);
-        };
         let Some(target) = self.aliases.get(root) else {
             return Err(if self.shadowed.contains(root) {
-                ModelImportPathResolutionError::ShadowedBinding(root.to_string())
+                ModelImportPathResolutionError::ShadowedBinding
             } else {
-                ModelImportPathResolutionError::MissingBinding(root.to_string())
+                ModelImportPathResolutionError::MissingBinding
             });
         };
 
-        let tail: Vec<&str> = parts.collect();
         let resolved = if tail.is_empty() {
             target.as_str().to_string()
         } else {
@@ -124,11 +120,8 @@ impl ModelImportAliases {
     /// Resolve a Model base/relation spelling into an occurrence-local
     /// reference: either the qualified module path it names, or the reason it
     /// cannot be symbolically qualified.
-    pub(crate) fn resolve_reference<'a>(
-        &self,
-        path: impl IntoIterator<Item = &'a str>,
-    ) -> ModelImportReference {
-        match self.resolve_qualified_path(path) {
+    pub(crate) fn resolve_reference(&self, root: &str, tail: &[String]) -> ModelImportReference {
+        match self.resolve_qualified_path(root, tail) {
             Ok(target) => ModelImportReference::Qualified(target),
             Err(error) => ModelImportReference::Unresolved(error),
         }
@@ -136,7 +129,7 @@ impl ModelImportAliases {
 }
 
 /// A resolved-at-occurrence symbolic reference for a Model base or relation.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ModelImportReference {
     /// The spelling resolved to a qualified module path via the aliases in
     /// scope at the occurrence.
@@ -146,14 +139,12 @@ pub(crate) enum ModelImportReference {
     Unresolved(ModelImportPathResolutionError),
 }
 
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq, Hash)]
 pub(crate) enum ModelImportPathResolutionError {
-    #[error("import path is empty")]
-    EmptyPath,
-    #[error("no import binding exists for `{0}`")]
-    MissingBinding(String),
-    #[error("`{0}` was shadowed after its import binding")]
-    ShadowedBinding(String),
+    #[error("no import binding exists")]
+    MissingBinding,
+    #[error("the import binding was shadowed")]
+    ShadowedBinding,
     #[error("resolved import target `{0}` is not a valid module name")]
     InvalidTarget(String),
 }
@@ -277,10 +268,8 @@ mod tests {
         state.invalidate_root("c");
         assert!(state.aliases.is_empty());
         assert_eq!(
-            state.resolve_reference(["c"]),
-            ModelImportReference::Unresolved(ModelImportPathResolutionError::ShadowedBinding(
-                "c".to_string()
-            ))
+            state.resolve_reference("c", &[]),
+            ModelImportReference::Unresolved(ModelImportPathResolutionError::ShadowedBinding)
         );
     }
 
@@ -288,18 +277,12 @@ mod tests {
     fn resolve_reference_qualifies_known_alias_and_reports_missing() {
         let state = aliases("import package as alias\n", "pkg.mod", ModuleKind::Module);
         assert_eq!(
-            state.resolve_reference(["alias", "nested"]),
+            state.resolve_reference("alias", &["nested".to_string()]),
             ModelImportReference::Qualified(module_name("package.nested"))
         );
         assert_eq!(
-            state.resolve_reference(["missing"]),
-            ModelImportReference::Unresolved(ModelImportPathResolutionError::MissingBinding(
-                "missing".to_string()
-            ))
-        );
-        assert_eq!(
-            state.resolve_reference([]),
-            ModelImportReference::Unresolved(ModelImportPathResolutionError::EmptyPath)
+            state.resolve_reference("missing", &[]),
+            ModelImportReference::Unresolved(ModelImportPathResolutionError::MissingBinding)
         );
     }
 }
