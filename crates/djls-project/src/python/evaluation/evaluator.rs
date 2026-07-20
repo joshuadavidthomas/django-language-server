@@ -41,7 +41,11 @@ pub(super) fn evaluate_body(
     project: Project,
     module: PythonModule,
     body: &[ast::Stmt],
-) -> (PythonModuleValues, PythonModuleDependencies, PythonModuleObjects) {
+) -> (
+    PythonModuleValues,
+    PythonModuleDependencies,
+    PythonModuleObjects,
+) {
     let state = EvaluationState::new(module.file());
     let mut evaluator = Evaluator {
         db,
@@ -112,7 +116,13 @@ impl EvaluationState {
         }
     }
 
-    fn finish(self) -> (PythonModuleValues, PythonModuleDependencies, PythonModuleObjects) {
+    fn finish(
+        self,
+    ) -> (
+        PythonModuleValues,
+        PythonModuleDependencies,
+        PythonModuleObjects,
+    ) {
         (
             PythonModuleValues {
                 bindings: self.bindings,
@@ -510,6 +520,7 @@ mod tests {
     fn namespace_module(name: &str) -> PythonModuleObjectId {
         PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
             PythonModuleName::parse(name).unwrap(),
+            Vec::new(),
         ))
     }
 
@@ -518,7 +529,10 @@ mod tests {
         let mut state = EvaluationState::new(test_file(0));
         state.bindings.insert(
             "MOD".to_string(),
-            PythonBinding::bound(PythonValue::module(namespace_module("pkg"), origin(1)), origin(1)),
+            PythonBinding::bound(
+                PythonValue::module(namespace_module("pkg"), origin(1)),
+                origin(1),
+            ),
         );
         assert_eq!(
             state.known_truthiness("MOD"),

@@ -742,11 +742,7 @@ impl PythonValueKind {
             Self::List(list) => list.normalize(),
             Self::Tuple(tuple) => tuple.normalize(),
             Self::Dict(dict) => dict.normalize(),
-            Self::Str(_)
-            | Self::Bool(_)
-            | Self::Path(_)
-            | Self::Module(_)
-            | Self::Unknown(_) => {}
+            Self::Str(_) | Self::Bool(_) | Self::Path(_) | Self::Module(_) | Self::Unknown(_) => {}
         }
     }
 
@@ -1085,6 +1081,7 @@ mod tests {
         let id = super::super::PythonModuleObjectId::Namespace(
             super::super::PythonNamespacePackage::new(
                 PythonModuleName::parse(name).expect("valid module name"),
+                Vec::new(),
             ),
         );
         PythonValue::known(PythonValueKind::Module(id), site)

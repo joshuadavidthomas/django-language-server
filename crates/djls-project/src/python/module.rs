@@ -12,6 +12,8 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
+use crate::python::evaluation::NamespacePortion;
+use crate::python::evaluation::PythonNamespacePackage;
 use crate::python::evaluation::StructuralOrd;
 use crate::python::search_paths::SearchPath;
 
@@ -107,6 +109,58 @@ pub(crate) struct PythonImportRequest<'a> {
     pub(crate) importer: &'a PythonModule,
 }
 
+/// One contiguous root-to-leaf component of a resolved import chain.
+///
+/// A component is either a source-backed module identity (a regular package
+/// `__init__.py` or a leaf file module) or a namespace-package portion that has
+/// no source body of its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ResolvedChainComponent {
+    Source(PythonModule),
+    Namespace(PythonNamespacePackage),
+}
+
+impl ResolvedChainComponent {
+    /// The dotted name of this component.
+    pub(crate) fn name(&self) -> &PythonModuleName {
+        match self {
+            Self::Source(module) => module.name(),
+            Self::Namespace(package) => package.name(),
+        }
+    }
+}
+
+/// A contiguous, ordered root-to-leaf prefix of source/namespace components.
+///
+/// The empty chain is only ever produced as the prefix of a root failure. The
+/// resolver enforces contiguity: every component is reachable from the previous
+/// one, so a chain never skips a package boundary.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ResolvedImportChain {
+    components: Vec<ResolvedChainComponent>,
+}
+
+impl ResolvedImportChain {
+    pub(crate) fn into_components(self) -> Vec<ResolvedChainComponent> {
+        self.components
+    }
+}
+
+/// The outcome of resolving a full dotted import target into a component chain.
+///
+/// A successful resolution owns a complete contiguous chain; a failure owns the
+/// resolved prefix (possibly empty) plus the typed reason the next component
+/// could not be resolved. Earlier prefix components remain available so an
+/// importer can preserve their effects even when a later component fails.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PythonImportChainResolution {
+    Resolved(ResolvedImportChain),
+    Failed {
+        prefix: ResolvedImportChain,
+        failure: PythonImportResolutionError,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(crate) enum PythonImportResolutionError {
     #[error(transparent)]
@@ -161,11 +215,72 @@ impl CandidateDirectory {
     }
 }
 
+/// Resolve a fully-qualified dotted name to its leaf lookup result.
+///
+/// This is a thin projection of the single chain traversal in
+/// [`resolve_chain_from_name`]: it keeps only the leaf component that non-import
+/// callers ([`PythonModule::resolve`], [`resolve_package_dirs`]) need. There is
+/// no second component walker; leaf and chain resolution share one traversal.
 fn resolve_name(
     db: &dyn ProjectDb,
     project: Project,
     name: &PythonModuleName,
 ) -> ModuleLookupResult {
+    let chain = match resolve_chain_from_name(db, project, name) {
+        PythonImportChainResolution::Resolved(chain) => chain,
+        PythonImportChainResolution::Failed { .. } => return ModuleLookupResult::NotFound,
+    };
+    match chain.into_components().pop() {
+        Some(ResolvedChainComponent::Source(module)) => {
+            // A regular package's derived package identity is its own name; a
+            // file module's is its parent. This distinguishes a genuine
+            // `pkg/__init__.py` package from an explicit `pkg.__init__` file
+            // alias, which a path-suffix check cannot.
+            let is_regular_package = module.package.as_ref() == Some(&module.name);
+            let root = module.search_path().clone();
+            let path = module.path().to_path_buf();
+            let file = module.file();
+            if is_regular_package {
+                let dir = path
+                    .parent()
+                    .map_or_else(|| path.clone(), Utf8Path::to_path_buf);
+                ModuleLookupResult::RegularPackage {
+                    root,
+                    dir,
+                    init_file: path,
+                    file,
+                }
+            } else {
+                ModuleLookupResult::FileModule { root, path, file }
+            }
+        }
+        Some(ResolvedChainComponent::Namespace(package)) => ModuleLookupResult::NamespaceOnly {
+            portions: package
+                .portions()
+                .iter()
+                .map(|portion| CandidateDirectory {
+                    root: portion.root().clone(),
+                    dir: portion.dir().clone(),
+                })
+                .collect(),
+        },
+        None => ModuleLookupResult::NotFound,
+    }
+}
+
+/// Resolve a fully-qualified dotted name into a contiguous root-to-leaf
+/// component chain, or a typed failure carrying the resolved prefix.
+///
+/// This deepens the same first-match/search-path traversal as [`resolve_name`]:
+/// it preserves regular-package priority over file modules and namespace
+/// portions, honors search-path order, and records package-init identities for
+/// intermediate packages. Unlike [`resolve_name`], it captures every
+/// intermediate component so an import can evaluate and attach parents.
+fn resolve_chain_from_name(
+    db: &dyn ProjectDb,
+    project: Project,
+    name: &PythonModuleName,
+) -> PythonImportChainResolution {
     let mut candidate_dirs = project
         .search_paths(db)
         .iter()
@@ -175,11 +290,15 @@ fn resolve_name(
         })
         .collect::<Vec<_>>();
     let components = name.as_str().split('.').collect::<Vec<_>>();
+    let mut resolved: Vec<ResolvedChainComponent> = Vec::new();
 
     for (index, component) in components.iter().enumerate() {
         let is_last = index + 1 == components.len();
+        let component_name = PythonModuleName::parse(&components[..=index].join("."))
+            .expect("a prefix of a valid dotted module name is valid");
+
         let mut portions = Vec::new();
-        let mut next_dirs = None;
+        let mut resolved_source: Option<(PythonModule, Option<CandidateDirectory>)> = None;
 
         for candidate in &candidate_dirs {
             match candidate.resolve_component(db, component) {
@@ -189,37 +308,96 @@ fn resolve_name(
                     init_file,
                     file,
                 }) => {
-                    if is_last {
-                        return ModuleLookupResult::RegularPackage {
-                            root,
-                            dir,
-                            init_file,
-                            file,
-                        };
-                    }
-                    next_dirs = Some(vec![CandidateDirectory { root, dir }]);
+                    let module = PythonModule::regular_package(
+                        component_name.clone(),
+                        init_file,
+                        file,
+                        root.clone(),
+                    );
+                    resolved_source = Some((module, Some(CandidateDirectory { root, dir })));
                     break;
                 }
                 Some(ResolvedComponent::FileModule { root, path, file }) => {
-                    if is_last {
-                        return ModuleLookupResult::FileModule { root, path, file };
-                    }
-                    return ModuleLookupResult::NotFound;
+                    // A file module wins this component but has no children. It
+                    // still belongs in the resolved prefix (its effects load
+                    // even when the requested name extends past it); the
+                    // childless-tail failure is applied after it is pushed.
+                    let module =
+                        PythonModule::file_module(component_name.clone(), path, file, root);
+                    resolved_source = Some((module, None));
+                    break;
                 }
                 Some(ResolvedComponent::NamespacePortion(portion)) => portions.push(portion),
                 None => {}
             }
         }
 
-        candidate_dirs = match next_dirs {
-            Some(dirs) => dirs,
-            None if portions.is_empty() => return ModuleLookupResult::NotFound,
-            None if is_last => return ModuleLookupResult::NamespaceOnly { portions },
-            None => portions,
-        };
+        match resolved_source {
+            Some((module, next_dir)) => {
+                resolved.push(ResolvedChainComponent::Source(module));
+                match next_dir {
+                    // A regular package narrows the search to its own directory.
+                    Some(dir) => candidate_dirs = vec![dir],
+                    // A file module has no children. If the requested name still
+                    // has further components, it is unresolvable past this
+                    // winning file module, which now survives in the prefix.
+                    None if !is_last => {
+                        return PythonImportChainResolution::Failed {
+                            prefix: ResolvedImportChain {
+                                components: resolved,
+                            },
+                            failure: PythonImportResolutionError::NotFound(name.clone()),
+                        };
+                    }
+                    None => {}
+                }
+            }
+            None if portions.is_empty() => {
+                return PythonImportChainResolution::Failed {
+                    prefix: ResolvedImportChain {
+                        components: resolved,
+                    },
+                    failure: PythonImportResolutionError::NotFound(name.clone()),
+                };
+            }
+            None => {
+                let namespace_portions = portions
+                    .iter()
+                    .map(|portion| NamespacePortion::new(portion.root.clone(), portion.dir.clone()))
+                    .collect();
+                resolved.push(ResolvedChainComponent::Namespace(
+                    PythonNamespacePackage::new(component_name, namespace_portions),
+                ));
+                candidate_dirs = portions;
+            }
+        }
     }
 
-    ModuleLookupResult::NotFound
+    PythonImportChainResolution::Resolved(ResolvedImportChain {
+        components: resolved,
+    })
+}
+
+/// Build the fully-qualified module name a `[from] import` operation targets,
+/// resolving relative levels against the importer's package. This is the single
+/// owner of import name construction shared by chain resolution.
+fn import_module_name(
+    import: PythonImportRequest<'_>,
+) -> Result<PythonModuleName, PythonImportError> {
+    if import.level == 0 {
+        let module = import
+            .module
+            .ok_or(PythonImportError::EmptyAbsoluteImport)?;
+        PythonModuleName::parse(module).map_err(PythonImportError::from)
+    } else {
+        let source = relative_import_source(
+            import.importer.package.as_ref(),
+            import.level,
+            import.module,
+        )
+        .ok_or(PythonImportError::TooManyDots)?;
+        PythonModuleName::parse(&source).map_err(PythonImportError::from)
+    }
 }
 
 fn file_module_names<'a>(
@@ -262,7 +440,7 @@ fn file_module_candidate(
 /// clause targets, given the importing file's containing `package`.
 ///
 /// This is the single owner of relative-import name construction, shared by
-/// import evaluation ([`PythonModule::resolve_import`]) and Model alias
+/// import evaluation ([`PythonModule::resolve_import_chain`]) and Model alias
 /// resolution. It never infers package semantics from a dotted name alone: the
 /// caller supplies the package identity explicitly. Returns `None` when a
 /// relative level climbs past the package root or nothing remains.
@@ -443,27 +621,19 @@ impl PythonModule {
         }
     }
 
-    pub(crate) fn resolve_import(
+    /// Resolve an import operation into a contiguous root-to-leaf component
+    /// chain. Name-construction failures (empty absolute import, too many
+    /// relative dots, invalid module name) are typed [`PythonImportError`]s that
+    /// yield no chain; an unresolvable component is a
+    /// [`PythonImportChainResolution::Failed`] carrying the resolved prefix.
+    pub(crate) fn resolve_import_chain(
         db: &dyn ProjectDb,
         project: Project,
         import: PythonImportRequest<'_>,
-    ) -> Result<PythonModule, PythonImportResolutionError> {
-        let name = if import.level == 0 {
-            let module = import
-                .module
-                .ok_or(PythonImportError::EmptyAbsoluteImport)?;
-            PythonModuleName::parse(module).map_err(PythonImportError::from)?
-        } else {
-            let source = relative_import_source(
-                import.importer.package.as_ref(),
-                import.level,
-                import.module,
-            )
-            .ok_or(PythonImportError::TooManyDots)?;
-            PythonModuleName::parse(&source).map_err(PythonImportError::from)?
-        };
-
-        Self::resolve(db, project, name.clone()).ok_or(PythonImportResolutionError::NotFound(name))
+    ) -> Result<(PythonModuleName, PythonImportChainResolution), PythonImportError> {
+        let name = import_module_name(import)?;
+        let resolution = resolve_chain_from_name(db, project, &name);
+        Ok((name, resolution))
     }
 
     #[must_use]
@@ -538,6 +708,44 @@ mod tests {
     use salsa::plumbing::Id;
 
     use super::*;
+
+    #[test]
+    fn resolved_import_chain_exposes_ordered_components_and_empty_prefix() {
+        let (name, path, file, search_path) = module_parts("pkg");
+        let package = PythonModule::regular_package(name, path, file, search_path);
+        let (leaf_name, leaf_path, leaf_file, leaf_search) = module_parts("pkg.sub");
+        let leaf = PythonModule::file_module(leaf_name, leaf_path, leaf_file, leaf_search);
+
+        let chain = ResolvedImportChain {
+            components: vec![
+                ResolvedChainComponent::Namespace(PythonNamespacePackage::new(
+                    PythonModuleName::parse("pkg").unwrap(),
+                    Vec::new(),
+                )),
+                ResolvedChainComponent::Source(package),
+                ResolvedChainComponent::Source(leaf),
+            ],
+        };
+        assert!(!chain.components.is_empty());
+        let names: Vec<_> = chain
+            .components
+            .iter()
+            .map(|component| component.name().as_str().to_string())
+            .collect();
+        assert_eq!(names, ["pkg", "pkg", "pkg.sub"]);
+
+        // A root failure carries an empty resolved prefix.
+        let root_failure = PythonImportChainResolution::Failed {
+            prefix: ResolvedImportChain::default(),
+            failure: PythonImportResolutionError::NotFound(
+                PythonModuleName::parse("missing").unwrap(),
+            ),
+        };
+        let PythonImportChainResolution::Failed { prefix, .. } = root_failure else {
+            unreachable!("constructed a failed resolution")
+        };
+        assert!(prefix.components.is_empty());
+    }
 
     fn module_parts(name: &str) -> (PythonModuleName, Utf8PathBuf, File, SearchPath) {
         (

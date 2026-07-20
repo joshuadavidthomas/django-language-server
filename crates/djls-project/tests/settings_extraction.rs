@@ -21,6 +21,7 @@ use djls_project::testing::PythonBoundValueView;
 use djls_project::testing::PythonImportErrorView;
 use djls_project::testing::PythonImportOutcomeView;
 use djls_project::testing::PythonModuleEvaluationView;
+use djls_project::testing::PythonModuleObjectIdView;
 use djls_project::testing::PythonMutationOperationView;
 use djls_project::testing::PythonMutationPathSegmentView;
 use djls_project::testing::PythonSequenceItemView;
@@ -122,6 +123,19 @@ fn expected_span(source: &str, needle: &str) -> Span {
         .find(needle)
         .unwrap_or_else(|| panic!("expected source to contain {needle:?}"));
     Span::saturating_from_parts_usize(start, needle.len())
+}
+
+/// Span of a binding target (`target`) located inside a specific import clause
+/// (`clause`), disambiguating targets whose text also appears elsewhere in the
+/// source (e.g. an alias `stale` distinct from an earlier `stale = ...`).
+fn binding_target_span(source: &str, clause: &str, target: &str) -> Span {
+    let clause_start = source
+        .find(clause)
+        .unwrap_or_else(|| panic!("expected source to contain clause {clause:?}"));
+    let within = clause
+        .find(target)
+        .unwrap_or_else(|| panic!("expected clause {clause:?} to contain target {target:?}"));
+    Span::saturating_from_parts_usize(clause_start + within, target.len())
 }
 
 struct ReadFailingFileSystem {
@@ -1072,8 +1086,58 @@ fn bound_value<'a>(
     bound
 }
 
+fn evaluate_module_with(
+    files: &[(&str, &str)],
+    source: &str,
+) -> (File, PythonModuleEvaluationView) {
+    let db = TestDatabase::new();
+    for (path, content) in files {
+        db.add_file(path, content);
+    }
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let file = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, file);
+    (file, evaluation)
+}
+
+fn bound_module<'a>(
+    evaluation: &'a PythonModuleEvaluationView,
+    name: &str,
+) -> &'a PythonModuleObjectIdView {
+    let PythonValueKindView::Module(id) = &bound_value(evaluation, name).value.kind else {
+        panic!("{name} should bind a module value");
+    };
+    id
+}
+
+fn import_module_names(evaluation: &PythonModuleEvaluationView) -> Vec<String> {
+    evaluation
+        .imports
+        .iter()
+        .map(|outcome| match outcome {
+            PythonImportOutcomeView::Resolved {
+                imported_module, ..
+            } => format!("resolved:{}", imported_module.as_str()),
+            PythonImportOutcomeView::NotFound { module, .. } => {
+                format!("notfound:{}", module.as_str())
+            }
+            PythonImportOutcomeView::SkippedExternal { module, .. } => {
+                format!("external:{}", module.as_str())
+            }
+            PythonImportOutcomeView::Cycle {
+                imported_module, ..
+            } => format!("cycle:{}", imported_module.as_str()),
+            other => panic!("unexpected outcome: {other:?}"),
+        })
+        .collect()
+}
+
 #[test]
-fn ordinary_import_control_binds_unknowns_in_source_order_without_import_effects() {
+fn ordinary_import_binds_typed_not_found_in_source_order() {
+    // Replaces the pre-Phase-3 control: unresolved ordinary imports now bind
+    // typed import-not-found unknowns and record canonical not-found outcomes,
+    // one per clause, in source order, without erasing prior clause effects.
     let source = concat!(
         "stale = 'old'\n",
         "import package.child\n",
@@ -1081,23 +1145,1450 @@ fn ordinary_import_control_binds_unknowns_in_source_order_without_import_effects
     );
     let (file, evaluation) = evaluate_module(source);
 
-    for (name, clause) in [
-        ("package", "package.child"),
-        ("stale", "other as stale"),
-        ("alias", "third as alias"),
+    for (name, clause, missing, target) in [
+        ("package", "package.child", "package.child", "package"),
+        ("stale", "other as stale", "other", "stale"),
+        ("alias", "third as alias", "third", "alias"),
     ] {
         let bound = bound_value(&evaluation, name);
         let PythonValueKindView::Unknown(unknown) = &bound.value.kind else {
-            panic!("{name} should remain the current ordinary-import unknown");
+            panic!("{name} should bind a typed import-not-found unknown");
         };
-        assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression);
+        assert!(
+            matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == missing),
+            "{name} should be ImportNotFound({missing}), got {:?}",
+            unknown.cause,
+        );
+        // The binding origin is the exact local binding target (the root
+        // segment for an unaliased dotted clause, the alias identifier for an
+        // aliased clause), not the whole import clause.
         assert_eq!(
             bound.binding_origins,
-            [Origin::new(file, expected_span(source, clause))]
+            [Origin::new(
+                file,
+                binding_target_span(source, clause, target)
+            )]
         );
     }
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["notfound:package.child", "notfound:other", "notfound:third"]
+    );
+    // The unresolved root import never overwrites its own segment with a value
+    // and the only dependency remains the evaluated file itself.
     assert_eq!(evaluation.dependency_files, [file]);
+}
+
+#[test]
+fn ordinary_import_binds_source_module_and_records_edge() {
+    let (file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "VALUE = 'pkg'\n")],
+        "import pkg\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
+    assert!(
+        evaluation
+            .dependency_files
+            .contains(&Origin::new(file, Span::new(0, 0)).file)
+    );
+}
+
+#[test]
+fn ordinary_import_alias_binds_leaf_and_evaluates_parent() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "ROOT = 'root'\n"),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg.sub as s\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "s"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+    );
+    assert!(
+        evaluation.binding("pkg").is_none(),
+        "an aliased import binds only the alias"
+    );
+    // Both the parent package and the leaf are evaluated as new parent effects.
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.sub"]
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_binds_root_and_attaches_loaded_child() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg.sub\nCHILD = pkg.sub\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    // The loaded child `sub` is attached under `pkg` and readable through the
+    // module-member projection.
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+    );
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.sub"]
+    );
+}
+
+#[test]
+fn ordinary_import_of_namespace_parent_binds_namespace_and_loads_child() {
+    // `nspkg` has no __init__.py, so it is a namespace package; `nspkg.mod` is a
+    // source module underneath it.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/nspkg/mod.py", "LEAF = 'leaf'\n")],
+        "import nspkg.mod\nCHILD = nspkg.mod\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "nspkg"),
+        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("nspkg").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("nspkg.mod").unwrap())
+    );
+    // A namespace parent produces no file/edge; only the source child does.
+    assert_eq!(import_module_names(&evaluation), ["resolved:nspkg.mod"]);
+}
+
+#[test]
+fn ordinary_import_of_external_module_binds_handle_and_skips_body() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[(
+            "/project/.venv/lib/python3.12/site-packages/ext/__init__.py",
+            "VALUE = 'external'\n",
+        )],
+        "import ext\nATTR = ext.VALUE\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "ext"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("ext").unwrap())
+    );
+    // Exactly one skipped-external outcome for the requested leaf and no
+    // external dependency file.
+    assert_eq!(import_module_names(&evaluation), ["external:ext"]);
+    // Reading an external module's attribute never evaluates its body; it
+    // surfaces the skipped-external open cause.
+    let attr = evaluation.binding("ATTR").expect("ATTR should be bound");
+    assert!(
+        attr.alternatives.iter().any(|alternative| matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::Unknown(unknown),
+                    ..
+                },
+                ..
+            }) if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module) if module.as_str() == "ext")
+        )),
+        "reading an external module attribute surfaces SkippedExternal: {:?}",
+        attr.alternatives,
+    );
+    // No project value ever leaks from the external body.
+    assert!(
+        !attr.alternatives.iter().any(|alternative| matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::Str(_),
+                    ..
+                },
+                ..
+            })
+        )),
+        "the external body must not be evaluated",
+    );
+}
+
+#[test]
+fn ordinary_import_preserves_prior_clause_effects_on_later_failure() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/good/__init__.py", "")],
+        "import good\nimport bad\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "good"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("good").unwrap())
+    );
+    let bad = bound_value(&evaluation, "bad");
+    assert!(matches!(
+        &bad.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "bad")
+    ));
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:good", "notfound:bad"]
+    );
+}
+
+#[test]
+fn ordinary_import_in_false_branch_creates_no_effects() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "")],
+        "if False:\n    import pkg\nMARK = 'kept'\n",
+    );
+
+    assert!(evaluation.binding("pkg").is_none());
     assert!(evaluation.imports.is_empty());
+}
+
+#[test]
+fn ordinary_import_two_file_cycle_binds_handle_and_records_cycle_edge() {
+    let db = TestDatabase::new();
+    db.add_file("/project/a.py", "import b\nVALUE = 'a'\n");
+    db.add_file("/project/b.py", "import a\nVALUE = 'b'\n");
+    let project = python_project(&db);
+    let module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap()).unwrap();
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+    // The direct import binds the loaded module handle even across the cycle,
+    // and the local value survives.
+    assert_eq!(
+        bound_module(&evaluation, "b"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("b").unwrap())
+    );
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "a"));
+    assert!(
+        evaluation
+            .imports
+            .iter()
+            .any(|outcome| matches!(outcome, PythonImportOutcomeView::Cycle { .. })),
+        "a two-file direct-import cycle records a cycle edge",
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_of_package_leaf_attaches_package_child() {
+    // The leaf `pkg.sub` is itself a regular package (`sub/__init__.py`), so a
+    // package-init leaf attaches under its parent exactly like a file-module
+    // leaf.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/sub/__init__.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg.sub\nCHILD = pkg.sub\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+    );
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.sub"]
+    );
+}
+
+#[test]
+fn ordinary_import_of_namespace_terminal_binds_namespace_without_edges() {
+    // `ns` has no `__init__.py` and no requested child, so it is a namespace
+    // terminal: it binds a namespace handle and records no file or edge.
+    let (_file, evaluation) =
+        evaluate_module_with(&[("/project/ns/placeholder.py", "")], "import ns\n");
+
+    assert_eq!(
+        bound_module(&evaluation, "ns"),
+        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("ns").unwrap())
+    );
+    assert!(
+        evaluation.imports.is_empty(),
+        "a namespace terminal produces no file/edge",
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_missing_leaf_preserves_parent_edge() {
+    // The parent package `pkg` resolves and evaluates; the missing leaf is a
+    // typed not-found whose failure binds the root as unknown, but the parent's
+    // edge and dependency survive.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "VALUE = 'pkg'\n")],
+        "import pkg.missing\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "notfound:pkg.missing"]
+    );
+    let bound = bound_value(&evaluation, "pkg");
+    assert!(matches!(
+        &bound.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "pkg.missing")
+    ));
+}
+
+#[test]
+fn ordinary_dotted_import_missing_intermediate_preserves_root_edge() {
+    // A missing intermediate component stops resolution at the missing name; the
+    // resolved root prefix `pkg` still records its edge before the not-found.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "")],
+        "import pkg.missing.leaf\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "notfound:pkg.missing.leaf"]
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_recovers_parent_syntax_and_continues() {
+    // The parent `__init__.py` has recoverable syntax errors: its edge carries a
+    // syntax status, the parent handle is still available, and the dotted chain
+    // continues to the leaf.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "VALUE = 'ok'\nbroken(\n"),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg.sub\nCHILD = pkg.sub\n",
+    );
+
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::SyntaxErrors { imported_module, .. }
+                if imported_module.as_str() == "pkg"
+        )),
+        "the parent package records a recovered syntax outcome: {:?}",
+        evaluation.imports,
+    );
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Resolved { imported_module, .. }
+                if imported_module.as_str() == "pkg.sub"
+        )),
+        "the leaf still resolves after recovering the parent: {:?}",
+        evaluation.imports,
+    );
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+    );
+}
+
+#[test]
+fn member_read_of_unimported_child_is_module_attribute_unknown() {
+    // A submodule that was never imported is not attached to its package, so a
+    // member read observes non-attachment as a typed module-attribute unknown
+    // rather than the child's value.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg\nCHILD = pkg.sub\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    let child = bound_value(&evaluation, "CHILD");
+    assert!(
+        matches!(
+            &child.value.kind,
+            PythonValueKindView::Unknown(unknown)
+                if matches!(&unknown.cause, PythonUnknownCauseView::ModuleAttribute { module, member }
+                    if module.as_str() == "pkg" && member == "sub")
+        ),
+        "an unimported child is not attached; the read is a module-attribute unknown, got {:?}",
+        child.value.kind,
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_records_root_to_leaf_order_under_reverse_registration() {
+    // Files registered leaf-before-root still produce edges/dependencies in
+    // first-seen root-to-leaf traversal order.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+        ],
+        "import pkg.sub\n",
+    );
+
+    let resolved: Vec<(String, String)> = evaluation
+        .imports
+        .iter()
+        .map(|outcome| match outcome {
+            PythonImportOutcomeView::Resolved {
+                importer_module,
+                imported_module,
+                ..
+            } => (
+                importer_module.as_str().to_string(),
+                imported_module.as_str().to_string(),
+            ),
+            other => panic!("expected only resolved outcomes, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        resolved,
+        vec![
+            ("settings".to_string(), "pkg".to_string()),
+            ("settings".to_string(), "pkg.sub".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn ambiguous_dotted_import_preserves_module_and_unbound_alternatives() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "")],
+        "if condition:\n    import pkg\nMARK = 'kept'\n",
+    );
+
+    let binding = evaluation.binding("pkg").expect("pkg should be tracked");
+    assert!(
+        binding.alternatives.iter().any(|alternative| matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                    ..
+                },
+                ..
+            }) if module.as_str() == "pkg"
+        )),
+        "the taken branch binds the module handle: {:?}",
+        binding.alternatives,
+    );
+    assert!(
+        binding
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound),
+        "the skipped branch leaves pkg unbound: {:?}",
+        binding.alternatives,
+    );
+    assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
+}
+
+#[test]
+fn deterministically_true_dotted_import_binds_module_unconditionally() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "")],
+        "if True:\n    import pkg\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
+}
+
+#[test]
+fn from_dotted_import_named_records_parent_effects_and_selects_member() {
+    // A dotted `from pkg.sub import CHILD` loads the side-effecting parent
+    // `pkg/__init__.py` (new parent effect) and the leaf `pkg/sub.py`, then
+    // selects the named member unchanged.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            ("/project/pkg/sub.py", "CHILD = 'child'\n"),
+        ],
+        "from pkg.sub import CHILD\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.sub"]
+    );
+    let child = bound_value(&evaluation, "CHILD");
+    assert!(matches!(&child.value.kind, PythonValueKindView::Str(text) if text == "child"));
+}
+
+#[test]
+fn from_dotted_import_star_records_parent_effects_and_binds_members() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            ("/project/pkg/sub.py", "CHILD = 'child'\n"),
+        ],
+        "from pkg.sub import *\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.sub"]
+    );
+    let child = bound_value(&evaluation, "CHILD");
+    assert!(matches!(&child.value.kind, PythonValueKindView::Str(text) if text == "child"));
+    // The parent's own name is not pulled in by a star import of the leaf.
+    assert!(evaluation.binding("PARENT").is_none());
+}
+
+#[test]
+fn ordinary_import_of_project_namespace_prefix_to_external_suffix() {
+    // `ns` is a namespace spanning a first-party portion and a site-packages
+    // portion; `ns.sub` resolves only under the external portion. The evaluated
+    // namespace prefix survives, exactly one skipped-external outcome is
+    // recorded for the requested leaf, and the requested root handle is bound.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/ns/placeholder.py", ""),
+            (
+                "/project/.venv/lib/python3.12/site-packages/ns/sub.py",
+                "VALUE = 'external'\n",
+            ),
+        ],
+        "import ns.sub\n",
+    );
+
+    assert_eq!(import_module_names(&evaluation), ["external:ns.sub"]);
+    assert_eq!(
+        bound_module(&evaluation, "ns"),
+        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("ns").unwrap())
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_self_cycle_binds_root_and_records_leaf_cycle() {
+    // `pkg.sub` imports itself through its dotted path: the parent `pkg`
+    // resolves, the leaf is a cycle seed, the requested root handle is still
+    // reachable, and the post-import local value survives.
+    let db = TestDatabase::new();
+    db.add_file("/project/pkg/__init__.py", "import pkg.sub\n");
+    db.add_file("/project/pkg/sub.py", "import pkg.sub\nLEAF = 'sub'\n");
+    let project = python_project(&db);
+    let module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap()).unwrap();
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Resolved { imported_module, .. }
+                if imported_module.as_str() == "pkg"
+        )),
+        "the parent package resolves as a prefix: {:?}",
+        evaluation.imports,
+    );
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Cycle { imported_module, .. }
+                if imported_module.as_str() == "pkg.sub"
+        )),
+        "the dotted leaf is a cycle edge: {:?}",
+        evaluation.imports,
+    );
+    // The selected component for an unaliased dotted import is the root, which
+    // was reached, so the root handle is bound.
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    let value = bound_value(&evaluation, "LEAF");
+    assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "sub"));
+}
+
+#[test]
+fn from_dotted_import_self_cycle_records_leaf_cycle_and_retains_local_value() {
+    let db = TestDatabase::new();
+    db.add_file("/project/pkg/__init__.py", "");
+    db.add_file(
+        "/project/pkg/sub.py",
+        "from pkg.sub import LEAF\nLEAF = 'sub'\n",
+    );
+    let project = python_project(&db);
+    let module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap()).unwrap();
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Resolved { imported_module, .. }
+                if imported_module.as_str() == "pkg"
+        )),
+        "the parent package resolves as a prefix: {:?}",
+        evaluation.imports,
+    );
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Cycle { imported_module, .. }
+                if imported_module.as_str() == "pkg.sub"
+        )),
+        "the dotted from-import source leaf is a cycle edge: {:?}",
+        evaluation.imports,
+    );
+    // The later unconditional assignment dominates the cycle-degraded member.
+    let value = bound_value(&evaluation, "LEAF");
+    assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "sub"));
+}
+
+/// Evaluate `/project/settings.py` against a filesystem where exactly one file
+/// (`unreadable`) fails to read. Reuses the shared `ReadFailingFileSystem` so
+/// direct/dotted unreadable positions can be probed at root, intermediate, and
+/// leaf components without a bespoke filesystem per test.
+fn evaluate_unreadable_module(
+    files: &[(&str, &str)],
+    unreadable: &str,
+    source: &str,
+) -> (OsTestDatabase, File, PythonModuleEvaluationView) {
+    let mut inner = InMemoryFileSystem::new();
+    for (path, content) in files {
+        inner.add_file((*path).into(), (*content).to_string());
+    }
+    inner.add_file("/project/settings.py".into(), source.to_string());
+    let fs = ReadFailingFileSystem {
+        inner,
+        unreadable: unreadable.into(),
+    };
+    let db = OsTestDatabase::with_file_system(Arc::new(fs));
+    let project = python_project(&db);
+    let settings = path_to_file(&db, Utf8Path::new("/project/settings.py"))
+        .expect("settings fixture should exist");
+    let evaluation = python_module_evaluation(&db, project, settings);
+    (db, settings, evaluation)
+}
+
+#[test]
+fn ordinary_import_unreadable_root_binds_typed_unreadable_unknown() {
+    // A direct root import whose only component fails to read records exactly one
+    // typed unreadable edge (never a not-found) and binds a typed unreadable
+    // unknown for the root name.
+    let (db, settings, evaluation) = evaluate_unreadable_module(
+        &[("/project/unreadable.py", "VALUE = 'hidden'\n")],
+        "/project/unreadable.py",
+        "import unreadable\n",
+    );
+    let unreadable = path_to_file(&db, Utf8Path::new("/project/unreadable.py"))
+        .expect("unreadable fixture should still be discoverable");
+
+    let [
+        PythonImportOutcomeView::Unreadable {
+            origin,
+            file,
+            importer_module,
+            imported_module,
+            error,
+        },
+    ] = evaluation.imports.as_slice()
+    else {
+        panic!(
+            "expected one unreadable outcome, got {:?}",
+            evaluation.imports
+        );
+    };
+    assert_eq!(origin.file, settings);
+    assert_eq!(*file, unreadable);
+    assert_eq!(importer_module.as_str(), "settings");
+    assert_eq!(imported_module.as_str(), "unreadable");
+    assert_eq!(error.kind, io::ErrorKind::PermissionDenied);
+
+    let bound = bound_value(&evaluation, "unreadable");
+    assert!(matches!(
+        &bound.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::Unreadable(error)
+                if error.kind == io::ErrorKind::PermissionDenied)
+    ));
+    // The unreadable component's file is retained as a dependency so a later
+    // readable revision re-triggers evaluation.
+    assert_eq!(evaluation.dependency_files, [settings, unreadable]);
+}
+
+#[test]
+fn ordinary_dotted_import_unreadable_leaf_leaves_failed_child_unattached() {
+    // The parent `pkg` resolves and records its edge; the unreadable leaf records
+    // an unreadable edge (never a not-found). The successful `import pkg` keeps
+    // `pkg` a module handle, the aliased failing clause binds only its alias, and
+    // the failed leaf is never attached, so a parent member read surfaces a typed
+    // module-attribute unknown.
+    let (db, _settings, evaluation) = evaluate_unreadable_module(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "/project/pkg/sub.py",
+        "import pkg\nimport pkg.sub as s\nCHILD = pkg.sub\n",
+    );
+    let pkg_init = path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py")).unwrap();
+    let pkg_sub = path_to_file(&db, Utf8Path::new("/project/pkg/sub.py")).unwrap();
+
+    assert!(
+        matches!(
+            evaluation.imports.as_slice(),
+            [
+                PythonImportOutcomeView::Resolved { imported_module: a, file: fa, .. },
+                PythonImportOutcomeView::Resolved { imported_module: b, file: fb, .. },
+                PythonImportOutcomeView::Unreadable { imported_module: c, file: fc, error, .. },
+            ] if a.as_str() == "pkg"
+                && b.as_str() == "pkg"
+                && c.as_str() == "pkg.sub"
+                && *fa == pkg_init
+                && *fb == pkg_init
+                && *fc == pkg_sub
+                && error.kind == io::ErrorKind::PermissionDenied
+        ),
+        "{:?}",
+        evaluation.imports,
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    let alias = bound_value(&evaluation, "s");
+    assert!(matches!(
+        &alias.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::Unreadable(_))
+    ));
+
+    let child = bound_value(&evaluation, "CHILD");
+    assert!(
+        matches!(
+            &child.value.kind,
+            PythonValueKindView::Unknown(unknown)
+                if matches!(&unknown.cause, PythonUnknownCauseView::ModuleAttribute { module, member }
+                    if module.as_str() == "pkg" && member == "sub")
+        ),
+        "the unreadable leaf must not be attached under pkg, got {:?}",
+        child.value.kind,
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_unreadable_intermediate_preserves_root_edge() {
+    // A dotted chain whose intermediate component fails to read stops at the
+    // intermediate: the resolved root prefix `pkg` still records its edge before
+    // the unreadable outcome for `pkg.mid`, and the whole statement fails so the
+    // root binds a typed unreadable unknown.
+    let (db, _settings, evaluation) = evaluate_unreadable_module(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/mid/__init__.py", "MID = 'mid'\n"),
+            ("/project/pkg/mid/leaf.py", "LEAF = 'leaf'\n"),
+        ],
+        "/project/pkg/mid/__init__.py",
+        "import pkg.mid.leaf\n",
+    );
+    let pkg_init = path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py")).unwrap();
+    let mid_init = path_to_file(&db, Utf8Path::new("/project/pkg/mid/__init__.py")).unwrap();
+
+    assert!(
+        matches!(
+            evaluation.imports.as_slice(),
+            [
+                PythonImportOutcomeView::Resolved { imported_module: a, file: fa, .. },
+                PythonImportOutcomeView::Unreadable { imported_module: b, file: fb, .. },
+            ] if a.as_str() == "pkg"
+                && *fa == pkg_init
+                && b.as_str() == "pkg.mid"
+                && *fb == mid_init
+        ),
+        "{:?}",
+        evaluation.imports,
+    );
+    let bound = bound_value(&evaluation, "pkg");
+    assert!(matches!(
+        &bound.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::Unreadable(_))
+    ));
+}
+
+#[test]
+fn from_dotted_import_not_found_records_parent_prefix_and_fails_selection() {
+    // The resolved source prefix `pkg` records its edge before the not-found
+    // terminal; the named member is failed through the not-found policy.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "PARENT = 'parent'\n")],
+        "from pkg.missing import VALUE\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "notfound:pkg.missing"]
+    );
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(
+        &value.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module)
+                if module.as_str() == "pkg.missing")
+    ));
+}
+
+#[test]
+fn from_dotted_import_unreadable_leaf_records_parent_prefix_and_fails_selection() {
+    let (db, _settings, evaluation) = evaluate_unreadable_module(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            ("/project/pkg/sub.py", "VALUE = 'v'\n"),
+        ],
+        "/project/pkg/sub.py",
+        "from pkg.sub import VALUE\n",
+    );
+    let pkg_init = path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py")).unwrap();
+    let pkg_sub = path_to_file(&db, Utf8Path::new("/project/pkg/sub.py")).unwrap();
+
+    assert!(
+        matches!(
+            evaluation.imports.as_slice(),
+            [
+                PythonImportOutcomeView::Resolved { imported_module: a, file: fa, .. },
+                PythonImportOutcomeView::Unreadable { imported_module: b, file: fb, .. },
+            ] if a.as_str() == "pkg"
+                && *fa == pkg_init
+                && b.as_str() == "pkg.sub"
+                && *fb == pkg_sub
+        ),
+        "{:?}",
+        evaluation.imports,
+    );
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(
+        &value.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::Unreadable(_))
+    ));
+}
+
+#[test]
+fn from_dotted_import_syntax_leaf_records_syntax_edge_and_selects_member() {
+    // A recoverable syntax error in the source leaf records a syntax edge but the
+    // leaf still resolves, so the named member selection is unchanged.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            (
+                "/project/pkg/sub.py",
+                "CHILD = 'child'\nif FLAG:\n    OTHER = 'o'\n    broken(\n",
+            ),
+        ],
+        "from pkg.sub import CHILD\n",
+    );
+
+    assert!(evaluation.imports.iter().any(|outcome| matches!(
+        outcome,
+        PythonImportOutcomeView::Resolved { imported_module, .. }
+            if imported_module.as_str() == "pkg"
+    )));
+    assert!(evaluation.imports.iter().any(|outcome| matches!(
+        outcome,
+        PythonImportOutcomeView::SyntaxErrors { imported_module, .. }
+            if imported_module.as_str() == "pkg.sub"
+    )));
+    let child = bound_value(&evaluation, "CHILD");
+    assert!(matches!(&child.value.kind, PythonValueKindView::Str(text) if text == "child"));
+}
+
+#[test]
+fn from_dotted_import_external_suffix_skips_and_fails_selection() {
+    // A namespace prefix `ns` spans into a site-packages `ns.sub`; the requested
+    // leaf is external, so exactly one skipped-external outcome is recorded and
+    // the named member is failed through the skipped-external policy.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/ns/placeholder.py", ""),
+            (
+                "/project/.venv/lib/python3.12/site-packages/ns/sub.py",
+                "VALUE = 'ext'\n",
+            ),
+        ],
+        "from ns.sub import VALUE\n",
+    );
+
+    assert_eq!(import_module_names(&evaluation), ["external:ns.sub"]);
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(
+        &value.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module)
+                if module.as_str() == "ns.sub")
+    ));
+}
+
+#[test]
+fn from_dotted_import_namespace_leaf_records_source_prefix_and_not_found() {
+    // The source parent `pkg` records its edge; the namespace leaf `pkg.ns` has
+    // no loadable source module, so selection fails through the not-found policy.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            ("/project/pkg/ns/mod.py", "X = 'x'\n"),
+        ],
+        "from pkg.ns import VALUE\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "notfound:pkg.ns"]
+    );
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(
+        &value.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module)
+                if module.as_str() == "pkg.ns")
+    ));
+}
+
+#[test]
+fn ordinary_import_single_alias_binds_module_and_omits_source_name() {
+    // A successful single-component aliased import binds only the alias to the
+    // resolved source module handle; the source name itself is never bound.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/a/__init__.py", "VALUE = 'a'\n")],
+        "import a as x\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "x"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("a").unwrap())
+    );
+    assert!(
+        evaluation.binding("a").is_none(),
+        "an aliased import binds only the alias"
+    );
+    assert_eq!(import_module_names(&evaluation), ["resolved:a"]);
+}
+
+#[test]
+fn ordinary_dotted_import_recovers_leaf_syntax_and_attaches_child() {
+    // The leaf `pkg/sub.py` has recoverable syntax errors: it records a syntax
+    // edge but still resolves, so the root binds and the loaded child attaches
+    // and is readable through the parent's module-member projection.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\nbroken(\n"),
+        ],
+        "import pkg.sub\nCHILD = pkg.sub\n",
+    );
+
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Resolved { imported_module, .. }
+                if imported_module.as_str() == "pkg"
+        )),
+        "the parent package resolves: {:?}",
+        evaluation.imports,
+    );
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::SyntaxErrors { imported_module, .. }
+                if imported_module.as_str() == "pkg.sub"
+        )),
+        "the leaf records a recovered syntax outcome: {:?}",
+        evaluation.imports,
+    );
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+    );
+}
+
+#[test]
+fn from_dotted_import_unreadable_intermediate_records_root_prefix_and_fails_selection() {
+    // The intermediate `pkg.mid` fails to read: the resolved root prefix `pkg`
+    // records its edge before the unreadable outcome for `pkg.mid`, and the named
+    // member is failed through the unreadable policy.
+    let (db, _settings, evaluation) = evaluate_unreadable_module(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/mid/__init__.py", "MID = 'mid'\n"),
+            ("/project/pkg/mid/leaf.py", "VALUE = 'v'\n"),
+        ],
+        "/project/pkg/mid/__init__.py",
+        "from pkg.mid.leaf import VALUE\n",
+    );
+    let pkg_init = path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py")).unwrap();
+    let mid_init = path_to_file(&db, Utf8Path::new("/project/pkg/mid/__init__.py")).unwrap();
+
+    assert!(
+        matches!(
+            evaluation.imports.as_slice(),
+            [
+                PythonImportOutcomeView::Resolved { imported_module: a, file: fa, .. },
+                PythonImportOutcomeView::Unreadable { imported_module: b, file: fb, .. },
+            ] if a.as_str() == "pkg"
+                && *fa == pkg_init
+                && b.as_str() == "pkg.mid"
+                && *fb == mid_init
+        ),
+        "{:?}",
+        evaluation.imports,
+    );
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(
+        &value.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::Unreadable(_))
+    ));
+}
+
+#[test]
+fn from_dotted_import_not_found_intermediate_records_root_prefix_and_fails_selection() {
+    // A missing intermediate component stops resolution at the missing name; the
+    // resolved root prefix `pkg` still records its edge before the not-found, and
+    // the named member is failed through the not-found policy.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "PARENT = 'parent'\n")],
+        "from pkg.missing.leaf import VALUE\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "notfound:pkg.missing.leaf"]
+    );
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(
+        &value.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module)
+                if module.as_str() == "pkg.missing.leaf")
+    ));
+}
+
+#[test]
+fn from_dotted_import_namespace_parent_selects_source_child_member() {
+    // The parent `nspkg` is a namespace package (no __init__.py) and produces no
+    // edge; the source child `nspkg.mod` resolves and the named member is
+    // selected unchanged.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/nspkg/mod.py", "VALUE = 'child'\n")],
+        "from nspkg.mod import VALUE\n",
+    );
+
+    assert_eq!(import_module_names(&evaluation), ["resolved:nspkg.mod"]);
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "child"));
+}
+
+#[test]
+fn member_read_of_intrinsic_binding_after_bare_import_selects_value() {
+    // Reading a member that is one of the imported module's own (intrinsic)
+    // bindings after a bare `import pkg` selects that value unchanged.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "VALUE = 'pkg'\n")],
+        "import pkg\nATTR = pkg.VALUE\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    let attr = bound_value(&evaluation, "ATTR");
+    assert!(matches!(&attr.value.kind, PythonValueKindView::Str(text) if text == "pkg"));
+}
+
+#[test]
+fn member_read_of_parent_init_binding_after_dotted_root_import_selects_value() {
+    // An unaliased `import pkg.sub` binds the root `pkg`; reading the parent
+    // package's own `__init__.py` binding through the root selects that value.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg.sub\nATTR = pkg.PARENT\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    let attr = bound_value(&evaluation, "ATTR");
+    assert!(matches!(&attr.value.kind, PythonValueKindView::Str(text) if text == "parent"));
+}
+
+#[test]
+fn member_read_of_leaf_binding_through_dotted_alias_selects_value() {
+    // `import pkg.sub as s` binds the alias to the leaf module; reading the leaf's
+    // own binding through the alias selects that value.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg.sub as s\nATTR = s.LEAF\n",
+    );
+
+    assert_eq!(
+        bound_module(&evaluation, "s"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+    );
+    let attr = bound_value(&evaluation, "ATTR");
+    assert!(matches!(&attr.value.kind, PythonValueKindView::Str(text) if text == "leaf"));
+}
+
+#[test]
+fn ordinary_dotted_import_source_parent_binds_namespace_leaf_child() {
+    // A source parent `pkg` reaches a namespace leaf `pkg.ns`. The namespace leaf
+    // is not a definite failure, so the unaliased import binds the resolved root
+    // handle and the namespace child is attached and readable.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+            ("/project/pkg/ns/mod.py", "X = 'x'\n"),
+        ],
+        "import pkg.ns\nCHILD = pkg.ns\n",
+    );
+
+    assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("pkg.ns").unwrap())
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_namespace_intermediate_reaches_source_leaf() {
+    // Three components: source root `pkg`, namespace intermediate `pkg.ns`, and
+    // source leaf `pkg.ns.leaf`. The namespace intermediate produces no edge, but
+    // the chain continues to the source leaf and both source edges are recorded.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/ns/leaf.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg.ns.leaf\nCHILD = pkg.ns.leaf\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.ns.leaf"]
+    );
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.ns.leaf").unwrap())
+    );
+}
+
+#[test]
+fn ordinary_import_binds_module_from_extra_root() {
+    // An ordinary direct import resolves through an extra (project-code) root and
+    // binds the source module handle, recording the extra-root file as a resolved
+    // edge and dependency.
+    let db = TestDatabase::new();
+    db.add_file("/vendor/shared.py", "VALUE = 'extra'\n");
+    db.add_file("/project/settings.py", "import shared\n");
+    let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/vendor")]);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let shared = db.file(Utf8Path::new("/vendor/shared.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert_eq!(
+        bound_module(&evaluation, "shared"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("shared").unwrap())
+    );
+    assert!(matches!(
+        evaluation.imports.as_slice(),
+        [PythonImportOutcomeView::Resolved { file, imported_module, .. }]
+            if *file == shared && imported_module.as_str() == "shared"
+    ));
+    assert_eq!(evaluation.dependency_files, [settings, shared]);
+}
+
+#[test]
+fn ordinary_dotted_import_records_exact_prefix_dependencies_and_surviving_child_value() {
+    // The prefix chain records dependency files in first-seen root-to-leaf order
+    // and the loaded child's own body survives, readable through the parent's
+    // module-member projection.
+    let db = TestDatabase::new();
+    db.add_file("/project/pkg/__init__.py", "PARENT = 'parent'\n");
+    db.add_file("/project/pkg/sub.py", "LEAF = 'leaf'\n");
+    db.add_file(
+        "/project/settings.py",
+        "import pkg.sub\nCHILD = pkg.sub\nVIA = pkg.sub.LEAF\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let pkg_init = db.file(Utf8Path::new("/project/pkg/__init__.py"));
+    let pkg_sub = db.file(Utf8Path::new("/project/pkg/sub.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.sub"]
+    );
+    assert_eq!(evaluation.dependency_files, [settings, pkg_init, pkg_sub]);
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+    );
+    let via = bound_value(&evaluation, "VIA");
+    assert!(matches!(&via.value.kind, PythonValueKindView::Str(text) if text == "leaf"));
+}
+
+#[test]
+fn ordinary_dotted_import_records_exact_outcome_sequence_and_identities() {
+    // The full outcome sequence for a two-component dotted chain: both components
+    // share the clause origin, carry their own files and imported identities, and
+    // the dependency array is the first-seen root-to-leaf order.
+    let db = TestDatabase::new();
+    db.add_file("/project/pkg/__init__.py", "PARENT = 'parent'\n");
+    db.add_file("/project/pkg/sub.py", "LEAF = 'leaf'\n");
+    let source = "import pkg.sub\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let pkg_init = db.file(Utf8Path::new("/project/pkg/__init__.py"));
+    let pkg_sub = db.file(Utf8Path::new("/project/pkg/sub.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let clause = Origin::new(settings, expected_span(source, "pkg.sub"));
+    let settings_module = PythonModuleName::parse("settings").unwrap();
+    assert_eq!(
+        evaluation.imports,
+        vec![
+            PythonImportOutcomeView::Resolved {
+                origin: clause,
+                file: pkg_init,
+                importer_module: settings_module.clone(),
+                imported_module: PythonModuleName::parse("pkg").unwrap(),
+            },
+            PythonImportOutcomeView::Resolved {
+                origin: clause,
+                file: pkg_sub,
+                importer_module: settings_module,
+                imported_module: PythonModuleName::parse("pkg.sub").unwrap(),
+            },
+        ]
+    );
+    assert_eq!(evaluation.dependency_files, [settings, pkg_init, pkg_sub]);
+}
+
+#[test]
+fn successful_direct_imports_bind_exact_target_origins() {
+    // Each successful direct form binds its local name at the exact binding
+    // target: the root form at the root segment, the alias form at the alias
+    // identifier, and the unaliased dotted form at the root segment.
+    let db = TestDatabase::new();
+    db.add_file("/project/root.py", "R = 'r'\n");
+    db.add_file("/project/pkg/__init__.py", "");
+    db.add_file("/project/pkg/sub.py", "S = 's'\n");
+    db.add_file("/project/dpkg/__init__.py", "");
+    db.add_file("/project/dpkg/leaf.py", "L = 'l'\n");
+    let source = "import root\nimport pkg.sub as salias\nimport dpkg.leaf\n";
+    db.add_file("/project/settings.py", source);
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    assert_eq!(
+        bound_value(&evaluation, "root").binding_origins,
+        [Origin::new(
+            settings,
+            binding_target_span(source, "import root", "root")
+        )]
+    );
+    assert_eq!(
+        bound_value(&evaluation, "salias").binding_origins,
+        [Origin::new(
+            settings,
+            binding_target_span(source, "as salias", "salias")
+        )]
+    );
+    assert_eq!(
+        bound_value(&evaluation, "dpkg").binding_origins,
+        [Origin::new(
+            settings,
+            binding_target_span(source, "import dpkg.leaf", "dpkg")
+        )]
+    );
+}
+
+#[test]
+fn ordinary_import_binds_multiple_clauses_in_source_order() {
+    // A multi-clause single statement of all-successful imports binds each module
+    // handle and records edges in left-to-right source order.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/alpha/__init__.py", ""),
+            ("/project/beta/__init__.py", ""),
+        ],
+        "import alpha, beta\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:alpha", "resolved:beta"]
+    );
+    assert_eq!(
+        bound_module(&evaluation, "alpha"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("alpha").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "beta"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("beta").unwrap())
+    );
+}
+
+#[test]
+fn ordinary_import_mixed_clauses_preserve_source_order_after_failure() {
+    // A single statement mixing a failing then a succeeding clause preserves
+    // source order: the earlier failure does not suppress the later success.
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/alpha/__init__.py", "")],
+        "import missing, alpha\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["notfound:missing", "resolved:alpha"]
+    );
+    let missing = bound_value(&evaluation, "missing");
+    assert!(matches!(
+        &missing.value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module)
+                if module.as_str() == "missing")
+    ));
+    assert_eq!(
+        bound_module(&evaluation, "alpha"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("alpha").unwrap())
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_external_suffix_attaches_open_child() {
+    // A namespace root `ns` with an external suffix `ns.sub` binds the namespace
+    // root, attaches the external suffix child, and preserves the suffix's
+    // skipped-external open cause on member reads.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/ns/placeholder.py", ""),
+            (
+                "/project/.venv/lib/python3.12/site-packages/ns/sub.py",
+                "VALUE = 'ext'\n",
+            ),
+        ],
+        "import ns.sub\nCHILD = ns.sub\nATTR = ns.sub.VALUE\n",
+    );
+
+    assert_eq!(import_module_names(&evaluation), ["external:ns.sub"]);
+    assert_eq!(
+        bound_module(&evaluation, "ns"),
+        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("ns").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "CHILD"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("ns.sub").unwrap())
+    );
+    let attr = evaluation.binding("ATTR").expect("ATTR should be bound");
+    assert!(
+        attr.alternatives.iter().any(|alternative| matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::Unknown(unknown),
+                    ..
+                },
+                ..
+            }) if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module)
+                if module.as_str() == "ns.sub")
+        )),
+        "reading an external suffix attribute surfaces SkippedExternal: {:?}",
+        attr.alternatives,
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_self_cycle_attaches_open_child() {
+    // A dotted self-cycle attaches the cyclic child under the resolved root, so a
+    // parent member read of the child is a module handle, but attribute reads of
+    // the cyclic child surface the cycle open cause. The post-import local value
+    // survives.
+    let db = TestDatabase::new();
+    db.add_file("/project/pkg/__init__.py", "import pkg.sub\n");
+    db.add_file(
+        "/project/pkg/sub.py",
+        "import pkg.sub\nLEAF = 'sub'\nSELF = pkg.sub\nCYC = pkg.sub.LEAF\n",
+    );
+    let project = python_project(&db);
+    let module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap()).unwrap();
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+    assert!(evaluation.imports.iter().any(|outcome| matches!(
+        outcome,
+        PythonImportOutcomeView::Resolved { imported_module, .. }
+            if imported_module.as_str() == "pkg"
+    )));
+    assert!(evaluation.imports.iter().any(|outcome| matches!(
+        outcome,
+        PythonImportOutcomeView::Cycle { imported_module, .. }
+            if imported_module.as_str() == "pkg.sub"
+    )));
+    assert_eq!(
+        bound_module(&evaluation, "pkg"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "SELF"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+    );
+    let cyc = bound_value(&evaluation, "CYC");
+    assert!(
+        matches!(
+            &cyc.value.kind,
+            PythonValueKindView::Unknown(unknown)
+                if matches!(&unknown.cause, PythonUnknownCauseView::Cycle)
+        ),
+        "reading a cyclic child attribute surfaces the cycle open cause, got {:?}",
+        cyc.value.kind,
+    );
+    let leaf = bound_value(&evaluation, "LEAF");
+    assert!(matches!(&leaf.value.kind, PythonValueKindView::Str(text) if text == "sub"));
 }
 
 fn has_unknown_alternative(evaluation: &PythonModuleEvaluationView, name: &str) -> bool {

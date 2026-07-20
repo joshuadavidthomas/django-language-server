@@ -31,6 +31,7 @@ pub(crate) use self::mapping::MappingProjection;
 pub(crate) use self::mapping::MappingStringEntry;
 pub(crate) use self::mapping::PythonDict;
 pub(crate) use self::mapping::PythonMapping;
+pub(crate) use self::module_object::NamespacePortion;
 pub(crate) use self::module_object::PythonModuleObjectId;
 pub(crate) use self::module_object::PythonModuleObjects;
 pub(crate) use self::module_object::PythonNamespacePackage;

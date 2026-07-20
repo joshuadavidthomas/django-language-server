@@ -251,7 +251,9 @@ impl PythonBinding {
         let mut contributions: Vec<Self> = Vec::new();
         for case in &self.cases {
             let contribution = match &case.state {
-                PythonBindingState::Unbound => prior.clone().intersect_constraints(&case.constraints),
+                PythonBindingState::Unbound => {
+                    prior.clone().intersect_constraints(&case.constraints)
+                }
                 PythonBindingState::Bound(bound)
                     if matches!(bound.value.kind, PythonValueKind::Module(_)) =>
                 {
@@ -263,10 +265,12 @@ impl PythonBinding {
                     let incoming = Self {
                         cases: vec![case.clone()],
                     };
-                    Some(match prior.clone().intersect_constraints(&case.constraints) {
-                        Some(kept) => kept.join(incoming, origin),
-                        None => incoming,
-                    })
+                    Some(
+                        match prior.clone().intersect_constraints(&case.constraints) {
+                            Some(kept) => kept.join(incoming, origin),
+                            None => incoming,
+                        },
+                    )
                 }
             };
             if let Some(contribution) = contribution {
@@ -560,6 +564,7 @@ mod tests {
     fn namespace_module(name: &str) -> PythonModuleObjectId {
         PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
             crate::python::PythonModuleName::parse(name).unwrap(),
+            Vec::new(),
         ))
     }
 
@@ -594,8 +599,10 @@ mod tests {
         let join = origin(0, 100);
         let mut module_case = module_binding("pkg", 1);
         module_case.select_branch(join, 0);
-        let mut string_case =
-            PythonBinding::bound(PythonValue::string("x".to_string(), origin(0, 2)), origin(0, 2));
+        let mut string_case = PythonBinding::bound(
+            PythonValue::string("x".to_string(), origin(0, 2)),
+            origin(0, 2),
+        );
         string_case.select_branch(join, 1);
         let receiver = module_case.join(string_case, origin(0, 3));
 
@@ -635,8 +642,10 @@ mod tests {
             "the branch without a child contributes residual Unbound",
         );
 
-        let fallback =
-            PythonBinding::bound(PythonValue::string("src".to_string(), origin(0, 4)), origin(0, 4));
+        let fallback = PythonBinding::bound(
+            PythonValue::string("src".to_string(), origin(0, 4)),
+            origin(0, 4),
+        );
         let composed = base.replace_unbound_with(Some(fallback), origin(0, 5));
 
         assert!(
@@ -645,7 +654,10 @@ mod tests {
                 .any(|state| *state == PythonBindingState::Unbound),
             "the source fallback covers the residual Unbound",
         );
-        assert!(contains_str(&composed, "src"), "intrinsic source fallback applies");
+        assert!(
+            contains_str(&composed, "src"),
+            "intrinsic source fallback applies"
+        );
         assert_eq!(
             composed
                 .alternatives()
@@ -672,11 +684,13 @@ mod tests {
 
         let module_count = merged
             .alternatives()
-            .filter(|state| matches!(
-                state,
-                PythonBindingState::Bound(bound)
-                    if matches!(bound.value.kind, PythonValueKind::Module(_))
-            ))
+            .filter(|state| {
+                matches!(
+                    state,
+                    PythonBindingState::Bound(bound)
+                        if matches!(bound.value.kind, PythonValueKind::Module(_))
+                )
+            })
             .count();
         assert_eq!(
             module_count, 2,

@@ -131,6 +131,21 @@ impl PythonModuleDependencies {
         }
     }
 
+    /// Whether any recorded import outcome participates in a cycle. Cyclic
+    /// dependency sets are canonicalized into an entry-order-independent order;
+    /// acyclic sets keep their semantic first-seen order.
+    fn has_cycle_outcome(&self) -> bool {
+        self.imports.iter().any(|outcome| {
+            matches!(
+                outcome,
+                PythonImportOutcome::Evaluated {
+                    status: PythonImportEvaluationStatus::Cycle { .. },
+                    ..
+                }
+            )
+        })
+    }
+
     fn sort_files(&mut self, root: File) {
         self.files.sort_by(|left, right| {
             (*left != root)
@@ -398,7 +413,12 @@ impl EvaluatedPythonModule {
             }
         }
         dependencies.imports = import_graph.canonicalized_outcomes();
-        dependencies.sort_files(root_file);
+        // Files/outcomes keep first-seen root-to-leaf insertion order for the
+        // acyclic case. Only a cycle needs entry-order-independent
+        // canonicalization, so only then is the structural file order imposed.
+        if dependencies.has_cycle_outcome() {
+            dependencies.sort_files(root_file);
+        }
         Self {
             values,
             dependencies,
@@ -412,10 +432,6 @@ impl EvaluatedPythonModule {
 
     pub(super) fn dependencies(&self) -> &PythonModuleDependencies {
         &self.dependencies
-    }
-
-    pub(super) fn module_objects(&self) -> &PythonModuleObjects {
-        &self.module_objects
     }
 
     pub(super) fn into_parts(
@@ -641,7 +657,12 @@ impl PythonImportGraph {
                 }
             }
         }
-        normalized.sort_by(PythonImportOutcome::structural_cmp);
+        // Preserve first-seen outcome order for acyclic dependency sets; only
+        // impose the structural canonical order when a cycle requires
+        // entry-order independence.
+        if has_cycle {
+            normalized.sort_by(PythonImportOutcome::structural_cmp);
+        }
         normalized.into()
     }
 }
@@ -892,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_module_order_dependencies_are_root_first_and_input_order_independent() {
+    fn typed_module_order_acyclic_dependencies_preserve_first_seen_order() {
         let root = module("root", 16);
         let numerically_first = File::from_id(Id::from_bits(15));
         let numerically_last = File::from_id(Id::from_bits(17));
@@ -908,12 +929,21 @@ mod tests {
             )
         };
 
-        let forward = evaluate([numerically_last, root.file(), numerically_first]);
-        let reversed = evaluate([numerically_first, root.file(), numerically_last]);
-
-        assert_eq!(forward, reversed);
+        // Acyclic dependency files keep first-seen insertion order; the root is
+        // first because real evaluation seeds it first, not because of a sort.
+        let forward = evaluate([root.file(), numerically_last, numerically_first]);
         assert_eq!(
             forward
+                .dependencies
+                .files
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            [root.file(), numerically_last, numerically_first]
+        );
+        let reversed = evaluate([root.file(), numerically_first, numerically_last]);
+        assert_eq!(
+            reversed
                 .dependencies
                 .files
                 .iter()
@@ -958,7 +988,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_module_order_import_outcomes_are_exhaustive_total_and_input_independent() {
+    fn typed_module_order_import_outcomes_are_exhaustive_total_and_preserve_first_seen_order() {
         let source = module("importer", 15);
         let destination = module("imported", 16);
         let edge = PythonImportEdge {
@@ -1001,11 +1031,21 @@ mod tests {
             }
         }
 
-        let forward =
-            PythonImportGraph::new(outcomes.clone().into_iter().collect()).canonicalized_outcomes();
-        let reversed =
-            PythonImportGraph::new(outcomes.into_iter().rev().collect()).canonicalized_outcomes();
-        assert_eq!(forward, reversed);
+        // Acyclic outcome sets keep first-seen insertion order; only a cycle
+        // imposes the input-independent canonical order (covered by the cycle
+        // tests below).
+        let forward = PythonImportGraph::new(outcomes.clone().into_iter().collect())
+            .canonicalized_outcomes()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(forward, outcomes.to_vec());
+        let reversed = PythonImportGraph::new(outcomes.iter().rev().cloned().collect())
+            .canonicalized_outcomes()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(reversed, outcomes.iter().rev().cloned().collect::<Vec<_>>());
     }
 
     #[test]

@@ -421,8 +421,11 @@ fn dependency_change_backdates_value_projection() {
     let events = event_log.take();
 
     assert_eq!(after, before);
-    assert_eq!(sources.count(), 2);
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
+    // The `from .extra import *` edit makes settings.py load its parent package
+    // `myproject/__init__.py` (a distinct file) plus `myproject.extra`, so three
+    // modules evaluate and all three files are dependency sources.
+    assert_eq!(sources.count(), 3);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 3);
     assert_eq!(
         execution_count(&db, &events, "python_module_dependencies"),
         1
@@ -517,7 +520,10 @@ fn direct_settings_cycle_is_bounded_and_retains_local_values() {
         settings["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
         "local"
     );
-    assert_eq!(sources.count(), 1);
+    // The self-cycle settings module also loads its distinct parent package
+    // `myproject/__init__.py`, which becomes a second dependency source and is
+    // projected once.
+    assert_eq!(sources.count(), 2);
     let evaluations = execution_count(&db, &events, "evaluate_python_module");
     assert!((1..=12).contains(&evaluations));
     assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
@@ -627,7 +633,9 @@ fn two_file_settings_cycle_is_bounded_and_retains_local_values() {
         "local"
     );
     assert!(has_case(&settings["templates"], "known"));
-    assert_eq!(sources.count(), 2);
+    // The two-file cycle also loads its distinct parent package
+    // `myproject/__init__.py`, a third dependency source.
+    assert_eq!(sources.count(), 3);
     let evaluations = execution_count(&db, &events, "evaluate_python_module");
     assert!((2..=24).contains(&evaluations));
     assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
@@ -760,9 +768,11 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
     db.project = Some(project);
 
     let _ = django_settings(&db, project);
+    // settings.py loads `.leaf` and its distinct parent package
+    // `myproject/__init__.py`, so three files are dependency sources.
     assert_eq!(
         ProjectFactsPhase::SettingsSources.run(&db, project).count(),
-        2
+        3
     );
     events.lock().unwrap().clear();
 
@@ -772,7 +782,7 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
         let _ = django_settings(&db, project);
         assert_eq!(
             ProjectFactsPhase::SettingsSources.run(&db, project).count(),
-            2
+            3
         );
         let transition_events = mem::take(&mut *events.lock().unwrap());
 

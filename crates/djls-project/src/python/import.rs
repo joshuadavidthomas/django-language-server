@@ -32,6 +32,7 @@ pub(crate) struct DirectImportClause<'ast> {
     requested: &'ast str,
     binding: DirectImportBinding<'ast>,
     binding_span: Span,
+    clause_span: Span,
 }
 
 impl<'ast> DirectImportClause<'ast> {
@@ -40,21 +41,37 @@ impl<'ast> DirectImportClause<'ast> {
     }
 
     fn from_alias(alias: &'ast ast::Alias) -> Self {
+        let requested = alias.name.as_str();
+        let (binding, binding_span) = match alias.asname.as_ref() {
+            // An aliased clause binds the leaf at the exact alias identifier.
+            Some(alias) => (DirectImportBinding::Alias(alias.as_str()), alias.span()),
+            // An unaliased dotted clause binds only the root segment, so the
+            // binding target is the first segment of the dotted name, not the
+            // whole clause.
+            None => {
+                let root = first_import_segment(requested);
+                let root_span = alias.name.span().with_length_usize_saturating(root.len());
+                (DirectImportBinding::Root, root_span)
+            }
+        };
         Self {
-            requested: alias.name.as_str(),
-            binding: alias
-                .asname
-                .as_ref()
-                .map_or(DirectImportBinding::Root, |alias| {
-                    DirectImportBinding::Alias(alias.as_str())
-                }),
-            binding_span: alias.span(),
+            requested,
+            binding,
+            binding_span,
+            clause_span: alias.span(),
         }
     }
 
     /// The dotted spelling exactly as written (`a.b` in `import a.b as c`).
-    fn requested(&self) -> &'ast str {
+    pub(crate) fn requested(&self) -> &'ast str {
         self.requested
+    }
+
+    /// Whether the clause binds the top-level package root (unaliased) rather
+    /// than the full leaf. `import a.b` binds root `a`; `import a.b as x` binds
+    /// the leaf `a.b`.
+    pub(crate) fn binds_root(&self) -> bool {
+        matches!(self.binding, DirectImportBinding::Root)
     }
 
     /// The local name introduced into scope.
@@ -74,10 +91,18 @@ impl<'ast> DirectImportClause<'ast> {
         }
     }
 
-    /// Span of the whole alias clause, for consumers that record binding
-    /// origins.
+    /// Span of the exact local binding target (the alias identifier, or the
+    /// root segment of an unaliased dotted clause). Binding origins use this so
+    /// the local name's provenance points at the name it introduces.
     pub(crate) fn binding_span(&self) -> Span {
         self.binding_span
+    }
+
+    /// Span of the whole `name [as alias]` clause. Component edge and outcome
+    /// origins use this so import effects are attributed to the full clause
+    /// rather than the narrow binding target.
+    pub(crate) fn clause_span(&self) -> Span {
+        self.clause_span
     }
 }
 
@@ -227,12 +252,17 @@ mod tests {
         };
         let clauses = DirectImportClause::lower(import);
 
+        // The clause span covers the whole `name [as alias]` clause, while the
+        // binding span narrows to the exact local target: the alias identifier
+        // for aliased clauses and the root segment for unaliased dotted ones.
         assert_eq!(clauses[0].requested(), "alpha.beta");
         assert_eq!(clauses[0].bound(), "first");
-        assert_eq!(clauses[0].binding_span(), Span::new(7, 19));
+        assert_eq!(clauses[0].clause_span(), Span::new(7, 19));
+        assert_eq!(clauses[0].binding_span(), Span::new(21, 5));
         assert_eq!(clauses[1].requested(), "gamma.delta");
         assert_eq!(clauses[1].bound(), "gamma");
-        assert_eq!(clauses[1].binding_span(), Span::new(28, 11));
+        assert_eq!(clauses[1].clause_span(), Span::new(28, 11));
+        assert_eq!(clauses[1].binding_span(), Span::new(28, 5));
     }
 
     #[test]

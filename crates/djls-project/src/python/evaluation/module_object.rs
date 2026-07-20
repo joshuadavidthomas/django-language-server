@@ -11,6 +11,7 @@
 
 use std::cmp::Ordering;
 
+use camino::Utf8PathBuf;
 use djls_source::Origin;
 
 use super::BranchConstraints;
@@ -23,30 +24,81 @@ use super::PythonValue;
 use super::StructuralOrd;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::search_paths::SearchPath;
+
+/// One search-path portion that contributes to a namespace package: the search
+/// root it was found under and the concrete directory under that root. A
+/// namespace package is the ordered union of these portions.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct NamespacePortion {
+    root: SearchPath,
+    dir: Utf8PathBuf,
+}
+
+impl NamespacePortion {
+    pub(crate) fn new(root: SearchPath, dir: Utf8PathBuf) -> Self {
+        Self { root, dir }
+    }
+
+    pub(crate) fn root(&self) -> &SearchPath {
+        &self.root
+    }
+
+    pub(crate) fn dir(&self) -> &Utf8PathBuf {
+        &self.dir
+    }
+}
+
+impl StructuralOrd for NamespacePortion {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.root
+            .structural_cmp(&other.root)
+            .then_with(|| self.dir.cmp(&other.dir))
+    }
+}
 
 /// The nominal identity of a namespace package object.
 ///
-/// A namespace package has no `__init__.py` body to evaluate, so its identity
-/// is only its dotted name. Intrinsic values never come from a namespace
+/// A namespace package has no `__init__.py` body to evaluate, so its identity is
+/// its dotted name together with the ordered search-path portions that form it.
+/// Including the winning portions in identity means a change to the search-path
+/// winner (a portion appearing, disappearing, or reordering) produces a
+/// different object identity, so reads through the namespace recompute rather
+/// than reuse a stale winner. Intrinsic values never come from a namespace
 /// object; only loaded children attach under it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PythonNamespacePackage {
     name: PythonModuleName,
+    portions: Vec<NamespacePortion>,
 }
 
 impl PythonNamespacePackage {
-    pub(crate) fn new(name: PythonModuleName) -> Self {
-        Self { name }
+    pub(crate) fn new(name: PythonModuleName, portions: Vec<NamespacePortion>) -> Self {
+        Self { name, portions }
     }
 
     pub(crate) fn name(&self) -> &PythonModuleName {
         &self.name
     }
+
+    pub(crate) fn portions(&self) -> &[NamespacePortion] {
+        &self.portions
+    }
 }
 
 impl StructuralOrd for PythonNamespacePackage {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.name.cmp(&other.name)
+        self.name
+            .cmp(&other.name)
+            .then_with(|| self.portions.len().cmp(&other.portions.len()))
+            .then_with(|| {
+                self.portions
+                    .iter()
+                    .zip(&other.portions)
+                    .map(|(left, right)| left.structural_cmp(right))
+                    .find(|ordering| *ordering != Ordering::Equal)
+                    .unwrap_or(Ordering::Equal)
+            })
     }
 }
 
@@ -133,10 +185,6 @@ pub(crate) struct PythonModuleObjects {
 }
 
 impl PythonModuleObjects {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.children.is_empty() && self.causes.is_empty()
-    }
-
     fn child_index(&self, object: &PythonModuleObjectId, attribute: &str) -> Option<usize> {
         self.children
             .iter()
@@ -326,12 +374,13 @@ impl PythonModuleObjects {
     /// `UnsupportedExpression` unknown joined onto the baseline alternative.
     pub(crate) fn degrade_loop(&mut self, bodies: Vec<Self>, origin: Origin) {
         let mut changed: Vec<(PythonModuleObjectId, String)> = Vec::new();
-        let note_changed = |object: &PythonModuleObjectId, attribute: &str, changed: &mut Vec<_>| {
-            let key = (object.clone(), attribute.to_string());
-            if !changed.contains(&key) {
-                changed.push(key);
-            }
-        };
+        let note_changed =
+            |object: &PythonModuleObjectId, attribute: &str, changed: &mut Vec<_>| {
+                let key = (object.clone(), attribute.to_string());
+                if !changed.contains(&key) {
+                    changed.push(key);
+                }
+            };
         for body in &bodies {
             for child in &body.children {
                 if self.read_child(&child.object, &child.attribute) != Some(&child.binding) {
@@ -380,11 +429,7 @@ impl PythonModuleObjects {
             let prior = previous.read_child(&object, &attribute);
             let computed = self.read_child(&object, &attribute);
             if prior != computed {
-                self.set_child(
-                    object,
-                    attribute,
-                    PythonBinding::originless_cycle_unknown(),
-                );
+                self.set_child(object, attribute, PythonBinding::originless_cycle_unknown());
             }
         }
 
@@ -433,7 +478,11 @@ impl PythonModuleObjects {
 /// effect rules. An absent prior takes the incoming coordinate; an incoming
 /// `Unbound` preserves the prior; an exact module attachment assigns; an
 /// unknown incoming conservatively joins the prior.
-fn merge_child(prior: Option<PythonBinding>, incoming: PythonBinding, origin: Origin) -> PythonBinding {
+fn merge_child(
+    prior: Option<PythonBinding>,
+    incoming: PythonBinding,
+    origin: Origin,
+) -> PythonBinding {
     match prior {
         Some(prior) => incoming.merge_imported_onto(&prior, origin),
         None => incoming,
@@ -483,6 +532,7 @@ mod tests {
     fn namespace(name: &str) -> PythonModuleObjectId {
         PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
             PythonModuleName::parse(name).unwrap(),
+            Vec::new(),
         ))
     }
 
@@ -543,9 +593,16 @@ mod tests {
         let mut objects = PythonModuleObjects::default();
 
         objects.attach_child(parent.clone(), "child".to_string(), first, origin(1));
-        objects.attach_child(parent.clone(), "child".to_string(), second.clone(), origin(2));
+        objects.attach_child(
+            parent.clone(),
+            "child".to_string(),
+            second.clone(),
+            origin(2),
+        );
 
-        let binding = objects.read_child(&parent, "child").expect("attached child");
+        let binding = objects
+            .read_child(&parent, "child")
+            .expect("attached child");
         assert_eq!(attached_child(binding), Some(second));
         assert_eq!(binding.alternatives().len(), 1);
     }
@@ -558,12 +615,16 @@ mod tests {
         attached.attach_child(parent.clone(), "child".to_string(), child, origin(1));
         let missing = PythonModuleObjects::default();
 
-        let joined =
-            PythonModuleObjects::join_branches(&[attached, missing], origin(10));
+        let joined = PythonModuleObjects::join_branches(&[attached, missing], origin(10));
 
-        let binding = joined.read_child(&parent, "child").expect("coordinate present");
+        let binding = joined
+            .read_child(&parent, "child")
+            .expect("coordinate present");
         assert!(attached_child(binding).is_some());
-        assert!(has_unbound(binding), "the branch without attachment contributes Unbound");
+        assert!(
+            has_unbound(binding),
+            "the branch without attachment contributes Unbound"
+        );
     }
 
     #[test]
@@ -578,7 +639,9 @@ mod tests {
 
         let joined = PythonModuleObjects::join_branches(&[left, right], origin(10));
 
-        let binding = joined.read_child(&parent, "child").expect("coordinate present");
+        let binding = joined
+            .read_child(&parent, "child")
+            .expect("coordinate present");
         assert_eq!(binding.alternatives().len(), 2);
     }
 
@@ -587,15 +650,30 @@ mod tests {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
         let mut baseline = PythonModuleObjects::default();
-        baseline.attach_child(parent.clone(), "child".to_string(), child.clone(), origin(1));
+        baseline.attach_child(
+            parent.clone(),
+            "child".to_string(),
+            child.clone(),
+            origin(1),
+        );
 
         let mut body = baseline.clone();
-        body.attach_child(parent.clone(), "child".to_string(), source("pkg.b", 3), origin(2));
+        body.attach_child(
+            parent.clone(),
+            "child".to_string(),
+            source("pkg.b", 3),
+            origin(2),
+        );
 
         baseline.degrade_loop(vec![body], origin(10));
 
-        let binding = baseline.read_child(&parent, "child").expect("coordinate present");
-        assert!(has_unsupported_unknown(binding), "changed coordinate degrades");
+        let binding = baseline
+            .read_child(&parent, "child")
+            .expect("coordinate present");
+        assert!(
+            has_unsupported_unknown(binding),
+            "changed coordinate degrades"
+        );
     }
 
     #[test]
@@ -603,12 +681,19 @@ mod tests {
         let parent = source("pkg", 1);
         let stable = source("pkg.a", 2);
         let mut baseline = PythonModuleObjects::default();
-        baseline.attach_child(parent.clone(), "stable".to_string(), stable.clone(), origin(1));
+        baseline.attach_child(
+            parent.clone(),
+            "stable".to_string(),
+            stable.clone(),
+            origin(1),
+        );
         let body = baseline.clone();
 
         baseline.degrade_loop(vec![body], origin(10));
 
-        let binding = baseline.read_child(&parent, "stable").expect("coordinate present");
+        let binding = baseline
+            .read_child(&parent, "stable")
+            .expect("coordinate present");
         assert_eq!(attached_child(binding), Some(stable));
         assert!(!has_unsupported_unknown(binding));
     }
@@ -618,19 +703,46 @@ mod tests {
         let parent = source("pkg", 1);
         let stable = source("pkg.a", 2);
         let mut previous = PythonModuleObjects::default();
-        previous.attach_child(parent.clone(), "stable".to_string(), stable.clone(), origin(1));
-        previous.attach_child(parent.clone(), "changed".to_string(), source("pkg.b", 3), origin(1));
+        previous.attach_child(
+            parent.clone(),
+            "stable".to_string(),
+            stable.clone(),
+            origin(1),
+        );
+        previous.attach_child(
+            parent.clone(),
+            "changed".to_string(),
+            source("pkg.b", 3),
+            origin(1),
+        );
 
         let mut computed = PythonModuleObjects::default();
-        computed.attach_child(parent.clone(), "stable".to_string(), stable.clone(), origin(1));
-        computed.attach_child(parent.clone(), "changed".to_string(), source("pkg.c", 4), origin(2));
+        computed.attach_child(
+            parent.clone(),
+            "stable".to_string(),
+            stable.clone(),
+            origin(1),
+        );
+        computed.attach_child(
+            parent.clone(),
+            "changed".to_string(),
+            source("pkg.c", 4),
+            origin(2),
+        );
 
         let widened = computed.widen(&previous);
 
-        let stable_binding = widened.read_child(&parent, "stable").expect("stable present");
+        let stable_binding = widened
+            .read_child(&parent, "stable")
+            .expect("stable present");
         assert_eq!(attached_child(stable_binding), Some(stable));
-        let changed_binding = widened.read_child(&parent, "changed").expect("changed present");
-        assert!(has_cycle_unknown(changed_binding), "changed coordinate widens to Cycle");
+        let changed_binding = widened
+            .read_child(&parent, "changed")
+            .expect("changed present");
+        assert!(
+            has_cycle_unknown(changed_binding),
+            "changed coordinate widens to Cycle"
+        );
     }
 
     #[test]
@@ -638,7 +750,12 @@ mod tests {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
         let mut prior = PythonModuleObjects::default();
-        prior.attach_child(parent.clone(), "child".to_string(), child.clone(), origin(1));
+        prior.attach_child(
+            parent.clone(),
+            "child".to_string(),
+            child.clone(),
+            origin(1),
+        );
 
         prior.merge(PythonModuleObjects::default(), origin(10));
 
@@ -651,7 +768,12 @@ mod tests {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
         let mut prior = PythonModuleObjects::default();
-        prior.attach_child(parent.clone(), "child".to_string(), child.clone(), origin(1));
+        prior.attach_child(
+            parent.clone(),
+            "child".to_string(),
+            child.clone(),
+            origin(1),
+        );
 
         let mut incoming = PythonModuleObjects::default();
         incoming.children.push(ModuleChildCoordinate {
@@ -675,7 +797,12 @@ mod tests {
         prior.attach_child(parent.clone(), "child".to_string(), first, origin(1));
 
         let mut incoming = PythonModuleObjects::default();
-        incoming.attach_child(parent.clone(), "child".to_string(), second.clone(), origin(2));
+        incoming.attach_child(
+            parent.clone(),
+            "child".to_string(),
+            second.clone(),
+            origin(2),
+        );
 
         prior.merge(incoming, origin(10));
 
@@ -756,17 +883,19 @@ mod tests {
         let prior_child = source("pkg.a", 2);
         let assigned = source("pkg.b", 3);
         let mut prior = PythonModuleObjects::default();
-        prior.attach_child(parent.clone(), "child".to_string(), prior_child.clone(), origin(1));
+        prior.attach_child(
+            parent.clone(),
+            "child".to_string(),
+            prior_child.clone(),
+            origin(1),
+        );
 
         // Incoming mixes an exact module attachment with an unknown alternative.
-        let incoming_binding = PythonBinding::bound(
-            PythonValue::module(assigned.clone(), origin(2)),
-            origin(2),
-        )
-        .join(
-            PythonBinding::unknown(&PythonUnknownCause::Cycle, origin(3)),
-            origin(3),
-        );
+        let incoming_binding =
+            PythonBinding::bound(PythonValue::module(assigned.clone(), origin(2)), origin(2)).join(
+                PythonBinding::unknown(&PythonUnknownCause::Cycle, origin(3)),
+                origin(3),
+            );
         let mut incoming = PythonModuleObjects::default();
         incoming.children.push(ModuleChildCoordinate {
             object: parent.clone(),
@@ -776,7 +905,9 @@ mod tests {
 
         prior.merge(incoming, origin(10));
 
-        let binding = prior.read_child(&parent, "child").expect("merged coordinate");
+        let binding = prior
+            .read_child(&parent, "child")
+            .expect("merged coordinate");
         let ids = module_ids(binding);
         assert!(
             ids.contains(&assigned),
@@ -876,6 +1007,50 @@ mod tests {
         assert_eq!(
             source.structural_cmp(&namespace),
             namespace.structural_cmp(&source).reverse()
+        );
+    }
+
+    #[test]
+    fn namespace_identity_differs_by_ordered_portions() {
+        let portion = |root: &str, dir: &str| {
+            NamespacePortion::new(
+                SearchPath::FirstParty(Utf8PathBuf::from(root)),
+                Utf8PathBuf::from(dir),
+            )
+        };
+        let package = |portions: Vec<NamespacePortion>| {
+            PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
+                PythonModuleName::parse("ns").unwrap(),
+                portions,
+            ))
+        };
+
+        let first_then_site = package(vec![
+            portion("/project", "/project/ns"),
+            portion("/site", "/site/ns"),
+        ]);
+        let site_then_first = package(vec![
+            portion("/site", "/site/ns"),
+            portion("/project", "/project/ns"),
+        ]);
+        let only_first = package(vec![portion("/project", "/project/ns")]);
+        let identical = package(vec![
+            portion("/project", "/project/ns"),
+            portion("/site", "/site/ns"),
+        ]);
+
+        // Same name, same portions in the same order: one identity.
+        assert_eq!(first_then_site.structural_cmp(&identical), Ordering::Equal,);
+        // Reordered portions are a different search-path winner: distinct identity.
+        assert_ne!(
+            first_then_site.structural_cmp(&site_then_first),
+            Ordering::Equal,
+        );
+        // A missing portion is a distinct identity that recompares by length first.
+        assert_ne!(first_then_site.structural_cmp(&only_first), Ordering::Equal,);
+        assert_eq!(
+            first_then_site.structural_cmp(&site_then_first),
+            site_then_first.structural_cmp(&first_then_site).reverse(),
         );
     }
 }

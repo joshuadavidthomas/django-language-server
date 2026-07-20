@@ -1,3 +1,4 @@
+use djls_source::File;
 use djls_source::FileReadError;
 
 use super::BranchConstraints;
@@ -8,12 +9,13 @@ use super::PythonBinding;
 use super::PythonBindingState;
 use super::PythonImportOutcome;
 use super::PythonModuleDependencies;
+use super::PythonModuleObjects;
 use super::PythonModuleValues;
 use super::PythonNamespaceCause;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
+use super::PythonValue;
 use super::ast;
-use crate::python::PythonImportError;
 use crate::python::PythonModuleName;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
@@ -23,28 +25,22 @@ use crate::python::evaluation::result::CycleMembership;
 use crate::python::evaluation::result::PythonModuleEvaluation;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
+use crate::python::module::PythonImportChainResolution;
 use crate::python::module::PythonImportRequest;
 use crate::python::module::PythonImportResolutionError;
 use crate::python::module::PythonModule;
+use crate::python::module::ResolvedChainComponent;
 
 impl Evaluator<'_> {
     pub(super) fn evaluate_import_statement(&mut self, statement: &ast::Stmt) {
         match statement {
             ast::Stmt::Import(statement) => {
                 for clause in DirectImportClause::lower(statement) {
-                    self.state.bind_unknown(
-                        clause.bound(),
-                        &PythonUnknownCause::UnsupportedExpression,
-                        self.origin_at(clause.binding_span()),
-                    );
+                    self.evaluate_direct_clause(&clause);
                 }
             }
             ast::Stmt::ImportFrom(statement) => {
-                let import = FromImport::lower(self, statement);
-                let result = self
-                    .resolve_import(&import)
-                    .and_then(|module| self.evaluate_imported_module(module));
-                self.state.apply_import(&import, result);
+                self.evaluate_from_import(statement);
             }
             ast::Stmt::Assign(_)
             | ast::Stmt::AnnAssign(_)
@@ -91,7 +87,10 @@ impl Evaluator<'_> {
         // fallback and object-scoped open causes. The recursive source query is
         // only issued when a residual `Unbound` remains, preserving direct
         // recursive-query legality when a child already covers the read.
-        let mut binding = self.state.module_objects.child_binding(object, member, origin);
+        let mut binding = self
+            .state
+            .module_objects
+            .child_binding(object, member, origin);
         if binding
             .alternatives()
             .any(|state| *state == PythonBindingState::Unbound)
@@ -118,6 +117,12 @@ impl Evaluator<'_> {
         origin: Origin,
     ) -> PythonBinding {
         match object {
+            // A namespace package and an external (non-project) module have no
+            // intrinsic body we evaluate, so their members are a residual
+            // `Unbound` for the caller's open causes to interpret.
+            PythonModuleObjectId::Source(module) if !module.search_path().is_project_code() => {
+                PythonBinding::unbound()
+            }
             PythonModuleObjectId::Source(module) => {
                 match evaluate_python_module(self.db, self.project, module.clone()) {
                     PythonModuleEvaluation::CycleSeed => {
@@ -126,9 +131,10 @@ impl Evaluator<'_> {
                     PythonModuleEvaluation::Evaluated(evaluated) => {
                         let (values, _dependencies, _objects) = evaluated.into_parts();
                         match values {
-                            Err(error) => {
-                                PythonBinding::unknown(&PythonUnknownCause::Unreadable(error), origin)
-                            }
+                            Err(error) => PythonBinding::unknown(
+                                &PythonUnknownCause::Unreadable(error),
+                                origin,
+                            ),
                             Ok(values) => self.project_source_member(&values, member, origin),
                         }
                     }
@@ -187,55 +193,496 @@ impl Evaluator<'_> {
         binding
     }
 
-    fn resolve_import(&self, import: &FromImport<'_>) -> Result<PythonModule, ImportFailure> {
+    /// Evaluate and bind one direct-import clause through the shared chain
+    /// loader. Unaliased clauses bind the top-level package root; aliased
+    /// clauses bind the leaf. Definite failures bind a typed unknown without
+    /// erasing prior clause effects.
+    fn evaluate_direct_clause(&mut self, clause: &DirectImportClause<'_>) {
+        // Component edge/outcome effects are attributed to the full clause span;
+        // the local name binding is attributed to its exact target span.
+        let clause_origin = self.origin_at(clause.clause_span());
+        let binding_origin = self.origin_at(clause.binding_span());
+        let request = PythonImportRequest {
+            level: 0,
+            module: Some(clause.requested()),
+            importer: &self.module,
+        };
+        match PythonModule::resolve_import_chain(self.db, self.project, request) {
+            Err(error) => {
+                self.state
+                    .record_import(PythonImportOutcome::InvalidImport {
+                        origin: clause_origin,
+                        reason: error.clone(),
+                    });
+                self.state.bind_unknown(
+                    clause.bound(),
+                    &PythonUnknownCause::InvalidImport(error),
+                    binding_origin,
+                );
+            }
+            Ok((name, resolution)) => {
+                let load = self.load_import_chain(&name, resolution, clause_origin);
+                self.bind_direct_clause(clause, &load, binding_origin);
+            }
+        }
+    }
+
+    /// Bind a direct-import clause's local name from a loaded chain.
+    ///
+    /// Unaliased clauses bind the top-level package root; aliased clauses bind
+    /// the requested leaf. A definite not-found/unreadable terminal binds a
+    /// typed unknown even for a root binding, because the statement as a whole
+    /// failed. An intermediate cycle binds the module handle only when the
+    /// selected component (root for unaliased, leaf for aliased) was actually
+    /// reached; otherwise it binds a typed cycle unknown.
+    fn bind_direct_clause(
+        &mut self,
+        clause: &DirectImportClause<'_>,
+        load: &ChainLoad,
+        binding_origin: Origin,
+    ) {
+        if clause.binds_root() {
+            match (load.leaf.is_definite_failure(), &load.root) {
+                (false, Some(root)) => {
+                    self.state.assign_value(
+                        clause.bound(),
+                        PythonValue::module(root.clone(), binding_origin),
+                        binding_origin,
+                    );
+                }
+                // A definite failure or a root that was never reached (a root
+                // resolution failure with an empty prefix) binds a typed unknown.
+                (true, _) | (false, None) => {
+                    self.state.bind_unknown(
+                        clause.bound(),
+                        &load.leaf.failure_cause(),
+                        binding_origin,
+                    );
+                }
+            }
+        } else if load.leaf_reached
+            && let Some(object) = load.leaf.object()
+        {
+            self.state.assign_value(
+                clause.bound(),
+                PythonValue::module(object, binding_origin),
+                binding_origin,
+            );
+        } else {
+            self.state
+                .bind_unknown(clause.bound(), &load.leaf.failure_cause(), binding_origin);
+        }
+    }
+
+    /// Evaluate a `from ... import ...` statement: load the source chain (with
+    /// its new parent-package effects) then freeze named/star selection on the
+    /// terminal source module's values, exactly as before.
+    fn evaluate_from_import(&mut self, statement: &ast::StmtImportFrom) {
+        let import = FromImport::lower(self, statement);
         let request = PythonImportRequest {
             level: import.level,
             module: import.module,
-            importer: &import.importer,
+            importer: &self.module,
         };
-        let module = match PythonModule::resolve_import(self.db, self.project, request) {
-            Ok(module) => module,
-            Err(PythonImportResolutionError::Invalid(error)) => {
-                return Err(ImportFailure::Invalid(error));
+        match PythonModule::resolve_import_chain(self.db, self.project, request) {
+            Err(error) => {
+                self.state
+                    .record_import(PythonImportOutcome::InvalidImport {
+                        origin: import.origin,
+                        reason: error.clone(),
+                    });
+                self.state
+                    .apply_from_failure(&import, &PythonUnknownCause::InvalidImport(error));
             }
-            Err(PythonImportResolutionError::NotFound(module)) => {
-                return Err(ImportFailure::NotFound(module));
+            Ok((name, resolution)) => {
+                let load = self.load_import_chain(&name, resolution, import.origin);
+                match load.leaf {
+                    ChainOutcome::Source { values, .. } => {
+                        self.state.apply_from_selection(&import, &name, &values);
+                    }
+                    ChainOutcome::Namespace { .. } => {
+                        // A namespace terminal has no loadable source module, so
+                        // for member selection it is a not-found source. The
+                        // loader records no outcome for a namespace terminal, so
+                        // record the canonical not-found here.
+                        self.state.record_import(PythonImportOutcome::NotFound {
+                            origin: import.origin,
+                            module: name.clone(),
+                        });
+                        self.state
+                            .apply_from_failure(&import, &PythonUnknownCause::ImportNotFound(name));
+                    }
+                    ChainOutcome::NotFound { module } => {
+                        // The loader already recorded the not-found outcome.
+                        self.state.apply_from_failure(
+                            &import,
+                            &PythonUnknownCause::ImportNotFound(module),
+                        );
+                    }
+                    ChainOutcome::External { module, .. } => {
+                        self.state.apply_from_failure(
+                            &import,
+                            &PythonUnknownCause::SkippedExternal(module),
+                        );
+                    }
+                    ChainOutcome::Cycle { .. } => {
+                        self.state
+                            .apply_from_failure(&import, &PythonUnknownCause::Cycle);
+                    }
+                    ChainOutcome::Unreadable { error, .. } => {
+                        self.state
+                            .apply_from_failure(&import, &PythonUnknownCause::Unreadable(error));
+                    }
+                }
             }
-        };
-        if !module.search_path().is_project_code() {
-            return Err(ImportFailure::SkippedExternal(module.name().clone()));
         }
-        Ok(module)
     }
 
-    fn evaluate_imported_module(
-        &self,
-        module: PythonModule,
-    ) -> Result<LoadedImport, ImportFailure> {
+    /// Load a resolved import chain root-to-leaf, recording an
+    /// importer -> component edge, dependency file, and outcome for every
+    /// evaluated project source component, merging each component's own child
+    /// effects, and attaching successful components under their parent. Failed
+    /// components are never attached; earlier prefix effects always survive.
+    fn load_import_chain(
+        &mut self,
+        name: &PythonModuleName,
+        resolution: PythonImportChainResolution,
+        origin: Origin,
+    ) -> ChainLoad {
+        let (components, failure) = match resolution {
+            PythonImportChainResolution::Resolved(chain) => (chain.into_components(), None),
+            PythonImportChainResolution::Failed { prefix, failure } => {
+                (prefix.into_components(), Some(failure))
+            }
+        };
+        let resolved_len = components.len();
+
+        let mut root: Option<PythonModuleObjectId> = None;
+        let mut parent: Option<PythonModuleObjectId> = None;
+        let mut terminal: Option<ChainOutcome> = None;
+        let mut leaf_reached = false;
+        let mut external = false;
+
+        for (index, component) in components.into_iter().enumerate() {
+            let is_last = failure.is_none() && index + 1 == resolved_len;
+            let (attribute, object) = component_identity(&component);
+
+            if external {
+                self.state.attach_external_component(
+                    parent.as_ref(),
+                    &attribute,
+                    &object,
+                    name,
+                    origin,
+                );
+                root.get_or_insert_with(|| object.clone());
+                parent = Some(object.clone());
+                if is_last {
+                    leaf_reached = true;
+                    terminal = Some(ChainOutcome::External {
+                        object,
+                        module: name.clone(),
+                    });
+                }
+                continue;
+            }
+
+            match component {
+                ResolvedChainComponent::Namespace(_) => {
+                    self.state
+                        .attach_component(parent.as_ref(), &attribute, &object, origin);
+                    root.get_or_insert_with(|| object.clone());
+                    parent = Some(object.clone());
+                    if is_last {
+                        leaf_reached = true;
+                        terminal = Some(ChainOutcome::Namespace { object });
+                    }
+                }
+                ResolvedChainComponent::Source(module)
+                    if !module.search_path().is_project_code() =>
+                {
+                    // First external component: one skipped outcome for the full
+                    // requested leaf, then the resolved suffix is constructed
+                    // without evaluation.
+                    external = true;
+                    self.state
+                        .record_import(PythonImportOutcome::SkippedExternal {
+                            origin,
+                            module: name.clone(),
+                        });
+                    self.state.attach_external_component(
+                        parent.as_ref(),
+                        &attribute,
+                        &object,
+                        name,
+                        origin,
+                    );
+                    root.get_or_insert_with(|| object.clone());
+                    parent = Some(object.clone());
+                    if is_last {
+                        leaf_reached = true;
+                        terminal = Some(ChainOutcome::External {
+                            object,
+                            module: name.clone(),
+                        });
+                    }
+                }
+                ResolvedChainComponent::Source(module)
+                    if !is_last && self.is_importer_self(&module) =>
+                {
+                    // The importer's own module is already being initialized on
+                    // the import stack; re-evaluating exactly itself would be a
+                    // spurious self-cycle. Create its handle and continue so
+                    // descendant components still resolve and attach. Parent
+                    // packages (which are distinct modules) are evaluated
+                    // normally so their `__init__.py` effects load.
+                    self.state
+                        .attach_component(parent.as_ref(), &attribute, &object, origin);
+                    root.get_or_insert_with(|| object.clone());
+                    parent = Some(object.clone());
+                }
+                ResolvedChainComponent::Source(module) => {
+                    match self.evaluate_source_component(&module, origin) {
+                        SourceComponent::Cycle => {
+                            self.state.attach_component(
+                                parent.as_ref(),
+                                &attribute,
+                                &object,
+                                origin,
+                            );
+                            self.state.open_component_cycle(&object, origin);
+                            root.get_or_insert_with(|| object.clone());
+                            // A cycle at the last requested component still
+                            // reaches the requested leaf as a partial handle;
+                            // an intermediate cycle does not.
+                            leaf_reached = is_last;
+                            terminal = Some(ChainOutcome::Cycle { object });
+                            break;
+                        }
+                        SourceComponent::Unreadable(error) => {
+                            leaf_reached = is_last;
+                            terminal = Some(ChainOutcome::Unreadable { error });
+                            break;
+                        }
+                        SourceComponent::Evaluated(values, objects) => {
+                            self.state.module_objects_merge(objects, origin);
+                            self.state.attach_component(
+                                parent.as_ref(),
+                                &attribute,
+                                &object,
+                                origin,
+                            );
+                            root.get_or_insert_with(|| object.clone());
+                            parent = Some(object.clone());
+                            if is_last {
+                                leaf_reached = true;
+                                terminal = Some(ChainOutcome::Source { object, values });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let leaf = match terminal {
+            Some(terminal) => terminal,
+            None => self.record_chain_not_found(failure, name, origin),
+        };
+        ChainLoad {
+            root,
+            leaf,
+            leaf_reached,
+        }
+    }
+
+    /// Record the canonical not-found outcome for a chain that never reached a
+    /// terminal, returning the not-found classification.
+    fn record_chain_not_found(
+        &mut self,
+        failure: Option<PythonImportResolutionError>,
+        name: &PythonModuleName,
+        origin: Origin,
+    ) -> ChainOutcome {
+        let module = match failure {
+            Some(PythonImportResolutionError::NotFound(module)) => module,
+            Some(PythonImportResolutionError::Invalid(_)) | None => name.clone(),
+        };
+        self.state.record_import(PythonImportOutcome::NotFound {
+            origin,
+            module: module.clone(),
+        });
+        ChainOutcome::NotFound { module }
+    }
+
+    /// Whether `module` is exactly the importer's own file. Only the importer's
+    /// own source file is already being initialized on the import stack, so
+    /// re-evaluating it would be a spurious self-cycle. This is a file identity
+    /// check, not a name check, so a package importer reached both as `pkg` and
+    /// as its `pkg.__init__` file alias is recognized as the same self. Ancestor
+    /// packages are distinct files whose `__init__.py` effects must still load,
+    /// so they are not matched here.
+    fn is_importer_self(&self, module: &PythonModule) -> bool {
+        self.module.file() == module.file()
+    }
+
+    /// Evaluate one project source component through the recursive core query,
+    /// recording its edge, dependency file, and outcome.
+    fn evaluate_source_component(
+        &mut self,
+        module: &PythonModule,
+        origin: Origin,
+    ) -> SourceComponent {
+        let edge = PythonImportEdge {
+            origin,
+            importer: self.module.clone(),
+            imported: module.clone(),
+        };
         match evaluate_python_module(self.db, self.project, module.clone()) {
-            PythonModuleEvaluation::CycleSeed => Err(ImportFailure::Cycle { module }),
+            PythonModuleEvaluation::CycleSeed => {
+                self.state.record_component_edge(
+                    module.file(),
+                    None,
+                    PythonImportOutcome::Evaluated {
+                        edge,
+                        status: PythonImportEvaluationStatus::Cycle {
+                            syntax_errors: Vec::new(),
+                        },
+                    },
+                );
+                SourceComponent::Cycle
+            }
             PythonModuleEvaluation::Evaluated(evaluated) => {
-                let (values, dependencies, _module_objects) = evaluated.into_parts();
+                let (values, dependencies, objects) = evaluated.into_parts();
                 match values {
-                    Ok(values) => Ok(LoadedImport {
-                        module,
-                        values,
-                        dependencies,
-                    }),
-                    Err(error) => Err(ImportFailure::Unreadable(Box::new(UnreadableImport {
-                        module,
-                        error,
-                        dependencies,
-                    }))),
+                    Ok(values) => {
+                        let status = PythonImportEvaluationStatus::from_syntax_errors(
+                            values.syntax_errors.clone(),
+                            CycleMembership::Acyclic,
+                        );
+                        self.state.record_component_edge(
+                            module.file(),
+                            Some(&dependencies),
+                            PythonImportOutcome::Evaluated { edge, status },
+                        );
+                        SourceComponent::Evaluated(values, objects)
+                    }
+                    Err(error) => {
+                        self.state.record_component_edge(
+                            module.file(),
+                            Some(&dependencies),
+                            PythonImportOutcome::Unreadable {
+                                edge,
+                                error: error.clone(),
+                            },
+                        );
+                        SourceComponent::Unreadable(error)
+                    }
                 }
             }
         }
     }
 }
 
+/// The child attribute name and nominal object identity of a chain component.
+fn component_identity(component: &ResolvedChainComponent) -> (String, PythonModuleObjectId) {
+    let attribute = component
+        .name()
+        .as_str()
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let object = match component {
+        ResolvedChainComponent::Source(module) => PythonModuleObjectId::Source(module.clone()),
+        ResolvedChainComponent::Namespace(package) => {
+            PythonModuleObjectId::Namespace(package.clone())
+        }
+    };
+    (attribute, object)
+}
+
+/// One component's evaluation classification, returned to the chain walker.
+enum SourceComponent {
+    Evaluated(PythonModuleValues, PythonModuleObjects),
+    Cycle,
+    Unreadable(FileReadError),
+}
+
+/// The terminal classification of a loaded chain, used for direct-import
+/// binding and from-import member selection.
+enum ChainOutcome {
+    Source {
+        object: PythonModuleObjectId,
+        values: PythonModuleValues,
+    },
+    Namespace {
+        object: PythonModuleObjectId,
+    },
+    Cycle {
+        object: PythonModuleObjectId,
+    },
+    External {
+        object: PythonModuleObjectId,
+        module: PythonModuleName,
+    },
+    Unreadable {
+        error: FileReadError,
+    },
+    NotFound {
+        module: PythonModuleName,
+    },
+}
+
+impl ChainOutcome {
+    /// The bindable module object for a direct import, if the terminal resolved
+    /// to a module identity. Hard failures have no object.
+    fn object(&self) -> Option<PythonModuleObjectId> {
+        match self {
+            Self::Source { object, .. }
+            | Self::Namespace { object }
+            | Self::Cycle { object }
+            | Self::External { object, .. } => Some(object.clone()),
+            Self::Unreadable { .. } | Self::NotFound { .. } => None,
+        }
+    }
+
+    /// Whether this terminal is a definite hard failure (not-found or
+    /// unreadable). Such a failure means the import statement failed as a whole,
+    /// so even an unaliased dotted import that resolved a root prefix must bind a
+    /// typed unknown rather than the resolved root handle.
+    fn is_definite_failure(&self) -> bool {
+        matches!(self, Self::Unreadable { .. } | Self::NotFound { .. })
+    }
+
+    /// The typed unknown cause bound when a direct import's selected component
+    /// could not resolve to a module identity.
+    fn failure_cause(&self) -> PythonUnknownCause {
+        match self {
+            Self::Cycle { .. } => PythonUnknownCause::Cycle,
+            Self::External { module, .. } => PythonUnknownCause::SkippedExternal(module.clone()),
+            Self::Unreadable { error } => PythonUnknownCause::Unreadable(error.clone()),
+            Self::NotFound { module } => PythonUnknownCause::ImportNotFound(module.clone()),
+            Self::Source { .. } | Self::Namespace { .. } => {
+                PythonUnknownCause::UnsupportedExpression
+            }
+        }
+    }
+}
+
+/// The result of loading a chain: the root component object (for unaliased
+/// direct imports) and the terminal classification.
+struct ChainLoad {
+    root: Option<PythonModuleObjectId>,
+    leaf: ChainOutcome,
+    /// Whether the full requested leaf component was actually reached. A chain
+    /// broken by an intermediate cycle or failure reaches a terminal that is not
+    /// the requested leaf, so an aliased import that targets the leaf must bind a
+    /// typed unknown rather than the intermediate handle.
+    leaf_reached: bool,
+}
+
 struct FromImport<'ast> {
     origin: Origin,
-    importer: PythonModule,
     level: u32,
     module: Option<&'ast str>,
     selection: ImportSelection<'ast>,
@@ -261,7 +708,6 @@ impl<'ast> FromImport<'ast> {
         };
         Self {
             origin: evaluator.origin(statement),
-            importer: evaluator.module.clone(),
             level: syntax.level(),
             module: syntax.module(),
             selection,
@@ -280,143 +726,128 @@ struct ImportedBinding<'ast> {
     origin: Origin,
 }
 
-struct LoadedImport {
-    module: PythonModule,
-    values: PythonModuleValues,
-    dependencies: PythonModuleDependencies,
-}
-
-struct UnreadableImport {
-    module: PythonModule,
-    error: FileReadError,
-    dependencies: PythonModuleDependencies,
-}
-
-enum ImportFailure {
-    Invalid(PythonImportError),
-    NotFound(PythonModuleName),
-    SkippedExternal(PythonModuleName),
-    Cycle { module: PythonModule },
-    Unreadable(Box<UnreadableImport>),
-}
-
 impl EvaluationState {
-    fn apply_import(
+    /// Record one evaluated/unreadable source component: its dependency file,
+    /// absorbed transitive dependencies, and its import outcome.
+    fn record_component_edge(
+        &mut self,
+        file: File,
+        dependencies: Option<&PythonModuleDependencies>,
+        outcome: PythonImportOutcome,
+    ) {
+        // Record the immediate component's file and outcome in first-seen
+        // root-to-leaf order *before* absorbing its transitive dependencies, so
+        // the directly-imported edge precedes anything it pulls in.
+        self.dependencies.files.insert(file);
+        self.record_import(outcome);
+        if let Some(dependencies) = dependencies {
+            self.absorb_dependencies(dependencies);
+        }
+    }
+
+    /// Attach a successfully-loaded component under its parent object, if any.
+    /// A root component has no parent and is only bound as a local name.
+    fn attach_component(
+        &mut self,
+        parent: Option<&PythonModuleObjectId>,
+        attribute: &str,
+        object: &PythonModuleObjectId,
+        origin: Origin,
+    ) {
+        if let Some(parent) = parent {
+            self.module_objects.attach_child(
+                parent.clone(),
+                attribute.to_string(),
+                object.clone(),
+                origin,
+            );
+        }
+    }
+
+    /// Attach an external suffix component and mark it open with a
+    /// `SkippedExternal` cause for the full requested leaf; its body is never
+    /// evaluated.
+    fn attach_external_component(
+        &mut self,
+        parent: Option<&PythonModuleObjectId>,
+        attribute: &str,
+        object: &PythonModuleObjectId,
+        module: &PythonModuleName,
+        origin: Origin,
+    ) {
+        self.attach_component(parent, attribute, object, origin);
+        self.module_objects.open_cause(
+            object.clone(),
+            PythonNamespaceCause::unconstrained(PythonUnknown::new(
+                PythonUnknownCause::SkippedExternal(module.clone()),
+                [origin],
+            )),
+        );
+    }
+
+    /// Mark a cycle-seed component's object open with a `Cycle` cause so reads of
+    /// its attributes become cycle unknowns.
+    fn open_component_cycle(&mut self, object: &PythonModuleObjectId, origin: Origin) {
+        self.module_objects.open_cause(
+            object.clone(),
+            PythonNamespaceCause::unconstrained(PythonUnknown::new(
+                PythonUnknownCause::Cycle,
+                [origin],
+            )),
+        );
+    }
+
+    /// Merge a loaded component's own child effects into this importer's object
+    /// state in source order.
+    fn module_objects_merge(&mut self, objects: PythonModuleObjects, origin: Origin) {
+        self.module_objects.merge(objects, origin);
+    }
+
+    /// Freeze named/star selection on a loaded source module, unchanged from the
+    /// pre-chain behavior. Files, dependencies, and outcomes were already
+    /// recorded by the chain loader.
+    fn apply_from_selection(
         &mut self,
         import: &FromImport<'_>,
-        result: Result<LoadedImport, ImportFailure>,
+        module: &PythonModuleName,
+        values: &PythonModuleValues,
     ) {
-        match result {
-            Err(failure) => self.apply_import_failure(import, failure),
-            Ok(LoadedImport {
-                module,
-                values,
-                dependencies,
-            }) => {
-                self.dependencies.files.insert(module.file());
-                self.absorb_dependencies(&dependencies);
-                let module_name = module.name().clone();
-                let edge = PythonImportEdge {
-                    origin: import.origin,
-                    importer: import.importer.clone(),
-                    imported: module,
-                };
-                let status = PythonImportEvaluationStatus::from_syntax_errors(
-                    values.syntax_errors.clone(),
-                    CycleMembership::Acyclic,
-                );
-                let outcome = PythonImportOutcome::Evaluated { edge, status };
-                self.record_import(outcome);
-                match &import.selection {
-                    ImportSelection::Star => self.apply_star_import(&values, import.origin),
-                    ImportSelection::Named(bindings) => {
-                        for binding in bindings {
-                            self.bind_named_import(
-                                &module_name,
-                                &values,
-                                binding.imported,
-                                binding.bound,
-                                binding.origin,
-                            );
-                        }
-                    }
+        match &import.selection {
+            ImportSelection::Star => self.apply_star_import(values, import.origin),
+            ImportSelection::Named(bindings) => {
+                for binding in bindings {
+                    self.bind_named_import(
+                        module,
+                        values,
+                        binding.imported,
+                        binding.bound,
+                        binding.origin,
+                    );
                 }
             }
         }
     }
 
-    fn apply_import_failure(&mut self, import: &FromImport<'_>, failure: ImportFailure) {
-        let (outcome, cause) = match failure {
-            ImportFailure::Invalid(error) => (
-                PythonImportOutcome::InvalidImport {
-                    origin: import.origin,
-                    reason: error.clone(),
-                },
-                PythonUnknownCause::InvalidImport(error),
-            ),
-            ImportFailure::NotFound(module) => (
-                PythonImportOutcome::NotFound {
-                    origin: import.origin,
-                    module: module.clone(),
-                },
-                PythonUnknownCause::ImportNotFound(module),
-            ),
-            ImportFailure::SkippedExternal(module) => (
-                PythonImportOutcome::SkippedExternal {
-                    origin: import.origin,
-                    module: module.clone(),
-                },
-                PythonUnknownCause::SkippedExternal(module),
-            ),
-            ImportFailure::Cycle { module } => {
-                self.dependencies.files.insert(module.file());
-                (
-                    PythonImportOutcome::Evaluated {
-                        edge: PythonImportEdge {
-                            origin: import.origin,
-                            importer: import.importer.clone(),
-                            imported: module,
-                        },
-                        status: PythonImportEvaluationStatus::Cycle {
-                            syntax_errors: Vec::new(),
-                        },
-                    },
-                    PythonUnknownCause::Cycle,
-                )
-            }
-            ImportFailure::Unreadable(unreadable) => {
-                self.dependencies.files.insert(unreadable.module.file());
-                self.absorb_dependencies(&unreadable.dependencies);
-                (
-                    PythonImportOutcome::Unreadable {
-                        edge: PythonImportEdge {
-                            origin: import.origin,
-                            importer: import.importer.clone(),
-                            imported: unreadable.module,
-                        },
-                        error: unreadable.error.clone(),
-                    },
-                    PythonUnknownCause::Unreadable(unreadable.error),
-                )
-            }
-        };
-        self.record_import(outcome);
+    /// Translate a source-chain failure through the existing named/star failure
+    /// policy. The failure's import outcome was already recorded by the loader
+    /// (or the invalid-import caller); this only rebinds selected members.
+    fn apply_from_failure(&mut self, import: &FromImport<'_>, cause: &PythonUnknownCause) {
         match &import.selection {
             ImportSelection::Star => {
                 self.degrade_all_bindings(
-                    &cause,
+                    cause,
                     import.origin,
                     &BranchConstraints::unconstrained(),
                 );
                 self.namespace_causes
                     .push(PythonNamespaceCause::unconstrained(PythonUnknown::new(
-                        cause,
+                        cause.clone(),
                         [import.origin],
                     )));
             }
             ImportSelection::Named(bindings) => {
                 for binding in bindings {
-                    self.bind_unknown(binding.bound, &cause, import.origin);
+                    self.bind_unknown(binding.bound, cause, import.origin);
                 }
             }
         }

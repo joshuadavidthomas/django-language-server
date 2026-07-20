@@ -11,6 +11,7 @@ pub use python_evaluation::PythonFileReadErrorView;
 pub use python_evaluation::PythonImportErrorView;
 pub use python_evaluation::PythonImportOutcomeView;
 pub use python_evaluation::PythonModuleEvaluationView;
+pub use python_evaluation::PythonModuleObjectIdView;
 pub use python_evaluation::PythonMutationOperationView;
 pub use python_evaluation::PythonMutationPathSegmentView;
 pub use python_evaluation::PythonMutationView;

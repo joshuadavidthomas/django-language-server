@@ -4,6 +4,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::testing::PythonImportOutcomeView;
+use djls_project::testing::PythonModuleEvaluationView;
 use djls_project::testing::compute_django_environment;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::model_modules;
@@ -2298,6 +2299,27 @@ fn file_to_module_returns_unique_module_for_source_and_init_files() {
     );
 }
 
+/// The `(importer, imported)` dotted-name pairs of every `Resolved` import
+/// outcome, in recorded first-seen order. Panics on any non-resolved outcome so
+/// callers assert exact resolution shape.
+fn resolved_edges(evaluation: &PythonModuleEvaluationView) -> Vec<(String, String)> {
+    evaluation
+        .imports
+        .iter()
+        .map(|outcome| match outcome {
+            PythonImportOutcomeView::Resolved {
+                importer_module,
+                imported_module,
+                ..
+            } => (
+                importer_module.as_str().to_string(),
+                imported_module.as_str().to_string(),
+            ),
+            other => panic!("expected only resolved outcomes, got {other:?}"),
+        })
+        .collect()
+}
+
 #[test]
 fn python_module_package_identity_resolves_relative_imports_by_semantic_kind() {
     let db = TestDatabase::new();
@@ -2316,20 +2338,144 @@ fn python_module_package_identity_resolves_relative_imports_by_semantic_kind() {
         )
         .build(&db);
 
-    for module_name in ["pkg", "pkg.settings"] {
-        let module =
-            PythonModule::resolve(&db, project, PythonModuleName::parse(module_name).unwrap())
-                .unwrap_or_else(|| panic!("{module_name} should resolve"));
-        let evaluation = python_module_evaluation_for_module(&db, project, module);
+    // The package importer `pkg` reaches `.sibling` relative to itself; its own
+    // `__init__.py` file is already being initialized, so the parent package is
+    // not re-evaluated and the only edge is `pkg -> pkg.sibling`.
+    let pkg = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg").unwrap())
+        .expect("pkg should resolve");
+    assert_eq!(
+        resolved_edges(&python_module_evaluation_for_module(&db, project, pkg)),
+        vec![("pkg".to_string(), "pkg.sibling".to_string())],
+    );
 
-        assert!(matches!(
-            evaluation.imports.as_slice(),
-            [PythonImportOutcomeView::Resolved {
-                imported_module,
-                ..
-            }] if imported_module.as_str() == "pkg.sibling"
-        ));
-    }
+    // A module importer `pkg.settings` reaching `.sibling` must first load its
+    // parent package `pkg/__init__.py` (a distinct file), whose own
+    // `from .sibling` edge is absorbed. The immediate parent edge precedes the
+    // absorbed transitive edge, which precedes the module's own source edge.
+    let settings = PythonModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.settings").unwrap(),
+    )
+    .expect("pkg.settings should resolve");
+    assert_eq!(
+        resolved_edges(&python_module_evaluation_for_module(&db, project, settings)),
+        vec![
+            ("pkg.settings".to_string(), "pkg".to_string()),
+            ("pkg".to_string(), "pkg.sibling".to_string()),
+            ("pkg.settings".to_string(), "pkg.sibling".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn python_module_resolution_classifies_each_search_path_kind() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/first.py", "");
+    db.add_file("/extra/second.py", "");
+    db.add_file("/project/.venv/lib/python3.12/site-packages/third.py", "");
+    db.add_file(
+        "/project/.venv/lib/python3.12/site-packages/editable.pth",
+        "/editable\n",
+    );
+    db.add_file("/editable/fourth.py", "");
+
+    let pythonpath = vec![Utf8PathBuf::from("/extra")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    let classify = |name: &str| {
+        PythonModule::resolve(&db, project, PythonModuleName::parse(name).unwrap())
+            .unwrap_or_else(|| panic!("{name} should resolve"))
+            .search_path()
+            .clone()
+    };
+
+    assert_eq!(
+        classify("first"),
+        SearchPath::FirstParty(Utf8PathBuf::from("/project"))
+    );
+    assert_eq!(
+        classify("second"),
+        SearchPath::Extra(Utf8PathBuf::from("/extra"))
+    );
+    assert_eq!(
+        classify("third"),
+        SearchPath::SitePackages(Utf8PathBuf::from(
+            "/project/.venv/lib/python3.12/site-packages"
+        ))
+    );
+    assert_eq!(
+        classify("fourth"),
+        SearchPath::Editable(Utf8PathBuf::from("/editable"))
+    );
+}
+
+#[test]
+fn python_module_chain_resolves_namespace_parent_before_source_child() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/nspkg/mod.py", "LEAF = 'leaf'\n");
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    // The namespace parent has no source body, so it does not resolve to a
+    // `PythonModule`, while the source child underneath it does.
+    assert_eq!(
+        PythonModule::resolve(&db, project, PythonModuleName::parse("nspkg").unwrap()),
+        None
+    );
+    let child = PythonModule::resolve(&db, project, PythonModuleName::parse("nspkg.mod").unwrap())
+        .expect("the source child should resolve");
+    assert_eq!(child.path(), Utf8Path::new("/project/nspkg/mod.py"));
+}
+
+#[test]
+fn python_module_search_path_winner_replacement_changes_resolved_identity() {
+    let mut db = TestDatabase::new();
+    db.add_file("/site-packages/foo.py", "x = 1");
+    let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let foo_name = PythonModuleName::parse("foo").unwrap();
+
+    let external =
+        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+    assert_eq!(
+        external.search_path(),
+        &SearchPath::SitePackages(Utf8PathBuf::from("/site-packages"))
+    );
+
+    // A higher-priority first-party file replaces the winner, producing a
+    // different resolved identity (path and classification both change).
+    db.add_file("/project/foo.py", "x = 2");
+    File::sync_path(&mut db, Utf8Path::new("/project/foo.py"));
+
+    let first_party =
+        PythonModule::resolve(&db, project, foo_name).expect("foo should resolve from /project");
+    assert_ne!(external, first_party);
+    assert_eq!(first_party.path(), Utf8Path::new("/project/foo.py"));
+    assert_eq!(
+        first_party.search_path(),
+        &SearchPath::FirstParty(Utf8PathBuf::from("/project"))
+    );
 }
 
 #[test]
