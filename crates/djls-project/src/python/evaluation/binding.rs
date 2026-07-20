@@ -218,40 +218,6 @@ impl PythonBinding {
         }
     }
 
-    /// Distribute each constrained receiver alternative: a module value is
-    /// projected through `project` and intersected back onto its own
-    /// constraints; every non-module or unbound alternative is preserved as the
-    /// `unsupported` unknown on its own constraints. The contributions are then
-    /// joined so mixed receivers keep per-branch fidelity.
-    pub(super) fn project_module_alternatives(
-        &self,
-        origin: Origin,
-        mut project: impl FnMut(&PythonModuleObjectId, &BranchConstraints) -> Self,
-        unsupported: &PythonUnknownCause,
-    ) -> Self {
-        let mut contributions: Vec<Self> = Vec::new();
-        for case in &self.cases {
-            let contribution = match &case.state {
-                PythonBindingState::Bound(bound) => match &bound.value.kind {
-                    PythonValueKind::Module(id) => {
-                        project(id, &case.constraints).intersect_constraints(&case.constraints)
-                    }
-                    _ => Self::constrained_unknown(unsupported, origin, &case.constraints),
-                },
-                PythonBindingState::Unbound => {
-                    Self::constrained_unknown(unsupported, origin, &case.constraints)
-                }
-            };
-            if let Some(contribution) = contribution {
-                contributions.push(contribution);
-            }
-        }
-        contributions
-            .into_iter()
-            .reduce(|left, right| left.join(right, origin))
-            .unwrap_or_else(|| Self::unknown(unsupported, origin))
-    }
-
     /// Constraints where an exact child import remains feasible: definite
     /// absence, or a cycle seed whose partially initialized namespace cannot
     /// establish either presence or absence yet.
@@ -743,52 +709,6 @@ mod tests {
             };
             matches!(&bound.value.kind, PythonValueKind::Str(text) if text.as_str() == wanted)
         })
-    }
-
-    fn contains_unsupported(binding: &PythonBinding) -> bool {
-        binding.alternatives().any(|state| {
-            let PythonBindingState::Bound(bound) = state else {
-                return false;
-            };
-            bound
-                .value
-                .unknown_value()
-                .is_some_and(|unknown| unknown.cause == PythonUnknownCause::UnsupportedExpression)
-        })
-    }
-
-    #[test]
-    fn project_module_alternatives_projects_modules_and_preserves_others() {
-        let join = origin(0, 100);
-        let mut module_case = module_binding("pkg", 1);
-        module_case.select_branch(join, 0);
-        let mut string_case = PythonBinding::bound(
-            PythonValue::string("x".to_string(), origin(0, 2)),
-            origin(0, 2),
-        );
-        string_case.select_branch(join, 1);
-        let receiver = module_case.join(string_case, origin(0, 3));
-
-        let result = receiver.project_module_alternatives(
-            origin(0, 50),
-            |id, _constraints| {
-                assert_eq!(*id, namespace_module("pkg"));
-                PythonBinding::bound(
-                    PythonValue::string("member".to_string(), origin(0, 5)),
-                    origin(0, 5),
-                )
-            },
-            &PythonUnknownCause::UnsupportedExpression,
-        );
-
-        assert!(
-            contains_str(&result, "member"),
-            "the module alternative is projected",
-        );
-        assert!(
-            contains_unsupported(&result),
-            "the non-module alternative is preserved as unsupported on its constraints",
-        );
     }
 
     #[test]

@@ -2,7 +2,8 @@
 //!
 //! This module owns the *nominal* identity of module objects and the finite,
 //! deterministic table of `(object, attribute)` child coordinates produced by
-//! recursive imports, plus object-scoped open causes. It never embeds
+//! recursive imports, object-scoped open causes, and contamination of the
+//! recognized standard-library path namespaces. It never embeds
 //! `PythonModuleValues`: intrinsic source bindings stay in the source module's
 //! value product, and only loaded-child attachments and open causes live here.
 //!
@@ -24,6 +25,8 @@ use super::PythonValue;
 use super::StructuralOrd;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::PythonPathNamespace;
+use crate::python::PythonPathSymbol;
 use crate::python::search_paths::SearchPath;
 
 /// One search-path portion that contributes to a namespace package: the search
@@ -234,16 +237,76 @@ impl PythonImportFallback {
     }
 }
 
-/// Finite, deterministic loaded-child coordinates plus object-scoped open
-/// causes. This is a private recursive-import effect product; it is never added
+/// Finite, deterministic loaded-child coordinates, object-scoped open causes,
+/// and path-namespace contamination. This is a private recursive-import effect
+/// product; it is never added
 /// to settings-facing `PythonModuleValues` equality or projection.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub(super) struct PathSymbolContamination(Vec<PythonPathNamespace>);
+
+impl PathSymbolContamination {
+    fn insert(&mut self, symbol: PythonPathSymbol) {
+        let Some(namespace) = symbol.mutable_namespace() else {
+            return;
+        };
+        if !self.0.contains(&namespace) {
+            self.0.push(namespace);
+            self.0.sort_unstable();
+        }
+    }
+
+    fn contains(&self, symbol: PythonPathSymbol) -> bool {
+        symbol
+            .mutable_namespace()
+            .is_some_and(|namespace| self.0.contains(&namespace))
+    }
+
+    fn absorb(&mut self, incoming: impl IntoIterator<Item = PythonPathNamespace>) {
+        for namespace in incoming {
+            if !self.0.contains(&namespace) {
+                self.0.push(namespace);
+            }
+        }
+        self.0.sort_unstable();
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct PythonModuleObjects {
     children: Vec<ModuleChildCoordinate>,
     causes: Vec<ModuleObjectCause>,
+    path_symbol_contamination: PathSymbolContamination,
 }
 
 impl PythonModuleObjects {
+    pub(super) fn with_path_symbol_contamination(
+        path_symbol_contamination: PathSymbolContamination,
+    ) -> Self {
+        Self {
+            path_symbol_contamination,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn path_symbol_contamination(&self) -> &PathSymbolContamination {
+        &self.path_symbol_contamination
+    }
+
+    pub(crate) fn contaminate_path_symbol(&mut self, symbol: PythonPathSymbol) {
+        self.path_symbol_contamination.insert(symbol);
+    }
+
+    pub(crate) fn path_symbol_is_contaminated(&self, symbol: PythonPathSymbol) -> bool {
+        self.path_symbol_contamination.contains(symbol)
+    }
+
+    fn absorb_path_symbol_contamination(
+        &mut self,
+        incoming: impl IntoIterator<Item = PythonPathNamespace>,
+    ) {
+        self.path_symbol_contamination.absorb(incoming);
+    }
+
     fn child_index(&self, object: &PythonModuleObjectId, attribute: &str) -> Option<usize> {
         self.children
             .iter()
@@ -395,11 +458,14 @@ impl PythonModuleObjects {
             binding,
         } in incoming.children
         {
-            let prior = self.read_child(&object, &attribute).cloned();
-            let merged = merge_child(prior, binding, origin);
+            let merged = match self.read_child(&object, &attribute).cloned() {
+                Some(prior) => binding.merge_imported_onto(&prior, origin),
+                None => binding,
+            };
             self.set_child(object, attribute, merged);
         }
         self.causes.extend(incoming.causes);
+        self.absorb_path_symbol_contamination(incoming.path_symbol_contamination.0);
         self.normalize();
     }
 
@@ -433,6 +499,7 @@ impl PythonModuleObjects {
                     entry.cause.constraints.intersection(fallback_constraints);
                 (!entry.cause.constraints.is_impossible()).then_some(entry)
             }));
+        self.absorb_path_symbol_contamination(incoming.path_symbol_contamination.0);
         self.normalize();
     }
 
@@ -482,6 +549,9 @@ impl PythonModuleObjects {
                     cause,
                 });
             }
+            joined.absorb_path_symbol_contamination(
+                branch.path_symbol_contamination.0.iter().copied(),
+            );
         }
 
         joined.normalize();
@@ -515,6 +585,7 @@ impl PythonModuleObjects {
 
         for body in bodies {
             self.causes.extend(body.causes);
+            self.absorb_path_symbol_contamination(body.path_symbol_contamination.0);
         }
 
         for (object, attribute) in changed {
@@ -537,6 +608,7 @@ impl PythonModuleObjects {
     /// with an equal normalized set survive; a changed set is replaced with one
     /// absorbing originless `Cycle` cause.
     pub(crate) fn widen(mut self, previous: &Self) -> Self {
+        self.absorb_path_symbol_contamination(previous.path_symbol_contamination.0.iter().copied());
         let mut keys: Vec<(PythonModuleObjectId, String)> = Vec::new();
         for child in previous.children.iter().chain(&self.children) {
             let key = (child.object.clone(), child.attribute.clone());
@@ -590,21 +662,6 @@ impl PythonModuleObjects {
             }
         }
         self.causes = deduped;
-    }
-}
-
-/// Merge a single incoming coordinate onto the prior one under the imported
-/// effect rules. An absent prior takes the incoming coordinate; an incoming
-/// `Unbound` preserves the prior; an exact module attachment assigns; an
-/// unknown incoming conservatively joins the prior.
-fn merge_child(
-    prior: Option<PythonBinding>,
-    incoming: PythonBinding,
-    origin: Origin,
-) -> PythonBinding {
-    match prior {
-        Some(prior) => incoming.merge_imported_onto(&prior, origin),
-        None => incoming,
     }
 }
 
@@ -702,6 +759,19 @@ mod tests {
         binding
             .alternatives()
             .any(|state| *state == PythonBindingState::Unbound)
+    }
+
+    #[test]
+    fn path_contamination_canonicalizes_equivalent_namespace_members() {
+        let mut module = PythonModuleObjects::default();
+        module.contaminate_path_symbol(PythonPathSymbol::OsModule);
+        let mut member = PythonModuleObjects::default();
+        member.contaminate_path_symbol(PythonPathSymbol::OsPathJoin);
+
+        assert_eq!(
+            module.path_symbol_contamination(),
+            member.path_symbol_contamination()
+        );
     }
 
     #[test]

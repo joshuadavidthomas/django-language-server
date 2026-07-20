@@ -28,6 +28,7 @@ impl Evaluator<'_> {
             ast::Stmt::Assign(assign) => self.walk_assign(assign),
             ast::Stmt::AnnAssign(assign) => {
                 if let Some(value) = &assign.value {
+                    self.record_unsupported_call_effects(value);
                     let evaluated = self.evaluate_binding(value);
                     self.assign_target(&assign.target, value, evaluated);
                 }
@@ -217,6 +218,7 @@ impl Evaluator<'_> {
     }
 
     fn walk_assign(&mut self, assign: &ast::StmtAssign) {
+        self.record_unsupported_call_effects(&assign.value);
         let value = self.evaluate_binding(&assign.value);
         let aliases_mutable_value =
             assign.targets.len() > 1 && !value.reachable_allocation_sites().is_empty();
@@ -330,6 +332,8 @@ impl Evaluator<'_> {
             }
             PythonValueKind::Dict(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::Bool(_)
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {
@@ -382,12 +386,12 @@ impl Evaluator<'_> {
     fn assign_target(&mut self, target: &ast::Expr, expression: &ast::Expr, value: PythonBinding) {
         if let Some(name) = target.name_target() {
             let origin = self.origin(expression);
-            if let Some(source_name) = expression.name_target()
-                && self.state.assign_from_name(name, source_name, origin)
-            {
-                return;
+            if let Some(source_name) = expression.name_target() {
+                self.state
+                    .assign_from_name(name, source_name, value, origin);
+            } else {
+                self.state.assign_binding(name, value, origin);
             }
-            self.state.assign_binding(name, value, origin);
         } else {
             self.bind_unknown_targets(target, &PythonUnknownCause::UnsupportedExpression);
         }
@@ -395,8 +399,21 @@ impl Evaluator<'_> {
 
     fn bind_unknown_targets(&mut self, target: &ast::Expr, cause: &PythonUnknownCause) {
         let origin = self.origin(target);
-        for name in target_write_names(target) {
-            self.state.bind_unknown(name, cause, origin);
+        let mut names = Vec::new();
+        let target_names = target_write_names(target);
+        if target_names.is_empty() {
+            names = self.state.all_path_symbol_write_names();
+        } else {
+            for target_name in target_names {
+                for alias in self.state.path_symbol_write_names(target_name) {
+                    if !names.contains(&alias) {
+                        names.push(alias);
+                    }
+                }
+            }
+        }
+        for name in names {
+            self.state.bind_unknown(&name, cause, origin);
         }
     }
 

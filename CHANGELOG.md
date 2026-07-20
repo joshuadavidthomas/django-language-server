@@ -71,6 +71,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed static path evaluation to follow imported helper aliases without mistaking shadowed `Path`, `str`, or `os` bindings for standard-library helpers.
+- Fixed closed unsupported Python literals in Django settings being reported as dynamic instead of malformed.
 - Fixed static Django settings evaluation through ordinary and `from` imports, including dotted module chains, module attributes, named package children, and `__all__`-controlled star exports.
 - Fixed Python settings evaluation to distinguish list and tuple concatenation while preserving known collection facts through supported iterable extensions.
 - Fixed relative imports in Django settings modules, including package aliases and overlapping Python search roots.

@@ -177,6 +177,8 @@ impl PythonMutationPath {
                         PythonValueKind::Str(_)
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
+                        | PythonValueKind::PathSymbol(_)
+                        | PythonValueKind::OtherLiteral
                         | PythonValueKind::Dict(_)
                         | PythonValueKind::Module(_)
                         | PythonValueKind::Unknown(_) => return,
@@ -238,6 +240,8 @@ impl PythonMutationPath {
                         PythonValueKind::Str(_)
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
+                        | PythonValueKind::PathSymbol(_)
+                        | PythonValueKind::OtherLiteral
                         | PythonValueKind::Dict(_)
                         | PythonValueKind::Module(_)
                         | PythonValueKind::Unknown(_) => return false,
@@ -385,17 +389,15 @@ impl Evaluator<'_> {
             return;
         };
         let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
-            self.state.degrade_names(
+            self.state.degrade_unsupported_mutation_names(
                 expr_read_names(expression),
-                &PythonUnknownCause::UnsupportedMutation,
                 self.origin(expression),
             );
             return;
         };
         let Some(target) = MutationTarget::from_expr(&attribute.value) else {
-            self.state.degrade_names(
+            self.state.degrade_unsupported_mutation_names(
                 expr_read_names(expression),
-                &PythonUnknownCause::UnsupportedMutation,
                 self.origin(expression),
             );
             return;
@@ -408,11 +410,8 @@ impl Evaluator<'_> {
             if !receiver_aliases.iter().any(|name| name == target.binding) {
                 receiver_aliases.push(target.binding.to_string());
             }
-            self.state.degrade_names(
-                expr_read_names(expression),
-                &PythonUnknownCause::UnsupportedMutation,
-                origin,
-            );
+            self.state
+                .degrade_unsupported_mutation_names(expr_read_names(expression), origin);
             self.state.invalidate_names(
                 receiver_aliases,
                 &PythonUnknownCause::UnsupportedMutation,
@@ -437,11 +436,8 @@ impl Evaluator<'_> {
             if !stale_aliases.iter().any(|name| name == target.binding) {
                 stale_aliases.push(target.binding.to_string());
             }
-            self.state.degrade_names(
-                expr_read_names(expression),
-                &PythonUnknownCause::UnsupportedMutation,
-                origin,
-            );
+            self.state
+                .degrade_unsupported_mutation_names(expr_read_names(expression), origin);
             self.state.invalidate_names(
                 stale_aliases,
                 &PythonUnknownCause::UnsupportedMutation,

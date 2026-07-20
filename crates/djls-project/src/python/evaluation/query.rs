@@ -6,6 +6,7 @@ use super::PythonModuleDependencies;
 use super::PythonModuleObjects;
 use super::PythonModuleValues;
 use super::evaluator::evaluate_body;
+use super::module_object::PathSymbolContamination;
 use super::result::EvaluatedPythonModule;
 use super::result::PythonModuleEvaluation;
 use super::touched_names::collect_syntax_impacts;
@@ -24,6 +25,7 @@ pub(super) fn evaluate_python_module(
     db: &dyn ProjectDb,
     project: Project,
     module: PythonModule,
+    path_symbol_contamination: PathSymbolContamination,
 ) -> PythonModuleEvaluation {
     let file = module.file();
     let parsed = match RecoveredPythonModule::from_file(db, file) {
@@ -46,10 +48,17 @@ pub(super) fn evaluate_python_module(
         }
     };
     let body = parsed.body(db);
-    let (mut module_values, dependencies, module_objects) =
-        evaluate_body(db, project, module.clone(), body);
-    module_values.syntax_errors = parsed.syntax_errors(db).to_vec();
-    module_values.syntax_impacts = collect_syntax_impacts(body, &module_values.syntax_errors);
+    let syntax_errors = parsed.syntax_errors(db).to_vec();
+    let syntax_impacts = collect_syntax_impacts(body, &syntax_errors);
+    let (module_values, dependencies, module_objects) = evaluate_body(
+        db,
+        project,
+        module.clone(),
+        body,
+        syntax_errors,
+        syntax_impacts,
+        path_symbol_contamination,
+    );
     PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
         Ok(module_values),
         dependencies,
@@ -66,7 +75,7 @@ pub(crate) fn python_module_values(
     project: Project,
     module: PythonModule,
 ) -> Result<PythonModuleValues, FileReadError> {
-    match evaluate_python_module(db, project, module) {
+    match evaluate_python_module(db, project, module, PathSymbolContamination::default()) {
         PythonModuleEvaluation::CycleSeed => {
             unreachable!("cycle seed escaped Python module evaluation")
         }
@@ -82,7 +91,7 @@ pub(crate) fn python_module_dependencies(
     project: Project,
     module: PythonModule,
 ) -> PythonModuleDependencies {
-    match evaluate_python_module(db, project, module) {
+    match evaluate_python_module(db, project, module, PathSymbolContamination::default()) {
         PythonModuleEvaluation::CycleSeed => {
             unreachable!("cycle seed escaped Python module evaluation")
         }
@@ -95,6 +104,7 @@ fn evaluate_python_module_cycle_initial(
     _id: Id,
     _project: Project,
     _module: PythonModule,
+    _path_symbol_contamination: PathSymbolContamination,
 ) -> PythonModuleEvaluation {
     PythonModuleEvaluation::CycleSeed
 }
@@ -108,6 +118,7 @@ fn evaluate_python_module_cycle_recover(
     computed: PythonModuleEvaluation,
     _project: Project,
     module: PythonModule,
+    _path_symbol_contamination: PathSymbolContamination,
 ) -> PythonModuleEvaluation {
     assert!(
         cycle.iteration() < 12,

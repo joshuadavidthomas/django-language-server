@@ -2128,7 +2128,7 @@ fn template_dirs_include_dirs_entries_before_app_dirs() {
             ("/proj/blog/templates/blog/detail.html", "detail"),
             (
                 "/proj/myproject/settings.py",
-                "from pathlib import Path\nBASE_DIR = Path(__file__).resolve().parent.parent\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True}]\n",
+                "from pathlib import Path\nBASE_DIR = Path(__file__).parent.parent\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True}]\n",
             ),
         ],
     );

@@ -1,3 +1,7 @@
+use camino::Utf8Component;
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+
 use super::Evaluator;
 use super::ExprExt;
 use super::Origin;
@@ -7,6 +11,7 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ast;
+use crate::python::PythonPathSymbol;
 
 impl Evaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
@@ -17,17 +22,16 @@ impl Evaluator<'_> {
         if let Some(value) = expression.bool_literal() {
             return PythonBinding::bound(PythonValue::bool(value, origin), origin);
         }
-        if let Some(path) = self
-            .state
-            .path_bindings()
-            .evaluate(expression, self.module.path())
-        {
-            return PythonBinding::bound(PythonValue::path(path, origin), origin);
+        if let Some(name) = expression.name_target() {
+            if let Some(symbol) = PythonPathSymbol::unbound_intrinsic(name) {
+                return self.state.binding_with_intrinsic(name, symbol, origin);
+            }
+            return self.state.binding(name).cloned().unwrap_or_else(|| {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+            });
         }
-        if let Some(name) = expression.name_target()
-            && let Some(binding) = self.state.binding(name)
-        {
-            return binding.clone();
+        if is_other_literal(expression) {
+            return PythonBinding::bound(PythonValue::other_literal(origin), origin);
         }
         match expression {
             ast::Expr::List(list) => self.evaluate_sequence_binding(
@@ -46,29 +50,31 @@ impl Evaluator<'_> {
                 origin,
                 |left, right| left.add(&right, origin),
             ),
+            ast::Expr::BinOp(binary) if binary.op == ast::Operator::Div => combine_bindings(
+                &self.evaluate_binding(&binary.left),
+                &self.evaluate_binding(&binary.right),
+                origin,
+                |left, right| join_path_value(left, right, origin),
+            ),
+            ast::Expr::Call(call) => self.evaluate_call_binding(call, origin),
             ast::Expr::Dict(dict) => self.evaluate_dict_binding(dict, origin),
             ast::Expr::Attribute(attribute) => self.evaluate_attribute_binding(attribute, origin),
             _ => PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
         }
     }
 
-    /// Read `receiver.member`. Only a module receiver resolves through the
-    /// policy-neutral member projection; every other receiver keeps the existing
-    /// unsupported-expression behavior. Module writes remain unsupported and
-    /// never create object state here.
+    /// Read `receiver.member` through the receiver's nominal abstract value.
+    /// Module values use the import member projection; exact path values and
+    /// path-library symbols expose only their supported static members.
     fn evaluate_attribute_binding(
         &self,
         attribute: &ast::ExprAttribute,
         origin: Origin,
     ) -> PythonBinding {
         let receiver = self.evaluate_binding(&attribute.value);
-        receiver.project_module_alternatives(
-            origin,
-            |id, _constraints| {
+        project_bound_alternatives(&receiver, origin, |value| match &value.kind {
+            PythonValueKind::Module(id) => {
                 let member = self.project_module_member(id, attribute.attr.as_str(), origin);
-                // An expression read translates residual absence to a typed
-                // module-attribute unknown (distinct from the import caller's
-                // `MissingImportMember`).
                 member.replace_unbound_with(
                     Some(PythonBinding::unknown(
                         &PythonUnknownCause::ModuleAttribute {
@@ -79,9 +85,180 @@ impl Evaluator<'_> {
                     )),
                     origin,
                 )
-            },
-            &PythonUnknownCause::UnsupportedExpression,
-        )
+            }
+            PythonValueKind::Path(path) if attribute.attr.as_str() == "parent" => {
+                let parent = path.parent().unwrap_or_else(|| Utf8Path::new("/"));
+                PythonBinding::bound(PythonValue::path(parent.to_path_buf(), origin), origin)
+            }
+            PythonValueKind::PathSymbol(symbol) => {
+                if self
+                    .state
+                    .module_objects
+                    .path_symbol_is_contaminated(*symbol)
+                {
+                    PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin)
+                } else {
+                    symbol.member(attribute.attr.as_str()).map_or_else(
+                        || {
+                            PythonBinding::unknown(
+                                &PythonUnknownCause::UnsupportedExpression,
+                                origin,
+                            )
+                        },
+                        |member| {
+                            PythonBinding::bound(PythonValue::path_symbol(member, origin), origin)
+                        },
+                    )
+                }
+            }
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::OtherLiteral
+            | PythonValueKind::List(_)
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Unknown(_) => {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+            }
+        })
+    }
+
+    fn evaluate_call_binding(&self, call: &ast::ExprCall, origin: Origin) -> PythonBinding {
+        if let ast::Expr::Attribute(attribute) = call.func.as_ref()
+            && matches!(attribute.attr.as_str(), "resolve" | "joinpath")
+        {
+            if !call.arguments.keywords.is_empty() {
+                return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+            }
+            let receiver = self.evaluate_binding(&attribute.value);
+            return match attribute.attr.as_str() {
+                "resolve" if call.arguments.args.is_empty() => {
+                    project_bound_alternatives(&receiver, origin, |value| {
+                        resolve_path(value, origin)
+                    })
+                }
+                "joinpath" => {
+                    let paths = project_bound_alternatives(&receiver, origin, |value| {
+                        rebase_exact_path(value, origin)
+                    });
+                    self.join_path_arguments(paths, &call.arguments.args, origin)
+                }
+                "resolve" => {
+                    PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+                }
+                _ => unreachable!("the method guard accepts only path methods"),
+            };
+        }
+
+        let callable = self.evaluate_binding(&call.func);
+        project_bound_alternatives(&callable, origin, |value| {
+            self.evaluate_path_symbol_call(value, call, origin)
+        })
+    }
+
+    fn evaluate_path_symbol_call(
+        &self,
+        value: &PythonValue,
+        call: &ast::ExprCall,
+        origin: Origin,
+    ) -> PythonBinding {
+        let PythonValueKind::PathSymbol(symbol) = value.kind else {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        };
+        if self
+            .state
+            .module_objects
+            .path_symbol_is_contaminated(symbol)
+        {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin);
+        }
+        match symbol {
+            PythonPathSymbol::PathlibPath | PythonPathSymbol::BuiltinStr => {
+                let Some(argument) = single_positional_argument(&call.arguments) else {
+                    return PythonBinding::unknown(
+                        &PythonUnknownCause::UnsupportedExpression,
+                        origin,
+                    );
+                };
+                let argument = self.evaluate_binding(argument);
+                project_bound_alternatives(&argument, origin, |argument| match symbol {
+                    PythonPathSymbol::PathlibPath => {
+                        path_from_value(argument, self.module.path(), origin)
+                    }
+                    PythonPathSymbol::BuiltinStr => {
+                        str_from_value(argument, self.module.path(), origin)
+                    }
+                    _ => unreachable!("the outer match selects callable symbols"),
+                })
+            }
+            PythonPathSymbol::OsPathJoin | PythonPathSymbol::OsPathDirname if cfg!(windows) => {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+            }
+            PythonPathSymbol::OsPathJoin => {
+                if call.arguments.keywords.is_empty() && !call.arguments.args.is_empty() {
+                    let first = self.evaluate_binding(&call.arguments.args[0]);
+                    let base = project_bound_alternatives(&first, origin, |value| {
+                        string_path_from_value(value, origin)
+                    });
+                    self.join_string_path_arguments(base, &call.arguments.args[1..], origin)
+                } else {
+                    PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+                }
+            }
+            PythonPathSymbol::OsPathDirname => {
+                let Some(argument) = single_positional_argument(&call.arguments) else {
+                    return PythonBinding::unknown(
+                        &PythonUnknownCause::UnsupportedExpression,
+                        origin,
+                    );
+                };
+                let argument = self.evaluate_binding(argument);
+                project_bound_alternatives(&argument, origin, |value| {
+                    let path = string_path_from_value(value, origin);
+                    project_bound_alternatives(&path, origin, |path| {
+                        parent_string_path(path, origin)
+                    })
+                })
+            }
+            PythonPathSymbol::BuiltinsModule
+            | PythonPathSymbol::ModuleFile
+            | PythonPathSymbol::PathlibModule
+            | PythonPathSymbol::OsModule
+            | PythonPathSymbol::OsPathModule => {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+            }
+        }
+    }
+
+    fn join_path_arguments(
+        &self,
+        mut paths: PythonBinding,
+        arguments: &[ast::Expr],
+        origin: Origin,
+    ) -> PythonBinding {
+        for argument in arguments {
+            let segment = self.evaluate_binding(argument);
+            paths = combine_bindings(&paths, &segment, origin, |path, segment| {
+                join_path_value(path, segment, origin)
+            });
+        }
+        paths
+    }
+
+    fn join_string_path_arguments(
+        &self,
+        mut paths: PythonBinding,
+        arguments: &[ast::Expr],
+        origin: Origin,
+    ) -> PythonBinding {
+        for argument in arguments {
+            let segment = self.evaluate_binding(argument);
+            paths = combine_bindings(&paths, &segment, origin, |path, segment| {
+                join_string_path_value(path, segment, origin)
+            });
+        }
+        paths
     }
 
     pub(in crate::python::evaluation) fn evaluate_value(
@@ -183,6 +360,264 @@ impl Evaluator<'_> {
     }
 }
 
+fn is_other_literal(expression: &ast::Expr) -> bool {
+    match expression {
+        ast::Expr::NoneLiteral(_)
+        | ast::Expr::NumberLiteral(_)
+        | ast::Expr::BytesLiteral(_)
+        | ast::Expr::EllipsisLiteral(_)
+        | ast::Expr::Set(_) => true,
+        ast::Expr::UnaryOp(unary)
+            if matches!(unary.op, ast::UnaryOp::UAdd | ast::UnaryOp::USub)
+                && matches!(unary.operand.as_ref(), ast::Expr::NumberLiteral(_)) =>
+        {
+            true
+        }
+        ast::Expr::BoolOp(_)
+        | ast::Expr::Named(_)
+        | ast::Expr::BooleanLiteral(_)
+        | ast::Expr::BinOp(_)
+        | ast::Expr::UnaryOp(_)
+        | ast::Expr::Lambda(_)
+        | ast::Expr::If(_)
+        | ast::Expr::Dict(_)
+        | ast::Expr::SetComp(_)
+        | ast::Expr::DictComp(_)
+        | ast::Expr::Generator(_)
+        | ast::Expr::Await(_)
+        | ast::Expr::Yield(_)
+        | ast::Expr::YieldFrom(_)
+        | ast::Expr::Compare(_)
+        | ast::Expr::Call(_)
+        | ast::Expr::FString(_)
+        | ast::Expr::TString(_)
+        | ast::Expr::StringLiteral(_)
+        | ast::Expr::Attribute(_)
+        | ast::Expr::Subscript(_)
+        | ast::Expr::Starred(_)
+        | ast::Expr::Name(_)
+        | ast::Expr::List(_)
+        | ast::Expr::ListComp(_)
+        | ast::Expr::Slice(_)
+        | ast::Expr::IpyEscapeCommand(_)
+        | ast::Expr::Tuple(_) => false,
+    }
+}
+
+fn single_positional_argument(arguments: &ast::Arguments) -> Option<&ast::Expr> {
+    if arguments.keywords.is_empty() && arguments.args.len() == 1 {
+        arguments.args.first()
+    } else {
+        None
+    }
+}
+
+fn project_bound_alternatives(
+    binding: &PythonBinding,
+    origin: Origin,
+    project: impl Fn(&PythonValue) -> PythonBinding,
+) -> PythonBinding {
+    let mut result: Option<PythonBinding> = None;
+    for (alternative, constraints) in binding.alternatives_with_constraints() {
+        let projected = match alternative {
+            PythonBindingState::Bound(bound) => project(&bound.value),
+            PythonBindingState::Unbound => {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+            }
+        };
+        let Some(projected) = projected.intersect_constraints(constraints) else {
+            continue;
+        };
+        result = Some(match result {
+            Some(current) => current.join(projected, origin),
+            None => projected,
+        });
+    }
+    result.unwrap_or_else(|| {
+        PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+    })
+}
+
+fn path_from_value(value: &PythonValue, file_path: &Utf8Path, origin: Origin) -> PythonBinding {
+    let path = match &value.kind {
+        PythonValueKind::Path(path) => path.clone(),
+        PythonValueKind::PathSymbol(PythonPathSymbol::ModuleFile) => file_path.to_path_buf(),
+        PythonValueKind::Str(_)
+        | PythonValueKind::Bool(_)
+        | PythonValueKind::PathSymbol(_)
+        | PythonValueKind::OtherLiteral
+        | PythonValueKind::List(_)
+        | PythonValueKind::Tuple(_)
+        | PythonValueKind::Dict(_)
+        | PythonValueKind::Module(_)
+        | PythonValueKind::Unknown(_) => {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        }
+    };
+    PythonBinding::bound(PythonValue::path(path, origin), origin)
+}
+
+fn string_path_from_value(value: &PythonValue, origin: Origin) -> PythonBinding {
+    let text = match &value.kind {
+        PythonValueKind::Str(text) => text.clone(),
+        PythonValueKind::Path(path) => path.to_string(),
+        PythonValueKind::Bool(_)
+        | PythonValueKind::PathSymbol(_)
+        | PythonValueKind::OtherLiteral
+        | PythonValueKind::List(_)
+        | PythonValueKind::Tuple(_)
+        | PythonValueKind::Dict(_)
+        | PythonValueKind::Module(_)
+        | PythonValueKind::Unknown(_) => {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        }
+    };
+    PythonBinding::bound(PythonValue::string(text, origin), origin)
+}
+
+fn str_from_value(value: &PythonValue, file_path: &Utf8Path, origin: Origin) -> PythonBinding {
+    let text = match &value.kind {
+        PythonValueKind::Str(text) => text.clone(),
+        PythonValueKind::Path(path) => path.to_string(),
+        PythonValueKind::PathSymbol(PythonPathSymbol::ModuleFile) => file_path.to_string(),
+        PythonValueKind::Bool(_)
+        | PythonValueKind::PathSymbol(_)
+        | PythonValueKind::OtherLiteral
+        | PythonValueKind::List(_)
+        | PythonValueKind::Tuple(_)
+        | PythonValueKind::Dict(_)
+        | PythonValueKind::Module(_)
+        | PythonValueKind::Unknown(_) => {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        }
+    };
+    PythonBinding::bound(PythonValue::string(text, origin), origin)
+}
+
+fn rebase_exact_path(value: &PythonValue, origin: Origin) -> PythonBinding {
+    let PythonValueKind::Path(path) = &value.kind else {
+        return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+    };
+    PythonBinding::bound(PythonValue::path(path.clone(), origin), origin)
+}
+
+fn resolve_path(value: &PythonValue, origin: Origin) -> PythonBinding {
+    let PythonValueKind::Path(path) = &value.kind else {
+        return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+    };
+    if !path.is_absolute() {
+        return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+    }
+
+    let mut resolved = Utf8PathBuf::new();
+    for component in path.components() {
+        match component {
+            Utf8Component::Prefix(prefix) => resolved.push(prefix.as_str()),
+            Utf8Component::RootDir => resolved.push(Utf8Path::new("/")),
+            Utf8Component::CurDir => {}
+            Utf8Component::ParentDir => {
+                resolved.pop();
+            }
+            Utf8Component::Normal(component) => resolved.push(component),
+        }
+    }
+    PythonBinding::bound(PythonValue::path(resolved, origin), origin)
+}
+
+fn parent_string_path(value: &PythonValue, origin: Origin) -> PythonBinding {
+    let PythonValueKind::Str(path) = &value.kind else {
+        return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+    };
+    PythonBinding::bound(
+        PythonValue::string(os_path_dirname(path, cfg!(windows)), origin),
+        origin,
+    )
+}
+
+fn os_path_dirname(path: &str, windows: bool) -> String {
+    let is_separator = |character| character == '/' || (windows && character == '\\');
+    if windows {
+        let trimmed = path.trim_end_matches(is_separator);
+        if is_windows_path_root(trimmed, is_separator) {
+            return path.to_string();
+        }
+    }
+    let Some((separator_index, _)) = path
+        .char_indices()
+        .rev()
+        .find(|(_, character)| is_separator(*character))
+    else {
+        return if windows && path.as_bytes().get(1) == Some(&b':') {
+            path[..2].to_string()
+        } else {
+            String::new()
+        };
+    };
+    let head = &path[..=separator_index];
+    if head.chars().all(is_separator) {
+        return head.to_string();
+    }
+    let trimmed = head.trim_end_matches(is_separator);
+    if windows && is_windows_path_root(trimmed, is_separator) {
+        head.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn is_windows_path_root(trimmed: &str, is_separator: impl Fn(char) -> bool) -> bool {
+    let bytes = trimmed.as_bytes();
+    if bytes.len() == 2 && bytes[1] == b':' {
+        return true;
+    }
+    let leading_separators = trimmed
+        .chars()
+        .take_while(|character| is_separator(*character))
+        .count();
+    leading_separators >= 2
+        && trimmed
+            .split(is_separator)
+            .filter(|component| !component.is_empty())
+            .count()
+            == 2
+}
+
+fn join_path_value(left: PythonValue, right: PythonValue, origin: Origin) -> PythonValue {
+    let (PythonValueKind::Path(path), PythonValueKind::Str(segment)) = (left.kind, right.kind)
+    else {
+        return PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin));
+    };
+    PythonValue::path(path.join(segment), origin)
+}
+
+fn join_string_path_value(left: PythonValue, right: PythonValue, origin: Origin) -> PythonValue {
+    let PythonValueKind::Str(path) = left.kind else {
+        return PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin));
+    };
+    let segment = match right.kind {
+        PythonValueKind::Str(segment) => segment,
+        PythonValueKind::Path(segment) => segment.to_string(),
+        PythonValueKind::Bool(_)
+        | PythonValueKind::PathSymbol(_)
+        | PythonValueKind::OtherLiteral
+        | PythonValueKind::List(_)
+        | PythonValueKind::Tuple(_)
+        | PythonValueKind::Dict(_)
+        | PythonValueKind::Module(_)
+        | PythonValueKind::Unknown(_) => {
+            return PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin));
+        }
+    };
+    let joined = if segment.starts_with('/') {
+        segment
+    } else if path.is_empty() || path.ends_with('/') {
+        format!("{path}{segment}")
+    } else {
+        format!("{path}/{segment}")
+    };
+    PythonValue::string(joined, origin)
+}
+
 fn combine_bindings(
     left: &PythonBinding,
     right: &PythonBinding,
@@ -191,19 +626,25 @@ fn combine_bindings(
 ) -> PythonBinding {
     let mut result: Option<PythonBinding> = None;
     for (left, left_constraints) in left.alternatives_with_constraints() {
-        let PythonBindingState::Bound(left) = left else {
-            continue;
+        let left = match left {
+            PythonBindingState::Bound(left) => left.value.clone(),
+            PythonBindingState::Unbound => {
+                PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin))
+            }
         };
         for (right, right_constraints) in right.alternatives_with_constraints() {
-            let PythonBindingState::Bound(right) = right else {
-                continue;
+            let right = match right {
+                PythonBindingState::Bound(right) => right.value.clone(),
+                PythonBindingState::Unbound => {
+                    PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin))
+                }
             };
             let constraints = left_constraints.intersection(right_constraints);
             if constraints.is_impossible() {
                 continue;
             }
             let alternative = PythonBinding::constrained_bound(
-                combine(left.value.clone(), right.value.clone()),
+                combine(left.clone(), right),
                 origin,
                 &constraints,
             )
@@ -217,4 +658,30 @@ fn combine_bindings(
     result.unwrap_or_else(|| {
         PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::os_path_dirname;
+
+    #[test]
+    fn os_path_dirname_preserves_posix_string_semantics() {
+        assert_eq!(os_path_dirname("", false), "");
+        assert_eq!(os_path_dirname("name", false), "");
+        assert_eq!(os_path_dirname("relative/name", false), "relative");
+        assert_eq!(os_path_dirname("/project/templates", false), "/project");
+        assert_eq!(os_path_dirname("/project/", false), "/project");
+        assert_eq!(os_path_dirname("/", false), "/");
+        assert_eq!(os_path_dirname("///name", false), "///");
+    }
+
+    #[test]
+    fn os_path_dirname_preserves_windows_drive_and_unc_roots() {
+        assert_eq!(os_path_dirname("C:\\", true), "C:\\");
+        assert_eq!(os_path_dirname("C:\\project\\file", true), "C:\\project");
+        assert_eq!(
+            os_path_dirname("\\\\server\\share\\file", true),
+            "\\\\server\\share\\"
+        );
+    }
 }

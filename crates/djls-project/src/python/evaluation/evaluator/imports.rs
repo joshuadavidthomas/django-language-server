@@ -22,6 +22,7 @@ use super::PythonValue;
 use super::PythonValueKind;
 use super::ast;
 use crate::python::PythonModuleName;
+use crate::python::PythonPathSymbol;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
 use crate::python::evaluation::PythonModuleObjectId;
@@ -145,7 +146,15 @@ impl Evaluator<'_> {
                 PythonBinding::unbound()
             }
             PythonModuleObjectId::Source(module) => {
-                match evaluate_python_module(self.db, self.project, module.clone()) {
+                match evaluate_python_module(
+                    self.db,
+                    self.project,
+                    module.clone(),
+                    self.state
+                        .module_objects
+                        .path_symbol_contamination()
+                        .clone(),
+                ) {
                     PythonModuleEvaluation::CycleSeed => {
                         PythonBinding::unknown(&PythonUnknownCause::Cycle, origin)
                     }
@@ -230,7 +239,8 @@ impl Evaluator<'_> {
         match PythonModule::resolve_import_chain(self.db, self.project, request) {
             Err(error) => {
                 self.state
-                    .record_import(PythonImportOutcome::InvalidImport {
+                    .dependencies
+                    .record_outcome(PythonImportOutcome::InvalidImport {
                         origin: clause_origin,
                         reason: error.clone(),
                     });
@@ -262,6 +272,31 @@ impl Evaluator<'_> {
         load: &ChainLoad,
         binding_origin: Origin,
     ) {
+        if load.entirely_external
+            && matches!(&load.leaf, ChainOutcome::External { .. })
+            && let Some(symbol) =
+                PythonPathSymbol::from_direct_import(clause.requested(), clause.binds_root())
+        {
+            self.state
+                .assign_path_symbol(clause.bound(), symbol, binding_origin);
+            return;
+        }
+
+        if load.root.is_none()
+            && let ChainOutcome::NotFound { module } = &load.leaf
+            && let Some(symbol) =
+                PythonPathSymbol::from_direct_import(clause.requested(), clause.binds_root())
+        {
+            let external = PythonModuleName::parse(clause.requested())
+                .expect("a lowered direct import has a valid absolute module name");
+            self.state
+                .dependencies
+                .recognize_external_intrinsic(module, external);
+            self.state
+                .assign_path_symbol(clause.bound(), symbol, binding_origin);
+            return;
+        }
+
         if clause.binds_root() {
             match (load.leaf.is_definite_failure(), &load.root) {
                 (false, Some(root)) => {
@@ -307,7 +342,8 @@ impl Evaluator<'_> {
         match PythonModule::resolve_import_chain(self.db, self.project, request) {
             Err(error) => {
                 self.state
-                    .record_import(PythonImportOutcome::InvalidImport {
+                    .dependencies
+                    .record_outcome(PythonImportOutcome::InvalidImport {
                         origin: import.origin,
                         reason: error.clone(),
                     });
@@ -317,6 +353,8 @@ impl Evaluator<'_> {
             Ok((name, resolution)) => {
                 let load =
                     self.load_import_chain(&name, resolution, import.origin, ChainLoadMode::Full);
+                let no_loaded_prefix = load.root.is_none();
+                let entirely_external = load.entirely_external;
                 match load.leaf {
                     ChainOutcome::Source { object, values } => self.apply_from_selection(
                         &import,
@@ -325,21 +363,90 @@ impl Evaluator<'_> {
                             values: Some(&values),
                         },
                     ),
-                    ChainOutcome::Namespace { object }
-                    | ChainOutcome::Cycle { object }
-                    | ChainOutcome::External { object, .. } => self.apply_from_selection(
+                    ChainOutcome::Namespace { object } | ChainOutcome::Cycle { object } => {
+                        self.apply_from_selection(
+                            &import,
+                            FromImportSource {
+                                object: &object,
+                                values: None,
+                            },
+                        );
+                    }
+                    ChainOutcome::External { object: _, module }
+                        if entirely_external
+                            && PythonPathSymbol::is_known_external_module(
+                                import.level,
+                                import.module,
+                            ) =>
+                    {
+                        self.apply_known_external_selection(&import, &module);
+                    }
+                    ChainOutcome::External { object, .. } => self.apply_from_selection(
                         &import,
                         FromImportSource {
                             object: &object,
                             values: None,
                         },
                     ),
-                    ChainOutcome::NotFound { module } => self
-                        .state
-                        .apply_from_failure(&import, &PythonUnknownCause::ImportNotFound(module)),
+                    ChainOutcome::NotFound { module } => {
+                        let intrinsic = no_loaded_prefix
+                            && self.apply_intrinsic_from_not_found(&import, &module, &name);
+                        if !intrinsic {
+                            self.state.apply_from_failure(
+                                &import,
+                                &PythonUnknownCause::ImportNotFound(module),
+                            );
+                        }
+                    }
                     ChainOutcome::Unreadable { error, .. } => self
                         .state
                         .apply_from_failure(&import, &PythonUnknownCause::Unreadable(error)),
+                }
+            }
+        }
+    }
+
+    fn apply_intrinsic_from_not_found(
+        &mut self,
+        import: &FromImport<'_>,
+        missing: &PythonModuleName,
+        external: &PythonModuleName,
+    ) -> bool {
+        if !PythonPathSymbol::is_known_external_module(import.level, import.module) {
+            return false;
+        }
+
+        self.state
+            .dependencies
+            .recognize_external_intrinsic(missing, external.clone());
+        self.apply_known_external_selection(import, external);
+        true
+    }
+
+    fn apply_known_external_selection(
+        &mut self,
+        import: &FromImport<'_>,
+        external: &PythonModuleName,
+    ) {
+        let external_cause = PythonUnknownCause::SkippedExternal(external.clone());
+        match &import.selection {
+            ImportSelection::Star => self.state.apply_from_failure(import, &external_cause),
+            ImportSelection::Named(bindings) => {
+                for imported in bindings {
+                    match PythonPathSymbol::from_named_import(
+                        import.level,
+                        import.module,
+                        imported.imported,
+                    ) {
+                        Some(symbol) => {
+                            self.state
+                                .assign_path_symbol(imported.bound, symbol, imported.origin);
+                        }
+                        None => {
+                            self.state
+                                .bind_unknown(imported.bound, &external_cause, import.origin);
+                        }
+                    }
                 }
             }
         }
@@ -648,7 +755,7 @@ impl Evaluator<'_> {
             let is_last = failure.is_none() && index + 1 == resolved_len;
             let (attribute, object) = component_identity(&component);
 
-            if progress.external {
+            if progress.domain.has_external_suffix() {
                 self.load_external_suffix_component(
                     name,
                     &attribute,
@@ -662,6 +769,7 @@ impl Evaluator<'_> {
 
             match component {
                 ResolvedChainComponent::Namespace(_) => {
+                    progress.domain.note_project();
                     self.state.attach_component(
                         progress.parent.as_ref(),
                         &attribute,
@@ -679,7 +787,7 @@ impl Evaluator<'_> {
                 ResolvedChainComponent::Source(module)
                     if !module.search_path().is_project_code() =>
                 {
-                    progress.external = true;
+                    progress.domain.note_external();
                     self.record_external_outcome(name, origin, &mut progress);
                     self.state.attach_external_component(
                         progress.parent.as_ref(),
@@ -702,6 +810,7 @@ impl Evaluator<'_> {
                 ResolvedChainComponent::Source(module)
                     if !is_last && self.is_importer_self(&module) =>
                 {
+                    progress.domain.note_project();
                     self.state.attach_component(
                         progress.parent.as_ref(),
                         &attribute,
@@ -713,6 +822,7 @@ impl Evaluator<'_> {
                     progress.parent = Some(object);
                 }
                 ResolvedChainComponent::Source(module) => {
+                    progress.domain.note_project();
                     if self.load_project_source_component(
                         &module,
                         &attribute,
@@ -734,6 +844,7 @@ impl Evaluator<'_> {
             root: progress.root,
             leaf,
             leaf_reached: progress.leaf_reached,
+            entirely_external: progress.domain.is_entirely_external(),
         }
     }
 
@@ -774,7 +885,8 @@ impl Evaluator<'_> {
     ) {
         if !progress.external_outcome_recorded {
             self.state
-                .record_import(PythonImportOutcome::SkippedExternal {
+                .dependencies
+                .record_outcome(PythonImportOutcome::SkippedExternal {
                     origin,
                     module: name.clone(),
                 });
@@ -853,10 +965,12 @@ impl Evaluator<'_> {
             Some(PythonImportResolutionError::NotFound(module)) => module,
             Some(PythonImportResolutionError::Invalid(_)) | None => name.clone(),
         };
-        self.state.record_import(PythonImportOutcome::NotFound {
-            origin,
-            module: module.clone(),
-        });
+        self.state
+            .dependencies
+            .record_outcome(PythonImportOutcome::NotFound {
+                origin,
+                module: module.clone(),
+            });
         ChainOutcome::NotFound { module }
     }
 
@@ -883,7 +997,15 @@ impl Evaluator<'_> {
             importer: self.module.clone(),
             imported: module.clone(),
         };
-        match evaluate_python_module(self.db, self.project, module.clone()) {
+        match evaluate_python_module(
+            self.db,
+            self.project,
+            module.clone(),
+            self.state
+                .module_objects
+                .path_symbol_contamination()
+                .clone(),
+        ) {
             PythonModuleEvaluation::CycleSeed => {
                 self.state.record_component_edge(
                     module.file(),
@@ -1272,6 +1394,41 @@ enum ChainLoadMode<'a> {
     },
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum ChainDomain {
+    #[default]
+    Empty,
+    Project,
+    ExternalOnly,
+    ProjectExternal,
+}
+
+impl ChainDomain {
+    fn note_project(&mut self) {
+        *self = match self {
+            Self::Empty => Self::Project,
+            Self::ExternalOnly => Self::ProjectExternal,
+            Self::Project | Self::ProjectExternal => *self,
+        };
+    }
+
+    fn note_external(&mut self) {
+        *self = match self {
+            Self::Empty => Self::ExternalOnly,
+            Self::Project => Self::ProjectExternal,
+            Self::ExternalOnly | Self::ProjectExternal => *self,
+        };
+    }
+
+    fn has_external_suffix(self) -> bool {
+        matches!(self, Self::ExternalOnly | Self::ProjectExternal)
+    }
+
+    fn is_entirely_external(self) -> bool {
+        self == Self::ExternalOnly
+    }
+}
+
 #[derive(Default)]
 struct ChainLoadProgress {
     root: Option<PythonModuleObjectId>,
@@ -1279,8 +1436,8 @@ struct ChainLoadProgress {
     terminal: Option<ChainOutcome>,
     terminal_fallback: Option<PythonImportFallback>,
     leaf_reached: bool,
-    external: bool,
     external_outcome_recorded: bool,
+    domain: ChainDomain,
 }
 
 impl ChainLoadProgress {
@@ -1298,10 +1455,14 @@ impl ChainLoadProgress {
             root,
             parent: Some(parent.clone()),
             terminal_fallback: Some(fallback.clone()),
-            external: matches!(
+            domain: if matches!(
                 parent,
                 PythonModuleObjectId::Source(module) if !module.search_path().is_project_code()
-            ),
+            ) {
+                ChainDomain::ExternalOnly
+            } else {
+                ChainDomain::Project
+            },
             ..Self::default()
         }
     }
@@ -1321,6 +1482,7 @@ struct ChainLoad {
     /// the requested leaf, so an aliased import that targets the leaf must bind a
     /// typed unknown rather than the intermediate handle.
     leaf_reached: bool,
+    entirely_external: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -1395,11 +1557,8 @@ impl EvaluationState {
         // Record the immediate component's file and outcome in first-seen
         // root-to-leaf order *before* absorbing its transitive dependencies, so
         // the directly-imported edge precedes anything it pulls in.
-        self.dependencies.files.insert(file);
-        self.record_import(outcome);
-        if let Some(dependencies) = dependencies {
-            self.absorb_dependencies(dependencies);
-        }
+        self.dependencies
+            .record_component(file, outcome, dependencies);
     }
 
     /// Attach a successfully-loaded component under its parent object, if any.

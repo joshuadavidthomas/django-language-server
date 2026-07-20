@@ -67,6 +67,8 @@ pub enum PythonValueKindView {
     Str(String),
     Bool(bool),
     Path(Utf8PathBuf),
+    PathSymbol(PythonPathSymbolView),
+    OtherLiteral,
     List(Vec<PythonSequenceItemView>),
     Tuple(Vec<PythonSequenceItemView>),
     Dict(Vec<PythonDictItemView>),
@@ -78,6 +80,19 @@ pub enum PythonValueKindView {
 pub enum PythonModuleObjectIdView {
     Source(PythonModuleName),
     Namespace(PythonModuleName),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PythonPathSymbolView {
+    BuiltinsModule,
+    BuiltinStr,
+    ModuleFile,
+    PathlibModule,
+    PathlibPath,
+    OsModule,
+    OsPathModule,
+    OsPathJoin,
+    OsPathDirname,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -269,10 +284,10 @@ pub fn python_module_evaluation_for_module(
         syntax_errors,
         mutations,
         read_error,
-        dependency_files: dependencies.files.into_iter().collect(),
+        dependency_files: dependencies.files().collect(),
         imports: dependencies
-            .imports
-            .into_iter()
+            .imports()
+            .cloned()
             .map(import_outcome_view)
             .collect(),
     }
@@ -322,6 +337,10 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
             evaluation::PythonValueKind::Str(value) => PythonValueKindView::Str(value),
             evaluation::PythonValueKind::Bool(value) => PythonValueKindView::Bool(value),
             evaluation::PythonValueKind::Path(value) => PythonValueKindView::Path(value),
+            evaluation::PythonValueKind::PathSymbol(symbol) => {
+                PythonValueKindView::PathSymbol(path_symbol_view(symbol))
+            }
+            evaluation::PythonValueKind::OtherLiteral => PythonValueKindView::OtherLiteral,
             evaluation::PythonValueKind::List(list) => {
                 PythonValueKindView::List(sequence_items_view(list.semantic_items()))
             }
@@ -352,6 +371,20 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
             }
         },
         origins,
+    }
+}
+
+fn path_symbol_view(symbol: crate::python::PythonPathSymbol) -> PythonPathSymbolView {
+    match symbol {
+        crate::python::PythonPathSymbol::BuiltinsModule => PythonPathSymbolView::BuiltinsModule,
+        crate::python::PythonPathSymbol::BuiltinStr => PythonPathSymbolView::BuiltinStr,
+        crate::python::PythonPathSymbol::ModuleFile => PythonPathSymbolView::ModuleFile,
+        crate::python::PythonPathSymbol::PathlibModule => PythonPathSymbolView::PathlibModule,
+        crate::python::PythonPathSymbol::PathlibPath => PythonPathSymbolView::PathlibPath,
+        crate::python::PythonPathSymbol::OsModule => PythonPathSymbolView::OsModule,
+        crate::python::PythonPathSymbol::OsPathModule => PythonPathSymbolView::OsPathModule,
+        crate::python::PythonPathSymbol::OsPathJoin => PythonPathSymbolView::OsPathJoin,
+        crate::python::PythonPathSymbol::OsPathDirname => PythonPathSymbolView::OsPathDirname,
     }
 }
 

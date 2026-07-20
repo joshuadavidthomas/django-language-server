@@ -24,6 +24,7 @@ use djls_project::testing::PythonModuleEvaluationView;
 use djls_project::testing::PythonModuleObjectIdView;
 use djls_project::testing::PythonMutationOperationView;
 use djls_project::testing::PythonMutationPathSegmentView;
+use djls_project::testing::PythonPathSymbolView;
 use djls_project::testing::PythonSequenceItemView;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::PythonUnknownCauseView;
@@ -332,6 +333,617 @@ fn python_evaluator_produces_unbound_for_a_path_without_assignment() {
             && origins.as_slice() == [Origin::new(settings, expected_span(source, "'set'"))]
             && binding_origins.as_slice() == [Origin::new(settings, expected_span(source, "'set'"))]
     )));
+}
+
+#[test]
+fn python_path_symbols_follow_import_and_assignment_aliases() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from pathlib import Path as P\nimport os as operating_system\nfrom os.path import join as path_join, dirname as path_dirname\nstringify = str\nROOT = P(__file__).parent\nRESOLVED = P(__file__).resolve()\nNORMALIZED = P(__file__).parent.joinpath('..').resolve()\nTEMPLATES_DIR = operating_system.path.join(ROOT, 'templates')\nSTATIC_DIR = path_join(ROOT, 'static')\nPARENT = path_dirname(TEMPLATES_DIR)\nEMPTY_PARENT = path_dirname('')\nTRAILING_PARENT = path_dirname('/project/')\nROOT_PARENT = path_dirname('/')\nSTATIC_TEXT = stringify(STATIC_DIR)\nRELATIVE_PATH = P('relative')\nINVALID_METHOD = TEMPLATES_DIR.parent\nINVALID_DIVISION = TEMPLATES_DIR / 'nested'\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let assert_kind = |name: &str, expected: PythonValueKindView| {
+        let binding = evaluation.binding(name).expect("binding should exist");
+        let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+            panic!("{name} should have one bound alternative");
+        };
+        assert_eq!(bound.value.kind, expected, "unexpected value for {name}");
+    };
+
+    assert_kind(
+        "P",
+        PythonValueKindView::PathSymbol(PythonPathSymbolView::PathlibPath),
+    );
+    assert_kind(
+        "operating_system",
+        PythonValueKindView::PathSymbol(PythonPathSymbolView::OsModule),
+    );
+    assert_kind(
+        "path_join",
+        PythonValueKindView::PathSymbol(PythonPathSymbolView::OsPathJoin),
+    );
+    assert_kind(
+        "path_dirname",
+        PythonValueKindView::PathSymbol(PythonPathSymbolView::OsPathDirname),
+    );
+    assert_kind(
+        "stringify",
+        PythonValueKindView::PathSymbol(PythonPathSymbolView::BuiltinStr),
+    );
+    assert_kind("ROOT", PythonValueKindView::Path("/project".into()));
+    assert_kind(
+        "RESOLVED",
+        PythonValueKindView::Path("/project/settings.py".into()),
+    );
+    assert_kind("NORMALIZED", PythonValueKindView::Path("/".into()));
+    assert_kind(
+        "TEMPLATES_DIR",
+        PythonValueKindView::Str("/project/templates".to_string()),
+    );
+    assert_kind(
+        "STATIC_DIR",
+        PythonValueKindView::Str("/project/static".to_string()),
+    );
+    assert_kind("PARENT", PythonValueKindView::Str("/project".to_string()));
+    assert_kind("EMPTY_PARENT", PythonValueKindView::Str(String::new()));
+    assert_kind(
+        "TRAILING_PARENT",
+        PythonValueKindView::Str("/project".to_string()),
+    );
+    assert_kind("ROOT_PARENT", PythonValueKindView::Str("/".to_string()));
+    assert_kind(
+        "STATIC_TEXT",
+        PythonValueKindView::Str("/project/static".to_string()),
+    );
+    for name in ["RELATIVE_PATH", "INVALID_METHOD", "INVALID_DIVISION"] {
+        let binding = evaluation.binding(name).expect("binding should exist");
+        let [PythonBindingAlternativeView::Bound(bound)] = binding.alternatives.as_slice() else {
+            panic!("{name} should have one bound alternative");
+        };
+        assert!(matches!(bound.value.kind, PythonValueKindView::Unknown(_)));
+    }
+    assert!(
+        evaluation
+            .imports
+            .iter()
+            .all(|outcome| !matches!(outcome, PythonImportOutcomeView::NotFound { .. }))
+    );
+    assert!(
+        evaluation
+            .imports
+            .iter()
+            .all(|outcome| matches!(outcome, PythonImportOutcomeView::SkippedExternal { .. }))
+    );
+}
+
+#[test]
+fn python_path_symbols_respect_shadowing_and_branch_constraints() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from pathlib import Path\nimport os\nif FLAG:\n    Path = custom_path\nif OTHER:\n    os = custom_os\nif THIRD:\n    str = custom_str\nPATH_VALUE = Path(__file__)\nOS_VALUE = os.path.join('/project', 'templates')\nSTR_VALUE = str('/project/templates')\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in ["PATH_VALUE", "OS_VALUE", "STR_VALUE"] {
+        let alternatives = &evaluation.binding(name).unwrap().alternatives;
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(unknown),
+                        ..
+                    },
+                    ..
+                }) if unknown.cause == PythonUnknownCauseView::UnsupportedExpression
+            )),
+            "{name} should retain the shadowed path"
+        );
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Path(_) | PythonValueKindView::Str(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} should retain the intrinsic path"
+        );
+    }
+
+    let unimported = extract_project("VALUE = Path(__file__)\n", &[]);
+    let file = settings_module_file(&unimported.0, unimported.1).unwrap();
+    let evaluation = python_module_evaluation(&unimported.0, unimported.1, file);
+    let [PythonBindingAlternativeView::Bound(bound)] =
+        evaluation.binding("VALUE").unwrap().alternatives.as_slice()
+    else {
+        panic!("VALUE should have one alternative");
+    };
+    assert!(matches!(bound.value.kind, PythonValueKindView::Unknown(_)));
+}
+
+#[test]
+fn unsupported_outer_calls_do_not_contaminate_nested_path_constructors() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from pathlib import Path\nif FLAG:\n    stringify = str\nelse:\n    stringify = dynamic\nVALUE = stringify(Path(__file__))\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let value = &evaluation.binding("VALUE").unwrap().alternatives;
+    assert!(value.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Str(path),
+                ..
+            },
+            ..
+        }) if path == "/project/settings.py"
+    )));
+    assert!(value.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(_),
+                ..
+            },
+            ..
+        })
+    )));
+    assert!(matches!(
+        evaluation.binding("Path").unwrap().alternatives.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::PathSymbol(PythonPathSymbolView::PathlibPath),
+                ..
+            },
+            ..
+        })]
+    ));
+}
+
+#[test]
+fn open_star_imports_can_shadow_implicit_path_names() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from pathlib import Path\nfrom dynamic import *\nTEXT = str(__file__)\nFILE = Path(__file__)\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in ["TEXT", "FILE"] {
+        let alternatives = &evaluation.binding(name).unwrap().alternatives;
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView { kind, .. },
+                    ..
+                }) if (name == "TEXT" && matches!(kind, PythonValueKindView::Str(_)))
+                    || (name == "FILE" && matches!(kind, PythonValueKindView::Path(_)))
+            )),
+            "{name} should retain the intrinsic possibility: {alternatives:#?}"
+        );
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} should retain star-import shadowing"
+        );
+    }
+}
+
+#[test]
+fn path_symbol_attribute_writes_invalidate_aliasing_owners() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "import os\npath_alias = os.path\npath_alias.join = replacement\nimport os as fresh_os\nVALUE = os.path.join('/project', 'templates')\nFRESH_VALUE = fresh_os.path.join('/project', 'static')\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in ["os", "path_alias", "fresh_os", "VALUE", "FRESH_VALUE"] {
+        let alternatives = &evaluation.binding(name).unwrap().alternatives;
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} should be invalidated by the aliased write"
+        );
+        assert!(
+            alternatives.iter().all(|alternative| !matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Path(_) | PythonValueKindView::Str(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} must not retain an exact path result"
+        );
+    }
+}
+
+#[test]
+fn intrinsic_namespace_contamination_survives_reimports() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "import pathlib\nimport os\nimport builtins\npathlib.Path = custom_path\nbuiltins.str = custom_str\n(os.path if FLAG else other).join = replacement\nimport pathlib as fresh_pathlib\nimport os as fresh_os\nfrom builtins import str as fresh_str\nPATH_VALUE = fresh_pathlib.Path(__file__).parent\nOS_VALUE = fresh_os.path.join('/project', 'templates')\nSTR_VALUE = fresh_str(__file__)\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in [
+        "fresh_pathlib",
+        "fresh_os",
+        "fresh_str",
+        "PATH_VALUE",
+        "OS_VALUE",
+        "STR_VALUE",
+    ] {
+        let alternatives = &evaluation.binding(name).unwrap().alternatives;
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} should remain contaminated after re-import"
+        );
+        assert!(
+            alternatives.iter().all(|alternative| !matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Path(_) | PythonValueKindView::Str(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} must not regain exact intrinsic behavior"
+        );
+    }
+}
+
+#[test]
+fn intrinsic_namespace_contamination_propagates_across_project_imports() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/helper.py",
+        "import os\nif FLAG:\n    os.path.join = replacement\n",
+    );
+    db.add_file(
+        "/project/consumer.py",
+        "import os\nVALUE = os.path.join('/project', 'templates')\n",
+    );
+    db.add_file(
+        "/project/settings.py",
+        "import os\nimport helper\nimport consumer\nVALUE = os.path.join('/project', 'templates')\nIMPORTED_VALUE = consumer.VALUE\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in ["VALUE", "IMPORTED_VALUE"] {
+        let alternatives = &evaluation.binding(name).unwrap().alternatives;
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} should retain the imported contamination"
+        );
+        assert!(
+            alternatives.iter().all(|alternative| !matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Path(_) | PythonValueKindView::Str(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} must not regain exact intrinsic behavior"
+        );
+    }
+}
+
+#[test]
+fn unsupported_calls_persist_path_namespace_contamination() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "def mutate(path):\n    pass\nimport os\n_ = mutate(os.path)\nimport os as fresh_os\nVALUE = fresh_os.path.join('/project', 'templates')\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in ["fresh_os", "VALUE"] {
+        let alternatives = &evaluation.binding(name).unwrap().alternatives;
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} should retain unsupported-call contamination"
+        );
+        assert!(
+            alternatives.iter().all(|alternative| !matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Path(_) | PythonValueKindView::Str(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} must not regain exact intrinsic behavior"
+        );
+    }
+}
+
+#[test]
+fn project_modules_named_like_stdlib_path_helpers_are_not_intrinsics() {
+    let db = TestDatabase::new();
+    db.add_file("/project/pathlib.py", "Path = custom\n");
+    db.add_file(
+        "/project/settings.py",
+        "from pathlib import Path\nVALUE = Path(__file__)\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let [PythonBindingAlternativeView::Bound(bound)] =
+        evaluation.binding("VALUE").unwrap().alternatives.as_slice()
+    else {
+        panic!("VALUE should have one alternative");
+    };
+    assert!(matches!(bound.value.kind, PythonValueKindView::Unknown(_)));
+}
+
+#[test]
+fn known_external_module_outcomes_do_not_depend_on_selected_members() {
+    for source in [
+        "from pathlib import PurePath\n",
+        "from pathlib import PurePath, Path\n",
+        "from pathlib import *\n",
+    ] {
+        let (db, project, _) = extract_project(source, &[]);
+        let file = settings_module_file(&db, project).unwrap();
+        let evaluation = python_module_evaluation(&db, project, file);
+
+        assert_eq!(evaluation.imports.len(), 1, "{source}");
+        assert!(
+            matches!(
+                &evaluation.imports[0],
+                PythonImportOutcomeView::SkippedExternal { module, .. }
+                    if module.as_str() == "pathlib"
+            ),
+            "{source}: {:?}",
+            evaluation.imports
+        );
+        if source.contains("PurePath") {
+            let alternatives = &evaluation.binding("PurePath").unwrap().alternatives;
+            assert!(
+                alternatives.iter().any(|alternative| matches!(
+                    alternative,
+                    PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                        value: PythonValueView {
+                            kind: PythonValueKindView::Unknown(unknown),
+                            ..
+                        },
+                        ..
+                    }) if matches!(
+                        &unknown.cause,
+                        PythonUnknownCauseView::SkippedExternal(module)
+                            if module.as_str() == "pathlib"
+                    )
+                )),
+                "{source}"
+            );
+        } else {
+            assert!(evaluation.namespace_open(), "{source}");
+        }
+    }
+}
+
+#[test]
+fn partial_project_path_helper_chains_do_not_become_stdlib_intrinsics() {
+    let db = TestDatabase::new();
+    db.add_file("/project/os/__init__.py", "");
+    db.add_file(
+        "/project/settings.py",
+        "import os.path as os_path\nfrom os.path import join\nDIRECT = os_path.join('/project', 'templates')\nNAMED = join('/project', 'static')\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in ["os_path", "join", "DIRECT", "NAMED"] {
+        let binding = evaluation.binding(name).expect("binding should exist");
+        assert!(
+            binding.alternatives.iter().all(|alternative| !matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::PathSymbol(_) | PythonValueKindView::Path(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} must not become an intrinsic path value"
+        );
+    }
+    assert!(
+        evaluation
+            .imports
+            .iter()
+            .any(|outcome| matches!(outcome, PythonImportOutcomeView::NotFound { .. }))
+    );
+}
+
+#[test]
+fn path_operations_preserve_conditionally_unbound_alternatives() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from pathlib import Path\nimport os\nBASE = Path(__file__).parent\nif FLAG:\n    SEGMENT = 'templates'\nDIVIDED = BASE / SEGMENT\nMETHOD = BASE.joinpath(SEGMENT)\nSTRING = os.path.join(str(BASE), SEGMENT)\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    for name in ["DIVIDED", "METHOD", "STRING"] {
+        let alternatives = &evaluation.binding(name).unwrap().alternatives;
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Path(_) | PythonValueKindView::Str(_),
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "{name} should retain the bound path"
+        );
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(unknown),
+                        ..
+                    },
+                    ..
+                }) if unknown.cause == PythonUnknownCauseView::UnsupportedExpression
+            )),
+            "{name} should retain the unbound fallthrough"
+        );
+    }
+}
+
+#[test]
+fn closed_unsupported_literals_are_concrete_other_values() {
+    let source = "NONE = None\nNUMBER = 1\nNEGATIVE = -1\nBYTES = b'x'\nELLIPSIS = ...\nSET = {1}\nVALUES = [None, 1, b'x', ..., {1}]\n";
+    let (db, project, _) = extract_project(source, &[]);
+    let file = settings_module_file(&db, project).unwrap();
+    let evaluation = python_module_evaluation(&db, project, file);
+
+    for name in ["NONE", "NUMBER", "NEGATIVE", "BYTES", "ELLIPSIS", "SET"] {
+        let [PythonBindingAlternativeView::Bound(bound)] =
+            evaluation.binding(name).unwrap().alternatives.as_slice()
+        else {
+            panic!("{name} should have one alternative");
+        };
+        assert_eq!(bound.value.kind, PythonValueKindView::OtherLiteral);
+    }
+
+    let [PythonBindingAlternativeView::Bound(values)] = evaluation
+        .binding("VALUES")
+        .unwrap()
+        .alternatives
+        .as_slice()
+    else {
+        panic!("VALUES should have one alternative");
+    };
+    let PythonValueKindView::List(items) = &values.value.kind else {
+        panic!("VALUES should remain a list");
+    };
+    assert_eq!(items.len(), 5);
+    assert!(items.iter().all(|item| matches!(
+        item,
+        PythonSequenceItemView::Value(PythonValueView {
+            kind: PythonValueKindView::OtherLiteral,
+            ..
+        })
+    )));
+}
+
+#[test]
+fn closed_unsupported_literals_are_malformed_but_unknown_unpacks_stay_dynamic() {
+    for literal in ["None", "1", "-1", "b'x'", "...", "{1}"] {
+        let settings = extract(&format!("INSTALLED_APPS = {literal}"));
+        let case = &cases(&settings, "/installed_apps/cases")[0];
+        assert!(case.get("malformed").is_some(), "{literal}: {settings:#}");
+        assert!(case.get("dynamic").is_none(), "{literal}: {settings:#}");
+    }
+
+    let member = extract("INSTALLED_APPS = ['known', None]");
+    let case = &cases(&member, "/installed_apps/cases")[0];
+    assert!(case.get("malformed").is_some(), "{member:#}");
+    assert!(case.get("dynamic").is_none(), "{member:#}");
+
+    let unpack = extract("INSTALLED_APPS = ['known', *{1}]");
+    let case = &cases(&unpack, "/installed_apps/cases")[0];
+    assert!(case.get("dynamic").is_some(), "{unpack:#}");
+    assert!(case.get("malformed").is_none(), "{unpack:#}");
+
+    let non_string_key = extract(
+        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {None: 'app.templatetags.invalid'}}}]",
+    );
+    let case = &cases(&non_string_key, "/templates/cases")[0];
+    assert!(case.get("malformed").is_some(), "{non_string_key:#}");
+    assert!(case.get("dynamic").is_none(), "{non_string_key:#}");
 }
 
 #[test]
@@ -6813,7 +7425,7 @@ fn starred_tuple_construction_follows_iterable_matrix() {
         .unwrap();
     assert_eq!(apps.len(), 2, "{exact:#}");
 
-    for rhs in ["''", "{}", "EXTRA", "Path('/x')"] {
+    for rhs in ["''", "{}", "EXTRA"] {
         let source = format!("from pathlib import Path\nINSTALLED_APPS = ('alpha', *{rhs})");
         let settings = extract(&source);
         let case = &cases(&settings, "/installed_apps/cases")[0];
@@ -6821,9 +7433,13 @@ fn starred_tuple_construction_follows_iterable_matrix() {
         assert!(case.to_string().contains("unknown_unpack"), "{source}");
     }
 
-    let invalid = extract("INSTALLED_APPS = ('alpha', *True)");
-    let case = &cases(&invalid, "/installed_apps/cases")[0];
-    assert!(!case.to_string().contains("alpha"), "{invalid:#}");
+    for invalid in [
+        extract("INSTALLED_APPS = ('alpha', *True)"),
+        extract("from pathlib import Path\nINSTALLED_APPS = ('alpha', *Path(__file__))"),
+    ] {
+        let case = &cases(&invalid, "/installed_apps/cases")[0];
+        assert!(!case.to_string().contains("alpha"), "{invalid:#}");
+    }
 }
 
 #[test]
@@ -6836,7 +7452,7 @@ fn name_target_string_augmented_add_is_exact_or_degrades() {
 
     for source in [
         "VALUE = '/static/'\nVALUE += EXTRA",
-        "from pathlib import Path\nVALUE = '/static/'\nVALUE += Path('/x')",
+        "from pathlib import Path\nVALUE = '/static/'\nVALUE += Path(__file__)",
     ] {
         let (_, degraded) = evaluate_module(source);
         assert!(has_unknown_alternative(&degraded, "VALUE"), "{degraded:#?}");
@@ -6845,7 +7461,13 @@ fn name_target_string_augmented_add_is_exact_or_degrades() {
 
 #[test]
 fn name_target_tuple_augmented_add_incompatible_kinds_degrade() {
-    for rhs in ["['beta']", "'beta'", "True", "{'beta': 1}", "Path('/x')"] {
+    for rhs in [
+        "['beta']",
+        "'beta'",
+        "True",
+        "{'beta': 1}",
+        "Path(__file__)",
+    ] {
         let source = format!(
             "from pathlib import Path\nINSTALLED_APPS = ('alpha',)\nINSTALLED_APPS += {rhs}"
         );
@@ -6862,7 +7484,7 @@ fn name_target_tuple_augmented_add_incompatible_kinds_degrade() {
 
 #[test]
 fn list_augmented_add_imprecise_and_indeterminate_sources_keep_prefix() {
-    for rhs in ["''", "{'k': 'v'}", "{}", "EXTRA", "Path('/x')"] {
+    for rhs in ["''", "{'k': 'v'}", "{}", "EXTRA"] {
         let source = format!(
             "from pathlib import Path\nINSTALLED_APPS = ['alpha']\nINSTALLED_APPS += {rhs}"
         );
@@ -6883,7 +7505,7 @@ fn list_augmented_add_imprecise_and_indeterminate_sources_keep_prefix() {
 
 #[test]
 fn list_extend_imprecise_and_indeterminate_sources_keep_prefix() {
-    for rhs in ["'xy'", "''", "{'k': 'v'}", "{}", "EXTRA", "Path('/x')"] {
+    for rhs in ["'xy'", "''", "{'k': 'v'}", "{}", "EXTRA"] {
         let source = format!(
             "from pathlib import Path\nINSTALLED_APPS = ['alpha']\nINSTALLED_APPS.extend({rhs})"
         );
@@ -6910,13 +7532,33 @@ fn starred_construction_covers_list_mapping_and_indeterminate_sources() {
         .unwrap();
     assert_eq!(apps.len(), 2, "{list:#}");
 
-    for rhs in ["''", "{'k': 'v'}", "{}", "EXTRA", "Path('/x')"] {
+    for rhs in ["''", "{'k': 'v'}", "{}", "EXTRA"] {
         let source = format!("from pathlib import Path\nINSTALLED_APPS = ['alpha', *{rhs}]");
         let settings = extract(&source);
         let cases = cases(&settings, "/installed_apps/cases");
         assert!(cases[0].get("known").is_none(), "{source}: {settings:#}");
         assert!(
             cases[0].to_string().contains("unknown_unpack"),
+            "{source}: {settings:#}"
+        );
+    }
+}
+
+#[test]
+fn exact_path_values_are_definitely_non_iterable() {
+    for source in [
+        "from pathlib import Path\nINSTALLED_APPS = ['alpha']\nINSTALLED_APPS += Path(__file__)",
+        "from pathlib import Path\nINSTALLED_APPS = ['alpha']\nINSTALLED_APPS.extend(Path(__file__))",
+        "from pathlib import Path\nINSTALLED_APPS = ['alpha', *Path(__file__)]",
+    ] {
+        let settings = extract(source);
+        let case = &cases(&settings, "/installed_apps/cases")[0];
+        assert!(
+            !case.to_string().contains("alpha"),
+            "{source}: {settings:#}"
+        );
+        assert!(
+            !case.to_string().contains("unknown_unpack"),
             "{source}: {settings:#}"
         );
     }

@@ -24,6 +24,7 @@ pub use parse::PythonSyntaxError;
 pub use parse::PythonSyntaxErrorClass;
 pub(crate) use parse::RecoveredPythonModule;
 pub(crate) use parse::python_syntax_errors;
-pub(crate) use path_eval::PythonPathBindings;
+pub(crate) use path_eval::PythonPathNamespace;
+pub(crate) use path_eval::PythonPathSymbol;
 pub use search_paths::SearchPath;
 pub use search_paths::SearchPaths;

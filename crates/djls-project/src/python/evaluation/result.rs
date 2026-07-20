@@ -129,8 +129,8 @@ pub(super) struct EvaluatedPythonModule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct PythonModuleDependencies {
-    pub(crate) files: UniqueVec<File>,
-    pub(crate) imports: UniqueVec<PythonImportOutcome>,
+    files: UniqueVec<File>,
+    imports: UniqueVec<PythonImportOutcome>,
 }
 
 impl PythonModuleDependencies {
@@ -138,6 +138,81 @@ impl PythonModuleDependencies {
         Self {
             files: [file].into_iter().collect(),
             imports: UniqueVec::new(),
+        }
+    }
+
+    pub(crate) fn files(&self) -> impl ExactSizeIterator<Item = File> + '_ {
+        self.files.iter().copied()
+    }
+
+    pub(crate) fn imports(&self) -> impl ExactSizeIterator<Item = &PythonImportOutcome> {
+        self.imports.iter()
+    }
+
+    #[cfg(test)]
+    pub(super) fn record_file(&mut self, file: File) {
+        self.files.insert(file);
+    }
+
+    pub(super) fn record_outcome(&mut self, outcome: PythonImportOutcome) {
+        self.imports.insert(outcome);
+    }
+
+    /// Replace the loader's terminal not-found evidence when import
+    /// application recognizes a supported standard-library intrinsic whose
+    /// body remains deliberately external to static evaluation.
+    pub(super) fn recognize_external_intrinsic(
+        &mut self,
+        missing: &PythonModuleName,
+        external: PythonModuleName,
+    ) {
+        let origin = self
+            .imports
+            .iter()
+            .rev()
+            .find_map(|outcome| match outcome {
+                PythonImportOutcome::NotFound { origin, module } if module == missing => {
+                    Some(*origin)
+                }
+                PythonImportOutcome::Evaluated { .. }
+                | PythonImportOutcome::InvalidImport { .. }
+                | PythonImportOutcome::NotFound { .. }
+                | PythonImportOutcome::SkippedExternal { .. }
+                | PythonImportOutcome::Unreadable { .. } => None,
+            })
+            .expect("an intrinsic fallback replaces its recorded not-found outcome");
+        self.imports.retain(|outcome| {
+            !matches!(
+                outcome,
+                PythonImportOutcome::NotFound {
+                    origin: candidate_origin,
+                    module,
+                } if *candidate_origin == origin && module == missing
+            )
+        });
+        self.imports.insert(PythonImportOutcome::SkippedExternal {
+            origin,
+            module: external,
+        });
+    }
+
+    pub(super) fn absorb(&mut self, other: &Self) {
+        self.files.extend(other.files.iter().copied());
+        self.imports.extend(other.imports.iter().cloned());
+    }
+
+    /// Record a directly loaded component before its transitive dependencies so
+    /// first-seen dependency order remains root-to-leaf.
+    pub(super) fn record_component(
+        &mut self,
+        file: File,
+        outcome: PythonImportOutcome,
+        transitive: Option<&Self>,
+    ) {
+        self.files.insert(file);
+        self.imports.insert(outcome);
+        if let Some(transitive) = transitive {
+            self.absorb(transitive);
         }
     }
 

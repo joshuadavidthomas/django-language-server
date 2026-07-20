@@ -62,19 +62,29 @@ fn collect_target_write_names<'a>(target: &'a ast::Expr, names: &mut Vec<&'a str
 
 /// Collects names whose current bindings are read while evaluating an expression.
 pub(super) fn expr_read_names(expression: &ast::Expr) -> FxHashSet<String> {
-    ReadNameCollector::collect(expression)
+    ReadNameCollector::collect(expression, false).names
+}
+
+pub(super) fn expr_calls(expression: &ast::Expr) -> Vec<ast::ExprCall> {
+    ReadNameCollector::collect(expression, true)
+        .calls
+        .unwrap_or_default()
 }
 
 #[derive(Default)]
 struct ReadNameCollector {
     names: FxHashSet<String>,
+    calls: Option<Vec<ast::ExprCall>>,
 }
 
 impl ReadNameCollector {
-    fn collect(expression: &ast::Expr) -> FxHashSet<String> {
-        let mut collector = Self::default();
+    fn collect(expression: &ast::Expr, collect_calls: bool) -> Self {
+        let mut collector = Self {
+            calls: collect_calls.then(Vec::new),
+            ..Self::default()
+        };
         collector.visit_expr(expression);
-        collector.names
+        collector
     }
 
     fn visit_expr(&mut self, expression: &ast::Expr) {
@@ -89,6 +99,9 @@ impl ReadNameCollector {
                 self.visit_expr(&subscript.slice);
             }
             ast::Expr::Call(call) => {
+                if let Some(calls) = &mut self.calls {
+                    calls.push(call.clone());
+                }
                 self.visit_expr(&call.func);
                 self.visit_elements(&call.arguments.args);
                 for keyword in &call.arguments.keywords {

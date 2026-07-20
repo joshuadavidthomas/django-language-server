@@ -24,30 +24,38 @@ use super::PythonMutationPath;
 use super::PythonMutationPathSegment;
 use super::PythonNamespaceCause;
 use super::PythonNamespaceRemainder;
+use super::PythonSyntaxImpact;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::UniqueVec;
+use super::module_object::PathSymbolContamination;
+use super::name_analysis::expr_calls;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
-use crate::python::PythonPathBindings;
+use crate::python::PythonPathSymbol;
+use crate::python::PythonSyntaxError;
 
 pub(super) fn evaluate_body(
     db: &dyn ProjectDb,
     project: Project,
     module: PythonModule,
     body: &[ast::Stmt],
+    syntax_errors: Vec<PythonSyntaxError>,
+    syntax_impacts: Vec<PythonSyntaxImpact>,
+    path_symbol_contamination: PathSymbolContamination,
 ) -> (
     PythonModuleValues,
     PythonModuleDependencies,
     PythonModuleObjects,
 ) {
-    let state = EvaluationState::new(module.file());
+    let state =
+        EvaluationState::with_path_symbol_contamination(module.file(), path_symbol_contamination);
     let mut evaluator = Evaluator {
         db,
         project,
@@ -55,7 +63,7 @@ pub(super) fn evaluate_body(
         state,
     };
     evaluator.evaluate_body(body);
-    evaluator.state.finish()
+    evaluator.state.finish(syntax_errors, syntax_impacts)
 }
 
 /// Context-bearing interpreter that evaluates Python syntax into a forkable state.
@@ -64,6 +72,13 @@ pub(super) struct Evaluator<'db> {
     project: Project,
     module: PythonModule,
     pub(super) state: EvaluationState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnsupportedCallEffect {
+    None,
+    Arguments,
+    ReceiverAndArguments,
 }
 
 impl Evaluator<'_> {
@@ -91,6 +106,82 @@ impl Evaluator<'_> {
     fn origin_at(&self, span: Span) -> Origin {
         Origin::new(self.module.file(), span)
     }
+
+    fn record_unsupported_call_effects(&mut self, expression: &ast::Expr) {
+        for call in expr_calls(expression) {
+            let include_receiver = match self.unsupported_call_effect(&call) {
+                UnsupportedCallEffect::None => continue,
+                UnsupportedCallEffect::Arguments => false,
+                UnsupportedCallEffect::ReceiverAndArguments => true,
+            };
+            let mut mutation_candidates = Vec::new();
+            if include_receiver && let ast::Expr::Attribute(attribute) = call.func.as_ref() {
+                mutation_candidates.push(self.evaluate_binding(&attribute.value));
+            }
+            mutation_candidates.extend(
+                call.arguments
+                    .args
+                    .iter()
+                    .map(|argument| self.evaluate_binding(argument)),
+            );
+            mutation_candidates.extend(
+                call.arguments
+                    .keywords
+                    .iter()
+                    .map(|keyword| self.evaluate_binding(&keyword.value)),
+            );
+            self.state
+                .degrade_path_symbol_values(&mutation_candidates, self.origin(&call));
+        }
+    }
+
+    fn unsupported_call_effect(&self, call: &ast::ExprCall) -> UnsupportedCallEffect {
+        let binding = if let ast::Expr::Attribute(attribute) = call.func.as_ref()
+            && matches!(attribute.attr.as_str(), "resolve" | "joinpath")
+        {
+            self.evaluate_binding(&attribute.value)
+        } else {
+            self.evaluate_binding(&call.func)
+        };
+        let is_path_method = matches!(
+            call.func.as_ref(),
+            ast::Expr::Attribute(attribute)
+                if matches!(attribute.attr.as_str(), "resolve" | "joinpath")
+        );
+        let mut has_known_nonmutating = false;
+        let mut has_unsupported = false;
+        for alternative in binding.alternatives() {
+            let known = match alternative {
+                PythonBindingState::Bound(bound) if is_path_method => {
+                    matches!(&bound.value.kind, PythonValueKind::Path(_))
+                }
+                PythonBindingState::Bound(bound) => {
+                    let PythonValueKind::PathSymbol(symbol) = &bound.value.kind else {
+                        has_unsupported = true;
+                        continue;
+                    };
+                    matches!(
+                        symbol,
+                        PythonPathSymbol::BuiltinStr
+                            | PythonPathSymbol::PathlibPath
+                            | PythonPathSymbol::OsPathJoin
+                            | PythonPathSymbol::OsPathDirname
+                    ) && !self
+                        .state
+                        .module_objects
+                        .path_symbol_is_contaminated(*symbol)
+                }
+                PythonBindingState::Unbound => false,
+            };
+            has_known_nonmutating |= known;
+            has_unsupported |= !known;
+        }
+        match (has_known_nonmutating, has_unsupported) {
+            (true, false) => UnsupportedCallEffect::None,
+            (true, true) => UnsupportedCallEffect::Arguments,
+            (false, _) => UnsupportedCallEffect::ReceiverAndArguments,
+        }
+    }
 }
 
 /// Cloneable abstract environment for context-free evaluation transitions.
@@ -107,18 +198,30 @@ pub(super) struct EvaluationState {
 }
 
 impl EvaluationState {
+    #[cfg(test)]
     fn new(file: File) -> Self {
+        Self::with_path_symbol_contamination(file, PathSymbolContamination::default())
+    }
+
+    fn with_path_symbol_contamination(
+        file: File,
+        path_symbol_contamination: PathSymbolContamination,
+    ) -> Self {
         Self {
             bindings: BTreeMap::new(),
             namespace_causes: Vec::new(),
             mutations: UniqueVec::new(),
             dependencies: PythonModuleDependencies::rooted(file),
-            module_objects: PythonModuleObjects::default(),
+            module_objects: PythonModuleObjects::with_path_symbol_contamination(
+                path_symbol_contamination,
+            ),
         }
     }
 
     fn finish(
         self,
+        syntax_errors: Vec<PythonSyntaxError>,
+        syntax_impacts: Vec<PythonSyntaxImpact>,
     ) -> (
         PythonModuleValues,
         PythonModuleDependencies,
@@ -129,8 +232,8 @@ impl EvaluationState {
                 bindings: self.bindings,
                 namespace_remainder: (!self.namespace_causes.is_empty())
                     .then(|| PythonNamespaceRemainder::new(self.namespace_causes)),
-                syntax_errors: Vec::new(),
-                syntax_impacts: Vec::new(),
+                syntax_errors,
+                syntax_impacts,
                 mutations: self.mutations,
             },
             self.dependencies,
@@ -142,8 +245,43 @@ impl EvaluationState {
         self.bindings.get(name)
     }
 
+    fn binding_with_intrinsic(
+        &self,
+        name: &str,
+        symbol: PythonPathSymbol,
+        origin: Origin,
+    ) -> PythonBinding {
+        let intrinsic = if self.module_objects.path_symbol_is_contaminated(symbol) {
+            PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin)
+        } else {
+            PythonBinding::bound(PythonValue::path_symbol(symbol, origin), origin)
+        };
+        let mut binding = self
+            .binding(name)
+            .cloned()
+            .map_or(intrinsic.clone(), |binding| {
+                binding.replace_unbound_with(Some(intrinsic), origin)
+            });
+        for cause in &self.namespace_causes {
+            if let Some(unknown) =
+                PythonBinding::constrained_unknown(&cause.unknown.cause, origin, &cause.constraints)
+            {
+                binding = binding.join(unknown, origin);
+            }
+        }
+        binding
+    }
+
     fn assign_value(&mut self, name: &str, value: PythonValue, origin: Origin) {
         self.assign_binding(name, PythonBinding::bound(value, origin), origin);
+    }
+
+    fn assign_path_symbol(&mut self, name: &str, symbol: PythonPathSymbol, origin: Origin) {
+        if self.module_objects.path_symbol_is_contaminated(symbol) {
+            self.bind_unknown(name, &PythonUnknownCause::UnsupportedMutation, origin);
+        } else {
+            self.assign_value(name, PythonValue::path_symbol(symbol, origin), origin);
+        }
     }
 
     /// Update a name's single bound value after a successful in-place mutation.
@@ -164,10 +302,13 @@ impl EvaluationState {
             .insert(name.to_string(), binding.rebase_binding_origin(origin));
     }
 
-    fn assign_from_name(&mut self, name: &str, source: &str, origin: Origin) -> bool {
-        let Some(binding) = self.binding(source).cloned() else {
-            return false;
-        };
+    fn assign_from_name(
+        &mut self,
+        name: &str,
+        source: &str,
+        binding: PythonBinding,
+        origin: Origin,
+    ) {
         self.bindings
             .insert(name.to_string(), binding.rebase_binding_origin(origin));
         let copied = self
@@ -182,11 +323,87 @@ impl EvaluationState {
             .collect::<Vec<_>>();
         self.mutations.retain(|mutation| mutation.binding != name);
         self.mutations.extend(copied);
-        true
     }
 
     fn bind_unknown(&mut self, name: &str, cause: &PythonUnknownCause, origin: Origin) {
         self.assign_binding(name, PythonBinding::unknown(cause, origin), origin);
+    }
+
+    fn path_symbol_write_names(&mut self, name: &str) -> Vec<String> {
+        let Some(binding) = self.binding(name) else {
+            return vec![name.to_string()];
+        };
+        let has_path_symbol = binding.alternatives().any(|alternative| {
+            matches!(
+                alternative,
+                PythonBindingState::Bound(bound)
+                    if matches!(bound.value.kind, PythonValueKind::PathSymbol(_))
+            )
+        });
+        let symbols = binding
+            .alternatives()
+            .filter_map(|alternative| {
+                let PythonBindingState::Bound(bound) = alternative else {
+                    return None;
+                };
+                let PythonValueKind::PathSymbol(symbol) = bound.value.kind else {
+                    return None;
+                };
+                symbol.has_mutable_namespace().then_some(symbol)
+            })
+            .collect::<Vec<_>>();
+        if symbols.is_empty() {
+            return if has_path_symbol {
+                Vec::new()
+            } else {
+                vec![name.to_string()]
+            };
+        }
+        for symbol in &symbols {
+            self.module_objects.contaminate_path_symbol(*symbol);
+        }
+        self.bindings
+            .iter()
+            .filter(|&(_candidate, binding)| {
+                binding.alternatives().any(|alternative| {
+                    let PythonBindingState::Bound(bound) = alternative else {
+                        return false;
+                    };
+                    let PythonValueKind::PathSymbol(candidate_symbol) = bound.value.kind else {
+                        return false;
+                    };
+                    symbols
+                        .iter()
+                        .any(|symbol| symbol.shares_mutable_namespace(candidate_symbol))
+                })
+            })
+            .map(|(candidate, _binding)| candidate.clone())
+            .collect()
+    }
+
+    fn all_path_symbol_write_names(&mut self) -> Vec<String> {
+        let names = self
+            .bindings
+            .iter()
+            .filter(|&(_name, binding)| {
+                binding.alternatives().any(|alternative| {
+                    matches!(
+                        alternative,
+                        PythonBindingState::Bound(bound)
+                            if matches!(bound.value.kind, PythonValueKind::PathSymbol(_))
+                    )
+                })
+            })
+            .map(|(name, _binding)| name.clone())
+            .collect::<Vec<_>>();
+        for symbol in [
+            PythonPathSymbol::BuiltinsModule,
+            PythonPathSymbol::PathlibModule,
+            PythonPathSymbol::OsModule,
+        ] {
+            self.module_objects.contaminate_path_symbol(symbol);
+        }
+        names
     }
 
     fn mutable_alias_names(&self, binding: &PythonBinding) -> Vec<String> {
@@ -268,19 +485,6 @@ impl EvaluationState {
         (is_module(first) && alternatives.all(is_module)).then_some(true)
     }
 
-    fn path_bindings(&self) -> PythonPathBindings {
-        let mut paths = PythonPathBindings::default();
-        for (name, binding) in &self.bindings {
-            let Some(bound) = binding.single_bound() else {
-                continue;
-            };
-            if let PythonValueKind::Path(path) = &bound.value.kind {
-                paths.set(name.clone(), path.clone());
-            }
-        }
-        paths
-    }
-
     fn degrade_all_bindings(
         &mut self,
         cause: &PythonUnknownCause,
@@ -303,6 +507,58 @@ impl EvaluationState {
         for name in names {
             self.bind_unknown(&name, cause, origin);
         }
+    }
+
+    fn degrade_path_symbol_values(&mut self, values: &[PythonBinding], origin: Origin) {
+        let symbols = values
+            .iter()
+            .flat_map(PythonBinding::alternatives)
+            .filter_map(|alternative| {
+                let PythonBindingState::Bound(bound) = alternative else {
+                    return None;
+                };
+                let PythonValueKind::PathSymbol(symbol) = bound.value.kind else {
+                    return None;
+                };
+                symbol.has_mutable_namespace().then_some(symbol)
+            })
+            .collect::<Vec<_>>();
+        for symbol in &symbols {
+            self.module_objects.contaminate_path_symbol(*symbol);
+        }
+        let aliases = self
+            .bindings
+            .iter()
+            .filter(|&(_candidate, binding)| {
+                binding.alternatives().any(|alternative| {
+                    let PythonBindingState::Bound(bound) = alternative else {
+                        return false;
+                    };
+                    let PythonValueKind::PathSymbol(candidate_symbol) = bound.value.kind else {
+                        return false;
+                    };
+                    symbols
+                        .iter()
+                        .any(|symbol| symbol.shares_mutable_namespace(candidate_symbol))
+                })
+            })
+            .map(|(candidate, _binding)| candidate.clone())
+            .collect::<BTreeSet<_>>();
+        if !aliases.is_empty() {
+            self.degrade_names(aliases, &PythonUnknownCause::UnsupportedMutation, origin);
+        }
+    }
+
+    pub(super) fn degrade_unsupported_mutation_names(
+        &mut self,
+        names: impl IntoIterator<Item = String>,
+        origin: Origin,
+    ) {
+        let mut names = names.into_iter().collect::<BTreeSet<_>>();
+        for name in names.clone() {
+            names.extend(self.path_symbol_write_names(&name));
+        }
+        self.degrade_names(names, &PythonUnknownCause::UnsupportedMutation, origin);
     }
 
     pub(super) fn degrade_names(
@@ -344,8 +600,7 @@ impl EvaluationState {
             } = body;
             self.namespace_causes.extend(namespace_causes);
             self.mutations.extend(mutations);
-            self.dependencies.files.extend(dependencies.files);
-            self.dependencies.imports.extend(dependencies.imports);
+            self.dependencies.absorb(&dependencies);
             body_objects.push(module_objects);
         }
         self.module_objects.degrade_loop(body_objects, origin);
@@ -390,12 +645,7 @@ impl EvaluationState {
                     cause
                 }));
             base.mutations.extend(branch.mutations.iter().cloned());
-            base.dependencies
-                .files
-                .extend(branch.dependencies.files.iter().copied());
-            base.dependencies
-                .imports
-                .extend(branch.dependencies.imports.iter().cloned());
+            base.dependencies.absorb(&branch.dependencies);
         }
         let branch_objects = branches
             .iter()
@@ -450,19 +700,6 @@ impl EvaluationState {
                     mutation.origin,
                 )
             })
-    }
-
-    fn record_import(&mut self, outcome: PythonImportOutcome) {
-        self.dependencies.imports.insert(outcome);
-    }
-
-    fn absorb_dependencies(&mut self, dependencies: &PythonModuleDependencies) {
-        self.dependencies
-            .files
-            .extend(dependencies.files.iter().copied());
-        self.dependencies
-            .imports
-            .extend(dependencies.imports.iter().cloned());
     }
 }
 
@@ -631,14 +868,14 @@ mod tests {
                 PythonUnknownCause::UnsupportedExpression,
                 [origin(2)],
             )));
-        changed.dependencies.files.insert(test_file(1));
-        changed
-            .dependencies
-            .imports
-            .insert(PythonImportOutcome::NotFound {
+        changed.dependencies.record_component(
+            test_file(1),
+            PythonImportOutcome::NotFound {
                 origin: origin(3),
                 module: PythonModuleName::parse("missing").unwrap(),
-            });
+            },
+            None,
+        );
 
         assert!(changed.changed_names_from(&base).is_empty());
     }
@@ -675,7 +912,7 @@ mod tests {
             origin(2),
         );
         first_body.mutations.insert(first_mutation.clone());
-        first_body.dependencies.files.insert(test_file(1));
+        first_body.dependencies.record_file(test_file(1));
         first_body.namespace_causes.push(first_cause.clone());
 
         let mut second_body = base.clone();
@@ -687,17 +924,15 @@ mod tests {
         second_body
             .mutations
             .extend([later_mutation.clone(), first_mutation.clone()]);
-        second_body
-            .dependencies
-            .files
-            .extend([test_file(2), test_file(1)]);
+        second_body.dependencies.record_file(test_file(2));
+        second_body.dependencies.record_file(test_file(1));
         second_body.namespace_causes.push(second_cause.clone());
 
         let degraded = base.degrade_loop_effects(vec![first_body, second_body], loop_origin);
 
         assert_eq!(degraded.binding("VALUE"), Some(&expected_binding));
         assert_eq!(
-            degraded.dependencies.files.as_slice(),
+            degraded.dependencies.files().collect::<Vec<_>>(),
             [test_file(0), test_file(1), test_file(2)]
         );
         assert_eq!(

@@ -1,113 +1,112 @@
-use camino::Utf8Path;
-use camino::Utf8PathBuf;
-use ruff_python_ast as ast;
-use rustc_hash::FxHashMap;
-
-use crate::ast::ExprExt;
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct PythonPathBindings {
-    paths: FxHashMap<String, Utf8PathBuf>,
+/// Nominal identities for the small standard-library surface used by static
+/// path evaluation. They travel through ordinary Python bindings so aliases,
+/// branches, and shadowing follow the same rules as every other value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum PythonPathNamespace {
+    Builtins,
+    Pathlib,
+    Os,
 }
 
-impl PythonPathBindings {
-    pub(crate) fn set(&mut self, name: impl Into<String>, value: Utf8PathBuf) {
-        self.paths.insert(name.into(), value);
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum PythonPathSymbol {
+    BuiltinsModule,
+    BuiltinStr,
+    ModuleFile,
+    PathlibModule,
+    PathlibPath,
+    OsModule,
+    OsPathModule,
+    OsPathJoin,
+    OsPathDirname,
+}
 
-    pub(crate) fn evaluate(&self, expr: &ast::Expr, file_path: &Utf8Path) -> Option<Utf8PathBuf> {
-        if let Some(name) = expr.name_target() {
-            return self.paths.get(name).cloned();
-        }
-
-        match expr {
-            ast::Expr::Attribute(attribute) if attribute.attr.as_str() == "parent" => {
-                self.evaluate(&attribute.value, file_path).and_then(|path| {
-                    path.parent().map_or_else(
-                        || Some(Utf8PathBuf::from("/")),
-                        |parent| Some(parent.to_path_buf()),
-                    )
-                })
-            }
-            ast::Expr::BinOp(bin_op) if bin_op.op == ast::Operator::Div => {
-                let base = self.evaluate(&bin_op.left, file_path)?;
-                let segment = bin_op.right.string_literal()?;
-                Some(base.join(segment))
-            }
-            ast::Expr::Call(call) => self.evaluate_call(call, file_path),
-            ast::Expr::StringLiteral(literal) => {
-                let value = Utf8Path::new(literal.value.to_str());
-                if value.is_absolute() {
-                    Some(value.to_path_buf())
-                } else {
-                    file_path.parent().map(|parent| parent.join(value))
-                }
-            }
+impl PythonPathSymbol {
+    pub(crate) fn unbound_intrinsic(name: &str) -> Option<Self> {
+        match name {
+            "str" => Some(Self::BuiltinStr),
+            "__file__" => Some(Self::ModuleFile),
             _ => None,
         }
     }
 
-    fn evaluate_call(&self, call: &ast::ExprCall, file_path: &Utf8Path) -> Option<Utf8PathBuf> {
-        match call.func.as_ref() {
-            func if func.name_target() == Some("Path") => {
-                let argument = single_positional_argument(&call.arguments)?;
-                if argument.name_target() == Some("__file__") {
-                    Some(file_path.to_path_buf())
-                } else {
-                    self.evaluate(argument, file_path)
-                }
-            }
-            func if func.name_target() == Some("str") => {
-                self.evaluate(single_positional_argument(&call.arguments)?, file_path)
-            }
-            ast::Expr::Attribute(attribute) => match attribute.attr.as_str() {
-                "resolve" if call.arguments.is_empty() => {
-                    self.evaluate(&attribute.value, file_path)
-                }
-                "joinpath" => {
-                    let mut path = self.evaluate(&attribute.value, file_path)?;
-                    for argument in positional_arguments(&call.arguments) {
-                        path = path.join(argument.string_literal()?);
-                    }
-                    Some(path)
-                }
-                "join" if is_os_path_attr(&attribute.value, "path") => {
-                    let mut arguments = positional_arguments(&call.arguments);
-                    let first = arguments.next()?;
-                    let mut path = self.evaluate(first, file_path)?;
-                    for argument in arguments {
-                        path = path.join(argument.string_literal()?);
-                    }
-                    Some(path)
-                }
-                "dirname" if is_os_path_attr(&attribute.value, "path") => {
-                    let path =
-                        self.evaluate(single_positional_argument(&call.arguments)?, file_path)?;
-                    path.parent().map(Utf8Path::to_path_buf)
-                }
-                _ => None,
-            },
+    pub(crate) fn from_direct_import(requested: &str, binds_root: bool) -> Option<Self> {
+        match (requested, binds_root) {
+            ("builtins", _) => Some(Self::BuiltinsModule),
+            ("pathlib", _) => Some(Self::PathlibModule),
+            ("os", _) | ("os.path", true) => Some(Self::OsModule),
+            ("os.path", false) => Some(Self::OsPathModule),
             _ => None,
         }
     }
-}
 
-fn is_os_path_attr(expr: &ast::Expr, attr: &str) -> bool {
-    matches!(
-        expr,
-        ast::Expr::Attribute(attribute)
-            if attribute.attr.as_str() == attr && attribute.value.name_target() == Some("os")
-    )
-}
-
-fn single_positional_argument(arguments: &ast::Arguments) -> Option<&ast::Expr> {
-    if arguments.keywords.is_empty() && arguments.args.len() == 1 {
-        arguments.args.first()
-    } else {
-        None
+    pub(crate) fn is_known_external_module(level: u32, module: Option<&str>) -> bool {
+        level == 0 && matches!(module, Some("builtins" | "pathlib" | "os" | "os.path"))
     }
-}
 
-fn positional_arguments(arguments: &ast::Arguments) -> impl Iterator<Item = &ast::Expr> {
-    arguments.args.iter()
+    pub(crate) fn from_named_import(
+        level: u32,
+        module: Option<&str>,
+        member: &str,
+    ) -> Option<Self> {
+        if !Self::is_known_external_module(level, module) {
+            return None;
+        }
+        match (module, member) {
+            (Some("builtins"), "str") => Some(Self::BuiltinStr),
+            (Some("pathlib"), "Path") => Some(Self::PathlibPath),
+            (Some("os"), "path") => Some(Self::OsPathModule),
+            (Some("os.path"), "join") => Some(Self::OsPathJoin),
+            (Some("os.path"), "dirname") => Some(Self::OsPathDirname),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn mutable_namespace(self) -> Option<PythonPathNamespace> {
+        match self {
+            Self::BuiltinsModule | Self::BuiltinStr => Some(PythonPathNamespace::Builtins),
+            Self::PathlibModule | Self::PathlibPath => Some(PythonPathNamespace::Pathlib),
+            Self::OsModule | Self::OsPathModule | Self::OsPathJoin | Self::OsPathDirname => {
+                Some(PythonPathNamespace::Os)
+            }
+            Self::ModuleFile => None,
+        }
+    }
+
+    pub(crate) fn has_mutable_namespace(self) -> bool {
+        self.mutable_namespace().is_some()
+    }
+
+    pub(crate) fn shares_mutable_namespace(self, other: Self) -> bool {
+        self == other
+            || self
+                .mutable_namespace()
+                .zip(other.mutable_namespace())
+                .is_some_and(|(left, right)| left == right)
+    }
+
+    pub(crate) fn member(self, name: &str) -> Option<Self> {
+        match (self, name) {
+            (Self::BuiltinsModule, "str") => Some(Self::BuiltinStr),
+            (Self::PathlibModule, "Path") => Some(Self::PathlibPath),
+            (Self::OsModule, "path") => Some(Self::OsPathModule),
+            (Self::OsPathModule, "join") => Some(Self::OsPathJoin),
+            (Self::OsPathModule, "dirname") => Some(Self::OsPathDirname),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn structural_rank(self) -> u8 {
+        match self {
+            Self::BuiltinsModule => 0,
+            Self::BuiltinStr => 1,
+            Self::ModuleFile => 2,
+            Self::PathlibModule => 3,
+            Self::PathlibPath => 4,
+            Self::OsModule => 5,
+            Self::OsPathModule => 6,
+            Self::OsPathJoin => 7,
+            Self::OsPathDirname => 8,
+        }
+    }
 }

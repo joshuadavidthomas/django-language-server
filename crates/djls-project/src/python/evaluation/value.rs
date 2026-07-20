@@ -19,6 +19,7 @@ use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use super::allocation::AllocationSites;
 use crate::python::PythonModuleName;
+use crate::python::PythonPathSymbol;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
 
@@ -210,15 +211,23 @@ impl PythonValue {
     }
 
     pub(super) fn string(value: String, origin: Origin) -> Self {
-        Self::scalar(PythonValueKind::Str(value), origin)
+        Self::atomic(PythonValueKind::Str(value), origin)
     }
 
     pub(super) fn bool(value: bool, origin: Origin) -> Self {
-        Self::scalar(PythonValueKind::Bool(value), origin)
+        Self::atomic(PythonValueKind::Bool(value), origin)
     }
 
     pub(super) fn path(value: Utf8PathBuf, origin: Origin) -> Self {
-        Self::scalar(PythonValueKind::Path(value), origin)
+        Self::atomic(PythonValueKind::Path(value), origin)
+    }
+
+    pub(super) fn path_symbol(symbol: PythonPathSymbol, origin: Origin) -> Self {
+        Self::atomic(PythonValueKind::PathSymbol(symbol), origin)
+    }
+
+    pub(super) fn other_literal(origin: Origin) -> Self {
+        Self::atomic(PythonValueKind::OtherLiteral, origin)
     }
 
     pub(super) fn list(items: Vec<PythonSequenceItem>, origin: Origin) -> Self {
@@ -260,10 +269,14 @@ impl PythonValue {
         }
     }
 
-    fn scalar(kind: PythonValueKind, origin: Origin) -> Self {
+    fn atomic(kind: PythonValueKind, origin: Origin) -> Self {
         debug_assert!(matches!(
             &kind,
-            PythonValueKind::Str(_) | PythonValueKind::Bool(_) | PythonValueKind::Path(_)
+            PythonValueKind::Str(_)
+                | PythonValueKind::Bool(_)
+                | PythonValueKind::Path(_)
+                | PythonValueKind::PathSymbol(_)
+                | PythonValueKind::OtherLiteral
         ));
         Self {
             kind,
@@ -288,6 +301,8 @@ impl PythonValue {
             PythonValueKind::Str(value) => PythonScalar::String(value),
             PythonValueKind::Bool(value) => PythonScalar::Bool(*value),
             PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -338,6 +353,8 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => None,
         }
@@ -354,6 +371,8 @@ impl PythonValue {
             PythonValueKind::Str(text) => Some(PythonSequence::String(text)),
             PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => None,
@@ -361,9 +380,10 @@ impl PythonValue {
     }
 
     /// Classify this value's iterability. Lists, tuples, and strings are
-    /// sequences; dictionaries are iterable over their keys; booleans are
-    /// definitely not iterable; unknown and path values are indeterminate
-    /// because their runtime iterability cannot be decided here.
+    /// sequences; dictionaries are iterable over their keys; booleans,
+    /// modules, exact `pathlib.Path` values, and path symbols are definitely not
+    /// iterable. Unknown and other literal values are indeterminate because
+    /// their runtime iterability cannot be decided here.
     pub(super) fn iterable_knowledge(&self) -> PythonIterableKnowledge<'_> {
         match &self.kind {
             PythonValueKind::List(list) => {
@@ -378,15 +398,15 @@ impl PythonValue {
             PythonValueKind::Dict(dict) => {
                 PythonIterableKnowledge::Known(PythonIterable::MappingKeys(dict.mapping()))
             }
-            // A module object is a nominal value, never a Python sequence,
-            // mapping, or iterable.
-            PythonValueKind::Bool(_) | PythonValueKind::Module(_) => {
-                PythonIterableKnowledge::NotIterable
-            }
-            // A path fact erases whether the runtime source was a string or a
-            // `pathlib.Path`, so its iterability is indeterminate rather than a
-            // synthesized nominal kind.
-            PythonValueKind::Path(_) => {
+            // Module objects and path symbols are nominal values, never Python
+            // sequences, mappings, or iterables.
+            PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::Module(_) => PythonIterableKnowledge::NotIterable,
+            // `OtherLiteral` erases the concrete closed literal kind, which may
+            // or may not be iterable.
+            PythonValueKind::OtherLiteral => {
                 PythonIterableKnowledge::Indeterminate(self.imprecise_iteration_unknown())
             }
             PythonValueKind::Unknown(unknown) => {
@@ -434,7 +454,9 @@ impl PythonValue {
             | PythonValueKind::Unknown(_)
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
-            | PythonValueKind::Path(_) => {}
+            | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral => {}
         }
     }
 
@@ -451,7 +473,9 @@ impl PythonValue {
             | PythonValueKind::Unknown(_)
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
-            | PythonValueKind::Path(_) => 0,
+            | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral => 0,
         }
     }
 
@@ -485,7 +509,9 @@ impl PythonValue {
             PythonValueKind::Module(_)
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
-            | PythonValueKind::Path(_) => false,
+            | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral => false,
         }
     }
 
@@ -521,6 +547,8 @@ impl PythonValue {
                 PythonValueKind::Str(_)
                 | PythonValueKind::Bool(_)
                 | PythonValueKind::Path(_)
+                | PythonValueKind::PathSymbol(_)
+                | PythonValueKind::OtherLiteral
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)
                 | PythonValueKind::Dict(_)
@@ -546,6 +574,8 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -557,6 +587,8 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {
@@ -580,6 +612,8 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {
@@ -604,6 +638,8 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_) => {}
@@ -640,6 +676,8 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {}
         }
@@ -662,11 +700,22 @@ impl PythonValue {
     }
 }
 
+/// The deliberately partial abstract value domain used by static settings and
+/// import evaluation, not an exhaustive model of Python runtime types.
+///
+/// Variants exist only for facts current consumers can use and for nominal
+/// identities required to evaluate those facts. Closed literals outside that
+/// domain retain the weaker `OtherLiteral` fact; expressions whose result
+/// cannot be represented conservatively become `Unknown`. Add a variant only
+/// when a consumer needs the distinction and its joins, operations, and
+/// projections can be defined without executing Python.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PythonValueKind {
     Str(String),
     Bool(bool),
     Path(Utf8PathBuf),
+    PathSymbol(PythonPathSymbol),
+    OtherLiteral,
     List(PythonList),
     Tuple(PythonTuple),
     Dict(PythonDict),
@@ -675,8 +724,8 @@ pub(crate) enum PythonValueKind {
 }
 
 impl PythonValueKind {
-    /// Typed precedence matching the evaluator's previously observed retained
-    /// subsets: Bool < Dict < List < Module < Path < Str < Tuple < Unknown.
+    /// Typed precedence preserving the evaluator's previously observed order
+    /// for existing variants; newly represented atomic facts precede Unknown.
     fn structural_rank(&self) -> u8 {
         match self {
             Self::Bool(_) => 0,
@@ -686,7 +735,9 @@ impl PythonValueKind {
             Self::Path(_) => 4,
             Self::Str(_) => 5,
             Self::Tuple(_) => 6,
-            Self::Unknown(_) => 7,
+            Self::OtherLiteral => 7,
+            Self::PathSymbol(_) => 8,
+            Self::Unknown(_) => 9,
         }
     }
 }
@@ -715,6 +766,18 @@ impl StructuralOrd for PythonValueKind {
                     unreachable!("equal value-kind ranks identify the same variant")
                 };
                 left.cmp(right)
+            }
+            Self::PathSymbol(left) => {
+                let Self::PathSymbol(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.structural_rank().cmp(&right.structural_rank())
+            }
+            Self::OtherLiteral => {
+                let Self::OtherLiteral = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                Ordering::Equal
             }
             Self::List(left) => {
                 let Self::List(right) = other else {
@@ -756,7 +819,13 @@ impl PythonValueKind {
             Self::List(list) => list.normalize(),
             Self::Tuple(tuple) => tuple.normalize(),
             Self::Dict(dict) => dict.normalize(),
-            Self::Str(_) | Self::Bool(_) | Self::Path(_) | Self::Module(_) | Self::Unknown(_) => {}
+            Self::Str(_)
+            | Self::Bool(_)
+            | Self::Path(_)
+            | Self::PathSymbol(_)
+            | Self::OtherLiteral
+            | Self::Module(_)
+            | Self::Unknown(_) => {}
         }
     }
 
@@ -765,6 +834,8 @@ impl PythonValueKind {
             (Self::Str(left), Self::Str(right)) => left == right,
             (Self::Bool(left), Self::Bool(right)) => left == right,
             (Self::Path(left), Self::Path(right)) => left == right,
+            (Self::PathSymbol(left), Self::PathSymbol(right)) => left == right,
+            (Self::OtherLiteral, Self::OtherLiteral) => true,
             (Self::List(left), Self::List(right)) => left.same_semantic_value(right),
             (Self::Tuple(left), Self::Tuple(right)) => left.same_semantic_value(right),
             (Self::Dict(left), Self::Dict(right)) => left.same_semantic_value(right),
@@ -775,6 +846,8 @@ impl PythonValueKind {
                 Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
+                | Self::PathSymbol(_)
+                | Self::OtherLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
                 | Self::Dict(_)
@@ -800,16 +873,20 @@ impl PythonValueKind {
             (Self::Unknown(existing), Self::Unknown(incoming)) => {
                 existing.merge_origins(&incoming);
             }
-            // Module identity carries no mergeable payload; equal objects stay
-            // equal.
+            // Atomic facts and module identity carry no mergeable payload;
+            // equal values stay equal.
             (Self::Str(_), Self::Str(_))
             | (Self::Bool(_), Self::Bool(_))
             | (Self::Path(_), Self::Path(_))
+            | (Self::PathSymbol(_), Self::PathSymbol(_))
+            | (Self::OtherLiteral, Self::OtherLiteral)
             | (Self::Module(_), Self::Module(_)) => {}
             (
                 Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
+                | Self::PathSymbol(_)
+                | Self::OtherLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
                 | Self::Dict(_)
@@ -1058,6 +1135,7 @@ mod tests {
     use super::StructuralOrd;
     use crate::python::InvalidModuleName;
     use crate::python::PythonModuleName;
+    use crate::python::PythonPathSymbol;
     use crate::python::PythonSyntaxError;
     use crate::python::PythonSyntaxErrorClass;
     use crate::python::module::PythonImportError;
@@ -1089,6 +1167,14 @@ mod tests {
 
     fn path_value(site: Origin, text: &str) -> PythonValue {
         PythonValue::known(PythonValueKind::Path(Utf8PathBuf::from(text)), site)
+    }
+
+    fn path_symbol_value(site: Origin, symbol: PythonPathSymbol) -> PythonValue {
+        PythonValue::known(PythonValueKind::PathSymbol(symbol), site)
+    }
+
+    fn other_literal_value(site: Origin) -> PythonValue {
+        PythonValue::known(PythonValueKind::OtherLiteral, site)
     }
 
     fn module_value(site: Origin, name: &str) -> PythonValue {
@@ -1157,6 +1243,16 @@ mod tests {
             path_value(origin(1), "path"),
             str_value(origin(1), "text"),
             tuple_value(origin(1), Vec::new()),
+            other_literal_value(origin(1)),
+            path_symbol_value(origin(1), PythonPathSymbol::BuiltinsModule),
+            path_symbol_value(origin(1), PythonPathSymbol::BuiltinStr),
+            path_symbol_value(origin(1), PythonPathSymbol::ModuleFile),
+            path_symbol_value(origin(1), PythonPathSymbol::PathlibModule),
+            path_symbol_value(origin(1), PythonPathSymbol::PathlibPath),
+            path_symbol_value(origin(1), PythonPathSymbol::OsModule),
+            path_symbol_value(origin(1), PythonPathSymbol::OsPathModule),
+            path_symbol_value(origin(1), PythonPathSymbol::OsPathJoin),
+            path_symbol_value(origin(1), PythonPathSymbol::OsPathDirname),
             unknown_value(origin(1)),
         ];
         for (index, left) in values.iter().enumerate() {
@@ -1446,6 +1542,93 @@ mod tests {
     }
 
     #[test]
+    fn path_symbols_and_other_literals_have_only_atomic_value_state() {
+        let path_symbol = path_symbol_value(origin(1), PythonPathSymbol::PathlibPath);
+        let other_literal = other_literal_value(origin(2));
+
+        for value in [&path_symbol, &other_literal] {
+            assert!(value.known_scalar().is_none());
+            assert!(value.path_value().is_none());
+            assert!(value.sequence().is_none());
+            assert!(value.mapping().is_none());
+            assert!(value.unknown_value().is_none());
+            assert!(value.own_mutable_sites().is_none());
+            assert!(value.reachable_allocation_sites().is_empty());
+        }
+
+        let mut constructed = list_value(origin(3), Vec::new());
+        constructed.push_constructed_element(path_symbol);
+        constructed.push_constructed_element(other_literal);
+        let PythonValueKind::List(list) = constructed.kind else {
+            panic!("constructed value should remain a list");
+        };
+        assert!(matches!(
+            &list.semantic_items()[0],
+            PythonSequenceItem::Value(PythonValue {
+                kind: PythonValueKind::PathSymbol(PythonPathSymbol::PathlibPath),
+                ..
+            })
+        ));
+        assert!(matches!(
+            &list.semantic_items()[1],
+            PythonSequenceItem::Value(PythonValue {
+                kind: PythonValueKind::OtherLiteral,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn path_symbols_and_other_literals_rebase_constrain_and_merge_evidence() {
+        let join = origin(10);
+        let mut constraints = BranchConstraints::unconstrained();
+        constraints.select(join, 0);
+
+        for mut value in [
+            path_symbol_value(origin(1), PythonPathSymbol::PathlibPath),
+            other_literal_value(origin(1)),
+        ] {
+            value.constrain_value_evidence(&constraints);
+            assert_eq!(
+                value.origins_with_constraints().collect::<Vec<_>>(),
+                [(origin(1), &constraints)]
+            );
+
+            value.rebase_origin(origin(2));
+            let unconstrained = BranchConstraints::unconstrained();
+            assert_eq!(
+                value.origins_with_constraints().collect::<Vec<_>>(),
+                [(origin(2), &unconstrained)]
+            );
+        }
+
+        let mut path_symbol = path_symbol_value(origin(1), PythonPathSymbol::PathlibPath);
+        let same_symbol = path_symbol_value(origin(2), PythonPathSymbol::PathlibPath);
+        let different_symbol = path_symbol_value(origin(3), PythonPathSymbol::OsPathJoin);
+        assert!(path_symbol.same_semantic_value(&same_symbol));
+        assert!(!path_symbol.same_semantic_value(&different_symbol));
+        path_symbol.merge_semantically_equal(same_symbol, None);
+        assert_eq!(
+            path_symbol.origins().collect::<Vec<_>>(),
+            [origin(1), origin(2)]
+        );
+        assert!(matches!(
+            path_symbol.kind,
+            PythonValueKind::PathSymbol(PythonPathSymbol::PathlibPath)
+        ));
+
+        let mut other_literal = other_literal_value(origin(1));
+        let incoming = other_literal_value(origin(2));
+        assert!(other_literal.same_semantic_value(&incoming));
+        other_literal.merge_semantically_equal(incoming, None);
+        assert_eq!(
+            other_literal.origins().collect::<Vec<_>>(),
+            [origin(1), origin(2)]
+        );
+        assert!(matches!(other_literal.kind, PythonValueKind::OtherLiteral));
+    }
+
+    #[test]
     fn lists_and_dicts_own_sites_but_tuples_and_scalars_do_not() {
         assert_eq!(
             site_origins(&list_value(origin(1), Vec::new())),
@@ -1619,15 +1802,17 @@ mod tests {
                 3 => dict_value(origin(1)),
                 4 => bool_value(origin(1), true),
                 5 => path_value(origin(1), "p"),
-                6 => unknown_value(origin(1)),
-                _ => unreachable!("the matrix has seven nominal kinds"),
+                6 => path_symbol_value(origin(1), PythonPathSymbol::PathlibPath),
+                7 => other_literal_value(origin(1)),
+                8 => unknown_value(origin(1)),
+                _ => unreachable!("the matrix has nine nominal kinds"),
             }
         }
 
-        for left_kind in 0..7 {
-            for right_kind in 0..7 {
+        for left_kind in 0..9 {
+            for right_kind in 0..9 {
                 let result = matrix_value(left_kind).add(&matrix_value(right_kind), origin(9));
-                let supported = matches!((left_kind, right_kind), (0, 0 | 6) | (1, 1 | 6) | (2, 2));
+                let supported = matches!((left_kind, right_kind), (0, 0 | 8) | (1, 1 | 8) | (2, 2));
                 assert_eq!(
                     !matches!(result.kind, PythonValueKind::Unknown(_)),
                     supported,
@@ -1693,6 +1878,14 @@ mod tests {
         ));
         assert!(matches!(
             path_value(origin(1), "p").iterable_knowledge(),
+            PythonIterableKnowledge::NotIterable
+        ));
+        assert!(matches!(
+            path_symbol_value(origin(1), PythonPathSymbol::PathlibPath).iterable_knowledge(),
+            PythonIterableKnowledge::NotIterable
+        ));
+        assert!(matches!(
+            other_literal_value(origin(1)).iterable_knowledge(),
             PythonIterableKnowledge::Indeterminate(_)
         ));
         assert!(matches!(
@@ -1735,6 +1928,8 @@ mod tests {
         for value in [
             bool_value(origin(1), true),
             path_value(origin(1), "p"),
+            path_symbol_value(origin(1), PythonPathSymbol::PathlibPath),
+            other_literal_value(origin(1)),
             dict_value(origin(1)),
             unknown_value(origin(1)),
         ] {
@@ -1839,8 +2034,17 @@ mod tests {
         assert_eq!(item_texts(&from_unknown), vec!["str:seed", "unpack"]);
 
         let (ok, from_path) = extend_list(&path_value(origin(3), "p"));
+        assert!(ok.is_none());
+        assert_eq!(item_texts(&from_path), vec!["str:seed"]);
+
+        let (ok, from_path_symbol) =
+            extend_list(&path_symbol_value(origin(3), PythonPathSymbol::PathlibPath));
+        assert!(ok.is_none());
+        assert_eq!(item_texts(&from_path_symbol), vec!["str:seed"]);
+
+        let (ok, from_other_literal) = extend_list(&other_literal_value(origin(3)));
         assert!(ok.is_some());
-        assert_eq!(item_texts(&from_path), vec!["str:seed", "unpack"]);
+        assert_eq!(item_texts(&from_other_literal), vec!["str:seed", "unpack"]);
 
         let (ok, from_bool) = extend_list(&bool_value(origin(3), true));
         assert!(ok.is_none(), "a bool source is definitely not iterable");

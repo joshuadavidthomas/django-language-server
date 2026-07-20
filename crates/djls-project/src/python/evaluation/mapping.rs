@@ -69,6 +69,8 @@ impl PythonDict {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::PathSymbol(_)
+            | PythonValueKind::OtherLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Module(_) => {
@@ -117,7 +119,9 @@ impl PythonDict {
                         selected = Some(&mut entry.value);
                         break;
                     }
-                    PythonValueKind::Str(_) => {}
+                    PythonValueKind::Str(_)
+                    | PythonValueKind::PathSymbol(_)
+                    | PythonValueKind::OtherLiteral => {}
                     PythonValueKind::Unknown(_)
                     | PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
@@ -231,6 +235,8 @@ impl<'a> PythonMapping<'a> {
                     PythonValueKind::Str(_)
                     | PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
+                    | PythonValueKind::PathSymbol(_)
+                    | PythonValueKind::OtherLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
                     | PythonValueKind::Module(_)
@@ -273,6 +279,8 @@ impl<'a> PythonMapping<'a> {
                     }
                     PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
+                    | PythonValueKind::PathSymbol(_)
+                    | PythonValueKind::OtherLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
                     | PythonValueKind::Module(_)
@@ -305,7 +313,9 @@ impl<'a> PythonMapping<'a> {
                     values.push(&entry.value);
                     return values;
                 }
-                PythonValueKind::Str(_) => {}
+                PythonValueKind::Str(_)
+                | PythonValueKind::PathSymbol(_)
+                | PythonValueKind::OtherLiteral => {}
                 PythonValueKind::Unknown(_)
                 | PythonValueKind::Bool(_)
                 | PythonValueKind::Path(_)

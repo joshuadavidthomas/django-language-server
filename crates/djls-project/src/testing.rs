@@ -15,6 +15,7 @@ pub use python_evaluation::PythonModuleObjectIdView;
 pub use python_evaluation::PythonMutationOperationView;
 pub use python_evaluation::PythonMutationPathSegmentView;
 pub use python_evaluation::PythonMutationView;
+pub use python_evaluation::PythonPathSymbolView;
 pub use python_evaluation::PythonSequenceItemView;
 pub use python_evaluation::PythonUnknownCauseView;
 pub use python_evaluation::PythonUnknownView;

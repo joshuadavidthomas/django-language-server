@@ -42,9 +42,7 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
 
     DjangoSettingsSources(
         python_module_dependencies(db, project, module)
-            .files
-            .clone()
-            .into_iter()
+            .files()
             .collect(),
     )
 }
