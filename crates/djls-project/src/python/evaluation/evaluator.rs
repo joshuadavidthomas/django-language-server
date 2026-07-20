@@ -13,6 +13,7 @@ use ruff_python_ast as ast;
 use super::BranchConstraints;
 use super::PythonBinding;
 use super::PythonBindingState;
+use super::PythonImportFallback;
 use super::PythonImportOutcome;
 use super::PythonModuleDependencies;
 use super::PythonModuleObjects;

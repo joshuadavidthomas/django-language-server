@@ -455,6 +455,20 @@ impl PythonValue {
         }
     }
 
+    pub(crate) fn has_origin_feasible_under(
+        &self,
+        wanted: Origin,
+        constraints: &BranchConstraints,
+    ) -> bool {
+        self.origins_with_constraints()
+            .any(|(origin, evidence_constraints)| {
+                origin == wanted
+                    && !evidence_constraints
+                        .intersection(constraints)
+                        .is_impossible()
+            })
+    }
+
     /// Whether `wanted` appears as provenance anywhere in this value's
     /// structure, recursing into nested sequences and dictionaries. Used by
     /// settings to attribute a mutation origin to a value without reaching into

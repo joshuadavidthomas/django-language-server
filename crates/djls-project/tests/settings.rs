@@ -270,8 +270,26 @@ fn namespace_wide_syntax_exclusion_survives_named_and_star_imports() {
         let settings = to_value(django_settings(&db, project)).unwrap();
         let cases = settings["installed_apps"]["cases"].as_array().unwrap();
 
-        assert_eq!(cases.len(), 1, "{root_import}");
-        assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
+        if root_import.contains('*') {
+            assert!(
+                has_case(&settings["installed_apps"], "known"),
+                "{settings:#}"
+            );
+            assert!(
+                has_case(&settings["installed_apps"], "dynamic"),
+                "{settings:#}"
+            );
+            assert!(
+                has_case(&settings["installed_apps"], "unset"),
+                "{settings:#}"
+            );
+            assert!(cases.iter().any(|case| {
+                case.pointer("/known/apps/0/value").and_then(Value::as_str) == Some("base")
+            }));
+        } else {
+            assert_eq!(cases.len(), 1, "{root_import}");
+            assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
+        }
     }
 }
 
@@ -605,6 +623,35 @@ fn conditional_star_binding_falls_back_to_the_pre_import_local_value() {
 
     assert_eq!(known, ["imported", "local"].into_iter().collect());
     assert!(!cases.iter().any(|case| case == "unset"));
+}
+
+#[test]
+fn exact_all_conditional_setting_preserves_local_setting_alternative() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = ['local']\nfrom .plugins import *\n",
+        )
+        .file(
+            "/proj/myproject/plugins.py",
+            "if ENABLED:\n    INSTALLED_APPS = ['imported']\n__all__ = ['INSTALLED_APPS']\n",
+        )
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let known = cases
+        .iter()
+        .filter_map(|case| case.get("known"))
+        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(known, ["imported", "local"].into_iter().collect());
+    assert!(!has_case(&settings["installed_apps"], "dynamic"));
+    assert!(!has_case(&settings["installed_apps"], "unset"));
 }
 
 #[test]

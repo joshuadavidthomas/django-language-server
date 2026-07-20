@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+
 use djls_source::File;
 use djls_source::FileReadError;
 
@@ -7,6 +10,7 @@ use super::Evaluator;
 use super::Origin;
 use super::PythonBinding;
 use super::PythonBindingState;
+use super::PythonImportFallback;
 use super::PythonImportOutcome;
 use super::PythonModuleDependencies;
 use super::PythonModuleObjects;
@@ -15,11 +19,15 @@ use super::PythonNamespaceCause;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
+use super::PythonValueKind;
 use super::ast;
 use crate::python::PythonModuleName;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
 use crate::python::evaluation::PythonModuleObjectId;
+use crate::python::evaluation::PythonSequenceAlternativeRef;
+use crate::python::evaluation::PythonSequenceItem;
+use crate::python::evaluation::StructuralOrd;
 use crate::python::evaluation::query::evaluate_python_module;
 use crate::python::evaluation::result::CycleMembership;
 use crate::python::evaluation::result::PythonModuleEvaluation;
@@ -83,10 +91,20 @@ impl Evaluator<'_> {
         member: &str,
         origin: Origin,
     ) -> PythonBinding {
-        // Compose the loaded-child alternatives with the intrinsic source
-        // fallback and object-scoped open causes. The recursive source query is
-        // only issued when a residual `Unbound` remains, preserving direct
-        // recursive-query legality when a child already covers the read.
+        self.project_loaded_module_member(object, None, member, origin)
+    }
+
+    /// Project a member of a module whose terminal source values may already be
+    /// available from the chain loader. Reusing those values avoids a recursive
+    /// query while the same module is still being applied; expression reads pass
+    /// `None` and use the canonical core query instead.
+    fn project_loaded_module_member(
+        &self,
+        object: &PythonModuleObjectId,
+        values: Option<&PythonModuleValues>,
+        member: &str,
+        origin: Origin,
+    ) -> PythonBinding {
         let mut binding = self
             .state
             .module_objects
@@ -95,7 +113,10 @@ impl Evaluator<'_> {
             .alternatives()
             .any(|state| *state == PythonBindingState::Unbound)
         {
-            let fallback = self.project_intrinsic_source_member(object, member, origin);
+            let fallback = values.map_or_else(
+                || self.project_intrinsic_source_member(object, member, origin),
+                |values| Self::project_source_member(values, member, origin),
+            );
             binding = binding.replace_unbound_with(Some(fallback), origin);
         }
         binding = self
@@ -274,10 +295,8 @@ impl Evaluator<'_> {
         }
     }
 
-    /// Evaluate a `from ... import ...` statement. Star imports retain their
-    /// existing source-values policy. Named imports are selected here, where
-    /// member projection can fall back to an exact package child through the
-    /// same chain loader used by ordinary imports.
+    /// Evaluate a `from ... import ...` statement through the shared chain, then
+    /// apply named or star selection against the loaded terminal object.
     fn evaluate_from_import(&mut self, statement: &ast::StmtImportFrom) {
         let import = FromImport::lower(self, statement);
         let request = PythonImportRequest {
@@ -299,38 +318,25 @@ impl Evaluator<'_> {
                 let load =
                     self.load_import_chain(&name, resolution, import.origin, ChainLoadMode::Full);
                 match load.leaf {
-                    ChainOutcome::Source { object, values } => match &import.selection {
-                        ImportSelection::Star => {
-                            self.state.apply_star_import(&values, import.origin);
-                        }
-                        ImportSelection::Named(_) => {
-                            self.apply_named_from_selection(&import, &name, &object, Some(&values));
-                        }
-                    },
+                    ChainOutcome::Source { object, values } => self.apply_from_selection(
+                        &import,
+                        FromImportSource {
+                            object: &object,
+                            values: Some(&values),
+                        },
+                    ),
                     ChainOutcome::Namespace { object }
                     | ChainOutcome::Cycle { object }
-                    | ChainOutcome::External { object, .. }
-                        if matches!(import.selection, ImportSelection::Named(_)) =>
-                    {
-                        self.apply_named_from_selection(&import, &name, &object, None);
-                    }
-                    ChainOutcome::Namespace { .. } => {
-                        self.state.record_import(PythonImportOutcome::NotFound {
-                            origin: import.origin,
-                            module: name.clone(),
-                        });
-                        self.state
-                            .apply_from_failure(&import, &PythonUnknownCause::ImportNotFound(name));
-                    }
+                    | ChainOutcome::External { object, .. } => self.apply_from_selection(
+                        &import,
+                        FromImportSource {
+                            object: &object,
+                            values: None,
+                        },
+                    ),
                     ChainOutcome::NotFound { module } => self
                         .state
                         .apply_from_failure(&import, &PythonUnknownCause::ImportNotFound(module)),
-                    ChainOutcome::External { module, .. } => self
-                        .state
-                        .apply_from_failure(&import, &PythonUnknownCause::SkippedExternal(module)),
-                    ChainOutcome::Cycle { .. } => self
-                        .state
-                        .apply_from_failure(&import, &PythonUnknownCause::Cycle),
                     ChainOutcome::Unreadable { error, .. } => self
                         .state
                         .apply_from_failure(&import, &PythonUnknownCause::Unreadable(error)),
@@ -339,86 +345,283 @@ impl Evaluator<'_> {
         }
     }
 
-    fn apply_named_from_selection(
-        &mut self,
-        import: &FromImport<'_>,
-        module: &PythonModuleName,
-        object: &PythonModuleObjectId,
-        values: Option<&PythonModuleValues>,
-    ) {
-        let ImportSelection::Named(bindings) = &import.selection else {
-            unreachable!("named selection caller checked the import form")
-        };
-        for imported in bindings {
-            let mut binding =
-                self.project_module_member(object, imported.imported, imported.origin);
-            if binding.import_fallback_constraints().is_some() && object.is_package() {
-                let child_name = PythonModuleName::parse(&format!(
-                    "{}.{}",
-                    object.name().as_str(),
-                    imported.imported
-                ))
-                .expect("an imported identifier extends a valid module name");
-                let request = PythonImportRequest {
-                    level: 0,
-                    module: Some(child_name.as_str()),
-                    importer: &self.module,
-                };
-                let (_resolved_name, resolution) =
-                    PythonModule::resolve_import_chain(self.db, self.project, request)
-                        .expect("an exact child request is a valid absolute import");
-                let child = self.load_import_chain(
-                    &child_name,
-                    resolution,
-                    import.origin,
-                    ChainLoadMode::ChildFallback {
-                        parent: object,
-                        member: &binding,
-                    },
-                );
-                let fallback = match child.leaf {
-                    ChainOutcome::Source { object, .. }
-                    | ChainOutcome::Namespace { object }
-                    | ChainOutcome::Cycle { object }
-                    | ChainOutcome::External { object, .. }
-                        if child.leaf_reached =>
-                    {
-                        Some(PythonBinding::bound(
-                            PythonValue::module(object, imported.origin),
-                            imported.origin,
-                        ))
-                    }
-                    ChainOutcome::Unreadable { error } => Some(PythonBinding::unknown(
-                        &PythonUnknownCause::Unreadable(error),
+    fn apply_from_selection(&mut self, import: &FromImport<'_>, source: FromImportSource<'_>) {
+        match &import.selection {
+            ImportSelection::Star => self.apply_star_from_selection(source, import.origin),
+            ImportSelection::Named(bindings) => {
+                for imported in bindings {
+                    let binding = self.project_import_member(
+                        source,
+                        imported.imported,
                         imported.origin,
-                    )),
-                    ChainOutcome::NotFound { .. }
-                    | ChainOutcome::Source { .. }
-                    | ChainOutcome::Namespace { .. }
-                    | ChainOutcome::Cycle { .. }
-                    | ChainOutcome::External { .. } => None,
-                };
-                if let Some(fallback) = fallback {
-                    binding = binding
-                        .replace_unbound_with(Some(fallback.clone()), imported.origin)
-                        .join_fallback_on_cycle(&fallback, imported.origin);
+                        import.origin,
+                        ImportMemberMode::Named,
+                    );
+                    self.state
+                        .assign_binding(imported.bound, binding, imported.origin);
+                    if let Some(values) = source.values {
+                        self.state.copy_imported_mutations(
+                            values,
+                            imported.imported,
+                            imported.bound,
+                            None,
+                        );
+                    }
                 }
             }
+        }
+    }
 
-            let missing = PythonUnknownCause::MissingImportMember {
-                module: module.clone(),
-                member: imported.imported.to_string(),
+    /// Project one explicitly selected member and apply the existing exact-child
+    /// fallback. The selection mode keeps named and branch-correlated star paths
+    /// coherent instead of passing independent optional constraints.
+    fn project_import_member(
+        &mut self,
+        source: FromImportSource<'_>,
+        member: &str,
+        binding_origin: Origin,
+        import_origin: Origin,
+        mode: ImportMemberMode<'_>,
+    ) -> PythonBinding {
+        let projected =
+            self.project_loaded_module_member(source.object, source.values, member, binding_origin);
+        let (selected, preserved) = match mode {
+            ImportMemberMode::Named => (None, None),
+            ImportMemberMode::Star {
+                selected,
+                preserved,
+            } => (Some(selected), preserved),
+        };
+        let mut binding = selected
+            .map_or(Some(projected.clone()), |constraints| {
+                projected.intersect_constraints(constraints)
+            })
+            .unwrap_or_else(PythonBinding::unbound);
+
+        if source.object.is_package()
+            && let Some(fallback_policy) = PythonImportFallback::new(&binding, preserved)
+        {
+            let child_name =
+                PythonModuleName::parse(&format!("{}.{}", source.object.name().as_str(), member))
+                    .expect("an imported identifier extends a valid module name");
+            let request = PythonImportRequest {
+                level: 0,
+                module: Some(child_name.as_str()),
+                importer: &self.module,
             };
-            binding = binding.replace_unbound_with(
-                Some(PythonBinding::unknown(&missing, imported.origin)),
-                imported.origin,
+            let (_resolved_name, resolution) =
+                PythonModule::resolve_import_chain(self.db, self.project, request)
+                    .expect("an exact child request is a valid absolute import");
+            let child = self.load_import_chain(
+                &child_name,
+                resolution,
+                import_origin,
+                ChainLoadMode::ChildFallback {
+                    parent: source.object,
+                    fallback: &fallback_policy,
+                },
             );
-            self.state
-                .assign_binding(imported.bound, binding, imported.origin);
-            if let Some(values) = values {
-                self.state
-                    .copy_imported_mutations(values, imported.imported, imported.bound);
+            let fallback = match child.leaf {
+                ChainOutcome::Source { object, .. }
+                | ChainOutcome::Namespace { object }
+                | ChainOutcome::Cycle { object }
+                | ChainOutcome::External { object, .. }
+                    if child.leaf_reached =>
+                {
+                    Some(PythonBinding::bound(
+                        PythonValue::module(object, binding_origin),
+                        binding_origin,
+                    ))
+                }
+                ChainOutcome::Unreadable { error } => Some(PythonBinding::unknown(
+                    &PythonUnknownCause::Unreadable(error),
+                    binding_origin,
+                )),
+                ChainOutcome::NotFound { .. }
+                | ChainOutcome::Source { .. }
+                | ChainOutcome::Namespace { .. }
+                | ChainOutcome::Cycle { .. }
+                | ChainOutcome::External { .. } => None,
+            };
+            if let Some(fallback) = fallback {
+                binding = binding
+                    .replace_unbound_with(Some(fallback.clone()), binding_origin)
+                    .join_fallback_on_cycle(&fallback, binding_origin);
             }
+        }
+
+        if matches!(mode, ImportMemberMode::Named) {
+            let missing = PythonUnknownCause::MissingImportMember {
+                module: source.object.name().clone(),
+                member: member.to_string(),
+            };
+            binding.replace_unbound_with(
+                Some(PythonBinding::unknown(&missing, binding_origin)),
+                binding_origin,
+            )
+        } else {
+            binding
+        }
+    }
+
+    fn apply_star_from_selection(&mut self, source: FromImportSource<'_>, import_origin: Origin) {
+        let all = self.project_loaded_module_member(
+            source.object,
+            source.values,
+            "__all__",
+            import_origin,
+        );
+        let alternatives = classify_star_all(&all);
+        let caller_bindings = self.state.bindings.clone();
+        let current_names = source
+            .values
+            .into_iter()
+            .flat_map(|values| values.bindings.keys().map(String::as_str))
+            .chain(self.state.module_objects.child_names(source.object))
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>();
+        let plan = StarSelectionPlan::new(&alternatives, &current_names);
+
+        // Resolve each exact alternative in its own declared order. Child
+        // effects are constrained to that arm while every other alternative
+        // preserves the pre-import object coordinates.
+        let mut exact_bindings = BTreeMap::<String, PythonBinding>::new();
+        for arm in &plan.exact_arms {
+            let preserved = plan.preserved_for_exact(arm);
+            for name in &arm.names {
+                let binding = self.project_import_member(
+                    source,
+                    name,
+                    import_origin,
+                    import_origin,
+                    ImportMemberMode::Star {
+                        selected: &arm.constraints,
+                        preserved: preserved.as_ref(),
+                    },
+                );
+                if let Some(existing) = exact_bindings.get_mut(name) {
+                    *existing = existing.clone().join(binding, import_origin);
+                } else {
+                    exact_bindings.insert(name.clone(), binding);
+                }
+            }
+        }
+
+        for (name, name_paths) in &plan.paths {
+            self.apply_star_name(
+                source,
+                name,
+                name_paths,
+                caller_bindings.get(name),
+                exact_bindings.get(name),
+                import_origin,
+            );
+        }
+
+        // Dynamic alternatives can export additional names that are not in the
+        // current finite namespace. Preserve every caller binding, add the
+        // constrained overwrite possibility, and retain the same rebased cause
+        // as the namespace remainder.
+        for alternative in alternatives {
+            let StarAllAlternative::Dynamic { cause, constraints } = alternative else {
+                continue;
+            };
+            self.state
+                .degrade_all_bindings(&cause, import_origin, &constraints);
+            self.state
+                .namespace_causes
+                .push(PythonNamespaceCause::constrained(
+                    PythonUnknown::new(cause, [import_origin]),
+                    constraints,
+                ));
+        }
+    }
+
+    fn apply_star_name(
+        &mut self,
+        source: FromImportSource<'_>,
+        name: &str,
+        paths: &StarNamePaths,
+        prior: Option<&PythonBinding>,
+        exact: Option<&PythonBinding>,
+        origin: Origin,
+    ) {
+        let caller_had_name = prior.is_some();
+        let prior = prior.cloned().unwrap_or_else(PythonBinding::unbound);
+        let mut joined = None;
+        let mut selected_imported = None;
+        let mut exact_preserves_prior = false;
+        let mut absent_preserves_prior = false;
+        if let Some(exact) = exact {
+            exact_preserves_prior = exact.import_fallback_constraints().is_some();
+            join_star_binding(&mut selected_imported, exact.clone(), origin);
+            let missing = PythonBinding::unknown(
+                &PythonUnknownCause::MissingImportMember {
+                    module: source.object.name().clone(),
+                    member: name.to_string(),
+                },
+                origin,
+            );
+            let fallback = prior
+                .clone()
+                .replace_unbound_with(Some(missing.clone()), origin);
+            let exact = exact
+                .clone()
+                .replace_unbound_with(Some(fallback.clone()), origin)
+                .join_fallback_on_cycle(&fallback, origin);
+            join_star_binding(&mut joined, exact, origin);
+        }
+        if let Some(constraints) = &paths.absent
+            && let Some(projected) = self
+                .project_loaded_module_member(source.object, source.values, name, origin)
+                .intersect_constraints(constraints)
+        {
+            absent_preserves_prior = projected
+                .alternatives()
+                .any(|state| *state == PythonBindingState::Unbound);
+            join_star_binding(&mut selected_imported, projected.clone(), origin);
+            let selected = projected.replace_unbound_with(Some(prior.clone()), origin);
+            join_star_binding(&mut joined, selected, origin);
+        }
+        if let Some(constraints) = &paths.dynamic {
+            if let Some(projected) = self
+                .project_loaded_module_member(source.object, source.values, name, origin)
+                .intersect_constraints(constraints)
+            {
+                join_star_binding(&mut joined, projected, origin);
+            }
+            if let Some(prior) = prior.clone().intersect_constraints(constraints) {
+                join_star_binding(&mut joined, prior, origin);
+            }
+        }
+        if let Some(constraints) = &paths.omitted
+            && let Some(prior) = prior.clone().intersect_constraints(constraints)
+        {
+            join_star_binding(&mut joined, prior, origin);
+        }
+
+        let selected = paths.exact.is_some() || paths.absent.is_some() || paths.dynamic.is_some();
+        if let Some(binding) = joined
+            && (selected || caller_had_name)
+        {
+            self.state.bindings.insert(name.to_string(), binding);
+        }
+
+        let selected_on_some_path = paths.exact.is_some() || paths.absent.is_some();
+        let prior_survives = exact_preserves_prior
+            || absent_preserves_prior
+            || paths.dynamic.is_some()
+            || paths.omitted.is_some();
+        if selected_on_some_path && !prior_survives {
+            self.state
+                .mutations
+                .retain(|mutation| mutation.binding != name);
+        }
+        if let Some(values) = source.values
+            && let Some(selected_imported) = selected_imported.as_ref()
+        {
+            self.state
+                .copy_imported_mutations(values, name, name, Some(selected_imported));
         }
     }
 
@@ -466,7 +669,7 @@ impl Evaluator<'_> {
                         &attribute,
                         &object,
                         origin,
-                        progress.terminal_member(is_last),
+                        progress.terminal_fallback(is_last),
                     );
                     progress.root.get_or_insert_with(|| object.clone());
                     progress.parent = Some(object.clone());
@@ -486,7 +689,7 @@ impl Evaluator<'_> {
                         &object,
                         name,
                         origin,
-                        progress.terminal_member(is_last),
+                        progress.terminal_fallback(is_last),
                     );
                     progress.root.get_or_insert_with(|| object.clone());
                     progress.parent = Some(object.clone());
@@ -552,7 +755,7 @@ impl Evaluator<'_> {
             &object,
             name,
             origin,
-            progress.terminal_member(is_last),
+            progress.terminal_fallback(is_last),
         );
         progress.root.get_or_insert_with(|| object.clone());
         progress.parent = Some(object.clone());
@@ -599,10 +802,13 @@ impl Evaluator<'_> {
                     attribute,
                     &object,
                     origin,
-                    progress.terminal_member(is_last),
+                    progress.terminal_fallback(is_last),
                 );
-                self.state
-                    .open_component_cycle(&object, origin, progress.terminal_member(is_last));
+                self.state.open_component_cycle(
+                    &object,
+                    origin,
+                    progress.terminal_fallback(is_last),
+                );
                 progress.root.get_or_insert_with(|| object.clone());
                 progress.leaf_reached = is_last;
                 progress.terminal = Some(ChainOutcome::Cycle { object });
@@ -614,14 +820,17 @@ impl Evaluator<'_> {
                 true
             }
             SourceComponent::Evaluated(values, objects) => {
-                self.state
-                    .module_objects_merge(objects, origin, progress.terminal_member(is_last));
+                self.state.module_objects_merge(
+                    objects,
+                    origin,
+                    progress.terminal_fallback(is_last),
+                );
                 self.state.attach_component(
                     progress.parent.as_ref(),
                     attribute,
                     &object,
                     origin,
-                    progress.terminal_member(is_last),
+                    progress.terminal_fallback(is_last),
                 );
                 progress.root.get_or_insert_with(|| object.clone());
                 progress.parent = Some(object.clone());
@@ -722,6 +931,250 @@ impl Evaluator<'_> {
     }
 }
 
+#[derive(Clone)]
+enum StarAllAlternative {
+    Exact {
+        names: Vec<String>,
+        constraints: BranchConstraints,
+    },
+    Absent {
+        constraints: BranchConstraints,
+    },
+    Dynamic {
+        cause: PythonUnknownCause,
+        constraints: BranchConstraints,
+    },
+}
+
+impl StarAllAlternative {
+    fn constraints(&self) -> &BranchConstraints {
+        match self {
+            Self::Exact { constraints, .. }
+            | Self::Absent { constraints }
+            | Self::Dynamic { constraints, .. } => constraints,
+        }
+    }
+}
+
+#[derive(Default)]
+struct StarNamePaths {
+    exact: Option<BranchConstraints>,
+    absent: Option<BranchConstraints>,
+    dynamic: Option<BranchConstraints>,
+    omitted: Option<BranchConstraints>,
+}
+
+struct StarExactArm {
+    alternative_index: usize,
+    names: Vec<String>,
+    constraints: BranchConstraints,
+}
+
+struct StarSelectionPlan {
+    exact_arms: Vec<StarExactArm>,
+    paths: BTreeMap<String, StarNamePaths>,
+    alternative_constraints: Vec<BranchConstraints>,
+}
+
+impl StarSelectionPlan {
+    fn new(alternatives: &[StarAllAlternative], current_names: &BTreeSet<String>) -> Self {
+        let mut names = current_names.clone();
+        let mut exact_arms = alternatives
+            .iter()
+            .enumerate()
+            .filter_map(|(alternative_index, alternative)| match alternative {
+                StarAllAlternative::Exact { names, constraints } => Some(StarExactArm {
+                    alternative_index,
+                    names: names.clone(),
+                    constraints: constraints.clone(),
+                }),
+                StarAllAlternative::Absent { .. } | StarAllAlternative::Dynamic { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        exact_arms.sort_by(|left, right| left.constraints.structural_cmp(&right.constraints));
+        for arm in &exact_arms {
+            names.extend(arm.names.iter().cloned());
+        }
+
+        let mut paths = BTreeMap::new();
+        for name in names {
+            let mut name_paths = StarNamePaths::default();
+            for alternative in alternatives {
+                match alternative {
+                    StarAllAlternative::Exact {
+                        names: listed,
+                        constraints,
+                    } if listed.contains(&name) => name_paths.merge_exact(constraints.clone()),
+                    StarAllAlternative::Absent { constraints }
+                        if current_names.contains(&name) && !name.starts_with('_') =>
+                    {
+                        name_paths.merge_absent(constraints.clone());
+                    }
+                    StarAllAlternative::Dynamic { constraints, .. }
+                        if current_names.contains(&name) =>
+                    {
+                        name_paths.merge_dynamic(constraints.clone());
+                    }
+                    StarAllAlternative::Exact { constraints, .. }
+                    | StarAllAlternative::Absent { constraints }
+                    | StarAllAlternative::Dynamic { constraints, .. } => {
+                        name_paths.merge_omitted(constraints.clone());
+                    }
+                }
+            }
+            paths.insert(name, name_paths);
+        }
+        let alternative_constraints = alternatives
+            .iter()
+            .map(StarAllAlternative::constraints)
+            .cloned()
+            .collect();
+        Self {
+            exact_arms,
+            paths,
+            alternative_constraints,
+        }
+    }
+
+    fn preserved_for_exact(&self, exact: &StarExactArm) -> Option<BranchConstraints> {
+        let mut preserved = None;
+        for (index, constraints) in self.alternative_constraints.iter().enumerate() {
+            if index != exact.alternative_index {
+                merge_star_constraints(&mut preserved, constraints.clone());
+            }
+        }
+        preserved
+    }
+}
+
+impl StarNamePaths {
+    fn merge_exact(&mut self, constraints: BranchConstraints) {
+        merge_star_constraints(&mut self.exact, constraints);
+    }
+
+    fn merge_absent(&mut self, constraints: BranchConstraints) {
+        merge_star_constraints(&mut self.absent, constraints);
+    }
+
+    fn merge_dynamic(&mut self, constraints: BranchConstraints) {
+        merge_star_constraints(&mut self.dynamic, constraints);
+    }
+
+    fn merge_omitted(&mut self, constraints: BranchConstraints) {
+        merge_star_constraints(&mut self.omitted, constraints);
+    }
+}
+
+fn merge_star_constraints(merged: &mut Option<BranchConstraints>, constraints: BranchConstraints) {
+    if constraints.is_impossible() {
+        return;
+    }
+    if let Some(merged) = merged {
+        merged.merge(constraints);
+    } else {
+        *merged = Some(constraints);
+    }
+}
+
+fn join_star_binding(joined: &mut Option<PythonBinding>, binding: PythonBinding, origin: Origin) {
+    *joined = Some(match joined.take() {
+        Some(current) => current.join(binding, origin),
+        None => binding,
+    });
+}
+
+fn classify_star_all(binding: &PythonBinding) -> Vec<StarAllAlternative> {
+    let mut alternatives = Vec::new();
+    for (state, binding_constraints) in binding.alternatives_with_constraints() {
+        match state {
+            PythonBindingState::Unbound => {
+                alternatives.push(StarAllAlternative::Absent {
+                    constraints: binding_constraints.clone(),
+                });
+            }
+            PythonBindingState::Bound(bound) => {
+                let Some(sequence) = bound
+                    .value
+                    .sequence()
+                    .and_then(super::super::sequence::PythonSequence::materialized)
+                else {
+                    alternatives.push(StarAllAlternative::Dynamic {
+                        cause: bound
+                            .value
+                            .unknown_value()
+                            .map_or(PythonUnknownCause::UnsupportedExpression, |unknown| {
+                                unknown.cause.clone()
+                            }),
+                        constraints: binding_constraints.clone(),
+                    });
+                    continue;
+                };
+                for alternative in sequence.alternatives() {
+                    match alternative {
+                        PythonSequenceAlternativeRef::Exact { items, constraints } => {
+                            let constraints = binding_constraints.intersection(constraints);
+                            if constraints.is_impossible() {
+                                continue;
+                            }
+                            let mut names = Vec::new();
+                            let mut dynamic = None;
+                            for item in items {
+                                match item {
+                                    PythonSequenceItem::Value(PythonValue {
+                                        kind: PythonValueKind::Str(name),
+                                        ..
+                                    }) => {
+                                        if !names.iter().any(|existing| existing == name) {
+                                            names.push(name.clone());
+                                        }
+                                    }
+                                    PythonSequenceItem::UnknownElement(unknown)
+                                    | PythonSequenceItem::UnknownUnpack(unknown) => {
+                                        dynamic = Some(unknown.cause.clone());
+                                        break;
+                                    }
+                                    PythonSequenceItem::Value(_) => {
+                                        dynamic = Some(PythonUnknownCause::UnsupportedExpression);
+                                        break;
+                                    }
+                                }
+                            }
+                            alternatives.push(match dynamic {
+                                Some(cause) => StarAllAlternative::Dynamic { cause, constraints },
+                                None => StarAllAlternative::Exact { names, constraints },
+                            });
+                        }
+                        PythonSequenceAlternativeRef::Remainder { constraints, .. } => {
+                            let constraints = binding_constraints.intersection(constraints);
+                            if !constraints.is_impossible() {
+                                alternatives.push(StarAllAlternative::Dynamic {
+                                    cause: PythonUnknownCause::AlternativeLimitExceeded,
+                                    constraints,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let dynamic_constraints = alternatives
+        .iter()
+        .filter_map(|alternative| match alternative {
+            StarAllAlternative::Dynamic { constraints, .. } => Some(constraints.clone()),
+            StarAllAlternative::Exact { .. } | StarAllAlternative::Absent { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    alternatives.retain(|alternative| match alternative {
+        StarAllAlternative::Absent { constraints } => !dynamic_constraints
+            .iter()
+            .any(|dynamic| dynamic == constraints),
+        StarAllAlternative::Exact { .. } | StarAllAlternative::Dynamic { .. } => true,
+    });
+    alternatives
+}
+
 /// The child attribute name and nominal object identity of a chain component.
 fn component_object(component: &ResolvedChainComponent) -> PythonModuleObjectId {
     match component {
@@ -817,7 +1270,7 @@ enum ChainLoadMode<'a> {
     Full,
     ChildFallback {
         parent: &'a PythonModuleObjectId,
-        member: &'a PythonBinding,
+        fallback: &'a PythonImportFallback,
     },
 }
 
@@ -826,7 +1279,7 @@ struct ChainLoadProgress {
     root: Option<PythonModuleObjectId>,
     parent: Option<PythonModuleObjectId>,
     terminal: Option<ChainOutcome>,
-    terminal_member: Option<PythonBinding>,
+    terminal_fallback: Option<PythonImportFallback>,
     leaf_reached: bool,
     external: bool,
     external_outcome_recorded: bool,
@@ -834,7 +1287,7 @@ struct ChainLoadProgress {
 
 impl ChainLoadProgress {
     fn start(components: &mut Vec<ResolvedChainComponent>, mode: ChainLoadMode<'_>) -> Self {
-        let ChainLoadMode::ChildFallback { parent, member } = mode else {
+        let ChainLoadMode::ChildFallback { parent, fallback } = mode else {
             return Self::default();
         };
         let root = components.first().map(component_object);
@@ -846,7 +1299,7 @@ impl ChainLoadProgress {
         Self {
             root,
             parent: Some(parent.clone()),
-            terminal_member: Some(member.clone()),
+            terminal_fallback: Some(fallback.clone()),
             external: matches!(
                 parent,
                 PythonModuleObjectId::Source(module) if !module.search_path().is_project_code()
@@ -855,12 +1308,8 @@ impl ChainLoadProgress {
         }
     }
 
-    fn terminal_member(&self, is_last: bool) -> Option<&PythonBinding> {
-        if is_last {
-            self.terminal_member.as_ref()
-        } else {
-            None
-        }
+    fn terminal_fallback(&self, is_last: bool) -> Option<&PythonImportFallback> {
+        is_last.then_some(self.terminal_fallback.as_ref()).flatten()
     }
 }
 
@@ -874,6 +1323,21 @@ struct ChainLoad {
     /// the requested leaf, so an aliased import that targets the leaf must bind a
     /// typed unknown rather than the intermediate handle.
     leaf_reached: bool,
+}
+
+#[derive(Clone, Copy)]
+struct FromImportSource<'a> {
+    object: &'a PythonModuleObjectId,
+    values: Option<&'a PythonModuleValues>,
+}
+
+#[derive(Clone, Copy)]
+enum ImportMemberMode<'a> {
+    Named,
+    Star {
+        selected: &'a BranchConstraints,
+        preserved: Option<&'a BranchConstraints>,
+    },
 }
 
 struct FromImport<'ast> {
@@ -948,15 +1412,15 @@ impl EvaluationState {
         attribute: &str,
         object: &PythonModuleObjectId,
         origin: Origin,
-        terminal_member: Option<&PythonBinding>,
+        fallback: Option<&PythonImportFallback>,
     ) {
         if let Some(parent) = parent {
-            if let Some(member) = terminal_member {
+            if let Some(fallback) = fallback {
                 self.module_objects.attach_child_for_import_fallback(
                     parent.clone(),
                     attribute.to_string(),
                     object,
-                    member,
+                    fallback,
                     origin,
                 );
             } else {
@@ -980,16 +1444,15 @@ impl EvaluationState {
         object: &PythonModuleObjectId,
         module: &PythonModuleName,
         origin: Origin,
-        terminal_member: Option<&PythonBinding>,
+        fallback: Option<&PythonImportFallback>,
     ) {
-        self.attach_component(parent, attribute, object, origin, terminal_member);
+        self.attach_component(parent, attribute, object, origin, fallback);
         let unknown = PythonUnknown::new(
             PythonUnknownCause::SkippedExternal(module.clone()),
             [origin],
         );
-        if let Some(cause) = Self::object_cause(unknown, terminal_member) {
-            self.module_objects.open_cause(object.clone(), cause);
-        }
+        let cause = Self::object_cause(unknown, fallback);
+        self.module_objects.open_cause(object.clone(), cause);
     }
 
     /// Mark a cycle-seed component's object open with a `Cycle` cause so reads of
@@ -998,38 +1461,37 @@ impl EvaluationState {
         &mut self,
         object: &PythonModuleObjectId,
         origin: Origin,
-        terminal_member: Option<&PythonBinding>,
+        fallback: Option<&PythonImportFallback>,
     ) {
         let unknown = PythonUnknown::new(PythonUnknownCause::Cycle, [origin]);
-        if let Some(cause) = Self::object_cause(unknown, terminal_member) {
-            self.module_objects.open_cause(object.clone(), cause);
-        }
+        let cause = Self::object_cause(unknown, fallback);
+        self.module_objects.open_cause(object.clone(), cause);
     }
 
     fn object_cause(
         unknown: PythonUnknown,
-        terminal_member: Option<&PythonBinding>,
-    ) -> Option<PythonNamespaceCause> {
-        match terminal_member {
-            Some(member) => member
-                .import_fallback_constraints()
-                .map(|constraints| PythonNamespaceCause::constrained(unknown, constraints)),
-            None => Some(PythonNamespaceCause::unconstrained(unknown)),
+        fallback: Option<&PythonImportFallback>,
+    ) -> PythonNamespaceCause {
+        match fallback {
+            Some(fallback) => {
+                PythonNamespaceCause::constrained(unknown, fallback.constraints().clone())
+            }
+            None => PythonNamespaceCause::unconstrained(unknown),
         }
     }
 
     /// Merge a loaded component's own child effects into this importer's object
-    /// state in source order, restricting a fallback module to the branches
-    /// where member projection remained absent.
+    /// state in source order, restricting a fallback module to its selected
+    /// branch paths while preserving all paths carried by the fallback value.
     fn module_objects_merge(
         &mut self,
         objects: PythonModuleObjects,
         origin: Origin,
-        terminal_member: Option<&PythonBinding>,
+        fallback: Option<&PythonImportFallback>,
     ) {
-        if let Some(member) = terminal_member {
+        if let Some(fallback) = fallback {
             self.module_objects
-                .merge_for_import_fallback(objects, member, origin);
+                .merge_for_import_fallback(objects, fallback, origin);
         } else {
             self.module_objects.merge(objects, origin);
         }
@@ -1060,68 +1522,22 @@ impl EvaluationState {
         }
     }
 
-    fn apply_star_import(&mut self, values: &PythonModuleValues, import_origin: Origin) {
-        if let Some(remainder) = &values.namespace_remainder {
-            for cause in remainder.as_slice() {
-                self.degrade_all_bindings(&cause.unknown.cause, import_origin, &cause.constraints);
-            }
-        }
-        for (name, binding) in &values.bindings {
-            let prior = self.bindings.get(name).cloned();
-            let mut binding = binding.clone();
-            binding.rebase_cycle_unknowns(import_origin);
-            self.bindings.insert(
-                name.clone(),
-                binding.replace_unbound_with(prior, import_origin),
-            );
-        }
-        let mut namespace_errors = Vec::new();
-        for impact in &values.syntax_impacts {
-            let affected = self
-                .bindings
-                .keys()
-                .filter(|name| impact.affects(name))
-                .cloned()
-                .collect::<Vec<_>>();
-            if !affected.is_empty() {
-                self.degrade_names(
-                    affected,
-                    &PythonUnknownCause::SyntaxErrors(vec![impact.error.clone()]),
-                    import_origin,
-                );
-            }
-            if impact.namespace_open {
-                namespace_errors.push(impact.error.clone());
-            }
-        }
-        if !namespace_errors.is_empty() {
-            self.namespace_causes
-                .push(PythonNamespaceCause::unconstrained(PythonUnknown::new(
-                    PythonUnknownCause::SyntaxErrors(namespace_errors),
-                    [import_origin],
-                )));
-        }
-        self.mutations.extend(values.mutations.iter().cloned());
-        if let Some(remainder) = &values.namespace_remainder {
-            self.namespace_causes
-                .extend(remainder.as_slice().iter().cloned().map(|mut cause| {
-                    cause.unknown.replace_origins([import_origin]);
-                    cause
-                }));
-        }
-    }
-
     fn copy_imported_mutations(
         &mut self,
         values: &PythonModuleValues,
         imported_name: &str,
         bound_name: &str,
+        selected: Option<&PythonBinding>,
     ) {
         self.mutations.extend(
             values
                 .mutations
                 .iter()
-                .filter(|mutation| mutation.binding == imported_name)
+                .filter(|mutation| {
+                    mutation.binding == imported_name
+                        && selected
+                            .is_none_or(|binding| binding.contains_feasible_origin(mutation.origin))
+                })
                 .cloned()
                 .map(|mut mutation| {
                     mutation.binding = bound_name.to_string();

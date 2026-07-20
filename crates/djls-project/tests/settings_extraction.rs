@@ -1133,6 +1133,36 @@ fn import_module_names(evaluation: &PythonModuleEvaluationView) -> Vec<String> {
         .collect()
 }
 
+fn binding_strings<'a>(
+    evaluation: &'a PythonModuleEvaluationView,
+    name: &str,
+) -> BTreeSet<&'a str> {
+    evaluation
+        .binding(name)
+        .into_iter()
+        .flat_map(|binding| &binding.alternatives)
+        .filter_map(|alternative| match alternative {
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value:
+                    PythonValueView {
+                        kind: PythonValueKindView::Str(value),
+                        ..
+                    },
+                ..
+            }) => Some(value.as_str()),
+            PythonBindingAlternativeView::Bound(_) | PythonBindingAlternativeView::Unbound => None,
+        })
+        .collect()
+}
+
+fn binding_has_unbound(evaluation: &PythonModuleEvaluationView, name: &str) -> bool {
+    evaluation.binding(name).is_some_and(|binding| {
+        binding
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound)
+    })
+}
+
 #[test]
 fn ordinary_import_binds_typed_not_found_in_source_order() {
     // Replaces the pre-Phase-3 control: unresolved ordinary imports now bind
@@ -1943,6 +1973,664 @@ fn from_dotted_import_star_records_parent_effects_and_binds_members() {
     assert!(matches!(&child.value.kind, PythonValueKindView::Str(text) if text == "child"));
     // The parent's own name is not pulled in by a star import of the leaf.
     assert!(evaluation.binding("PARENT").is_none());
+}
+
+#[test]
+fn star_import_without_all_selects_only_intrinsic_public_names_and_never_scans_children() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/pkg/__init__.py",
+                "PUBLIC = 'public'\n_PRIVATE = 'private'\n",
+            ),
+            ("/project/pkg/child.py", "VALUE = 'child'\n"),
+        ],
+        "PUBLIC = 'stale public'\n_PRIVATE = 'stale private'\nfrom pkg import *\nimport pkg\nCHILD = pkg.child\n",
+    );
+
+    assert_eq!(
+        binding_strings(&evaluation, "PUBLIC"),
+        ["public"].into_iter().collect()
+    );
+    assert_eq!(
+        binding_strings(&evaluation, "_PRIVATE"),
+        ["stale private"].into_iter().collect()
+    );
+    assert!(matches!(
+        &bound_value(&evaluation, "CHILD").value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ModuleAttribute { module, member }
+                if module.as_str() == "pkg" && member == "child")
+    ));
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg"]
+    );
+}
+
+#[test]
+fn exact_all_selects_private_names_in_order_dedupes_and_loads_listed_children() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/pkg/__init__.py",
+                "__all__ = ['_PRIVATE', 'second', 'first', 'second']\n_PRIVATE = 'private'\nUNLISTED = 'hidden'\n",
+            ),
+            ("/project/pkg/first.py", "VALUE = 'first'\n"),
+            (
+                "/project/pkg/second/__init__.py",
+                "VALUE = 'second package'\n",
+            ),
+            ("/project/pkg/unlisted.py", "VALUE = 'unlisted'\n"),
+        ],
+        "from pkg import *\n",
+    );
+
+    assert_eq!(
+        binding_strings(&evaluation, "_PRIVATE"),
+        ["private"].into_iter().collect()
+    );
+    assert_eq!(
+        bound_module(&evaluation, "second"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.second").unwrap())
+    );
+    assert_eq!(
+        bound_module(&evaluation, "first"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.first").unwrap())
+    );
+    assert!(evaluation.binding("UNLISTED").is_none());
+    assert!(evaluation.binding("unlisted").is_none());
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.second", "resolved:pkg.first"]
+    );
+}
+
+#[test]
+fn exact_tuple_all_selects_only_its_named_member() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[(
+            "/project/plugin.py",
+            "__all__ = ('SELECTED',)\nSELECTED = 'selected'\nOMITTED = 'omitted'\n",
+        )],
+        "from plugin import *\n",
+    );
+
+    assert_eq!(
+        binding_strings(&evaluation, "SELECTED"),
+        ["selected"].into_iter().collect()
+    );
+    assert!(evaluation.binding("OMITTED").is_none());
+}
+
+#[test]
+fn exact_all_branch_alternatives_keep_common_exports_exact_and_omitted_stale_values() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[(
+            "/project/plugin.py",
+            "COMMON = 'imported common'\nLEFT = 'imported left'\nRIGHT = 'imported right'\nif FLAG:\n    __all__ = ['COMMON', 'LEFT']\nelse:\n    __all__ = ['COMMON', 'RIGHT']\n",
+        )],
+        "COMMON = 'stale common'\nLEFT = 'stale left'\nRIGHT = 'stale right'\nUNLISTED = 'stale unlisted'\nfrom plugin import *\n",
+    );
+
+    assert_eq!(
+        binding_strings(&evaluation, "COMMON"),
+        ["imported common"].into_iter().collect()
+    );
+    assert_eq!(
+        binding_strings(&evaluation, "LEFT"),
+        ["imported left", "stale left"].into_iter().collect()
+    );
+    assert_eq!(
+        binding_strings(&evaluation, "RIGHT"),
+        ["imported right", "stale right"].into_iter().collect()
+    );
+    assert_eq!(
+        binding_strings(&evaluation, "UNLISTED"),
+        ["stale unlisted"].into_iter().collect()
+    );
+    assert!(!binding_has_unbound(&evaluation, "COMMON"));
+}
+
+#[test]
+fn exact_all_conditional_member_preserves_prior_binding_and_mutation_path() {
+    let plugin = "if FLAG:\n    VALUE = []\n    VALUE.append('imported')\n__all__ = ['VALUE']\n";
+    let source = "VALUE = []\nVALUE.append('local')\nfrom plugin import *\n";
+    let (file, evaluation) = evaluate_module_with(&[("/project/plugin.py", plugin)], source);
+
+    let binding = evaluation.binding("VALUE").unwrap();
+    assert!(
+        binding.alternatives.iter().all(|alternative| matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::List(_),
+                    ..
+                },
+                ..
+            })
+        )),
+        "exact selection must use the caller value when the imported member is unbound: {binding:#?}",
+    );
+    assert_eq!(evaluation.mutations.len(), 2, "{evaluation:#?}");
+    assert!(evaluation.mutations.iter().any(|mutation| {
+        mutation.origin.file == file
+            && mutation.origin.span == expected_span(source, "VALUE.append('local')")
+    }));
+    assert!(evaluation.mutations.iter().any(|mutation| {
+        mutation.origin.file != file
+            && mutation.origin.span == expected_span(plugin, "VALUE.append('imported')")
+    }));
+}
+
+#[test]
+fn conditional_exact_and_absent_all_keep_selection_and_mutations_correlated() {
+    let plugin = "VALUE = []\nVALUE.append('imported')\nif FLAG:\n    __all__ = []\n";
+    let source = "VALUE = []\nVALUE.append('local')\nfrom plugin import *\n";
+    let (file, evaluation) = evaluate_module_with(&[("/project/plugin.py", plugin)], source);
+
+    let binding = evaluation.binding("VALUE").unwrap();
+    assert_eq!(
+        binding
+            .alternatives
+            .iter()
+            .filter(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::List(_),
+                        ..
+                    },
+                    ..
+                })
+            ))
+            .count(),
+        2,
+        "the absent path imports VALUE while the exact-empty path preserves the caller: {binding:#?}",
+    );
+    assert_eq!(evaluation.mutations.len(), 2, "{evaluation:#?}");
+    assert!(evaluation.mutations.iter().any(|mutation| {
+        mutation.origin.file == file
+            && mutation.origin.span == expected_span(source, "VALUE.append('local')")
+    }));
+    assert!(evaluation.mutations.iter().any(|mutation| {
+        mutation.origin.file != file
+            && mutation.origin.span == expected_span(plugin, "VALUE.append('imported')")
+    }));
+}
+
+#[test]
+fn exact_all_cycle_member_preserves_caller_binding_and_mutation_path() {
+    let source = "VALUE = []\nVALUE.append('local')\nfrom a import *\n";
+    let (file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/a.py",
+                "from b import VALUE\n__all__ = ['VALUE']\n",
+            ),
+            ("/project/b.py", "from a import VALUE\n"),
+        ],
+        source,
+    );
+
+    let binding = evaluation.binding("VALUE").unwrap();
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::List(_),
+                ..
+            },
+            ..
+        })
+    )));
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if unknown.cause == PythonUnknownCauseView::Cycle
+    )));
+    assert!(evaluation.mutations.iter().any(|mutation| {
+        mutation.origin.file == file
+            && mutation.origin.span == expected_span(source, "VALUE.append('local')")
+    }));
+}
+
+#[test]
+fn exact_all_copies_only_mutations_from_selected_branch_paths() {
+    let plugin = "if FLAG:\n    VALUE = []\n    VALUE.append('same')\n    __all__ = ['VALUE']\nelse:\n    VALUE = []\n    VALUE.append('same')\n    __all__ = []\n";
+    let (_file, evaluation) =
+        evaluate_module_with(&[("/project/plugin.py", plugin)], "from plugin import *\n");
+
+    assert_eq!(evaluation.mutations.len(), 1, "{evaluation:#?}");
+    assert_eq!(
+        evaluation.mutations[0].origin.span,
+        expected_span(plugin, "VALUE.append('same')"),
+    );
+}
+
+#[test]
+fn exact_all_branch_child_effects_follow_arm_and_list_source_order() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/pkg/__init__.py",
+                "if FLAG:\n    __all__ = ['z_child', 'm_child']\nelse:\n    __all__ = ['a_child']\n",
+            ),
+            ("/project/pkg/z_child.py", ""),
+            ("/project/pkg/m_child.py", ""),
+            ("/project/pkg/a_child.py", ""),
+        ],
+        "from pkg import *\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        [
+            "resolved:pkg",
+            "resolved:pkg.z_child",
+            "resolved:pkg.m_child",
+            "resolved:pkg.a_child",
+        ]
+    );
+}
+
+#[test]
+fn exact_all_opposite_branch_orders_load_once_in_deterministic_arm_order() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/pkg/__init__.py",
+                "if FLAG:\n    __all__ = ['z_child', 'a_child']\nelse:\n    __all__ = ['a_child', 'z_child']\n",
+            ),
+            ("/project/pkg/z_child.py", ""),
+            ("/project/pkg/a_child.py", ""),
+        ],
+        "from pkg import *\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        [
+            "resolved:pkg",
+            "resolved:pkg.z_child",
+            "resolved:pkg.a_child"
+        ],
+    );
+}
+
+#[test]
+fn exact_all_attaches_selected_child_and_its_effects_only_on_selected_paths() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/pkg/__init__.py",
+                "if FLAG:\n    __all__ = ['child']\nelse:\n    __all__ = []\n",
+            ),
+            ("/project/pkg/child.py", "import pkg.side\n"),
+            ("/project/pkg/side.py", ""),
+        ],
+        "from pkg import *\nimport pkg\nCHILD = pkg.child\nSIDE = pkg.side\n",
+    );
+
+    for (name, module) in [
+        ("child", "pkg.child"),
+        ("CHILD", "pkg.child"),
+        ("SIDE", "pkg.side"),
+    ] {
+        let binding = evaluation
+            .binding(name)
+            .expect("selected path should be represented");
+        assert!(
+            binding.alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(found)),
+                        ..
+                    },
+                    ..
+                }) if found.as_str() == module
+            )),
+            "{name}: {binding:#?}"
+        );
+    }
+    assert!(binding_has_unbound(&evaluation, "child"));
+    for name in ["CHILD", "SIDE"] {
+        assert!(
+            evaluation
+                .binding(name)
+                .unwrap()
+                .alternatives
+                .iter()
+                .any(|alternative| matches!(
+                    alternative,
+                    PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                        value: PythonValueView { kind: PythonValueKindView::Unknown(unknown), .. },
+                        ..
+                    }) if matches!(unknown.cause, PythonUnknownCauseView::ModuleAttribute { .. })
+                )),
+            "{name} should preserve the omitted-path coordinate"
+        );
+    }
+}
+
+#[test]
+fn selected_and_dynamic_star_paths_preserve_an_existing_child_coordinate() {
+    for all in [
+        "if FLAG:\n    __all__ = ['child']\nelse:\n    __all__ = []\n",
+        "__all__ = NAMES\n",
+    ] {
+        let (_file, evaluation) = evaluate_module_with(
+            &[
+                ("/project/pkg/__init__.py", all),
+                ("/project/pkg/child.py", ""),
+            ],
+            "import pkg.child\nfrom pkg import *\nATTR = pkg.child\n",
+        );
+
+        let attr = evaluation
+            .binding("ATTR")
+            .expect("ATTR should be represented");
+        assert!(
+            attr.alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                        ..
+                    },
+                    ..
+                }) if module.as_str() == "pkg.child"
+            )),
+            "{all}: {evaluation:#?}"
+        );
+        assert!(
+            attr.alternatives.iter().all(|alternative| !matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(unknown),
+                        ..
+                    },
+                    ..
+                }) if matches!(unknown.cause, PythonUnknownCauseView::ModuleAttribute { .. })
+            )),
+            "the pre-existing child coordinate must survive: {all}: {evaluation:#?}"
+        );
+    }
+}
+
+#[test]
+fn dynamic_all_shapes_preserve_imported_and_prior_possibilities_and_open_namespace() {
+    for all in [
+        "['VALUE', dynamic()]",
+        "['VALUE', *EXTRA]",
+        "'VALUE'",
+        "True",
+    ] {
+        let source = "VALUE = 'local'\nfrom plugin import *\n";
+        let plugin = format!("VALUE = 'imported'\n__all__ = {all}\n");
+        let (file, evaluation) =
+            evaluate_module_with(&[("/project/plugin.py", plugin.as_str())], source);
+
+        assert_eq!(
+            binding_strings(&evaluation, "VALUE"),
+            ["imported", "local"].into_iter().collect(),
+            "{all}: {evaluation:#?}"
+        );
+        assert!(
+            evaluation
+                .binding("VALUE")
+                .unwrap()
+                .alternatives
+                .iter()
+                .any(|alternative| matches!(
+                    alternative,
+                    PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                        value: PythonValueView {
+                            kind: PythonValueKindView::Unknown(_),
+                            ..
+                        },
+                        ..
+                    })
+                )),
+            "{all}: dynamic selection must not guarantee an exact export"
+        );
+        assert!(
+            matches!(
+                evaluation.namespace_unknowns.as_slice(),
+                [unknown]
+                    if unknown.cause == PythonUnknownCauseView::UnsupportedExpression
+                        && unknown.origins.as_slice() == [Origin::new(
+                            file,
+                            expected_span(source, "from plugin import *"),
+                        )]
+            ),
+            "{all}: {evaluation:#?}"
+        );
+    }
+}
+
+#[test]
+fn attached_all_member_is_classified_through_the_shared_projection() {
+    let source = "PUBLIC = 'prior'\nimport pkg.__all__\nfrom pkg import *\n";
+    let (file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "PUBLIC = 'imported'\n"),
+            ("/project/pkg/__all__.py", ""),
+        ],
+        source,
+    );
+
+    assert_eq!(
+        binding_strings(&evaluation, "PUBLIC"),
+        ["imported", "prior"].into_iter().collect(),
+    );
+    let public = evaluation.binding("PUBLIC").unwrap();
+    assert!(public.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression)
+    )));
+    assert!(matches!(
+        evaluation.namespace_unknowns.as_slice(),
+        [unknown]
+            if matches!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression)
+                && unknown.origins.as_slice()
+                    == [Origin::new(file, expected_span(source, "from pkg import *"))]
+    ));
+}
+
+#[test]
+fn dynamic_all_does_not_scan_a_listable_package_child() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "__all__ = NAMES\n"),
+            ("/project/pkg/child.py", "VALUE = 'child'\n"),
+        ],
+        "from pkg import *\nimport pkg\nCHILD = pkg.child\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg"]
+    );
+    assert!(matches!(
+        &bound_value(&evaluation, "CHILD").value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(unknown.cause, PythonUnknownCauseView::ModuleAttribute { .. })
+    ));
+    assert!(evaluation.namespace_open());
+}
+
+#[test]
+fn exact_all_closes_an_otherwise_open_source_namespace() {
+    let source = "VALUE = 'local'\nfrom plugin import *\n";
+    let (_file, evaluation) = evaluate_module_with(
+        &[(
+            "/project/plugin.py",
+            "VALUE = 'imported'\nfrom missing import *\n__all__ = ['VALUE']\n",
+        )],
+        source,
+    );
+
+    assert_eq!(
+        binding_strings(&evaluation, "VALUE"),
+        ["imported"].into_iter().collect()
+    );
+    assert!(!evaluation.namespace_open(), "{evaluation:#?}");
+    assert!(!binding_has_unbound(&evaluation, "VALUE"));
+}
+
+#[test]
+fn syntax_uncertainty_in_all_is_dynamic_and_rebased_to_the_star_site() {
+    let source = "VALUE = 'local'\nfrom plugin import *\n";
+    let (file, evaluation) = evaluate_module_with(
+        &[(
+            "/project/plugin.py",
+            "VALUE = 'imported'\n__all__ = [\n    'VALUE',\n    @\n]\n",
+        )],
+        source,
+    );
+
+    assert!(binding_strings(&evaluation, "VALUE").contains("local"));
+    assert!(
+        evaluation.namespace_unknowns.iter().any(|unknown| {
+            matches!(unknown.cause, PythonUnknownCauseView::SyntaxErrors(_))
+                && unknown.origins.as_slice()
+                    == [Origin::new(
+                        file,
+                        expected_span(source, "from plugin import *"),
+                    )]
+        }),
+        "{evaluation:#?}"
+    );
+}
+
+#[test]
+fn cycle_uncertainty_in_all_preserves_stale_bindings_and_opens_the_namespace() {
+    let source = "VALUE = 'local'\nfrom a import *\n";
+    let (db, project, _) = extract_project(
+        source,
+        &[
+            (
+                "a",
+                "VALUE = 'imported'\n__all__ = ['VALUE']\nfrom b import *\n",
+            ),
+            ("b", "from a import *\n"),
+        ],
+    );
+    let file = settings_module_file(&db, project).unwrap();
+    let evaluation = python_module_evaluation(&db, project, file);
+
+    assert_eq!(
+        binding_strings(&evaluation, "VALUE"),
+        ["local"].into_iter().collect()
+    );
+    assert!(
+        evaluation.namespace_unknowns.iter().any(|unknown| {
+            unknown.cause == PythonUnknownCauseView::Cycle
+                && unknown.origins.as_slice()
+                    == [Origin::new(file, expected_span(source, "from a import *"))]
+        }),
+        "{evaluation:#?}"
+    );
+}
+
+#[test]
+fn unreadable_star_source_preserves_stale_bindings_and_opens_the_namespace() {
+    let source = "VALUE = 'local'\nfrom unreadable import *\n";
+    let (_db, file, evaluation) = evaluate_unreadable_module(
+        &[("/project/unreadable.py", "VALUE = 'hidden'\n")],
+        "/project/unreadable.py",
+        source,
+    );
+
+    assert_eq!(
+        binding_strings(&evaluation, "VALUE"),
+        ["local"].into_iter().collect()
+    );
+    assert!(
+        evaluation
+            .binding("VALUE")
+            .unwrap()
+            .alternatives
+            .iter()
+            .any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView {
+                        kind: PythonValueKindView::Unknown(unknown),
+                        ..
+                    },
+                    ..
+                }) if matches!(unknown.cause, PythonUnknownCauseView::Unreadable(_))
+                    && unknown.origins.as_slice()
+                        == [Origin::new(file, expected_span(source, "from unreadable import *"))]
+            ))
+    );
+    assert!(matches!(
+        evaluation.namespace_unknowns.as_slice(),
+        [unknown] if matches!(unknown.cause, PythonUnknownCauseView::Unreadable(_))
+    ));
+}
+
+#[test]
+fn star_import_copies_mutations_only_for_exact_or_absent_selected_names() {
+    let (_file, exact) = evaluate_module_with(
+        &[(
+            "/project/plugin.py",
+            "SELECTED = []\nSELECTED.append('selected')\nOMITTED = []\nOMITTED.append('omitted')\n__all__ = ['SELECTED']\n",
+        )],
+        "from plugin import *\n",
+    );
+    assert_eq!(
+        exact
+            .mutations
+            .iter()
+            .map(|mutation| mutation.binding.as_str())
+            .collect::<Vec<_>>(),
+        ["SELECTED"]
+    );
+
+    let (caller_file, absent) = evaluate_module_with(
+        &[(
+            "/project/plugin.py",
+            "PUBLIC = []\nPUBLIC.append('public')\n_PRIVATE = []\n_PRIVATE.append('private')\n",
+        )],
+        "PUBLIC = []\nPUBLIC.append('caller')\nfrom plugin import *\n",
+    );
+    assert_eq!(
+        absent
+            .mutations
+            .iter()
+            .map(|mutation| mutation.binding.as_str())
+            .collect::<Vec<_>>(),
+        ["PUBLIC"]
+    );
+    assert_ne!(
+        absent.mutations[0].origin.file, caller_file,
+        "definite absent-__all__ overwrite must discard the caller mutation",
+    );
+
+    let (_file, dynamic) = evaluate_module_with(
+        &[(
+            "/project/plugin.py",
+            "VALUE = []\nVALUE.append('dynamic')\n__all__ = NAMES\n",
+        )],
+        "from plugin import *\n",
+    );
+    assert!(dynamic.mutations.is_empty());
 }
 
 #[test]
@@ -4188,23 +4876,32 @@ fn canonical_unknown_origins_import_rebase_is_exactly_local() {
     let binding = evaluation
         .binding("INSTALLED_APPS")
         .expect("the star import should copy the cyclic setting binding");
-    assert!(matches!(
-        binding.alternatives.as_slice(),
-        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+    assert!(
+        binding
+            .alternatives
+            .contains(&PythonBindingAlternativeView::Unbound),
+        "dynamic star selection cannot guarantee the cyclic name is exported",
+    );
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
             value: PythonValueView {
                 kind: PythonValueKindView::Unknown(unknown),
                 origins,
             },
             binding_origins,
-        })] if unknown.cause == PythonUnknownCauseView::Cycle
+        }) if unknown.cause == PythonUnknownCauseView::Cycle
             && unknown.origins.as_slice() == [import_origin]
             && origins.as_slice() == [import_origin]
             && binding_origins.as_slice() == [import_origin]
-    ));
+    )));
 
-    let evidence = cases(&settings, "/installed_apps/cases")[0]["dynamic"]["apps"]["evidence"]
+    let evidence = cases(&settings, "/installed_apps/cases")
+        .iter()
+        .find_map(|case| case.get("dynamic"))
+        .expect("the cycle should produce dynamic setting evidence")["apps"]["evidence"]
         .as_array()
-        .expect("the cycle should produce dynamic setting evidence");
+        .unwrap();
     assert_eq!(evidence.len(), 1, "{settings:#}");
     assert_eq!(evidence[0]["issue"]["kind"], "dynamic_expression");
     assert_eq!(
@@ -4271,7 +4968,7 @@ fn python_module_cycle_preserves_stable_side_dependencies() {
 }
 
 #[test]
-fn python_module_cycle_unions_all_feasible_mutations_independent_of_entry_order() {
+fn python_module_cycle_keeps_local_mutations_without_copying_dynamic_star_mutations() {
     fn products(query_a_first: bool) -> (PythonModuleEvaluationView, PythonModuleEvaluationView) {
         let db = TestDatabase::new();
         db.add_file(
@@ -4299,18 +4996,22 @@ fn python_module_cycle_unions_all_feasible_mutations_independent_of_entry_order(
     let a_first = products(true);
     let b_first = products(false);
     assert_eq!(a_first, b_first);
-    for evaluation in [&a_first.0, &a_first.1] {
+    for (evaluation, local, imported) in [
+        (&a_first.0, "VALUES_A", "VALUES_B"),
+        (&a_first.1, "VALUES_B", "VALUES_A"),
+    ] {
         assert!(
             evaluation
                 .mutations
                 .iter()
-                .any(|mutation| mutation.binding == "VALUES_A")
+                .any(|mutation| mutation.binding == local)
         );
         assert!(
             evaluation
                 .mutations
                 .iter()
-                .any(|mutation| mutation.binding == "VALUES_B")
+                .all(|mutation| mutation.binding != imported),
+            "a dynamic cycle alternative cannot select an imported mutation",
         );
     }
 }

@@ -184,6 +184,56 @@ impl StructuralOrd for ModuleObjectCause {
     }
 }
 
+/// One child-fallback transition: the selected member projection and the paths
+/// where prior object coordinates must survive travel as one coherent value.
+#[derive(Clone)]
+pub(crate) struct PythonImportFallback {
+    member: PythonBinding,
+    constraints: BranchConstraints,
+    preserved: Option<BranchConstraints>,
+}
+
+impl PythonImportFallback {
+    pub(crate) fn new(
+        member: &PythonBinding,
+        preserved: Option<&BranchConstraints>,
+    ) -> Option<Self> {
+        Some(Self {
+            member: member.clone(),
+            constraints: member.import_fallback_constraints()?,
+            preserved: preserved.cloned(),
+        })
+    }
+
+    fn attach_child_binding(
+        &self,
+        prior: &PythonBinding,
+        child: &PythonModuleObjectId,
+        origin: Origin,
+    ) -> PythonBinding {
+        self.member
+            .attach_module_for_import_fallback(prior, child, origin, self.preserved.as_ref())
+    }
+
+    fn merge_child_effect(
+        &self,
+        prior: &PythonBinding,
+        incoming: &PythonBinding,
+        origin: Origin,
+    ) -> PythonBinding {
+        self.member.merge_effect_for_import_fallback(
+            prior,
+            incoming,
+            origin,
+            self.preserved.as_ref(),
+        )
+    }
+
+    pub(crate) fn constraints(&self) -> &BranchConstraints {
+        &self.constraints
+    }
+}
+
 /// Finite, deterministic loaded-child coordinates plus object-scoped open
 /// causes. This is a private recursive-import effect product; it is never added
 /// to settings-facing `PythonModuleValues` equality or projection.
@@ -203,6 +253,18 @@ impl PythonModuleObjects {
     fn read_child(&self, object: &PythonModuleObjectId, attribute: &str) -> Option<&PythonBinding> {
         self.child_index(object, attribute)
             .map(|index| &self.children[index].binding)
+    }
+
+    /// Names already attached to `object`, in deterministic coordinate order.
+    /// This is a projection of current object state, never filesystem discovery.
+    pub(crate) fn child_names<'a>(
+        &'a self,
+        object: &'a PythonModuleObjectId,
+    ) -> impl Iterator<Item = &'a str> {
+        self.children
+            .iter()
+            .filter(move |child| &child.object == object)
+            .map(|child| child.attribute.as_str())
     }
 
     /// The child-coordinate alternatives for `(object, attribute)` rebased to
@@ -290,14 +352,14 @@ impl PythonModuleObjects {
         object: PythonModuleObjectId,
         attribute: String,
         child: &PythonModuleObjectId,
-        member: &PythonBinding,
+        fallback: &PythonImportFallback,
         origin: Origin,
     ) {
         let prior = self
             .read_child(&object, &attribute)
             .cloned()
             .unwrap_or_else(PythonBinding::unbound);
-        let binding = member.attach_module_for_import_fallback(&prior, child, origin);
+        let binding = fallback.attach_child_binding(&prior, child, origin);
         self.set_child(object, attribute, binding);
     }
 
@@ -348,7 +410,7 @@ impl PythonModuleObjects {
     pub(crate) fn merge_for_import_fallback(
         &mut self,
         incoming: Self,
-        member: &PythonBinding,
+        fallback: &PythonImportFallback,
         origin: Origin,
     ) {
         for ModuleChildCoordinate {
@@ -361,15 +423,14 @@ impl PythonModuleObjects {
                 .read_child(&object, &attribute)
                 .cloned()
                 .unwrap_or_else(PythonBinding::unbound);
-            let merged = member.merge_effect_for_import_fallback(&prior, &binding, origin);
+            let merged = fallback.merge_child_effect(&prior, &binding, origin);
             self.set_child(object, attribute, merged);
         }
-        let Some(unbound) = member.import_fallback_constraints() else {
-            return;
-        };
+        let fallback_constraints = fallback.constraints();
         self.causes
             .extend(incoming.causes.into_iter().filter_map(|mut entry| {
-                entry.cause.constraints = entry.cause.constraints.intersection(&unbound);
+                entry.cause.constraints =
+                    entry.cause.constraints.intersection(fallback_constraints);
                 (!entry.cause.constraints.is_impossible()).then_some(entry)
             }));
         self.normalize();
@@ -666,11 +727,13 @@ mod tests {
         let member = present.join(absent, join).join(uncertain, join);
 
         let mut objects = PythonModuleObjects::default();
+        let fallback = PythonImportFallback::new(&member, None)
+            .expect("the conditional member has a feasible fallback path");
         objects.attach_child_for_import_fallback(
             parent.clone(),
             "child".to_string(),
             &child,
-            &member,
+            &fallback,
             origin(3),
         );
 

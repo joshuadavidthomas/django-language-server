@@ -98,6 +98,15 @@ impl PythonBinding {
         self.cases.iter_mut().map(|case| &mut case.state)
     }
 
+    pub(super) fn contains_feasible_origin(&self, wanted: Origin) -> bool {
+        self.cases.iter().any(|case| match &case.state {
+            PythonBindingState::Bound(bound) => bound
+                .value
+                .has_origin_feasible_under(wanted, &case.constraints),
+            PythonBindingState::Unbound => false,
+        })
+    }
+
     pub(super) fn reachable_allocation_sites(&self) -> ReachableAllocationSites {
         let mut origins = ReachableAllocationSites::default();
         for state in self.alternatives() {
@@ -291,8 +300,14 @@ impl PythonBinding {
         prior: &Self,
         child: &PythonModuleObjectId,
         origin: Origin,
+        preserved: Option<&BranchConstraints>,
     ) -> Self {
         let mut contributions = Vec::new();
+        if let Some(preserved) = preserved
+            && let Some(prior) = prior.clone().intersect_constraints(preserved)
+        {
+            contributions.push(prior);
+        }
         for case in &self.cases {
             let contribution = match &case.state {
                 PythonBindingState::Unbound => Self::constrained_bound(
@@ -341,8 +356,14 @@ impl PythonBinding {
         prior: &Self,
         incoming: &Self,
         origin: Origin,
+        preserved: Option<&BranchConstraints>,
     ) -> Self {
         let mut contributions = Vec::new();
+        if let Some(preserved) = preserved
+            && let Some(prior) = prior.clone().intersect_constraints(preserved)
+        {
+            contributions.push(prior);
+        }
         for case in &self.cases {
             let contribution = match &case.state {
                 PythonBindingState::Unbound => {
@@ -413,7 +434,7 @@ impl PythonBinding {
             .unwrap_or_else(Self::unbound)
     }
 
-    fn intersect_constraints(mut self, constraints: &BranchConstraints) -> Option<Self> {
+    pub(super) fn intersect_constraints(mut self, constraints: &BranchConstraints) -> Option<Self> {
         self.cases = self
             .cases
             .into_iter()
