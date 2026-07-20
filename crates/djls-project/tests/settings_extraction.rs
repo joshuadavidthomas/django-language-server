@@ -1708,6 +1708,11 @@ fn named_from_import_conditional_member_attaches_child_only_when_absent() {
         ],
         "from pkg import child\nimport pkg\nATTR = pkg.child\nSIDE = pkg.side\n",
     );
+    assert_eq!(
+        &import_module_names(&evaluation)[..2],
+        ["resolved:pkg", "resolved:pkg.child"],
+    );
+    assert_eq!(evaluation.dependency_files.len(), 4);
     for name in ["child", "ATTR"] {
         let binding = evaluation.binding(name).unwrap();
         assert!(binding.alternatives.iter().any(|alternative| matches!(alternative, PythonBindingAlternativeView::Bound(PythonBoundValueView { value: PythonValueView { kind: PythonValueKindView::Str(value), .. }, .. }) if value == "member")));
@@ -1738,26 +1743,128 @@ fn named_from_import_conditional_member_attaches_child_only_when_absent() {
 }
 
 #[test]
+fn named_child_fallback_preserves_member_mutation_namespace_and_syntax_evidence() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/pkg/__init__.py",
+                "if FLAG:\n    child = []\n    child.append('member')\nif BROKEN:\n    from clean import *\n    broken(]\nfrom missing import *\n",
+            ),
+            ("/project/pkg/child.py", ""),
+            ("/project/clean.py", ""),
+        ],
+        "from pkg import child\n",
+    );
+
+    let child = evaluation.binding("child").unwrap();
+    assert!(child.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::List(_),
+                ..
+            },
+            ..
+        })
+    )));
+    assert!(child.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                ..
+            },
+            ..
+        }) if module.as_str() == "pkg.child"
+    )));
+    assert!(child.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module)
+            if module.as_str() == "missing")
+    )));
+    assert!(child.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(unknown.cause, PythonUnknownCauseView::SyntaxErrors(_))
+    )));
+    assert!(
+        evaluation
+            .mutations
+            .iter()
+            .any(|mutation| mutation.binding == "child")
+    );
+    let package_index = evaluation
+        .imports
+        .iter()
+        .position(|outcome| {
+            matches!(
+                outcome,
+                PythonImportOutcomeView::SyntaxErrors { imported_module, .. }
+                    if imported_module.as_str() == "pkg"
+            )
+        })
+        .expect("the recovered package edge should be recorded");
+    let child_index = evaluation
+        .imports
+        .iter()
+        .position(|outcome| {
+            matches!(
+                outcome,
+                PythonImportOutcomeView::Resolved { imported_module, .. }
+                    if imported_module.as_str() == "pkg.child"
+            )
+        })
+        .expect("the fallback child edge should be recorded");
+    assert!(package_index < child_index);
+    assert_eq!(evaluation.dependency_files.len(), 4);
+}
+
+#[test]
 fn named_from_import_loads_namespace_child_and_types_missing_child() {
-    let (_file, success) =
-        evaluate_module_with(&[("/project/ns/child.py", "")], "from ns import child\n");
+    let (_file, success) = evaluate_module_with(
+        &[("/project/ns/child.py", "")],
+        "from ns import child\nimport ns as parent\nATTR = parent.child\n",
+    );
     assert_eq!(
         bound_module(&success, "child"),
         &PythonModuleObjectIdView::Source(PythonModuleName::parse("ns.child").unwrap())
     );
     assert_eq!(import_module_names(&success), ["resolved:ns.child"]);
+    assert_eq!(success.dependency_files.len(), 2);
+    assert_eq!(
+        bound_module(&success, "ATTR"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("ns.child").unwrap())
+    );
 
     let (_file, missing) = evaluate_module_with(
         &[("/project/pkg/__init__.py", "")],
-        "from pkg import absent\n",
+        "from pkg import absent\nimport pkg\nATTR = pkg.absent\n",
     );
     assert_eq!(
         import_module_names(&missing),
-        ["resolved:pkg", "notfound:pkg.absent"]
+        ["resolved:pkg", "notfound:pkg.absent", "resolved:pkg"]
     );
+    assert_eq!(missing.dependency_files.len(), 2);
     assert!(
         matches!(&bound_value(&missing, "absent").value.kind, PythonValueKindView::Unknown(unknown) if matches!(&unknown.cause, PythonUnknownCauseView::MissingImportMember { module, member } if module.as_str() == "pkg" && member == "absent"))
     );
+    assert!(matches!(
+        &bound_value(&missing, "ATTR").value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ModuleAttribute { module, member }
+                if module.as_str() == "pkg" && member == "absent")
+    ));
 }
 
 #[test]
@@ -1891,6 +1998,7 @@ fn named_from_import_child_cycle_records_recovery_and_binds_handle() {
         import_module_names(&evaluation),
         ["cycle:settings", "resolved:pkg", "resolved:pkg.child"]
     );
+    assert_eq!(evaluation.dependency_files.len(), 3);
     assert_eq!(
         bound_module(&evaluation, "child"),
         &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.child").unwrap())
@@ -2044,6 +2152,33 @@ fn exact_all_selects_private_names_in_order_dedupes_and_loads_listed_children() 
         import_module_names(&evaluation),
         ["resolved:pkg", "resolved:pkg.second", "resolved:pkg.first"]
     );
+}
+
+#[test]
+fn exact_all_non_child_spellings_stay_missing_without_descendant_lookup() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/pkg/__init__.py",
+                "__all__ = ['bad-name', 'child.grandchild']\n",
+            ),
+            ("/project/pkg/child/__init__.py", ""),
+            ("/project/pkg/child/grandchild.py", ""),
+        ],
+        "from pkg import *\n",
+    );
+
+    assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
+    for member in ["bad-name", "child.grandchild"] {
+        assert!(matches!(
+            &bound_value(&evaluation, member).value.kind,
+            PythonValueKindView::Unknown(unknown)
+                if matches!(&unknown.cause, PythonUnknownCauseView::MissingImportMember {
+                    module,
+                    member: missing,
+                } if module.as_str() == "pkg" && missing == member)
+        ));
+    }
 }
 
 #[test]

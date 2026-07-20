@@ -400,10 +400,8 @@ impl Evaluator<'_> {
 
         if source.object.is_package()
             && let Some(fallback_policy) = PythonImportFallback::new(&binding, preserved)
+            && let Some(child_name) = source.object.name().exact_child(member)
         {
-            let child_name =
-                PythonModuleName::parse(&format!("{}.{}", source.object.name().as_str(), member))
-                    .expect("an imported identifier extends a valid module name");
             let request = PythonImportRequest {
                 level: 0,
                 module: Some(child_name.as_str()),
@@ -1175,7 +1173,6 @@ fn classify_star_all(binding: &PythonBinding) -> Vec<StarAllAlternative> {
     alternatives
 }
 
-/// The child attribute name and nominal object identity of a chain component.
 fn component_object(component: &ResolvedChainComponent) -> PythonModuleObjectId {
     match component {
         ResolvedChainComponent::Source(module) => PythonModuleObjectId::Source(module.clone()),
@@ -1185,6 +1182,7 @@ fn component_object(component: &ResolvedChainComponent) -> PythonModuleObjectId 
     }
 }
 
+/// The child attribute name and nominal object identity of a chain component.
 fn component_identity(component: &ResolvedChainComponent) -> (String, PythonModuleObjectId) {
     let attribute = component
         .name()

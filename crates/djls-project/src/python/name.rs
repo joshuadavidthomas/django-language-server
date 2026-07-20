@@ -150,6 +150,12 @@ impl PythonModuleName {
         &self.0
     }
 
+    /// Extend this module by exactly one identifier segment.
+    pub(crate) fn exact_child(&self, segment: &str) -> Option<Self> {
+        is_python_identifier(segment)
+            .then(|| Self(Arc::from(format!("{}.{}", self.as_str(), segment))))
+    }
+
     pub(crate) fn parent(&self) -> Option<Self> {
         self.as_str()
             .rsplit_once('.')
@@ -247,5 +253,15 @@ mod tests {
             PythonModuleName::from_relative_source_path(Utf8Path::new("pkg/module.txt")),
             Err(InvalidModuleName::MustHavePyExtension)
         );
+    }
+
+    #[test]
+    fn exact_child_accepts_one_identifier_segment_only() {
+        let package = PythonModuleName::parse("pkg").unwrap();
+
+        assert_eq!(package.exact_child("child").unwrap().as_str(), "pkg.child");
+        assert!(package.exact_child("child.grandchild").is_none());
+        assert!(package.exact_child("bad-name").is_none());
+        assert!(package.exact_child(" child ").is_none());
     }
 }

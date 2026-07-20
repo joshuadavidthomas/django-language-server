@@ -71,7 +71,9 @@ One evaluator entrypoint handles both ordinary and `from` import statements. The
 
 A module value carries only stable source-or-namespace identity. Its intrinsic lexical namespace remains in `PythonModuleValues`; explicitly loaded child attachments and object-scoped cycle/external uncertainty live in a separate private module-object product. This split lets settings-facing value projections backdate independently from import topology while module attribute reads still compose intrinsic values, loaded children, and open causes.
 
-The supported boundary is static `import a`, `import a as x`, `import a.b`, `import a.b as x`, and existing named/star `from` imports. Module attribute reads are supported; module attribute writes and mutations, dynamic import hooks, `importlib`, runtime `sys.modules`/`sys.path` changes, and external module execution remain deliberately unsupported and conservative.
+Named `from` imports project an existing module member first, then try the exact package child through the same chain loader only where that member may be absent. Remaining absence becomes typed missing-member uncertainty. Star imports classify each feasible `__all__` alternative independently: exact static lists and tuples select their named members in order, closed absence selects current public intrinsic or attached names, and dynamic or malformed alternatives preserve possible imports while opening the namespace. Exact `__all__` may load listed children through the shared loader; absent or dynamic `__all__` never scans the filesystem.
+
+The supported boundary is static `import a`, `import a as x`, `import a.b`, `import a.b as x`, named `from a import x`, and `from a import *` under that bounded export policy. Module attribute reads are supported; module attribute writes and mutations, dynamic import hooks, `importlib`, runtime `sys.modules`/`sys.path` changes, and external module execution remain deliberately unsupported and conservative.
 
 ### `crates/djls-templates`
 

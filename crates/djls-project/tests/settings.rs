@@ -249,48 +249,63 @@ fn later_exact_assignment_dominates_syntax_impact_through_star_import() {
 }
 
 #[test]
-fn namespace_wide_syntax_exclusion_survives_named_and_star_imports() {
-    for root_import in [
-        "from .base import INSTALLED_APPS\n",
-        "from .base import *\n",
-    ] {
-        let mut db = TestDatabase::new();
-        let project = ProjectFixture::new("/proj")
-            .django_settings_module("myproject.settings")
-            .file("/proj/myproject/__init__.py", "")
-            .file("/proj/myproject/clean.py", "")
-            .file("/proj/myproject/apps.py", "APPS = ['base']\n")
-            .file(
-                "/proj/myproject/base.py",
-                "if FLAG:\n    from .clean import *\n    broken(]\nfrom .apps import APPS as INSTALLED_APPS\n",
-            )
-            .file("/proj/myproject/settings.py", root_import)
-            .install(&mut db);
+fn later_named_import_dominates_namespace_wide_syntax_exclusion() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/clean.py", "")
+        .file("/proj/myproject/apps.py", "APPS = ['base']\n")
+        .file(
+            "/proj/myproject/base.py",
+            "if FLAG:\n    from .clean import *\n    broken(]\nfrom .apps import APPS as INSTALLED_APPS\n",
+        )
+        .file(
+            "/proj/myproject/settings.py",
+            "from .base import INSTALLED_APPS\n",
+        )
+        .install(&mut db);
 
-        let settings = to_value(django_settings(&db, project)).unwrap();
-        let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
 
-        if root_import.contains('*') {
-            assert!(
-                has_case(&settings["installed_apps"], "known"),
-                "{settings:#}"
-            );
-            assert!(
-                has_case(&settings["installed_apps"], "dynamic"),
-                "{settings:#}"
-            );
-            assert!(
-                has_case(&settings["installed_apps"], "unset"),
-                "{settings:#}"
-            );
-            assert!(cases.iter().any(|case| {
-                case.pointer("/known/apps/0/value").and_then(Value::as_str) == Some("base")
-            }));
-        } else {
-            assert_eq!(cases.len(), 1, "{root_import}");
-            assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
-        }
-    }
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
+}
+
+#[test]
+fn star_import_preserves_namespace_wide_syntax_uncertainty() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/clean.py", "")
+        .file("/proj/myproject/apps.py", "APPS = ['base']\n")
+        .file(
+            "/proj/myproject/base.py",
+            "if FLAG:\n    from .clean import *\n    broken(]\nfrom .apps import APPS as INSTALLED_APPS\n",
+        )
+        .file("/proj/myproject/settings.py", "from .base import *\n")
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+
+    assert!(
+        has_case(&settings["installed_apps"], "known"),
+        "{settings:#}"
+    );
+    assert!(
+        has_case(&settings["installed_apps"], "dynamic"),
+        "{settings:#}"
+    );
+    assert!(
+        has_case(&settings["installed_apps"], "unset"),
+        "{settings:#}"
+    );
+    assert!(cases.iter().any(|case| {
+        case.pointer("/known/apps/0/value").and_then(Value::as_str) == Some("base")
+    }));
 }
 
 #[test]
