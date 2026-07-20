@@ -22,7 +22,7 @@ use crate::python::PythonPath;
 /// construction stay on the concrete type where owning the log is required.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonDict {
-    items: Vec<PythonDictItem>,
+    items: Vec<DictItem>,
     allocation_sites: AllocationSites,
 }
 
@@ -65,7 +65,7 @@ impl PythonDict {
         match unpacked.kind {
             PythonValueKind::Dict(unpacked) => self.items.extend(unpacked.items),
             PythonValueKind::Unknown(unknown) => {
-                self.items.push(PythonDictItem::UnknownUnpack(unknown));
+                self.items.push(DictItem::UnknownUnpack(unknown));
             }
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
@@ -74,11 +74,10 @@ impl PythonDict {
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Module(_) => {
-                self.items
-                    .push(PythonDictItem::UnknownUnpack(PythonUnknown::new(
-                        PythonUnknownCause::UnsupportedExpression,
-                        [unpack_origin],
-                    )));
+                self.items.push(DictItem::UnknownUnpack(PythonUnknown::new(
+                    PythonUnknownCause::UnsupportedExpression,
+                    [unpack_origin],
+                )));
             }
         }
     }
@@ -88,10 +87,7 @@ impl PythonDict {
     /// so the log never holds a placeholder value.
     pub(super) fn append_entry(&mut self, key: PythonValue, value: PythonValue) {
         self.items
-            .push(PythonDictItem::Entry(Box::new(PythonDictEntry {
-                key,
-                value,
-            })));
+            .push(DictItem::Entry(Box::new(DictEntry { key, value })));
     }
 
     /// Move every entry of `other` onto this dictionary's ordered log, used to
@@ -114,7 +110,7 @@ impl PythonDict {
         let mut selected = None;
         for item in self.items.iter_mut().rev() {
             match item {
-                PythonDictItem::Entry(entry) => match &entry.key.kind {
+                DictItem::Entry(entry) => match &entry.key.kind {
                     PythonValueKind::Str(key) if key == wanted => {
                         selected = Some(&mut entry.value);
                         break;
@@ -130,7 +126,7 @@ impl PythonDict {
                     | PythonValueKind::Module(_)
                     | PythonValueKind::Dict(_) => return false,
                 },
-                PythonDictItem::UnknownUnpack(_) => return false,
+                DictItem::UnknownUnpack(_) => return false,
             }
         }
         match selected {
@@ -141,7 +137,7 @@ impl PythonDict {
 
     pub(super) fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
         for item in &mut self.items {
-            if let PythonDictItem::Entry(entry) = item {
+            if let DictItem::Entry(entry) = item {
                 entry.key.constrain_value_evidence(constraints);
                 entry.value.constrain_value_evidence(constraints);
             }
@@ -151,7 +147,7 @@ impl PythonDict {
 
     pub(super) fn normalize(&mut self) {
         for item in &mut self.items {
-            if let PythonDictItem::Entry(entry) = item {
+            if let DictItem::Entry(entry) = item {
                 entry.key.normalize();
                 entry.value.normalize();
             }
@@ -165,14 +161,14 @@ impl PythonDict {
                 .iter()
                 .zip(&other.items)
                 .all(|(left, right)| match (left, right) {
-                    (PythonDictItem::Entry(left), PythonDictItem::Entry(right)) => {
+                    (DictItem::Entry(left), DictItem::Entry(right)) => {
                         left.key.same_semantic_value(&right.key)
                             && left.value.same_semantic_value(&right.value)
                     }
-                    (PythonDictItem::UnknownUnpack(left), PythonDictItem::UnknownUnpack(right)) => {
+                    (DictItem::UnknownUnpack(left), DictItem::UnknownUnpack(right)) => {
                         left.cause == right.cause
                     }
-                    (PythonDictItem::Entry(_) | PythonDictItem::UnknownUnpack(_), _) => false,
+                    (DictItem::Entry(_) | DictItem::UnknownUnpack(_), _) => false,
                 })
     }
 
@@ -184,7 +180,7 @@ impl PythonDict {
         debug_assert!(self.same_semantic_value(&incoming));
         for (existing, incoming) in self.items.iter_mut().zip(incoming.items) {
             match (existing, incoming) {
-                (PythonDictItem::Entry(existing), PythonDictItem::Entry(incoming)) => {
+                (DictItem::Entry(existing), DictItem::Entry(incoming)) => {
                     existing
                         .key
                         .merge_semantically_equal(incoming.key, operation_origin);
@@ -192,10 +188,7 @@ impl PythonDict {
                         .value
                         .merge_semantically_equal(incoming.value, operation_origin);
                 }
-                (
-                    PythonDictItem::UnknownUnpack(existing),
-                    PythonDictItem::UnknownUnpack(incoming),
-                ) => {
+                (DictItem::UnknownUnpack(existing), DictItem::UnknownUnpack(incoming)) => {
                     existing.merge_origins(&incoming);
                 }
                 _ => unreachable!("semantic equality requires matching dictionary item variants"),
@@ -224,7 +217,7 @@ impl<'a> PythonMapping<'a> {
         let mut overrides = Vec::new();
         for item in &self.dict.items {
             match item {
-                PythonDictItem::Entry(entry) => match &entry.key.kind {
+                DictItem::Entry(entry) => match &entry.key.kind {
                     PythonValueKind::Str(key) if key == wanted => {
                         value = Some(&entry.value);
                         overrides.clear();
@@ -241,7 +234,7 @@ impl<'a> PythonMapping<'a> {
                     | PythonValueKind::Module(_)
                     | PythonValueKind::Dict(_) => {}
                 },
-                PythonDictItem::UnknownUnpack(unknown) => {
+                DictItem::UnknownUnpack(unknown) => {
                     overrides.push(MappingOverride::UnknownUnpack(unknown));
                 }
             }
@@ -254,19 +247,19 @@ impl<'a> PythonMapping<'a> {
     /// when no later unknown key or unknown unpack could shadow it. Unknown and
     /// non-string keys and unknown unpacks are surfaced in source order as
     /// evidence so consumers can report them.
-    pub(crate) fn effective_string_entries(self) -> Vec<MappingStringEntry<'a>> {
+    pub(crate) fn effective_string_entries(self) -> Vec<MappingEntryEvidence<'a>> {
         let mut reversed = Vec::new();
         let mut seen = BTreeSet::new();
         let mut shadowed_by_unknown = false;
         for item in self.dict.items.iter().rev() {
             match item {
-                PythonDictItem::Entry(entry) => match &entry.key.kind {
+                DictItem::Entry(entry) => match &entry.key.kind {
                     PythonValueKind::Str(alias) => {
                         // Always record the alias so earlier duplicate writes
                         // are suppressed, but emit only the latest unshadowed
                         // write.
                         if seen.insert(alias.clone()) && !shadowed_by_unknown {
-                            reversed.push(MappingStringEntry::Value {
+                            reversed.push(MappingEntryEvidence::Value {
                                 key: alias,
                                 value: &entry.value,
                             });
@@ -274,7 +267,7 @@ impl<'a> PythonMapping<'a> {
                     }
                     PythonValueKind::Unknown(_) => {
                         shadowed_by_unknown = true;
-                        reversed.push(MappingStringEntry::UnknownKey(&entry.key));
+                        reversed.push(MappingEntryEvidence::UnknownKey(&entry.key));
                     }
                     PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
@@ -283,12 +276,12 @@ impl<'a> PythonMapping<'a> {
                     | PythonValueKind::Tuple(_)
                     | PythonValueKind::Module(_)
                     | PythonValueKind::Dict(_) => {
-                        reversed.push(MappingStringEntry::InvalidKey(&entry.key));
+                        reversed.push(MappingEntryEvidence::InvalidKey(&entry.key));
                     }
                 },
-                PythonDictItem::UnknownUnpack(unknown) => {
+                DictItem::UnknownUnpack(unknown) => {
                     shadowed_by_unknown = true;
-                    reversed.push(MappingStringEntry::UnknownUnpack(unknown));
+                    reversed.push(MappingEntryEvidence::UnknownUnpack(unknown));
                 }
             }
         }
@@ -303,7 +296,7 @@ impl<'a> PythonMapping<'a> {
     pub(crate) fn possible_string_values(self, wanted: &str) -> Vec<&'a PythonValue> {
         let mut values = Vec::new();
         for item in self.dict.items.iter().rev() {
-            let PythonDictItem::Entry(entry) = item else {
+            let DictItem::Entry(entry) = item else {
                 continue;
             };
             match &entry.key.kind {
@@ -329,13 +322,13 @@ impl<'a> PythonMapping<'a> {
     /// The ordered structural projection of the log: entries with their key and
     /// value plus unknown unpacks. Used for recursive key/value/unpack
     /// traversal and by the test adapter; it exposes shape, never mutation.
-    pub(crate) fn projection(self) -> impl Iterator<Item = MappingProjection<'a>> {
+    pub(crate) fn projection(self) -> impl Iterator<Item = MappingLogItem<'a>> {
         self.dict.items.iter().map(|item| match item {
-            PythonDictItem::Entry(entry) => MappingProjection::Entry {
+            DictItem::Entry(entry) => MappingLogItem::Entry {
                 key: &entry.key,
                 value: &entry.value,
             },
-            PythonDictItem::UnknownUnpack(unknown) => MappingProjection::UnknownUnpack(unknown),
+            DictItem::UnknownUnpack(unknown) => MappingLogItem::UnknownUnpack(unknown),
         })
     }
 
@@ -343,7 +336,7 @@ impl<'a> PythonMapping<'a> {
     /// allocation-site groups. Owner-held so the private log never leaks.
     pub(super) fn collect_reachable_sites(self, sites: &mut ReachableAllocationSites) {
         for item in &self.dict.items {
-            if let PythonDictItem::Entry(entry) = item {
+            if let DictItem::Entry(entry) = item {
                 entry.key.collect_reachable_sites(sites);
                 entry.value.collect_reachable_sites(sites);
             }
@@ -357,11 +350,11 @@ impl<'a> PythonMapping<'a> {
             .items
             .iter()
             .filter_map(|item| match item {
-                PythonDictItem::Entry(entry) => Some(
+                DictItem::Entry(entry) => Some(
                     entry.key.allocation_site_occurrences(wanted)
                         + entry.value.allocation_site_occurrences(wanted),
                 ),
-                PythonDictItem::UnknownUnpack(_) => None,
+                DictItem::UnknownUnpack(_) => None,
             })
             .sum()
     }
@@ -370,10 +363,10 @@ impl<'a> PythonMapping<'a> {
     /// entries or unknown unpacks.
     pub(super) fn contains_origin(self, wanted: Origin) -> bool {
         self.dict.items.iter().any(|item| match item {
-            PythonDictItem::Entry(entry) => {
+            DictItem::Entry(entry) => {
                 entry.key.contains_origin(wanted) || entry.value.contains_origin(wanted)
             }
-            PythonDictItem::UnknownUnpack(unknown) => unknown.contains_origin(wanted),
+            DictItem::UnknownUnpack(unknown) => unknown.contains_origin(wanted),
         })
     }
 
@@ -412,7 +405,7 @@ pub(crate) enum MappingOverride<'a> {
 }
 
 /// An entry surfaced by [`PythonMapping::effective_string_entries`].
-pub(crate) enum MappingStringEntry<'a> {
+pub(crate) enum MappingEntryEvidence<'a> {
     /// The latest unshadowed write for a string key.
     Value {
         key: &'a str,
@@ -428,7 +421,7 @@ pub(crate) enum MappingStringEntry<'a> {
 
 /// A structural item in the ordered log, exposed for recursive traversal and
 /// the test adapter.
-pub(crate) enum MappingProjection<'a> {
+pub(crate) enum MappingLogItem<'a> {
     Entry {
         key: &'a PythonValue,
         value: &'a PythonValue,
@@ -437,18 +430,18 @@ pub(crate) enum MappingProjection<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum PythonDictItem {
-    Entry(Box<PythonDictEntry>),
+enum DictItem {
+    Entry(Box<DictEntry>),
     UnknownUnpack(PythonUnknown),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PythonDictEntry {
+struct DictEntry {
     key: PythonValue,
     value: PythonValue,
 }
 
-impl StructuralOrd for PythonDictItem {
+impl StructuralOrd for DictItem {
     /// Entries precede unknown unpacks, preserving the ordered-log retention
     /// policy while comparing each payload structurally.
     fn structural_cmp(&self, other: &Self) -> Ordering {
@@ -475,9 +468,9 @@ mod tests {
     use salsa::plumbing::Id;
 
     use super::AllocationSites;
+    use super::MappingEntryEvidence;
+    use super::MappingLogItem;
     use super::MappingOverride;
-    use super::MappingProjection;
-    use super::MappingStringEntry;
     use super::Origin;
     use super::PythonDict;
     use super::PythonUnknownCause;
@@ -555,7 +548,7 @@ mod tests {
 
         first.merge_semantically_equal(second, None);
         let projection = first.mapping().projection().collect::<Vec<_>>();
-        let [MappingProjection::Entry { key, value }] = projection.as_slice() else {
+        let [MappingLogItem::Entry { key, value }] = projection.as_slice() else {
             panic!("the merged dictionary should retain one entry")
         };
         assert_eq!(key.origins().collect::<Vec<_>>(), [origin(1), origin(3)]);
@@ -611,10 +604,10 @@ mod tests {
         // "shadowed" and both "dup" writes are behind the unknown unpack, so
         // only the unpack evidence and the post-unpack "late" entry survive.
         assert_eq!(entries.len(), 2);
-        assert!(matches!(entries[0], MappingStringEntry::UnknownUnpack(_)));
+        assert!(matches!(entries[0], MappingEntryEvidence::UnknownUnpack(_)));
         assert!(matches!(
             entries[1],
-            MappingStringEntry::Value { key, .. } if key == "late"
+            MappingEntryEvidence::Value { key, .. } if key == "late"
         ));
     }
 
@@ -627,7 +620,7 @@ mod tests {
         let mapping = dict.mapping();
         let entries = mapping.effective_string_entries();
         assert_eq!(entries.len(), 1);
-        let MappingStringEntry::Value { key, value } = &entries[0] else {
+        let MappingEntryEvidence::Value { key, value } = &entries[0] else {
             panic!("expected a resolved string entry");
         };
         assert_eq!(*key, "k");
@@ -718,7 +711,7 @@ mod tests {
 
         first.merge_semantically_equal(second, None);
         let projection = first.mapping().projection().collect::<Vec<_>>();
-        let [MappingProjection::UnknownUnpack(unknown)] = projection.as_slice() else {
+        let [MappingLogItem::UnknownUnpack(unknown)] = projection.as_slice() else {
             panic!("equal dictionaries should retain one unknown unpack");
         };
         assert_eq!(
@@ -746,13 +739,13 @@ mod tests {
         assert_eq!(projection.len(), 3);
         assert!(matches!(
             projection[0],
-            MappingProjection::Entry { key, .. }
+            MappingLogItem::Entry { key, .. }
                 if matches!(&key.kind, PythonValueKind::Str(text) if text == "a")
         ));
-        assert!(matches!(projection[1], MappingProjection::UnknownUnpack(_)));
+        assert!(matches!(projection[1], MappingLogItem::UnknownUnpack(_)));
         assert!(matches!(
             projection[2],
-            MappingProjection::Entry { key, .. }
+            MappingLogItem::Entry { key, .. }
                 if matches!(&key.kind, PythonValueKind::Str(text) if text == "b")
         ));
     }

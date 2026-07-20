@@ -23,15 +23,20 @@ pub(crate) enum SettingCase<T, P> {
     Malformed(P),
 }
 
+/// One feasible static settings value paired with its branch constraints.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CorrelatedSettingCase<T, P> {
+struct ConstrainedSettingCase<T, P> {
     case: SettingCase<T, P>,
-    correlation: BranchConstraints,
+    constraints: BranchConstraints,
 }
 
+/// Non-empty feasible cases for one supported Django setting.
+///
+/// Cases retain branch constraints privately and collapse overflow into one conservative dynamic
+/// remainder without exposing those constraints through serialization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SettingAlternatives<T, P> {
-    cases: Vec<CorrelatedSettingCase<T, P>>,
+    cases: Vec<ConstrainedSettingCase<T, P>>,
 }
 
 impl<T, P> Serialize for SettingAlternatives<T, P>
@@ -69,10 +74,10 @@ where
         alternatives
     }
 
-    pub(super) fn from_correlated(cases: Vec<(SettingCase<T, P>, BranchConstraints)>) -> Self {
+    pub(super) fn from_constrained(cases: Vec<(SettingCase<T, P>, BranchConstraints)>) -> Self {
         let mut alternatives = Self { cases: Vec::new() };
-        for (case, correlation) in cases {
-            alternatives.add_with_correlation(case, correlation);
+        for (case, constraints) in cases {
+            alternatives.add_with_constraints(case, constraints);
         }
         assert!(
             !alternatives.cases.is_empty(),
@@ -81,27 +86,26 @@ where
         alternatives
     }
 
-    fn cases_with_correlations(
-        &self,
-    ) -> impl Iterator<Item = (&SettingCase<T, P>, &BranchConstraints)> {
+    fn constrained_cases(&self) -> impl Iterator<Item = (&SettingCase<T, P>, &BranchConstraints)> {
         self.cases
             .iter()
-            .map(|case| (&case.case, &case.correlation))
+            .map(|case| (&case.case, &case.constraints))
     }
 
     pub(crate) fn add(&mut self, case: SettingCase<T, P>) {
-        self.add_with_correlation(case, BranchConstraints::unconstrained());
+        self.add_with_constraints(case, BranchConstraints::unconstrained());
     }
 
-    fn add_with_correlation(&mut self, case: SettingCase<T, P>, correlation: BranchConstraints) {
+    fn add_with_constraints(&mut self, case: SettingCase<T, P>, constraints: BranchConstraints) {
         for existing in &mut self.cases {
             if existing.case.merge_evidence(&case) {
-                existing.correlation.merge(correlation);
+                existing.constraints.merge(constraints);
                 return;
             }
         }
         if self.cases.len() < MAX_SETTING_ALTERNATIVES {
-            self.cases.push(CorrelatedSettingCase { case, correlation });
+            self.cases
+                .push(ConstrainedSettingCase { case, constraints });
             return;
         }
         if let SettingCase::Dynamic(additional) = case
@@ -117,7 +121,7 @@ where
             remainder.merge_dynamic_evidence(additional);
             // A capped remainder may represent several incompatible branches. Treating it as
             // unconstrained is conservative while keeping the existing cap.
-            existing.correlation = BranchConstraints::unconstrained();
+            existing.constraints = BranchConstraints::unconstrained();
         }
     }
 }
@@ -136,7 +140,7 @@ where
             if !case.case.merge_evidence(&other_case.case) {
                 return false;
             }
-            case.correlation.merge(other_case.correlation.clone());
+            case.constraints.merge(other_case.constraints.clone());
         }
         *self = merged;
         true
@@ -262,14 +266,15 @@ pub(crate) enum SettingIssueKind {
     Unreadable,
 }
 
+/// A value with one or more normalized source origins.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WithOrigin<T> {
+pub(crate) struct WithOrigins<T> {
     pub(crate) value: T,
     origin: Origin,
     additional_origins: Vec<Origin>,
 }
 
-impl<T> WithOrigin<T> {
+impl<T> WithOrigins<T> {
     pub(crate) fn new(
         value: T,
         origin: Origin,
@@ -305,7 +310,7 @@ fn normalize_origins(
     (origin, origins)
 }
 
-impl<T: MergeEvidence + PartialEq> MergeEvidence for WithOrigin<T> {
+impl<T: MergeEvidence + PartialEq> MergeEvidence for WithOrigins<T> {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         if self.value != other.value {
             return false;
@@ -322,13 +327,13 @@ impl<T: MergeEvidence + PartialEq> MergeEvidence for WithOrigin<T> {
     }
 }
 
-impl<T: Serialize> Serialize for WithOrigin<T> {
+impl<T: Serialize> Serialize for WithOrigins<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let spans: Vec<_> = self.origins().map(|origin| origin.span).collect();
-        let mut state = serializer.serialize_struct("WithOrigin", 2)?;
+        let mut state = serializer.serialize_struct("WithOrigins", 2)?;
         state.serialize_field("value", &self.value)?;
         state.serialize_field("spans", &spans)?;
         state.end()
@@ -336,127 +341,120 @@ impl<T: Serialize> Serialize for WithOrigin<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct InstalledAppsValue {
-    pub(crate) apps: Vec<WithOrigin<String>>,
+pub(crate) struct InstalledApps {
+    pub(crate) apps: Vec<WithOrigins<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum InstalledAppEvidence {
-    Known(WithOrigin<String>),
+    Known(WithOrigins<String>),
     Issue(SettingIssue),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct OrderedInstalledApps {
+pub(crate) struct PartialInstalledApps {
+    /// Evidence remains in source order because Django app order is significant.
     pub(crate) evidence: Vec<InstalledAppEvidence>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct PartialInstalledApps {
-    pub(crate) apps: OrderedInstalledApps,
-}
-
 pub(crate) type InstalledAppsAlternatives =
-    SettingAlternatives<InstalledAppsValue, PartialInstalledApps>;
+    SettingAlternatives<InstalledApps, PartialInstalledApps>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct TemplatesValue {
+pub(crate) struct TemplateBackends {
     pub(crate) backends: Vec<TemplateBackend>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum TemplateListEvidence {
+pub(crate) enum TemplateBackendEvidence {
     Backend(Box<PartialTemplateBackend>),
     Issue(SettingIssue),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct OrderedTemplateList {
-    pub(crate) evidence: Vec<TemplateListEvidence>,
+pub(crate) struct PartialTemplateBackends {
+    /// Evidence remains in source order because backend order is significant.
+    pub(crate) evidence: Vec<TemplateBackendEvidence>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct PartialTemplates {
-    pub(crate) templates: OrderedTemplateList,
-}
-
-pub(crate) type TemplateAlternatives = SettingAlternatives<TemplatesValue, PartialTemplates>;
+pub(crate) type TemplateSettingAlternatives =
+    SettingAlternatives<TemplateBackends, PartialTemplateBackends>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct TemplateBackend {
-    pub(crate) backend: WithOrigin<String>,
-    pub(crate) dirs: Vec<WithOrigin<EvaluatedPath>>,
-    pub(crate) app_dirs: Option<WithOrigin<bool>>,
-    pub(crate) libraries: Vec<(String, WithOrigin<PythonModuleName>)>,
-    pub(crate) builtins: Vec<WithOrigin<PythonModuleName>>,
-    pub(crate) context_processors: Vec<WithOrigin<TemplateContextProcessorPath>>,
+    pub(crate) backend: WithOrigins<String>,
+    pub(crate) dirs: Vec<WithOrigins<TemplateDirectoryPath>>,
+    pub(crate) app_dirs: Option<WithOrigins<bool>>,
+    pub(crate) libraries: Vec<(String, WithOrigins<PythonModuleName>)>,
+    pub(crate) builtins: Vec<WithOrigins<PythonModuleName>>,
+    pub(crate) context_processors: Vec<WithOrigins<TemplateContextProcessorPath>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum PathListEvidence {
-    Known(WithOrigin<EvaluatedPath>),
+pub(crate) enum TemplateDirectoryEvidence {
+    Known(WithOrigins<TemplateDirectoryPath>),
     Issue(SettingIssue),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct OrderedPathList {
-    pub(crate) evidence: Vec<PathListEvidence>,
+pub(crate) struct PartialTemplateDirectories {
+    pub(crate) evidence: Vec<TemplateDirectoryEvidence>,
 }
 
-impl OrderedPathList {
+impl PartialTemplateDirectories {
     pub(crate) fn new() -> Self {
         Self {
             evidence: Vec::new(),
         }
     }
 
-    pub(crate) fn push_known(&mut self, path: WithOrigin<EvaluatedPath>) {
-        self.evidence.push(PathListEvidence::Known(path));
+    pub(crate) fn push_known(&mut self, path: WithOrigins<TemplateDirectoryPath>) {
+        self.evidence.push(TemplateDirectoryEvidence::Known(path));
     }
 
     pub(crate) fn push_issue(&mut self, issue: SettingIssue) {
-        self.evidence.push(PathListEvidence::Issue(issue));
+        self.evidence.push(TemplateDirectoryEvidence::Issue(issue));
     }
 
     pub(crate) fn extend_issues(&mut self, issues: impl IntoIterator<Item = SettingIssue>) {
         self.evidence
-            .extend(issues.into_iter().map(PathListEvidence::Issue));
+            .extend(issues.into_iter().map(TemplateDirectoryEvidence::Issue));
     }
 
     fn has_issues(&self) -> bool {
         self.evidence
             .iter()
-            .any(|evidence| matches!(evidence, PathListEvidence::Issue(_)))
+            .any(|evidence| matches!(evidence, TemplateDirectoryEvidence::Issue(_)))
     }
 
     fn issues(&self) -> impl Iterator<Item = &SettingIssue> {
         self.evidence.iter().filter_map(|evidence| match evidence {
-            PathListEvidence::Known(_) => None,
-            PathListEvidence::Issue(issue) => Some(issue),
+            TemplateDirectoryEvidence::Known(_) => None,
+            TemplateDirectoryEvidence::Issue(issue) => Some(issue),
         })
     }
 
-    pub(crate) fn into_known(self) -> Vec<WithOrigin<EvaluatedPath>> {
+    pub(crate) fn into_known(self) -> Vec<WithOrigins<TemplateDirectoryPath>> {
         self.evidence
             .into_iter()
             .filter_map(|evidence| match evidence {
-                PathListEvidence::Known(path) => Some(path),
-                PathListEvidence::Issue(_) => None,
+                TemplateDirectoryEvidence::Known(path) => Some(path),
+                TemplateDirectoryEvidence::Issue(_) => None,
             })
             .collect()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct PartialSettingField<T> {
+pub(crate) struct SettingFieldEvidence<T> {
     pub(crate) known: T,
     pub(crate) issues: Vec<SettingIssue>,
 }
 
-impl<T> PartialSettingField<T> {
+impl<T> SettingFieldEvidence<T> {
     pub(crate) fn new(known: T) -> Self {
         Self {
             known,
@@ -468,15 +466,15 @@ impl<T> PartialSettingField<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct PartialTemplateBackend {
     #[serde(skip)]
-    pub(super) correlation: BranchConstraints,
-    pub(crate) backend: PartialSettingField<Option<WithOrigin<String>>>,
-    pub(crate) dirs: OrderedPathList,
-    pub(crate) app_dirs: PartialSettingField<Option<WithOrigin<bool>>>,
-    pub(crate) options: PartialSettingField<()>,
-    pub(crate) libraries: PartialSettingField<Vec<(String, WithOrigin<PythonModuleName>)>>,
-    pub(crate) builtins: PartialSettingField<Vec<WithOrigin<PythonModuleName>>>,
+    pub(super) constraints: BranchConstraints,
+    pub(crate) backend: SettingFieldEvidence<Option<WithOrigins<String>>>,
+    pub(crate) dirs: PartialTemplateDirectories,
+    pub(crate) app_dirs: SettingFieldEvidence<Option<WithOrigins<bool>>>,
+    pub(crate) options: SettingFieldEvidence<()>,
+    pub(crate) libraries: SettingFieldEvidence<Vec<(String, WithOrigins<PythonModuleName>)>>,
+    pub(crate) builtins: SettingFieldEvidence<Vec<WithOrigins<PythonModuleName>>>,
     pub(crate) context_processors:
-        PartialSettingField<Vec<WithOrigin<TemplateContextProcessorPath>>>,
+        SettingFieldEvidence<Vec<WithOrigins<TemplateContextProcessorPath>>>,
 }
 
 impl PartialTemplateBackend {
@@ -517,28 +515,28 @@ impl PartialTemplateBackend {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct DjangoSettings {
     pub(crate) installed_apps: InstalledAppsAlternatives,
-    pub(crate) templates: TemplateAlternatives,
+    pub(crate) templates: TemplateSettingAlternatives,
 }
 
-pub(crate) struct FeasibleConfiguration<'a> {
-    pub(crate) installed_apps: &'a SettingCase<InstalledAppsValue, PartialInstalledApps>,
-    pub(crate) templates: &'a SettingCase<TemplatesValue, PartialTemplates>,
+pub(crate) struct FeasibleSettingsCase<'a> {
+    pub(crate) installed_apps: &'a SettingCase<InstalledApps, PartialInstalledApps>,
+    pub(crate) templates: &'a SettingCase<TemplateBackends, PartialTemplateBackends>,
 }
 
 impl DjangoSettings {
-    pub(crate) fn feasible_configurations(&self) -> Vec<FeasibleConfiguration<'_>> {
-        let mut configurations = Vec::new();
-        for (installed_apps, app_correlation) in self.installed_apps.cases_with_correlations() {
-            for (templates, template_correlation) in self.templates.cases_with_correlations() {
-                if app_correlation.compatible_with(template_correlation) {
-                    configurations.push(FeasibleConfiguration {
+    pub(crate) fn feasible_cases(&self) -> Vec<FeasibleSettingsCase<'_>> {
+        let mut cases = Vec::new();
+        for (installed_apps, app_constraints) in self.installed_apps.constrained_cases() {
+            for (templates, template_constraints) in self.templates.constrained_cases() {
+                if app_constraints.compatible_with(template_constraints) {
+                    cases.push(FeasibleSettingsCase {
                         installed_apps,
                         templates,
                     });
                 }
             }
         }
-        configurations
+        cases
     }
 
     pub(crate) fn unreadable() -> Self {
@@ -549,16 +547,14 @@ impl DjangoSettings {
         Self {
             installed_apps: SettingAlternatives::new(vec![SettingCase::Dynamic(
                 PartialInstalledApps {
-                    apps: OrderedInstalledApps {
-                        evidence: vec![InstalledAppEvidence::Issue(issue.clone())],
-                    },
+                    evidence: vec![InstalledAppEvidence::Issue(issue.clone())],
                 },
             )]),
-            templates: SettingAlternatives::new(vec![SettingCase::Dynamic(PartialTemplates {
-                templates: OrderedTemplateList {
-                    evidence: vec![TemplateListEvidence::Issue(issue)],
+            templates: SettingAlternatives::new(vec![SettingCase::Dynamic(
+                PartialTemplateBackends {
+                    evidence: vec![TemplateBackendEvidence::Issue(issue)],
                 },
-            })]),
+            )]),
         }
     }
 }
@@ -573,9 +569,16 @@ impl Default for DjangoSettings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum EvaluatedPath {
-    Resolved(Utf8PathBuf),
+pub(crate) struct TemplateDirectoryPath(Utf8PathBuf);
+
+impl TemplateDirectoryPath {
+    pub(crate) fn new(path: Utf8PathBuf) -> Self {
+        Self(path)
+    }
+
+    pub(crate) fn path(&self) -> &camino::Utf8Path {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
@@ -610,11 +613,11 @@ equality_is_semantic!(
     String,
     SettingIssueKind,
     PythonModuleName,
-    EvaluatedPath,
+    TemplateDirectoryPath,
     TemplateContextProcessorPath,
 );
 
-merge_struct_fields!(InstalledAppsValue { apps });
+merge_struct_fields!(InstalledApps { apps });
 impl MergeEvidence for InstalledAppEvidence {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         match (self, other) {
@@ -624,13 +627,12 @@ impl MergeEvidence for InstalledAppEvidence {
         }
     }
 }
-merge_struct_fields!(OrderedInstalledApps { evidence });
-merge_struct_fields!(PartialInstalledApps { apps });
+merge_struct_fields!(PartialInstalledApps { evidence });
 impl MergeDynamicEvidence for PartialInstalledApps {
     fn merge_dynamic_evidence(&mut self, other: Self) {
-        for evidence in other.apps.evidence {
+        for evidence in other.evidence {
             if let InstalledAppEvidence::Issue(additional) = evidence {
-                let mut issues = self.apps.evidence.iter_mut().filter_map(|evidence| {
+                let mut issues = self.evidence.iter_mut().filter_map(|evidence| {
                     if let InstalledAppEvidence::Issue(issue) = evidence {
                         Some(issue)
                     } else {
@@ -640,15 +642,13 @@ impl MergeDynamicEvidence for PartialInstalledApps {
                 if let Some(existing) = issues.find(|issue| issue.kind == additional.kind) {
                     let _ = existing.merge_evidence(&additional);
                 } else {
-                    self.apps
-                        .evidence
-                        .push(InstalledAppEvidence::Issue(additional));
+                    self.evidence.push(InstalledAppEvidence::Issue(additional));
                 }
             }
         }
     }
 }
-impl MergeEvidence for TemplatesValue {
+impl MergeEvidence for TemplateBackends {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         if self.backends.len() != other.backends.len()
             || self
@@ -662,7 +662,7 @@ impl MergeEvidence for TemplatesValue {
         self.backends.merge_evidence(&other.backends)
     }
 }
-impl MergeEvidence for TemplateListEvidence {
+impl MergeEvidence for TemplateBackendEvidence {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         match (self, other) {
             (Self::Backend(left), Self::Backend(right)) => left.merge_evidence(right),
@@ -671,14 +671,13 @@ impl MergeEvidence for TemplateListEvidence {
         }
     }
 }
-merge_struct_fields!(OrderedTemplateList { evidence });
-merge_struct_fields!(PartialTemplates { templates });
-impl MergeDynamicEvidence for PartialTemplates {
+merge_struct_fields!(PartialTemplateBackends { evidence });
+impl MergeDynamicEvidence for PartialTemplateBackends {
     fn merge_dynamic_evidence(&mut self, other: Self) {
-        for evidence in other.templates.evidence {
-            if let TemplateListEvidence::Issue(additional) = evidence {
-                let existing = self.templates.evidence.iter_mut().find_map(|evidence| {
-                    if let TemplateListEvidence::Issue(issue) = evidence
+        for evidence in other.evidence {
+            if let TemplateBackendEvidence::Issue(additional) = evidence {
+                let existing = self.evidence.iter_mut().find_map(|evidence| {
+                    if let TemplateBackendEvidence::Issue(issue) = evidence
                         && issue.kind == additional.kind
                     {
                         Some(issue)
@@ -689,9 +688,8 @@ impl MergeDynamicEvidence for PartialTemplates {
                 if let Some(existing) = existing {
                     let _ = existing.merge_evidence(&additional);
                 } else {
-                    self.templates
-                        .evidence
-                        .push(TemplateListEvidence::Issue(additional));
+                    self.evidence
+                        .push(TemplateBackendEvidence::Issue(additional));
                 }
             }
         }
@@ -719,7 +717,7 @@ impl MergeEvidence for TemplateBackend {
         }
     }
 }
-impl MergeEvidence for PathListEvidence {
+impl MergeEvidence for TemplateDirectoryEvidence {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         match (self, other) {
             (Self::Known(left), Self::Known(right)) => left.merge_evidence(right),
@@ -728,7 +726,7 @@ impl MergeEvidence for PathListEvidence {
         }
     }
 }
-impl MergeEvidence for OrderedPathList {
+impl MergeEvidence for PartialTemplateDirectories {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         if self.evidence.len() != other.evidence.len()
             || self
@@ -736,15 +734,17 @@ impl MergeEvidence for OrderedPathList {
                 .iter()
                 .zip(&other.evidence)
                 .any(|(left, right)| match (left, right) {
-                    (PathListEvidence::Known(left), PathListEvidence::Known(right)) => {
-                        !same_origin_files(left.origins(), right.origins())
-                    }
-                    (PathListEvidence::Issue(left), PathListEvidence::Issue(right)) => {
-                        !same_origin_files(
-                            left.origins.iter().copied(),
-                            right.origins.iter().copied(),
-                        )
-                    }
+                    (
+                        TemplateDirectoryEvidence::Known(left),
+                        TemplateDirectoryEvidence::Known(right),
+                    ) => !same_origin_files(left.origins(), right.origins()),
+                    (
+                        TemplateDirectoryEvidence::Issue(left),
+                        TemplateDirectoryEvidence::Issue(right),
+                    ) => !same_origin_files(
+                        left.origins.iter().copied(),
+                        right.origins.iter().copied(),
+                    ),
                     _ => true,
                 })
         {
@@ -753,7 +753,7 @@ impl MergeEvidence for OrderedPathList {
         self.evidence.merge_evidence(&other.evidence)
     }
 }
-impl<T: MergeEvidence> MergeEvidence for PartialSettingField<T> {
+impl<T: MergeEvidence> MergeEvidence for SettingFieldEvidence<T> {
     fn merge_evidence(&mut self, other: &Self) -> bool {
         let mut merged = self.clone();
         if merged.known.merge_evidence(&other.known) && merged.issues.merge_evidence(&other.issues)
@@ -772,7 +772,7 @@ impl MergeEvidence for BranchConstraints {
     }
 }
 merge_struct_fields!(PartialTemplateBackend {
-    correlation,
+    constraints,
     backend,
     dirs,
     app_dirs,
@@ -782,8 +782,8 @@ merge_struct_fields!(PartialTemplateBackend {
     context_processors,
 });
 fn same_path_origin_files(
-    left: &[WithOrigin<EvaluatedPath>],
-    right: &[WithOrigin<EvaluatedPath>],
+    left: &[WithOrigins<TemplateDirectoryPath>],
+    right: &[WithOrigins<TemplateDirectoryPath>],
 ) -> bool {
     left.len() == right.len()
         && left
@@ -828,7 +828,7 @@ mod tests {
     use super::MergeEvidence;
     use super::SettingIssue;
     use super::SettingIssueKind;
-    use super::WithOrigin;
+    use super::WithOrigins;
 
     fn origin(start: u32) -> Origin {
         // SAFETY: The test index is below `salsa::Id::MAX_U32`; this synthetic
@@ -863,9 +863,9 @@ mod tests {
     }
 
     #[test]
-    fn with_origin_one_origin_accessors_and_serialization_are_total() {
+    fn with_origins_one_origin_accessors_and_serialization_are_total() {
         let first = origin(1);
-        let value = WithOrigin::new("value".to_string(), first, []);
+        let value = WithOrigins::new("value".to_string(), first, []);
 
         assert_eq!(value.origin(), first);
         assert_eq!(value.origins().collect::<Vec<_>>(), [first]);
@@ -879,10 +879,10 @@ mod tests {
     }
 
     #[test]
-    fn with_origin_construction_normalizes_and_deduplicates_origins() {
+    fn with_origins_construction_normalizes_and_deduplicates_origins() {
         let first = origin(1);
         let second = origin(2);
-        let value = WithOrigin::new("value".to_string(), second, [second, first, second]);
+        let value = WithOrigins::new("value".to_string(), second, [second, first, second]);
 
         assert_eq!(value.origin(), first);
         assert_eq!(value.origins().collect::<Vec<_>>(), [first, second]);
@@ -896,11 +896,11 @@ mod tests {
     }
 
     #[test]
-    fn with_origin_merge_is_reversed_and_idempotent() {
+    fn with_origins_merge_is_reversed_and_idempotent() {
         let first = origin(1);
         let second = origin(2);
-        let first_value = WithOrigin::new("value".to_string(), first, []);
-        let second_value = WithOrigin::new("value".to_string(), second, []);
+        let first_value = WithOrigins::new("value".to_string(), first, []);
+        let second_value = WithOrigins::new("value".to_string(), second, []);
 
         let mut forward = second_value.clone();
         assert!(forward.merge_evidence(&first_value));

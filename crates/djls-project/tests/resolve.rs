@@ -477,8 +477,8 @@ fn template_library_sources_tolerate_unregistered_search_paths() {
         django_template_settings(&[], &[]),
     );
 
-    let libraries = template_libraries(&db, project);
-    let active: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let active: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .filter(|library| library.source_file().is_some())
@@ -514,8 +514,8 @@ fn template_library_source_resolution_uses_project_venv_site_packages_root() {
         django_template_settings(&[], &[]),
     );
 
-    let libraries = template_libraries(&db, project);
-    let active: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let active: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .filter(|library| library.source_file().is_some())
@@ -564,8 +564,8 @@ fn template_library_source_resolution_prefers_first_party_module_shadowing_depen
         django_template_settings(&[], &[]),
     );
 
-    let libraries = template_libraries(&db, project);
-    let active: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let active: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .filter(|library| library.source_file().is_some())
@@ -607,8 +607,8 @@ fn active_template_library_sources_preserve_builtin_order_across_roots() {
         django_template_settings(&[], &["a.templatetags.tags", "z.templatetags.tags"]),
     );
 
-    let libraries = template_libraries(&db, project);
-    let module_names: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let module_names: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .filter(|library| library.source_file().is_some())
@@ -622,7 +622,7 @@ fn active_template_library_sources_preserve_builtin_order_across_roots() {
 }
 
 #[test]
-fn active_template_library_sources_yield_installed_before_builtins() {
+fn active_template_library_sources_yield_loadable_before_builtins() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/installed_tags.py",
@@ -647,8 +647,8 @@ fn active_template_library_sources_yield_installed_before_builtins() {
         "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'installed_tags'}, 'builtins': ['builtin_tags']}}]\n",
     );
 
-    let libraries = template_libraries(&db, project);
-    let module_names: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let module_names: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .filter(|library| library.source_file().is_some())
@@ -698,8 +698,8 @@ def duplicate(value, arg):
         django_template_settings(&[], &["z_first", "a_second"]),
     );
 
-    let libraries = template_libraries(&db, project);
-    let module_names: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let module_names: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .filter(|library| library.source_file().is_some())

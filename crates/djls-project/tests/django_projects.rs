@@ -7,14 +7,14 @@ use djls_project::FileModuleResolution;
 use djls_project::Project;
 use djls_project::PythonModuleName;
 use djls_project::PythonSourceModule;
+use djls_project::ScopedTemplateLibraries;
 use djls_project::SearchPath;
-use djls_project::TemplateEnvironment;
 use djls_project::compute_model_graph;
 use djls_project::file_to_module;
 use djls_project::file_to_module_resolution;
 use djls_project::resolve_package_dirs;
 use djls_project::template_directories;
-use djls_project::template_libraries;
+use djls_project::template_library_catalog;
 use djls_project::testing::compute_project_facts;
 use djls_testing::OsTestDatabase;
 
@@ -47,7 +47,7 @@ fn venv_override(venv: &Utf8Path) -> djls_conf::Settings {
 
 fn template_dirs(db: &OsTestDatabase, project: Project) -> Vec<Utf8PathBuf> {
     let directories = template_directories(db, project);
-    assert!(!directories.configuration_may_omit_roots());
+    assert!(!directories.settings_cases_may_omit_roots());
     directories
         .known_roots()
         .map(Utf8Path::to_path_buf)
@@ -93,8 +93,8 @@ fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
         .expect("blog models file should map to a module");
     assert_eq!(models_module.name().as_str(), "blog.models");
 
-    let libraries = template_libraries(&db, project);
-    let blog_tags = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let blog_tags = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("blog_tags")
         .found()
         .expect("blog_tags should be installed");
@@ -121,8 +121,8 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
     let dirs = template_dirs(&db, project);
     assert!(dirs.contains(&root.join("vendor/shoutbox/templates")));
 
-    let libraries = template_libraries(&db, project);
-    let shout_tags = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let shout_tags = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("shout_tags")
         .found()
         .expect("shout_tags should be installed");
@@ -178,8 +178,8 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     assert!(dirs.contains(&root.join("checkout/templates")));
     assert!(dirs.contains(&root.join("weird/templates")));
 
-    let libraries = template_libraries(&db, project);
-    let ns_tags = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let ns_tags = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("ns_tags")
         .found()
         .expect("ns_tags should be installed from namespace app");

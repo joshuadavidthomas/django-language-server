@@ -1,8 +1,8 @@
-use super::Evaluator;
 use super::ExprExt;
 use super::Origin;
 use super::PythonBinding;
 use super::PythonBindingState;
+use super::PythonModuleEvaluator;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
@@ -10,7 +10,7 @@ use super::ast;
 use crate::python::PythonPath;
 use crate::python::PythonPathIntrinsic;
 
-impl Evaluator<'_> {
+impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
         let origin = self.origin(expression);
         if let Some(value) = expression.string_literal() {

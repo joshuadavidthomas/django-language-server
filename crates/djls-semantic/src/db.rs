@@ -1,9 +1,9 @@
 use djls_conf::DiagnosticsConfig;
 use djls_project::Db as ProjectDb;
 use djls_project::ModelGraph;
-use djls_project::TemplateEnvironment;
-use djls_project::TemplateLibraries;
-use djls_project::template_environment;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::TemplateLibraryCatalog;
+use djls_project::scoped_template_libraries;
 use djls_source::File;
 
 use crate::errors::ValidationError;
@@ -31,10 +31,10 @@ pub trait Db: ProjectDb {
     fn model_graph(&self) -> &ModelGraph;
 }
 
-pub fn template_environment_for_file(db: &dyn Db, file: File) -> TemplateEnvironment<'_> {
+pub fn scoped_template_libraries_for_file(db: &dyn Db, file: File) -> ScopedTemplateLibraries<'_> {
     db.project().map_or_else(
-        || TemplateEnvironment::from_project_inventory(TemplateLibraries::empty_ref()),
-        |project| template_environment(db, project, file),
+        || ScopedTemplateLibraries::from_project_inventory(TemplateLibraryCatalog::empty_ref()),
+        |project| scoped_template_libraries(db, project, file),
     )
 }
 

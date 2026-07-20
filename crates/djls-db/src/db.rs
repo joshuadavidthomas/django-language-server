@@ -213,12 +213,12 @@ mod invalidation_tests {
     use djls_project::Project;
     use djls_project::PythonModuleName;
     use djls_project::PythonSourceModule;
+    use djls_project::ScopedTemplateLibraries;
     use djls_project::SymbolKey;
-    use djls_project::TemplateEnvironment;
     use djls_project::TemplateLibrary;
-    use djls_project::TemplateLibraryKey;
+    use djls_project::TemplateLibraryId;
     use djls_project::TemplateSymbolKind;
-    use djls_project::template_libraries;
+    use djls_project::template_library_catalog;
     use djls_project::template_library_definition_facts;
     use djls_project::template_library_filter_facts;
     use djls_semantic::Db as SemanticDb;
@@ -227,7 +227,7 @@ mod invalidation_tests {
     use djls_semantic::build_template_tree_for_file;
     use djls_semantic::library_filter_specs;
     use djls_semantic::library_tag_specs;
-    use djls_semantic::template_environment_for_file;
+    use djls_semantic::scoped_template_libraries_for_file;
     use djls_semantic::template_inheritance;
     use djls_semantic::template_symbols;
     use djls_semantic::validate_template_file;
@@ -548,9 +548,9 @@ mod invalidation_tests {
             1
         );
         assert_eq!(
-            exact_execution_count(&db, &first_request, "template_environment_scope"),
+            exact_execution_count(&db, &first_request, "template_library_scope"),
             1,
-            "one borrowed Template Environment should be computed for the whole file",
+            "one scoped Template Library view should be computed for the whole file",
         );
         for intrinsic in [
             "template_library_definition_facts",
@@ -656,8 +656,8 @@ mod invalidation_tests {
         let project = db.project().expect("fixture should install a project");
         event_log.take();
 
-        let libraries = template_libraries(&db, project);
-        let modules: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+        let libraries = template_library_catalog(&db, project);
+        let modules: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .filter(|library| library.source_file().is_some())
@@ -668,14 +668,17 @@ mod invalidation_tests {
             ["django.template.defaulttags", "django.template.loader_tags"]
         );
         let events = event_log.take();
-        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_library_catalog"),
+            1
+        );
 
-        for library in TemplateEnvironment::from_project_inventory(libraries)
+        for library in ScopedTemplateLibraries::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .filter(|library| library.source_file().is_some())
         {
-            let key = library.key();
+            let key = library.id();
             let facts = template_library_definition_facts(&db, key);
             assert!(facts.is_library());
             let tags = library_tag_specs(&db, project, key);
@@ -697,15 +700,15 @@ mod invalidation_tests {
             2
         );
 
-        let environment = template_environment_for_file(&db, child_file);
-        let names = environment
+        let scoped_libraries = scoped_template_libraries_for_file(&db, child_file);
+        let names = scoped_libraries
             .inventory_symbol_names(TemplateSymbolKind::Tag)
             .collect::<Vec<_>>();
         assert!(names.contains(&"load"));
         assert!(names.contains(&"block"));
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_environment_scope"),
+            exact_execution_count(&db, &events, "template_library_scope"),
             1
         );
 
@@ -1037,7 +1040,7 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn final_state_matrix_12_catalog_validation_backdates_unchanged_environment_scope() {
+    fn final_state_matrix_12_catalog_validation_backdates_unchanged_library_scope() {
         let TemplateInheritanceFixture {
             mut db,
             event_log,
@@ -1046,8 +1049,8 @@ mod invalidation_tests {
             child_file,
             ..
         } = template_inheritance_fixture();
-        let environment = template_environment_for_file(&db, child_file);
-        assert!(environment.completion_library_names().is_empty());
+        let scoped_libraries = scoped_template_libraries_for_file(&db, child_file);
+        assert!(scoped_libraries.completion_library_names().is_empty());
         event_log.take();
 
         let root = project.root(&db).to_path_buf();
@@ -1064,15 +1067,18 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
             .apply(&mut db);
 
-        let environment = template_environment_for_file(&db, child_file);
+        let scoped_libraries = scoped_template_libraries_for_file(&db, child_file);
         assert_eq!(
-            environment.completion_library_names(),
+            scoped_libraries.completion_library_names(),
             [LibraryName::parse("custom").unwrap()]
         );
         let events = event_log.take();
-        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
         assert_eq!(
-            exact_execution_count(&db, &events, "template_environment_scope"),
+            exact_execution_count(&db, &events, "template_library_catalog"),
+            1
+        );
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_library_scope"),
             0,
             "catalog-only changes must not rebuild an equality-unchanged file scope",
         );
@@ -1086,13 +1092,13 @@ mod invalidation_tests {
             project,
             ..
         } = template_inheritance_fixture();
-        let libraries = template_libraries(&db, project);
-        let library = TemplateEnvironment::from_project_inventory(libraries)
+        let libraries = template_library_catalog(&db, project);
+        let library = ScopedTemplateLibraries::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .next()
             .expect("fixture should discover a builtin library");
-        let key = library.key();
+        let key = library.id();
         let _ = library_tag_specs(&db, project, key);
         let _ = library_filter_specs(&db, key);
         event_log.take();
@@ -1151,14 +1157,14 @@ mod invalidation_tests {
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let libraries = template_libraries(&db, project);
-        let library = TemplateEnvironment::from_project_inventory(libraries)
+        let libraries = template_library_catalog(&db, project);
+        let library = ScopedTemplateLibraries::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == "project_tags")
             .expect("configured builtin should resolve before settings change");
         assert!(
-            library_tag_specs(&db, project, library.key())
+            library_tag_specs(&db, project, library.id())
                 .get("project_tag")
                 .is_some(),
             "configured builtin tag should be extracted before settings change"
@@ -1174,14 +1180,17 @@ mod invalidation_tests {
             .apply(&mut db);
 
         assert!(
-            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .resolved_libraries()
                 .into_iter()
                 .all(|library| library.module_name_str() != "project_tags"),
             "removed configured builtin should leave the active catalog"
         );
         let events = event_log.take();
-        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 1);
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_library_catalog"),
+            1
+        );
         assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
         assert_eq!(
             exact_execution_count(&db, &events, "library_filter_specs"),
@@ -1190,7 +1199,7 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn root_revision_change_invalidates_project_template_files() {
+    fn root_revision_change_invalidates_project_template_searches() {
         let source = "{% extends \"base.html\" %}";
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
@@ -1256,8 +1265,8 @@ mod invalidation_tests {
         let _result = djls_project::template_resolution(&db, project).resolve(&db, name);
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "project_template_files"),
-            "project_template_files should re-execute after the search root revision changes"
+            was_executed(&db, &events, "project_template_searches"),
+            "project_template_searches should re-execute after the search root revision changes"
         );
     }
 
@@ -1302,7 +1311,7 @@ mod invalidation_tests {
             assert_eq!(resolution.origins_for_name(&db, name).len(), 1);
             assert!(matches!(
                 resolution.resolve(&db, name),
-                djls_project::FindTemplateResult::Found(_)
+                djls_project::TemplateResolutionResult::Found(_)
             ));
         }
         assert_eq!(
@@ -1322,7 +1331,7 @@ mod invalidation_tests {
             assert_eq!(resolution.origins_for_name(&db, name).len(), 1);
             assert!(matches!(
                 resolution.resolve(&db, name),
-                djls_project::FindTemplateResult::Found(_)
+                djls_project::TemplateResolutionResult::Found(_)
             ));
         }
         assert_eq!(
@@ -1356,7 +1365,7 @@ mod invalidation_tests {
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        assert!(djls_project::template_directories(&db, project).configuration_may_omit_roots());
+        assert!(djls_project::template_directories(&db, project).settings_cases_may_omit_roots());
     }
 
     #[test]
@@ -1412,7 +1421,7 @@ mod invalidation_tests {
             "template_directories should derive the trusted directory list"
         );
         assert!(
-            !was_executed(&db, &events, "project_template_files"),
+            !was_executed(&db, &events, "project_template_searches"),
             "template_directories should not walk template files"
         );
     }
@@ -1781,18 +1790,18 @@ env_file = ".env.local"
             child_file,
             ..
         } = template_inheritance_fixture();
-        let libraries = template_libraries(&db, project);
-        let defaulttags = TemplateEnvironment::from_project_inventory(libraries)
+        let libraries = template_library_catalog(&db, project);
+        let defaulttags = ScopedTemplateLibraries::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == "django.template.defaulttags")
-            .map(TemplateLibrary::key)
+            .map(TemplateLibrary::id)
             .expect("defaulttags should be active");
-        let loader_tags = TemplateEnvironment::from_project_inventory(libraries)
+        let loader_tags = ScopedTemplateLibraries::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == "django.template.loader_tags")
-            .map(TemplateLibrary::key)
+            .map(TemplateLibrary::id)
             .expect("loader_tags should be active");
         let defaulttags_identity = (defaulttags.file(&db), defaulttags.module(&db).clone());
         let loader_tags_identity = (loader_tags.file(&db), loader_tags.module(&db).clone());
@@ -1827,9 +1836,9 @@ env_file = ".env.local"
 
         project.set_tagspecs(&mut db).to(new_tagspecs);
         let defaulttags =
-            TemplateLibraryKey::new(&db, defaulttags_identity.0, defaulttags_identity.1);
+            TemplateLibraryId::new(&db, defaulttags_identity.0, defaulttags_identity.1);
         let loader_tags =
-            TemplateLibraryKey::new(&db, loader_tags_identity.0, loader_tags_identity.1);
+            TemplateLibraryId::new(&db, loader_tags_identity.0, loader_tags_identity.1);
 
         assert!(
             library_tag_specs(&db, project, defaulttags)
@@ -1908,12 +1917,12 @@ env_file = ".env.local"
         };
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
-        let libraries = template_libraries(&db, project);
-        let keys: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+        let libraries = template_library_catalog(&db, project);
+        let keys: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
             .resolved_libraries()
             .into_iter()
             .filter(|library| matches!(library.module_name_str(), "alpha_tags" | "beta_tags"))
-            .map(TemplateLibrary::key)
+            .map(TemplateLibrary::id)
             .collect();
         assert_eq!(keys.len(), 2);
         let primed = prime_template_library_products(&db).unwrap();
@@ -1948,7 +1957,10 @@ env_file = ".env.local"
             exact_execution_count(&db, &events, "template_library_definition_facts"),
             1
         );
-        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 0);
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_library_catalog"),
+            0
+        );
         assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
         assert_eq!(
             exact_execution_count(&db, &events, "library_filter_specs"),
@@ -1978,7 +1990,10 @@ env_file = ".env.local"
             exact_execution_count(&db, &events, "template_library_definition_facts"),
             1
         );
-        assert_eq!(exact_execution_count(&db, &events, "template_libraries"), 0);
+        assert_eq!(
+            exact_execution_count(&db, &events, "template_library_catalog"),
+            0
+        );
         assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 1);
         assert_eq!(
             exact_execution_count(&db, &events, "library_filter_specs"),
@@ -1994,7 +2009,7 @@ env_file = ".env.local"
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
 
-        let library = TemplateLibraryKey::new(
+        let library = TemplateLibraryId::new(
             &db,
             Some(file),
             PythonModuleName::parse("test.project.tags").unwrap(),
@@ -2024,7 +2039,7 @@ env_file = ".env.local"
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
-        let library = TemplateLibraryKey::new(
+        let library = TemplateLibraryId::new(
             &db,
             Some(file),
             PythonModuleName::parse("test.project.tags").unwrap(),
@@ -2083,7 +2098,7 @@ def my_filter(value, arg):
 
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
-        let library = TemplateLibraryKey::new(
+        let library = TemplateLibraryId::new(
             &db,
             Some(file),
             PythonModuleName::parse("test.project.tags").unwrap(),
@@ -2098,7 +2113,7 @@ def my_filter(value, arg):
         );
         assert!(result.filter_arities()[&key].expects_arg);
 
-        let other_library = TemplateLibraryKey::new(
+        let other_library = TemplateLibraryId::new(
             &db,
             Some(file),
             PythonModuleName::parse("other.project.tags").unwrap(),
@@ -2126,7 +2141,7 @@ def my_filter(value, arg):
 
     fn assert_custom_library_module(db: &DjangoDatabase, module_name: &str) {
         let project = db.project().expect("test database should have a project");
-        match TemplateEnvironment::from_project_inventory(template_libraries(db, project))
+        match ScopedTemplateLibraries::from_project_inventory(template_library_catalog(db, project))
             .loadable_library_str("custom")
         {
             djls_project::LoadableLibraryLookup::Found(custom) => {
@@ -2197,7 +2212,7 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn django_discovery_reads_changed_star_imported_settings_source_for_template_libraries() {
+    fn django_discovery_reads_changed_star_imported_settings_source_for_template_library_catalog() {
         assert_django_discovery_updates_star_imported_settings_source("from .base import *\n");
     }
 
@@ -2260,7 +2275,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         assert!(
-            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .loadable_library_str("custom")
                 .found()
                 .is_none()
@@ -2338,7 +2353,7 @@ def my_filter(value, arg):
         fs.lock().unwrap().remove_file(&base_settings_path);
         apply_project_discovery(&mut db);
         assert!(
-            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .loadable_library_str("custom")
                 .found()
                 .is_none()
@@ -2445,7 +2460,7 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn semantic_db_template_libraries_returns_derived_app_libraries() {
+    fn semantic_db_template_library_catalog_returns_derived_app_libraries() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -2480,7 +2495,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
@@ -2495,7 +2510,7 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn templatetag_source_change_invalidates_template_libraries() {
+    fn templatetag_source_change_invalidates_template_library_catalog() {
         let event_log = EventLog::default();
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
@@ -2540,7 +2555,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
@@ -2562,7 +2577,7 @@ def my_filter(value, arg):
             .apply(&mut db);
 
         let djls_project::LoadableLibraryLookup::Found(custom) =
-            TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .loadable_library_str("custom")
         else {
             panic!("custom library should resolve definitively");
@@ -2581,8 +2596,8 @@ def my_filter(value, arg):
         );
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "template_libraries"),
-            "template_libraries should re-execute after a templatetag source change"
+            was_executed(&db, &events, "template_library_catalog"),
+            "template_library_catalog should re-execute after a templatetag source change"
         );
     }
 

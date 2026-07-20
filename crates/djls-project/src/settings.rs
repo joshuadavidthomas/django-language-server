@@ -6,7 +6,6 @@ use djls_source::File;
 pub(crate) use sources::DjangoSettingsSources;
 pub(crate) use sources::settings_sources;
 pub(crate) use types::DjangoSettings;
-pub(crate) use types::EvaluatedPath;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;

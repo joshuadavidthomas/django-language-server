@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::LibraryName;
-use djls_project::MissingLibraryLookup;
+use djls_project::MissingTemplateLibraryLookup;
 use djls_project::SymbolDefinition;
-use djls_project::TemplateLibraryKey;
+use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
@@ -21,8 +21,8 @@ use salsa::Accumulator;
 
 use crate::ValidationErrorAccumulator;
 use crate::db::Db;
-use crate::db::template_environment_for_file;
-use crate::filters::effective_filter_arity_in_environment;
+use crate::db::scoped_template_libraries_for_file;
+use crate::filters::effective_filter_arity_in_scope;
 use crate::scoping::loads::LoadArgument;
 pub(crate) use crate::scoping::loads::LoadKind;
 pub(crate) use crate::scoping::loads::LoadState;
@@ -112,7 +112,7 @@ struct ContextualFilterFact {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LoaderArgumentFact {
     pub(crate) argument: LoadArgument,
-    pub(crate) availability: MissingLibraryLookup,
+    pub(crate) availability: MissingTemplateLibraryLookup,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -192,12 +192,14 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         + 1;
 
     let project = db.project();
-    let environment = template_environment_for_file(db, scope_file);
+    let scoped_libraries = scoped_template_libraries_for_file(db, scope_file);
     let mut loaded = LoadedLibraries::default();
     for _ in 0..fixed_point_limit {
         let grammar = project.map_or_else(
             || SparseTagGrammar::projectless(db, nodelist),
-            |project| SparseTagGrammar::project_pass(db, project, nodelist, &loaded, environment),
+            |project| {
+                SparseTagGrammar::project_pass(db, project, nodelist, &loaded, scoped_libraries)
+            },
         );
         // Fixed-point passes are plain temporary values. No tracked Tree identity
         // or structural diagnostic is produced until this pass converges.
@@ -254,7 +256,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                 }
                             } else {
                                 resolve_occurrence_availability(
-                                    environment,
+                                    scoped_libraries,
                                     &load_state,
                                     tag.tag,
                                     TemplateSymbolKind::Tag,
@@ -263,7 +265,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                             unknown_load_can_shadow: load_state.unknown_load_can_shadow_symbol(
                                 tag.tag,
                                 TemplateSymbolKind::Tag,
-                                environment,
+                                scoped_libraries,
                             ),
                         });
                     let loader_arguments =
@@ -274,7 +276,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                     .filter_map(|argument| {
                                         let name = LibraryName::parse(argument.as_str()).ok()?;
                                         Some(LoaderArgumentFact {
-                                            availability: environment.missing_library(&name),
+                                            availability: scoped_libraries.missing_library(&name),
                                             argument,
                                         })
                                     })
@@ -320,14 +322,14 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                 } else {
                                     (
                                         resolve_occurrence_availability(
-                                            environment,
+                                            scoped_libraries,
                                             &load_state,
                                             &filter.name,
                                             TemplateSymbolKind::Filter,
                                         ),
-                                        effective_filter_arity_in_environment(
+                                        effective_filter_arity_in_scope(
                                             db,
-                                            environment,
+                                            scoped_libraries,
                                             &filter.name,
                                             &load_state,
                                         ),
@@ -340,7 +342,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                         .unknown_load_can_shadow_symbol(
                                             &filter.name,
                                             TemplateSymbolKind::Filter,
-                                            environment,
+                                            scoped_libraries,
                                         ),
                                 }
                             });
@@ -409,11 +411,11 @@ pub fn effective_symbol_candidate_at(
     name: &str,
     kind: TemplateSymbolKind,
 ) -> Option<TemplateSymbolCandidate> {
-    let environment = template_environment_for_file(db, file);
+    let scoped_libraries = scoped_template_libraries_for_file(db, file);
     let projection = template_analysis_projection_for_file(db, file, nodelist);
     let load_state = projection.loaded_libraries(db).available_at(position);
     let loaded_names = load_state.libraries_loading_symbol(name);
-    let definitions = environment.effective_definition_libraries(name, kind, &loaded_names);
+    let definitions = scoped_libraries.effective_definition_libraries(name, kind, &loaded_names);
     let candidates = definitions
         .into_iter()
         .map(|definition| {
@@ -430,7 +432,7 @@ pub fn effective_symbol_candidate_at(
                 },
             );
             Some((
-                library.key(),
+                library.id(),
                 TemplateSymbolCandidate {
                     symbol,
                     availability,
@@ -488,8 +490,8 @@ pub fn effective_symbol_candidate_at(
 }
 
 fn effective_definitions_agree(
-    left: &(TemplateLibraryKey, TemplateSymbolCandidate),
-    right: &(TemplateLibraryKey, TemplateSymbolCandidate),
+    left: &(TemplateLibraryId, TemplateSymbolCandidate),
+    right: &(TemplateLibraryId, TemplateSymbolCandidate),
 ) -> bool {
     left.1.symbol.has_same_definition(&right.1.symbol)
         || (left.0 == right.0

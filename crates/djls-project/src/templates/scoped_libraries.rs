@@ -2,37 +2,37 @@ use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::templates::ContextualLibraryChain;
-use crate::templates::ContextualLibraryStep;
+use crate::templates::AppTemplateSymbolLookup;
 use crate::templates::EffectiveDefinitionLibrary;
-use crate::templates::EnvironmentSymbolLookup;
 use crate::templates::LibraryName;
 use crate::templates::LoadableLibraryLookup;
-use crate::templates::MissingLibraryLookup;
+use crate::templates::MissingTemplateLibraryLookup;
+use crate::templates::ScopedTemplateSymbolLookup;
 use crate::templates::TemplateBackendScope;
-use crate::templates::TemplateLibraries;
 use crate::templates::TemplateLibrary;
+use crate::templates::TemplateLibraryCatalog;
+use crate::templates::TemplateLibraryChain;
+use crate::templates::TemplateLibraryChainStep;
 use crate::templates::TemplateSymbolCandidate;
 use crate::templates::TemplateSymbolKind;
-use crate::templates::TemplateSymbolLookup;
-use crate::templates::template_libraries;
+use crate::templates::template_library_catalog;
 use crate::templates::template_resolution;
 
-/// A borrowed Template Library environment attached to a concrete template scope.
+/// Borrowed Template Library catalog access under one Template Backend Scope.
 ///
 /// The catalog is shared by every file in the Project. A file can be feasible under more than one
-/// settings configuration or backend, so the compact scope retains those alternatives and lookup
+/// Template settings case or backend, so the compact scope retains those alternatives and lookup
 /// only makes a library or symbol definite when every feasible backend agrees.
 #[derive(Clone, Copy)]
-pub struct TemplateEnvironment<'db> {
-    catalog: &'db TemplateLibraries,
+pub struct ScopedTemplateLibraries<'db> {
+    catalog: &'db TemplateLibraryCatalog,
     scope: &'db TemplateBackendScope,
 }
 
-impl<'db> TemplateEnvironment<'db> {
+impl<'db> ScopedTemplateLibraries<'db> {
     /// Wrap project-global inventory for commands and tests that have no concrete project file.
     #[must_use]
-    pub fn from_project_inventory(catalog: &'db TemplateLibraries) -> Self {
+    pub fn from_project_inventory(catalog: &'db TemplateLibraryCatalog) -> Self {
         Self {
             catalog,
             scope: TemplateBackendScope::project_inventory_ref(),
@@ -61,12 +61,9 @@ impl<'db> TemplateEnvironment<'db> {
 
     /// Return each feasible backend's ordered builtin and load updates.
     #[must_use]
-    pub fn contextual_library_chains(
-        self,
-        loaded_names: &[&str],
-    ) -> Vec<ContextualLibraryChain<'db>> {
+    pub fn library_chains(self, loaded_names: &[&str]) -> Vec<TemplateLibraryChain<'db>> {
         self.catalog
-            .contextual_library_chains_in_scope(self.scope, loaded_names)
+            .library_chains_in_scope(self.scope, loaded_names)
     }
 
     /// Fold each feasible backend's ordered builtin and load updates without materializing chains.
@@ -74,20 +71,15 @@ impl<'db> TemplateEnvironment<'db> {
     /// `initial` creates one consumer state per backend alternative, `step` receives that
     /// alternative's updates in Django precedence order, and `finish` receives the completed
     /// state. Open or omitted alternatives are represented by an explicit `Unknown` step.
-    pub fn fold_contextual_library_chains<State>(
+    pub fn fold_library_chains<State>(
         self,
         loaded_names: &[&str],
         initial: impl FnMut() -> State,
-        step: impl FnMut(&mut State, ContextualLibraryStep<'db>),
+        step: impl FnMut(&mut State, TemplateLibraryChainStep<'db>),
         finish: impl FnMut(State),
     ) {
-        self.catalog.fold_contextual_library_chains_in_scope(
-            self.scope,
-            loaded_names,
-            initial,
-            step,
-            finish,
-        );
+        self.catalog
+            .fold_library_chains_in_scope(self.scope, loaded_names, initial, step, finish);
     }
 
     /// Visit the definition effective in each feasible backend without allocating alternatives.
@@ -119,28 +111,28 @@ impl<'db> TemplateEnvironment<'db> {
     }
 
     #[must_use]
-    pub fn symbol(self, name: &str, kind: TemplateSymbolKind) -> EnvironmentSymbolLookup {
+    pub fn symbol(self, name: &str, kind: TemplateSymbolKind) -> ScopedTemplateSymbolLookup {
         self.catalog
-            .environment_symbol_lookup_in_scope(self.scope, name, kind)
+            .scoped_symbol_lookup_in_scope(self.scope, name, kind)
     }
 
     #[must_use]
-    pub fn available_app_symbol(
+    pub fn available_in_app_symbol(
         self,
         name: &str,
         kind: TemplateSymbolKind,
-    ) -> TemplateSymbolLookup {
+    ) -> AppTemplateSymbolLookup {
         self.catalog
             .template_symbol_lookup_in_scope(self.scope, name, kind)
     }
 
     #[must_use]
-    pub fn missing_library(self, name: &LibraryName) -> MissingLibraryLookup {
+    pub fn missing_library(self, name: &LibraryName) -> MissingTemplateLibraryLookup {
         self.catalog
             .missing_library_lookup_in_scope(self.scope, name)
     }
 
-    /// Return the concrete library identities participating in the selected environment.
+    /// Return the concrete library identities participating in the selected Template Backend Scope.
     #[must_use]
     pub fn resolved_libraries(self) -> Vec<&'db TemplateLibrary> {
         self.catalog.resolved_libraries_in_scope(self.scope)
@@ -152,16 +144,16 @@ impl<'db> TemplateEnvironment<'db> {
         self.catalog.definition_names_are_open()
     }
 
-    /// Return the number of builtin and loadable libraries in this environment.
+    /// Return the number of builtin and loadable libraries in this Template Backend Scope.
     #[must_use]
-    pub fn installed_library_count(self) -> usize {
+    pub fn resolved_library_count(self) -> usize {
         self.resolved_libraries().len()
     }
 
     /// Borrow every indexed symbol name from the shared Project catalog.
     ///
     /// This is inventory enumeration, not contextual availability. Callers that need symbols
-    /// usable in this environment must pass each relevant name to `contextual_symbol_candidates`.
+    /// usable in this Template Backend Scope must pass each relevant name to `scoped_symbol_candidates`.
     pub fn inventory_symbol_names(
         self,
         kind: TemplateSymbolKind,
@@ -171,13 +163,13 @@ impl<'db> TemplateEnvironment<'db> {
 
     /// Return the candidates for one name only when they are definite in every feasible backend.
     #[must_use]
-    pub fn contextual_symbol_candidates(
+    pub fn scoped_symbol_candidates(
         self,
         name: &str,
         kind: TemplateSymbolKind,
     ) -> Vec<TemplateSymbolCandidate> {
         self.catalog
-            .contextual_symbol_candidates_in_scope(self.scope, name, kind)
+            .scoped_symbol_candidates_in_scope(self.scope, name, kind)
     }
 
     #[must_use]
@@ -195,19 +187,19 @@ impl<'db> TemplateEnvironment<'db> {
 }
 
 #[must_use]
-pub fn template_environment(
+pub fn scoped_template_libraries(
     db: &dyn ProjectDb,
     project: Project,
     file: File,
-) -> TemplateEnvironment<'_> {
-    TemplateEnvironment {
-        catalog: template_libraries(db, project),
-        scope: template_environment_scope(db, project, file),
+) -> ScopedTemplateLibraries<'_> {
+    ScopedTemplateLibraries {
+        catalog: template_library_catalog(db, project),
+        scope: template_library_scope(db, project, file),
     }
 }
 
 #[salsa::tracked(returns(ref))]
-fn template_environment_scope(
+fn template_library_scope(
     db: &dyn ProjectDb,
     project: Project,
     file: File,

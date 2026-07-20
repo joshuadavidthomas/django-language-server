@@ -8,7 +8,7 @@ use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
-use djls_project::TemplateLibraryKey;
+use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_library_filter_facts;
 use djls_project::template_library_tag_facts;
@@ -35,7 +35,7 @@ pub fn extract_bundle(
     file: File,
     registration_module: PythonModuleName,
 ) -> ExtractionBundle {
-    let key = TemplateLibraryKey::new(db, Some(file), registration_module);
+    let key = TemplateLibraryId::new(db, Some(file), registration_module);
     let tag_facts = template_library_tag_facts(db, key);
     let filter_facts = template_library_filter_facts(db, key);
     let tag_rules = tag_facts.tag_rules().to_owned();

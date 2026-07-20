@@ -1,4 +1,4 @@
-use djls_project::FindTemplateResult;
+use djls_project::TemplateResolutionResult;
 use djls_project::template_resolution;
 use djls_semantic::SemanticOffsetContext;
 use djls_semantic::references_to_template_name;
@@ -28,7 +28,7 @@ pub fn goto_definition(
             let project = db.project()?;
             let resolution = template_resolution(db, project);
             match resolve_reference_for_file(db, resolution, file, template_name, kind)? {
-                FindTemplateResult::Found(origin) => {
+                TemplateResolutionResult::Found(origin) => {
                     let path = origin.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);
 
@@ -54,7 +54,7 @@ pub fn goto_definition(
                         ))
                     }
                 }
-                FindTemplateResult::Inconclusive(search) => {
+                TemplateResolutionResult::Inconclusive(search) => {
                     // Jumping to a probable origin beats refusing to navigate; with several
                     // candidates the editor presents the list and the user picks.
                     if supports_location_links {
@@ -90,7 +90,7 @@ pub fn goto_definition(
                             .then_some(ls_types::GotoDefinitionResponse::Array(locations))
                     }
                 }
-                FindTemplateResult::DoesNotExist(error) => {
+                TemplateResolutionResult::DoesNotExist(error) => {
                     tracing::warn!(
                         "Template '{}' not found. Tried: {:?}",
                         error.name.name(db),
@@ -122,7 +122,7 @@ pub fn find_references(
 
             let project = db.project()?;
             let resolution = template_resolution(db, project);
-            let FindTemplateResult::Found(target_origin) =
+            let TemplateResolutionResult::Found(target_origin) =
                 resolve_reference_for_file(db, resolution, file, template_name, kind)?
             else {
                 return None;
@@ -149,7 +149,7 @@ pub fn find_references(
                     };
                     if !matches!(
                         outcome.result,
-                        FindTemplateResult::Found(origin) if origin.file(db) == target_origin.file(db)
+                        TemplateResolutionResult::Found(origin) if origin.file(db) == target_origin.file(db)
                     ) {
                         continue;
                     }

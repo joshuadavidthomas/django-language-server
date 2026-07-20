@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::Project;
-use djls_project::TemplateEnvironment;
-use djls_project::TemplateLibraryKey;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
-use djls_project::template_libraries;
+use djls_project::template_library_catalog;
 use djls_source::Span;
 use djls_templates::Node;
 use djls_templates::NodeList;
@@ -15,19 +15,19 @@ use crate::db::Db;
 use crate::scoping::LoadState;
 use crate::scoping::LoadedLibraries;
 use crate::tags::TagSpec;
-use crate::tags::effective_tag_spec_from_environment;
+use crate::tags::effective_tag_spec_in_scope;
 use crate::tags::library_tag_specs;
 
 /// Identity of an opening Tag Definition contributing semantic grammar.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GrammarOpeningDefinition {
-    library: TemplateLibraryKey,
+    library: TemplateLibraryId,
     name: String,
 }
 
 impl GrammarOpeningDefinition {
     #[must_use]
-    pub fn library(&self) -> &TemplateLibraryKey {
+    pub fn library(&self) -> &TemplateLibraryId {
         &self.library
     }
 
@@ -65,17 +65,17 @@ impl SemanticGrammarVocabulary {
 /// Build the cheap spelling-to-opening-identity vocabulary for a Project.
 #[salsa::tracked(returns(ref))]
 pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGrammarVocabulary {
-    let libraries = template_libraries(db, project);
-    let environment = TemplateEnvironment::from_project_inventory(libraries);
+    let libraries = template_library_catalog(db, project);
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
     let mut vocabulary = SemanticGrammarVocabulary {
-        open: environment.definition_names_are_open(),
+        open: scoped_libraries.definition_names_are_open(),
         ..SemanticGrammarVocabulary::default()
     };
-    for library in environment.resolved_libraries() {
-        let specs = library_tag_specs(db, project, library.key());
+    for library in scoped_libraries.resolved_libraries() {
+        let specs = library_tag_specs(db, project, library.id());
         for (name, spec) in specs.iter() {
             if library.symbol(TemplateSymbolKind::Tag, name).is_none()
-                && !library.symbol_inventory_is_open()
+                && !library.symbols_are_unobserved()
             {
                 continue;
             }
@@ -83,7 +83,7 @@ pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGra
                 continue;
             };
             let definition = GrammarOpeningDefinition {
-                library: library.key(),
+                library: library.id(),
                 name: name.clone(),
             };
             push_candidate(
@@ -231,7 +231,7 @@ impl SparseTagGrammar {
         project: Project,
         nodelist: NodeList<'_>,
         loaded: &LoadedLibraries,
-        environment: TemplateEnvironment<'_>,
+        scoped_libraries: ScopedTemplateLibraries<'_>,
     ) -> Self {
         let mut loaded_names = Vec::new();
         let mut load_cursor = loaded.cursor();
@@ -252,7 +252,7 @@ impl SparseTagGrammar {
                 if load_state.unknown_load_can_shadow_symbol(
                     name,
                     TemplateSymbolKind::Tag,
-                    environment,
+                    scoped_libraries,
                 ) {
                     return TagGrammarFact {
                         spec: None,
@@ -261,15 +261,10 @@ impl SparseTagGrammar {
                 }
 
                 load_state.write_libraries_loading_symbol(name, &mut loaded_names);
-                let spec = effective_tag_spec_from_environment(
-                    db,
-                    project,
-                    environment,
-                    name,
-                    &loaded_names,
-                );
+                let spec =
+                    effective_tag_spec_in_scope(db, project, scoped_libraries, name, &loaded_names);
                 fact_from_spec(spec, || {
-                    classify_project_orphan(db, project, name, &load_state, environment)
+                    classify_project_orphan(db, project, name, &load_state, scoped_libraries)
                 })
             },
         )
@@ -339,14 +334,14 @@ fn classify_project_orphan(
     project: Project,
     spelling: &str,
     load_state: &LoadState<'_>,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
 ) -> TagClassification {
     let vocabulary = semantic_grammar_vocabulary(db, project);
 
     let (closers, closer_uncertain) = resolve_orphan_candidates(
         db,
         project,
-        environment,
+        scoped_libraries,
         vocabulary.closer_candidates(spelling),
         load_state,
         |spec| {
@@ -364,7 +359,7 @@ fn classify_project_orphan(
     let (intermediates, intermediate_uncertain) = resolve_orphan_candidates(
         db,
         project,
-        environment,
+        scoped_libraries,
         vocabulary.intermediate_candidates(spelling),
         load_state,
         |spec| {
@@ -391,7 +386,7 @@ fn classify_project_orphan(
 fn resolve_orphan_candidates(
     db: &dyn Db,
     project: Project,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     candidates: &[GrammarOpeningDefinition],
     load_state: &LoadState<'_>,
     matches_spelling: impl Fn(&TagSpec) -> bool,
@@ -403,7 +398,7 @@ fn resolve_orphan_candidates(
         let mut alternatives = 0;
         let mut matching = 0;
         let mut unknown = false;
-        environment.for_each_effective_definition_library(
+        scoped_libraries.for_each_effective_definition_library(
             candidate.name(),
             TemplateSymbolKind::Tag,
             &loaded,
@@ -411,7 +406,7 @@ fn resolve_orphan_candidates(
                 alternatives += 1;
                 match definition {
                     EffectiveDefinitionLibrary::Known(Some(library))
-                        if library.key() == *candidate.library() =>
+                        if library.id() == *candidate.library() =>
                     {
                         matching += 1;
                     }

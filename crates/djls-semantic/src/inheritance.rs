@@ -1,11 +1,11 @@
 use std::collections::VecDeque;
 
-use djls_project::FindTemplateResult;
 use djls_project::Project;
 use djls_project::TemplateBackendScope;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
 use djls_project::TemplateResolution;
+use djls_project::TemplateResolutionResult;
 use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
@@ -70,7 +70,7 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
                 break ChainEnd::Unresolved { name: raw_name };
             }
             match resolution.resolve(db, raw_template_name) {
-                FindTemplateResult::Found(origin) => {
+                TemplateResolutionResult::Found(origin) => {
                     current_file = origin.file(db);
                     ancestors.push(origin);
                     current_origins =
@@ -80,10 +80,10 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
                     }
                     continue;
                 }
-                FindTemplateResult::DoesNotExist(_) => {
+                TemplateResolutionResult::DoesNotExist(_) => {
                     break ChainEnd::Unresolved { name: raw_name };
                 }
-                FindTemplateResult::Inconclusive(_) => {
+                TemplateResolutionResult::Inconclusive(_) => {
                     break ChainEnd::InconclusiveParent { name: raw_name };
                 }
             }
@@ -112,17 +112,18 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
         let found_file = scoped
             .first()
             .and_then(|(outcome, _)| match outcome.result {
-                FindTemplateResult::Found(origin) => Some(origin.file(db)),
-                FindTemplateResult::DoesNotExist(_) | FindTemplateResult::Inconclusive(_) => None,
+                TemplateResolutionResult::Found(origin) => Some(origin.file(db)),
+                TemplateResolutionResult::DoesNotExist(_)
+                | TemplateResolutionResult::Inconclusive(_) => None,
             });
         if let Some(parent_file) = found_file
             && scoped.iter().all(|(outcome, _)| {
-                matches!(outcome.result, FindTemplateResult::Found(origin) if origin.file(db) == parent_file)
+                matches!(outcome.result, TemplateResolutionResult::Found(origin) if origin.file(db) == parent_file)
             })
         {
             let mut next_origins = Vec::new();
             for (outcome, scope) in scoped {
-                let FindTemplateResult::Found(origin) = outcome.result else {
+                let TemplateResolutionResult::Found(origin) = outcome.result else {
                     unreachable!("the joined parent outcome was checked as found")
                 };
                 if !next_origins
@@ -146,7 +147,7 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
 
         if scoped
             .iter()
-            .all(|(outcome, _)| matches!(outcome.result, FindTemplateResult::DoesNotExist(_)))
+            .all(|(outcome, _)| matches!(outcome.result, TemplateResolutionResult::DoesNotExist(_)))
         {
             let cycle = scoped.iter().all(|(outcome, scope)| {
                 resolution
@@ -159,7 +160,7 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
                         scope,
                     )
                     .is_some_and(|without_exclusions| {
-                        matches!(without_exclusions.result, FindTemplateResult::Found(origin) if excluded.iter().any(|excluded| excluded.file(db) == origin.file(db)))
+                        matches!(without_exclusions.result, TemplateResolutionResult::Found(origin) if excluded.iter().any(|excluded| excluded.file(db) == origin.file(db)))
                     })
             });
             break if cycle {
@@ -334,7 +335,7 @@ fn origin_extends_exact_target<'db>(
     let scope = resolution.backend_scope_for_origin(db, source);
     matches!(
         resolution.resolve_excluding_origins_in_scope(db, name, &[source], &scope),
-        FindTemplateResult::Found(origin) if origin == target
+        TemplateResolutionResult::Found(origin) if origin == target
     )
 }
 

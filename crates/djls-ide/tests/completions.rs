@@ -6,10 +6,10 @@ use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_ide::completion;
+use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
-use djls_project::TemplateEnvironment;
 use djls_project::TemplateSymbolKind;
-use djls_project::template_libraries;
+use djls_project::template_library_catalog;
 use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagSpec;
@@ -360,7 +360,7 @@ fn configured_only_tag_survives_effective_candidates_and_completion() {
         .install(&mut db);
     let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
     let configured_symbol =
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == "dynamic_tags")

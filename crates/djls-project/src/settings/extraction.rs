@@ -5,13 +5,13 @@ use djls_source::Origin;
 use crate::db::Db as ProjectDb;
 use crate::python::PythonModuleName;
 use crate::python::evaluation::BranchConstraints;
+use crate::python::evaluation::MappingEntryEvidence;
 use crate::python::evaluation::MappingOverride;
-use crate::python::evaluation::MappingStringEntry;
 use crate::python::evaluation::PythonBindingState;
 use crate::python::evaluation::PythonBoundValue;
 use crate::python::evaluation::PythonMapping;
 use crate::python::evaluation::PythonMaterializedSequence;
-use crate::python::evaluation::PythonModuleValues;
+use crate::python::evaluation::PythonModuleFacts;
 use crate::python::evaluation::PythonMutation;
 use crate::python::evaluation::PythonMutationOperation;
 use crate::python::evaluation::PythonMutationPathSegment;
@@ -22,38 +22,36 @@ use crate::python::evaluation::PythonUnknown;
 use crate::python::evaluation::PythonUnknownCause;
 use crate::python::evaluation::PythonValue;
 use crate::settings::types::DjangoSettings;
-use crate::settings::types::EvaluatedPath;
 use crate::settings::types::InstalledAppEvidence;
+use crate::settings::types::InstalledApps;
 use crate::settings::types::InstalledAppsAlternatives;
-use crate::settings::types::InstalledAppsValue;
 use crate::settings::types::MAX_EXACT_SETTING_ALTERNATIVES;
 use crate::settings::types::MergeDynamicEvidence;
 use crate::settings::types::MergeEvidence;
-use crate::settings::types::OrderedInstalledApps;
-use crate::settings::types::OrderedPathList;
-use crate::settings::types::OrderedTemplateList;
 use crate::settings::types::PartialInstalledApps;
-use crate::settings::types::PartialSettingField;
 use crate::settings::types::PartialTemplateBackend;
-use crate::settings::types::PartialTemplates;
+use crate::settings::types::PartialTemplateBackends;
+use crate::settings::types::PartialTemplateDirectories;
 use crate::settings::types::SettingAlternatives;
 use crate::settings::types::SettingCase;
+use crate::settings::types::SettingFieldEvidence;
 use crate::settings::types::SettingIssue;
 use crate::settings::types::SettingIssueKind;
-use crate::settings::types::TemplateAlternatives;
 use crate::settings::types::TemplateBackend;
+use crate::settings::types::TemplateBackendEvidence;
+use crate::settings::types::TemplateBackends;
 use crate::settings::types::TemplateContextProcessorPath;
-use crate::settings::types::TemplateListEvidence;
-use crate::settings::types::TemplatesValue;
-use crate::settings::types::WithOrigin;
+use crate::settings::types::TemplateDirectoryPath;
+use crate::settings::types::TemplateSettingAlternatives;
+use crate::settings::types::WithOrigins;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KnownSetting {
+enum SupportedSetting {
     InstalledApps,
     Templates,
 }
 
-impl KnownSetting {
+impl SupportedSetting {
     const fn name(self) -> &'static str {
         match self {
             Self::InstalledApps => "INSTALLED_APPS",
@@ -62,7 +60,7 @@ impl KnownSetting {
     }
 }
 
-struct NamespaceDynamicEvidence {
+struct ConstrainedNamespaceIssue {
     issue: SettingIssue,
     constraints: BranchConstraints,
 }
@@ -70,20 +68,20 @@ struct NamespaceDynamicEvidence {
 pub(crate) fn settings_from_values(
     db: &dyn ProjectDb,
     file: File,
-    values: &PythonModuleValues,
+    facts: &PythonModuleFacts,
 ) -> DjangoSettings {
-    let namespace_dynamic = values.namespace_remainder.as_ref().map(|remainder| {
+    let namespace_dynamic = facts.namespace_remainder.as_ref().map(|remainder| {
         remainder
             .as_slice()
             .iter()
-            .map(|cause| NamespaceDynamicEvidence {
+            .map(|cause| ConstrainedNamespaceIssue {
                 issue: issue(SettingIssueKind::DynamicNamespace, cause.unknown.origins()),
                 constraints: cause.constraints.clone(),
             })
             .collect::<Vec<_>>()
     });
-    let syntax_issues = |setting: KnownSetting| {
-        values
+    let syntax_issues = |setting: SupportedSetting| {
+        facts
             .syntax_impacts
             .iter()
             .filter(|impact| impact.affects(setting.name()))
@@ -97,43 +95,39 @@ pub(crate) fn settings_from_values(
     };
 
     let mut settings = DjangoSettings {
-        installed_apps: installed_apps(values, namespace_dynamic.as_deref()),
-        templates: templates(db, values, namespace_dynamic.as_deref()),
+        installed_apps: installed_apps(facts, namespace_dynamic.as_deref()),
+        templates: templates(db, facts, namespace_dynamic.as_deref()),
     };
 
-    let issues = syntax_issues(KnownSetting::InstalledApps);
+    let issues = syntax_issues(SupportedSetting::InstalledApps);
     if !issues.is_empty() {
         settings
             .installed_apps
             .add(SettingCase::Dynamic(PartialInstalledApps {
-                apps: OrderedInstalledApps {
-                    evidence: issues
-                        .into_iter()
-                        .map(InstalledAppEvidence::Issue)
-                        .collect(),
-                },
+                evidence: issues
+                    .into_iter()
+                    .map(InstalledAppEvidence::Issue)
+                    .collect(),
             }));
     }
-    let issues = syntax_issues(KnownSetting::Templates);
+    let issues = syntax_issues(SupportedSetting::Templates);
     if !issues.is_empty() {
         settings
             .templates
-            .add(SettingCase::Dynamic(PartialTemplates {
-                templates: OrderedTemplateList {
-                    evidence: issues
-                        .into_iter()
-                        .map(TemplateListEvidence::Issue)
-                        .collect(),
-                },
+            .add(SettingCase::Dynamic(PartialTemplateBackends {
+                evidence: issues
+                    .into_iter()
+                    .map(TemplateBackendEvidence::Issue)
+                    .collect(),
             }));
     }
     settings
 }
 
 fn binding_cases<T, P>(
-    values: &PythonModuleValues,
-    setting: KnownSetting,
-    namespace_dynamic: Option<&[NamespaceDynamicEvidence]>,
+    facts: &PythonModuleFacts,
+    setting: SupportedSetting,
+    namespace_dynamic: Option<&[ConstrainedNamespaceIssue]>,
     mut bound: impl FnMut(
         &PythonBoundValue,
         &BranchConstraints,
@@ -148,66 +142,66 @@ where
         Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
     let mut overflow_origin = None;
     {
-        let mut add_case = |case, correlation: BranchConstraints, origin| {
-            for (existing, existing_correlation) in &mut cases {
+        let mut add_case = |case, constraints: BranchConstraints, origin| {
+            for (existing, existing_constraints) in &mut cases {
                 if existing.merge_evidence(&case) {
-                    existing_correlation.merge_evidence(&correlation);
+                    existing_constraints.merge_evidence(&constraints);
                     return;
                 }
             }
             if cases.len() < MAX_EXACT_SETTING_ALTERNATIVES {
-                cases.push((case, correlation));
+                cases.push((case, constraints));
             } else {
                 overflow_origin = overflow_origin.or(origin);
             }
         };
         let mut unbound_constraints = Vec::new();
-        if let Some(binding) = values.bindings.get(setting.name()) {
+        if let Some(binding) = facts.bindings.get(setting.name()) {
             for (alternative, constraints) in binding.alternatives_with_constraints() {
                 match alternative {
                     PythonBindingState::Bound(value) => {
                         let origin = value
                             .representative_binding_origin()
                             .or_else(|| value.value.origins().next());
-                        for (case, correlation) in bound(value, constraints) {
-                            add_case(case, correlation, origin);
+                        for (case, constraints) in bound(value, constraints) {
+                            add_case(case, constraints, origin);
                         }
                     }
                     PythonBindingState::Unbound => {
-                        let correlation = constraints.clone();
-                        unbound_constraints.push(correlation.clone());
-                        add_case(SettingCase::Unset, correlation, None);
+                        let constraints = constraints.clone();
+                        unbound_constraints.push(constraints.clone());
+                        add_case(SettingCase::Unset, constraints, None);
                     }
                 }
             }
         } else {
-            let correlation = BranchConstraints::unconstrained();
-            unbound_constraints.push(correlation.clone());
-            add_case(SettingCase::Unset, correlation, None);
+            let constraints = BranchConstraints::unconstrained();
+            unbound_constraints.push(constraints.clone());
+            add_case(SettingCase::Unset, constraints, None);
         }
         if let Some(evidence) = namespace_dynamic {
             for unbound in &unbound_constraints {
                 let mut groups: Vec<(BranchConstraints, Vec<SettingIssue>)> = Vec::new();
                 for cause in evidence {
-                    let correlation = unbound.intersection(&cause.constraints);
-                    if correlation.is_impossible() {
+                    let constraints = unbound.intersection(&cause.constraints);
+                    if constraints.is_impossible() {
                         continue;
                     }
                     if let Some((_, issues)) = groups
                         .iter_mut()
-                        .find(|(existing, _)| *existing == correlation)
+                        .find(|(existing, _)| *existing == constraints)
                     {
                         issues.push(cause.issue.clone());
                     } else {
-                        groups.push((correlation, vec![cause.issue.clone()]));
+                        groups.push((constraints, vec![cause.issue.clone()]));
                     }
                 }
-                for (correlation, issues) in groups {
+                for (constraints, issues) in groups {
                     let origin = issues
                         .iter()
                         .find_map(|issue| issue.origins.first())
                         .copied();
-                    add_case(SettingCase::Dynamic(dynamic(issues)), correlation, origin);
+                    add_case(SettingCase::Dynamic(dynamic(issues)), constraints, origin);
                 }
             }
         }
@@ -218,50 +212,46 @@ where
             BranchConstraints::unconstrained(),
         ));
     }
-    SettingAlternatives::from_correlated(cases)
+    SettingAlternatives::from_constrained(cases)
 }
 
-fn correlated_cases<T, P>(
+fn constrained_cases<T, P>(
     cases: Vec<SettingCase<T, P>>,
-    correlation: &BranchConstraints,
+    constraints: &BranchConstraints,
 ) -> Vec<(SettingCase<T, P>, BranchConstraints)> {
     cases
         .into_iter()
-        .map(|case| (case, correlation.clone()))
+        .map(|case| (case, constraints.clone()))
         .collect()
 }
 
 fn installed_apps(
-    values: &PythonModuleValues,
-    namespace_dynamic: Option<&[NamespaceDynamicEvidence]>,
+    facts: &PythonModuleFacts,
+    namespace_dynamic: Option<&[ConstrainedNamespaceIssue]>,
 ) -> InstalledAppsAlternatives {
     binding_cases(
-        values,
-        KnownSetting::InstalledApps,
+        facts,
+        SupportedSetting::InstalledApps,
         namespace_dynamic,
         |bound, constraints| {
             let mutation_issues =
-                unsupported_mutation_issues(values, KnownSetting::InstalledApps, &bound.value);
+                unsupported_mutation_issues(facts, SupportedSetting::InstalledApps, &bound.value);
             let Some(sequence) = collection_sequence(&bound.value) else {
                 let case = if bound.value.unknown_value().is_some() {
                     SettingCase::Dynamic(PartialInstalledApps {
-                        apps: OrderedInstalledApps {
-                            evidence: vec![InstalledAppEvidence::Issue(unknown_value_issue(
-                                &bound.value,
-                            ))],
-                        },
+                        evidence: vec![InstalledAppEvidence::Issue(unknown_value_issue(
+                            &bound.value,
+                        ))],
                     })
                 } else {
                     SettingCase::Malformed(PartialInstalledApps {
-                        apps: OrderedInstalledApps {
-                            evidence: vec![InstalledAppEvidence::Issue(value_issue(
-                                SettingIssueKind::InvalidShape,
-                                &bound.value,
-                            ))],
-                        },
+                        evidence: vec![InstalledAppEvidence::Issue(value_issue(
+                            SettingIssueKind::InvalidShape,
+                            &bound.value,
+                        ))],
                     })
                 };
-                return correlated_cases(vec![case], constraints);
+                return constrained_cases(vec![case], constraints);
             };
 
             sequence
@@ -278,19 +268,17 @@ fn installed_apps(
                         origins,
                         constraints: remainder_constraints,
                     } => {
-                        let mut apps = OrderedInstalledApps {
-                            evidence: vec![InstalledAppEvidence::Issue(alternative_limit_issue(
-                                origins.iter().copied(),
-                            ))],
-                        };
-                        apps.evidence.extend(
+                        let mut evidence = vec![InstalledAppEvidence::Issue(
+                            alternative_limit_issue(origins.iter().copied()),
+                        )];
+                        evidence.extend(
                             mutation_issues
                                 .iter()
                                 .cloned()
                                 .map(InstalledAppEvidence::Issue),
                         );
                         (
-                            SettingCase::Dynamic(PartialInstalledApps { apps }),
+                            SettingCase::Dynamic(PartialInstalledApps { evidence }),
                             constraints.intersection(remainder_constraints),
                         )
                     }
@@ -298,12 +286,10 @@ fn installed_apps(
                 .collect()
         },
         |issues| PartialInstalledApps {
-            apps: OrderedInstalledApps {
-                evidence: issues
-                    .into_iter()
-                    .map(InstalledAppEvidence::Issue)
-                    .collect(),
-            },
+            evidence: issues
+                .into_iter()
+                .map(InstalledAppEvidence::Issue)
+                .collect(),
         },
     )
 }
@@ -311,24 +297,22 @@ fn installed_apps(
 fn installed_apps_list_case(
     items: &[PythonSequenceItem],
     mutation_issues: &[SettingIssue],
-) -> SettingCase<InstalledAppsValue, PartialInstalledApps> {
-    let (mut apps, malformed) = string_list_items(items);
-    apps.evidence.extend(
+) -> SettingCase<InstalledApps, PartialInstalledApps> {
+    let (mut evidence, malformed) = string_list_items(items);
+    evidence.extend(
         mutation_issues
             .iter()
             .cloned()
             .map(InstalledAppEvidence::Issue),
     );
     if malformed {
-        SettingCase::Malformed(PartialInstalledApps { apps })
-    } else if apps
-        .evidence
+        SettingCase::Malformed(PartialInstalledApps { evidence })
+    } else if evidence
         .iter()
         .all(|evidence| matches!(evidence, InstalledAppEvidence::Known(_)))
     {
-        SettingCase::Known(InstalledAppsValue {
-            apps: apps
-                .evidence
+        SettingCase::Known(InstalledApps {
+            apps: evidence
                 .into_iter()
                 .filter_map(|evidence| match evidence {
                     InstalledAppEvidence::Known(app) => Some(app),
@@ -337,11 +321,11 @@ fn installed_apps_list_case(
                 .collect(),
         })
     } else {
-        SettingCase::Dynamic(PartialInstalledApps { apps })
+        SettingCase::Dynamic(PartialInstalledApps { evidence })
     }
 }
 
-fn string_list_items(items: &[PythonSequenceItem]) -> (OrderedInstalledApps, bool) {
+fn string_list_items(items: &[PythonSequenceItem]) -> (Vec<InstalledAppEvidence>, bool) {
     let mut evidence = Vec::new();
     let mut malformed = false;
     for item in items {
@@ -350,7 +334,7 @@ fn string_list_items(items: &[PythonSequenceItem]) -> (OrderedInstalledApps, boo
                 if let Some(scalar) = value.known_scalar()
                     && let Some(text) = scalar.string_value()
                 {
-                    InstalledAppEvidence::Known(WithOrigin::new(
+                    InstalledAppEvidence::Known(WithOrigins::new(
                         text.to_string(),
                         scalar.first_origin(),
                         scalar.additional_origins(),
@@ -373,55 +357,49 @@ fn string_list_items(items: &[PythonSequenceItem]) -> (OrderedInstalledApps, boo
         };
         evidence.push(item);
     }
-    (OrderedInstalledApps { evidence }, malformed)
+    (evidence, malformed)
 }
 
 fn templates(
     db: &dyn ProjectDb,
-    values: &PythonModuleValues,
-    namespace_dynamic: Option<&[NamespaceDynamicEvidence]>,
-) -> TemplateAlternatives {
+    facts: &PythonModuleFacts,
+    namespace_dynamic: Option<&[ConstrainedNamespaceIssue]>,
+) -> TemplateSettingAlternatives {
     binding_cases(
-        values,
-        KnownSetting::Templates,
+        facts,
+        SupportedSetting::Templates,
         namespace_dynamic,
         |bound, constraints| {
             let mutation_issues =
-                unsupported_mutation_issues(values, KnownSetting::Templates, &bound.value);
+                unsupported_mutation_issues(facts, SupportedSetting::Templates, &bound.value);
             if let Some(sequence) = collection_sequence(&bound.value) {
                 template_list(db, sequence, &mutation_issues, constraints)
             } else if bound.value.unknown_value().is_some() {
-                correlated_cases(
-                    vec![SettingCase::Dynamic(PartialTemplates {
-                        templates: OrderedTemplateList {
-                            evidence: vec![TemplateListEvidence::Issue(unknown_value_issue(
-                                &bound.value,
-                            ))],
-                        },
+                constrained_cases(
+                    vec![SettingCase::Dynamic(PartialTemplateBackends {
+                        evidence: vec![TemplateBackendEvidence::Issue(unknown_value_issue(
+                            &bound.value,
+                        ))],
                     })],
                     constraints,
                 )
             } else {
-                correlated_cases(
-                    vec![SettingCase::Malformed(PartialTemplates {
-                        templates: OrderedTemplateList {
-                            evidence: vec![TemplateListEvidence::Issue(value_issue(
-                                SettingIssueKind::InvalidShape,
-                                &bound.value,
-                            ))],
-                        },
+                constrained_cases(
+                    vec![SettingCase::Malformed(PartialTemplateBackends {
+                        evidence: vec![TemplateBackendEvidence::Issue(value_issue(
+                            SettingIssueKind::InvalidShape,
+                            &bound.value,
+                        ))],
                     })],
                     constraints,
                 )
             }
         },
-        |issues| PartialTemplates {
-            templates: OrderedTemplateList {
-                evidence: issues
-                    .into_iter()
-                    .map(TemplateListEvidence::Issue)
-                    .collect(),
-            },
+        |issues| PartialTemplateBackends {
+            evidence: issues
+                .into_iter()
+                .map(TemplateBackendEvidence::Issue)
+                .collect(),
         },
     )
 }
@@ -430,9 +408,9 @@ fn template_list(
     db: &dyn ProjectDb,
     sequence: PythonMaterializedSequence<'_>,
     issues: &[SettingIssue],
-    outer_correlation: &BranchConstraints,
+    outer_constraints: &BranchConstraints,
 ) -> Vec<(
-    SettingCase<TemplatesValue, PartialTemplates>,
+    SettingCase<TemplateBackends, PartialTemplateBackends>,
     BranchConstraints,
 )> {
     let mut cases = Vec::with_capacity(MAX_EXACT_SETTING_ALTERNATIVES + 1);
@@ -451,11 +429,11 @@ fn template_list(
                     issues,
                     MAX_EXACT_SETTING_ALTERNATIVES - cases.len(),
                 );
-                cases.extend(expansion.exact.into_iter().filter_map(|configuration| {
-                    let correlation = outer_correlation
+                cases.extend(expansion.exact.into_iter().filter_map(|case| {
+                    let constraints = outer_constraints
                         .intersection(constraints)
-                        .intersection(&configuration.correlation);
-                    (!correlation.is_impossible()).then_some((configuration.case, correlation))
+                        .intersection(&case.constraints);
+                    (!constraints.is_impossible()).then_some((case.case, constraints))
                 }));
                 if overflow_origins.is_none() {
                     overflow_origins = expansion.overflow_origins;
@@ -473,18 +451,18 @@ fn template_list(
                     let mut evidence = issues
                         .iter()
                         .cloned()
-                        .map(TemplateListEvidence::Issue)
+                        .map(TemplateBackendEvidence::Issue)
                         .collect::<Vec<_>>();
-                    evidence.push(TemplateListEvidence::Issue(alternative_limit_issue(
+                    evidence.push(TemplateBackendEvidence::Issue(alternative_limit_issue(
                         origins.iter().copied(),
                     )));
-                    let configuration =
-                        template_configuration(evidence, false, BranchConstraints::unconstrained());
-                    let correlation = outer_correlation
+                    let case =
+                        template_settings_case(evidence, false, BranchConstraints::unconstrained());
+                    let constraints = outer_constraints
                         .intersection(constraints)
-                        .intersection(&configuration.correlation);
-                    if !correlation.is_impossible() {
-                        cases.push((configuration.case, correlation));
+                        .intersection(&case.constraints);
+                    if !constraints.is_impossible() {
+                        cases.push((case.case, constraints));
                     }
                 }
             }
@@ -492,12 +470,10 @@ fn template_list(
     }
     if let Some(origins) = overflow_origins {
         cases.push((
-            SettingCase::Dynamic(PartialTemplates {
-                templates: OrderedTemplateList {
-                    evidence: vec![TemplateListEvidence::Issue(alternative_limit_issue(
-                        origins,
-                    ))],
-                },
+            SettingCase::Dynamic(PartialTemplateBackends {
+                evidence: vec![TemplateBackendEvidence::Issue(alternative_limit_issue(
+                    origins,
+                ))],
             }),
             BranchConstraints::unconstrained(),
         ));
@@ -505,9 +481,9 @@ fn template_list(
     cases
 }
 
-struct CorrelatedTemplateConfiguration {
-    case: SettingCase<TemplatesValue, PartialTemplates>,
-    correlation: BranchConstraints,
+struct ConstrainedTemplateCase {
+    case: SettingCase<TemplateBackends, PartialTemplateBackends>,
+    constraints: BranchConstraints,
 }
 
 fn template_list_alternative(
@@ -515,13 +491,13 @@ fn template_list_alternative(
     items: &[PythonSequenceItem],
     issues: &[SettingIssue],
     limit: usize,
-) -> CappedExpansion<CorrelatedTemplateConfiguration> {
+) -> CappedExpansion<ConstrainedTemplateCase> {
     let initial_evidence = issues
         .iter()
         .cloned()
-        .map(TemplateListEvidence::Issue)
+        .map(TemplateBackendEvidence::Issue)
         .collect::<Vec<_>>();
-    let mut configurations = vec![(initial_evidence, false, BranchConstraints::unconstrained())];
+    let mut cases = vec![(initial_evidence, false, BranchConstraints::unconstrained())];
     let mut overflow_origins = None;
     for item in items {
         let alternatives = match item {
@@ -536,23 +512,23 @@ fn template_list_alternative(
                         .into_iter()
                         .map(|backend| {
                             let malformed = backend.is_malformed();
-                            let correlation = backend.correlation.clone();
+                            let constraints = backend.constraints.clone();
                             (
-                                TemplateListEvidence::Backend(Box::new(backend)),
+                                TemplateBackendEvidence::Backend(Box::new(backend)),
                                 malformed,
-                                correlation,
+                                constraints,
                             )
                         })
                         .collect()
                 } else if value.unknown_value().is_some() {
                     vec![(
-                        TemplateListEvidence::Issue(unknown_value_issue(value)),
+                        TemplateBackendEvidence::Issue(unknown_value_issue(value)),
                         false,
                         BranchConstraints::unconstrained(),
                     )]
                 } else {
                     vec![(
-                        TemplateListEvidence::Issue(value_issue(
+                        TemplateBackendEvidence::Issue(value_issue(
                             SettingIssueKind::InvalidShape,
                             value,
                         )),
@@ -562,7 +538,7 @@ fn template_list_alternative(
                 }
             }
             PythonSequenceItem::UnknownElement(unknown) => vec![(
-                TemplateListEvidence::Issue(issue(
+                TemplateBackendEvidence::Issue(issue(
                     SettingIssueKind::UnknownElement,
                     unknown.origins(),
                 )),
@@ -570,7 +546,7 @@ fn template_list_alternative(
                 BranchConstraints::unconstrained(),
             )],
             PythonSequenceItem::UnknownUnpack(unknown) => vec![(
-                TemplateListEvidence::Issue(issue(
+                TemplateBackendEvidence::Issue(issue(
                     SettingIssueKind::UnknownUnpack,
                     unknown.origins(),
                 )),
@@ -580,11 +556,11 @@ fn template_list_alternative(
         };
         let item_origin = python_list_item_origin(item);
         let mut next =
-            Vec::with_capacity(limit.min(configurations.len().saturating_mul(alternatives.len())));
-        for (evidence, malformed, correlation) in &configurations {
-            for (item, item_malformed, item_correlation) in &alternatives {
-                let correlation = correlation.intersection(item_correlation);
-                if correlation.is_impossible() {
+            Vec::with_capacity(limit.min(cases.len().saturating_mul(alternatives.len())));
+        for (evidence, malformed, constraints) in &cases {
+            for (item, item_malformed, item_constraints) in &alternatives {
+                let constraints = constraints.intersection(item_constraints);
+                if constraints.is_impossible() {
                     continue;
                 }
                 if next.len() == limit {
@@ -595,43 +571,41 @@ fn template_list_alternative(
                 }
                 let mut evidence = evidence.clone();
                 evidence.push(item.clone());
-                next.push((evidence, *malformed || *item_malformed, correlation));
+                next.push((evidence, *malformed || *item_malformed, constraints));
             }
         }
-        configurations = next;
+        cases = next;
     }
 
     CappedExpansion {
-        exact: configurations
+        exact: cases
             .into_iter()
-            .map(|(evidence, malformed, correlation)| {
-                template_configuration(evidence, malformed, correlation)
+            .map(|(evidence, malformed, constraints)| {
+                template_settings_case(evidence, malformed, constraints)
             })
             .collect(),
         overflow_origins,
     }
 }
 
-fn template_configuration(
-    evidence: Vec<TemplateListEvidence>,
+fn template_settings_case(
+    evidence: Vec<TemplateBackendEvidence>,
     malformed: bool,
-    correlation: BranchConstraints,
-) -> CorrelatedTemplateConfiguration {
-    let templates = OrderedTemplateList { evidence };
+    constraints: BranchConstraints,
+) -> ConstrainedTemplateCase {
     let case = if malformed {
-        SettingCase::Malformed(PartialTemplates { templates })
-    } else if templates.evidence.iter().any(|evidence| match evidence {
-        TemplateListEvidence::Backend(backend) => backend.has_issues(),
-        TemplateListEvidence::Issue(_) => true,
+        SettingCase::Malformed(PartialTemplateBackends { evidence })
+    } else if evidence.iter().any(|evidence| match evidence {
+        TemplateBackendEvidence::Backend(backend) => backend.has_issues(),
+        TemplateBackendEvidence::Issue(_) => true,
     }) {
-        SettingCase::Dynamic(PartialTemplates { templates })
+        SettingCase::Dynamic(PartialTemplateBackends { evidence })
     } else {
-        SettingCase::Known(TemplatesValue {
-            backends: templates
-                .evidence
+        SettingCase::Known(TemplateBackends {
+            backends: evidence
                 .into_iter()
                 .filter_map(|evidence| match evidence {
-                    TemplateListEvidence::Backend(backend) => {
+                    TemplateBackendEvidence::Backend(backend) => {
                         let backend = *backend;
                         Some(TemplateBackend {
                             backend: backend.backend.known.expect("complete backend has BACKEND"),
@@ -642,12 +616,12 @@ fn template_configuration(
                             context_processors: backend.context_processors.known,
                         })
                     }
-                    TemplateListEvidence::Issue(_) => None,
+                    TemplateBackendEvidence::Issue(_) => None,
                 })
                 .collect(),
         })
     };
-    CorrelatedTemplateConfiguration { case, correlation }
+    ConstrainedTemplateCase { case, constraints }
 }
 
 fn partial_backend(
@@ -655,14 +629,14 @@ fn partial_backend(
     mapping: PythonMapping<'_>,
 ) -> CappedExpansion<PartialTemplateBackend> {
     let mut backend = PartialTemplateBackend {
-        correlation: BranchConstraints::unconstrained(),
-        backend: PartialSettingField::new(None),
-        dirs: OrderedPathList::new(),
-        app_dirs: PartialSettingField::new(None),
-        options: PartialSettingField::new(()),
-        libraries: PartialSettingField::new(Vec::new()),
-        builtins: PartialSettingField::new(Vec::new()),
-        context_processors: PartialSettingField::new(Vec::new()),
+        constraints: BranchConstraints::unconstrained(),
+        backend: SettingFieldEvidence::new(None),
+        dirs: PartialTemplateDirectories::new(),
+        app_dirs: SettingFieldEvidence::new(None),
+        options: SettingFieldEvidence::new(()),
+        libraries: SettingFieldEvidence::new(Vec::new()),
+        builtins: SettingFieldEvidence::new(Vec::new()),
+        context_processors: SettingFieldEvidence::new(Vec::new()),
     };
 
     let (backend_value, mut issues) = dict_field(mapping, "BACKEND");
@@ -672,7 +646,7 @@ fn partial_backend(
             if let Some(scalar) = value.known_scalar()
                 && let Some(name) = scalar.string_value()
             {
-                backend.backend.known = Some(WithOrigin::new(
+                backend.backend.known = Some(WithOrigins::new(
                     name.to_string(),
                     scalar.first_origin(),
                     scalar.additional_origins(),
@@ -700,7 +674,7 @@ fn partial_backend(
         if let Some(scalar) = value.known_scalar()
             && let Some(flag) = scalar.bool_value()
         {
-            backend.app_dirs.known = Some(WithOrigin::new(
+            backend.app_dirs.known = Some(WithOrigins::new(
                 flag,
                 scalar.first_origin(),
                 scalar.additional_origins(),
@@ -731,7 +705,7 @@ fn partial_backend(
     }
 
     let dirs = dirs_value.map_or_else(
-        || CappedExpansion::one(PathListProjection::empty()),
+        || CappedExpansion::one(TemplateDirectoryCase::empty()),
         |value| path_list_capped(db, value),
     );
     CappedExpansion {
@@ -740,7 +714,7 @@ fn partial_backend(
             .into_iter()
             .map(|projection| {
                 let mut projected = backend.clone();
-                projected.correlation = projection.constraints;
+                projected.constraints = projection.constraints;
                 projected.dirs.extend_issues(dirs_issues.clone());
                 projected.dirs.evidence.extend(projection.paths.evidence);
                 projected
@@ -785,11 +759,13 @@ fn extract_options(options: PythonMapping<'_>, backend: &mut PartialTemplateBack
                             && let Some(path) = scalar.string_value()
                         {
                             match TemplateContextProcessorPath::parse(path) {
-                                Ok(path) => backend.context_processors.known.push(WithOrigin::new(
-                                    path,
-                                    scalar.first_origin(),
-                                    scalar.additional_origins(),
-                                )),
+                                Ok(path) => {
+                                    backend.context_processors.known.push(WithOrigins::new(
+                                        path,
+                                        scalar.first_origin(),
+                                        scalar.additional_origins(),
+                                    ));
+                                }
                                 Err(_) => backend
                                     .context_processors
                                     .issues
@@ -833,18 +809,18 @@ fn extract_options(options: PythonMapping<'_>, backend: &mut PartialTemplateBack
 
 fn extract_libraries(
     mapping: PythonMapping<'_>,
-    libraries: &mut PartialSettingField<Vec<(String, WithOrigin<PythonModuleName>)>>,
+    libraries: &mut SettingFieldEvidence<Vec<(String, WithOrigins<PythonModuleName>)>>,
 ) {
     for entry in mapping.effective_string_entries() {
         match entry {
-            MappingStringEntry::Value { key: alias, value } => {
+            MappingEntryEvidence::Value { key: alias, value } => {
                 if let Some(scalar) = value.known_scalar()
                     && let Some(module) = scalar.string_value()
                 {
                     match PythonModuleName::parse(module) {
                         Ok(module) => libraries.known.push((
                             alias.to_string(),
-                            WithOrigin::new(
+                            WithOrigins::new(
                                 module,
                                 scalar.first_origin(),
                                 scalar.additional_origins(),
@@ -862,15 +838,15 @@ fn extract_libraries(
                         .push(value_issue(SettingIssueKind::InvalidShape, value));
                 }
             }
-            MappingStringEntry::UnknownKey(key) => {
+            MappingEntryEvidence::UnknownKey(key) => {
                 libraries.issues.push(unknown_value_issue(key));
             }
-            MappingStringEntry::InvalidKey(key) => {
+            MappingEntryEvidence::InvalidKey(key) => {
                 libraries
                     .issues
                     .push(value_issue(SettingIssueKind::InvalidShape, key));
             }
-            MappingStringEntry::UnknownUnpack(unknown) => {
+            MappingEntryEvidence::UnknownUnpack(unknown) => {
                 libraries
                     .issues
                     .push(issue(SettingIssueKind::UnknownUnpack, unknown.origins()));
@@ -881,7 +857,7 @@ fn extract_libraries(
 
 fn module_name_list(
     value: &PythonValue,
-) -> (Vec<WithOrigin<PythonModuleName>>, Vec<SettingIssue>, bool) {
+) -> (Vec<WithOrigins<PythonModuleName>>, Vec<SettingIssue>, bool) {
     let mut known = Vec::new();
     let mut issues = Vec::new();
     let mut malformed = false;
@@ -903,7 +879,7 @@ fn module_name_list(
                     && let Some(name) = scalar.string_value()
                 {
                     if let Ok(name) = PythonModuleName::parse(name) {
-                        known.push(WithOrigin::new(
+                        known.push(WithOrigins::new(
                             name,
                             scalar.first_origin(),
                             scalar.additional_origins(),
@@ -931,16 +907,16 @@ fn module_name_list(
 }
 
 #[derive(Clone)]
-struct PathListProjection {
-    paths: OrderedPathList,
+struct TemplateDirectoryCase {
+    paths: PartialTemplateDirectories,
     malformed: bool,
     constraints: BranchConstraints,
 }
 
-impl PathListProjection {
+impl TemplateDirectoryCase {
     fn empty() -> Self {
         Self {
-            paths: OrderedPathList::new(),
+            paths: PartialTemplateDirectories::new(),
             malformed: false,
             constraints: BranchConstraints::unconstrained(),
         }
@@ -964,9 +940,9 @@ impl<T> CappedExpansion<T> {
 fn path_list_capped(
     db: &dyn ProjectDb,
     value: &PythonValue,
-) -> CappedExpansion<PathListProjection> {
+) -> CappedExpansion<TemplateDirectoryCase> {
     let Some(sequence) = collection_sequence(value) else {
-        let mut projection = PathListProjection::empty();
+        let mut projection = TemplateDirectoryCase::empty();
         if value.unknown_value().is_some() {
             projection.paths.push_issue(unknown_value_issue(value));
         } else {
@@ -1013,7 +989,7 @@ fn path_list_capped(
                         overflow_origins = Some(origins.to_vec());
                     }
                 } else {
-                    let mut projection = PathListProjection::empty();
+                    let mut projection = TemplateDirectoryCase::empty();
                     projection
                         .paths
                         .push_issue(alternative_limit_issue(origins.iter().copied()));
@@ -1033,15 +1009,15 @@ fn path_list_alternative(
     db: &dyn ProjectDb,
     items: &[PythonSequenceItem],
     limit: usize,
-) -> CappedExpansion<PathListProjection> {
-    let mut configurations = vec![PathListProjection::empty()];
+) -> CappedExpansion<TemplateDirectoryCase> {
+    let mut cases = vec![TemplateDirectoryCase::empty()];
     let mut overflow_origins = None;
     for item in items {
         match item {
             PythonSequenceItem::Value(value) => {
-                let evaluated = evaluated_paths(db, value);
+                let evaluated = constrained_template_directories(db, value);
                 if evaluated.is_empty() {
-                    for projection in &mut configurations {
+                    for projection in &mut cases {
                         if value.unknown_value().is_some() {
                             projection.paths.push_issue(unknown_value_issue(value));
                         } else {
@@ -1055,7 +1031,7 @@ fn path_list_alternative(
                 }
                 if evaluated.len() == 1 {
                     let path = evaluated.into_iter().next().expect("one evaluated path");
-                    for projection in &mut configurations {
+                    for projection in &mut cases {
                         projection.paths.push_known(path.path.clone());
                         projection.constraints =
                             projection.constraints.intersection(&path.constraints);
@@ -1063,10 +1039,9 @@ fn path_list_alternative(
                     continue;
                 }
 
-                let mut next = Vec::with_capacity(
-                    limit.min(configurations.len().saturating_mul(evaluated.len())),
-                );
-                for projection in &configurations {
+                let mut next =
+                    Vec::with_capacity(limit.min(cases.len().saturating_mul(evaluated.len())));
+                for projection in &cases {
                     for path in &evaluated {
                         let constraints = projection.constraints.intersection(&path.constraints);
                         if constraints.is_impossible() {
@@ -1082,17 +1057,17 @@ fn path_list_alternative(
                         next.push(projection);
                     }
                 }
-                configurations = next;
+                cases = next;
             }
             PythonSequenceItem::UnknownElement(unknown) => {
-                for projection in &mut configurations {
+                for projection in &mut cases {
                     projection
                         .paths
                         .push_issue(issue(SettingIssueKind::UnknownElement, unknown.origins()));
                 }
             }
             PythonSequenceItem::UnknownUnpack(unknown) => {
-                for projection in &mut configurations {
+                for projection in &mut cases {
                     projection
                         .paths
                         .push_issue(issue(SettingIssueKind::UnknownUnpack, unknown.origins()));
@@ -1101,22 +1076,25 @@ fn path_list_alternative(
         }
     }
     CappedExpansion {
-        exact: configurations,
+        exact: cases,
         overflow_origins,
     }
 }
 
-struct EvaluatedPathCandidate {
-    path: WithOrigin<EvaluatedPath>,
+struct ConstrainedTemplateDirectory {
+    path: WithOrigins<TemplateDirectoryPath>,
     constraints: BranchConstraints,
 }
 
-fn evaluated_paths(db: &dyn ProjectDb, value: &PythonValue) -> Vec<EvaluatedPathCandidate> {
+fn constrained_template_directories(
+    db: &dyn ProjectDb,
+    value: &PythonValue,
+) -> Vec<ConstrainedTemplateDirectory> {
     if let Some(path) = value.path_value() {
         return value
             .origins_with_constraints()
-            .map(|(origin, constraints)| EvaluatedPathCandidate {
-                path: WithOrigin::new(EvaluatedPath::Resolved(path.to_path_buf()), origin, []),
+            .map(|(origin, constraints)| ConstrainedTemplateDirectory {
+                path: WithOrigins::new(TemplateDirectoryPath::new(path.to_path_buf()), origin, []),
                 constraints: constraints.clone(),
             })
             .collect();
@@ -1132,12 +1110,12 @@ fn evaluated_paths(db: &dyn ProjectDb, value: &PythonValue) -> Vec<EvaluatedPath
         .origins_with_constraints()
         .filter_map(|(origin, constraints)| {
             let resolved = if path.is_absolute() {
-                EvaluatedPath::Resolved(path.to_path_buf())
+                TemplateDirectoryPath::new(path.to_path_buf())
             } else {
-                EvaluatedPath::Resolved(origin.file.path(db).parent()?.join(path))
+                TemplateDirectoryPath::new(origin.file.path(db).parent()?.join(path))
             };
-            Some(EvaluatedPathCandidate {
-                path: WithOrigin::new(resolved, origin, []),
+            Some(ConstrainedTemplateDirectory {
+                path: WithOrigins::new(resolved, origin, []),
                 constraints: constraints.clone(),
             })
         })
@@ -1162,9 +1140,9 @@ fn dict_field<'a>(
     (lookup.value(), issues)
 }
 
-fn setting_accepts_mutation(setting: KnownSetting, mutation: &PythonMutation) -> bool {
+fn setting_accepts_mutation(setting: SupportedSetting, mutation: &PythonMutation) -> bool {
     match setting {
-        KnownSetting::InstalledApps => {
+        SupportedSetting::InstalledApps => {
             mutation.path.is_empty()
                 && matches!(
                     mutation.operation,
@@ -1174,7 +1152,7 @@ fn setting_accepts_mutation(setting: KnownSetting, mutation: &PythonMutation) ->
                         | PythonMutationOperation::Remove
                 )
         }
-        KnownSetting::Templates => {
+        SupportedSetting::Templates => {
             matches!(
                 mutation.operation,
                 PythonMutationOperation::Append
@@ -1187,11 +1165,11 @@ fn setting_accepts_mutation(setting: KnownSetting, mutation: &PythonMutation) ->
 }
 
 fn unsupported_mutation_issues(
-    values: &PythonModuleValues,
-    setting: KnownSetting,
+    facts: &PythonModuleFacts,
+    setting: SupportedSetting,
     value: &PythonValue,
 ) -> Vec<SettingIssue> {
-    values
+    facts
         .mutations
         .iter()
         .filter(|mutation| {

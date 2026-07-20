@@ -12,7 +12,7 @@ pub use module::FileModuleCandidate;
 pub use module::FileModuleResolution;
 pub(crate) use module::NamespacePortion;
 pub use module::PackageDirs;
-pub(crate) use module::PythonImportError;
+pub(crate) use module::PythonImportNameError;
 pub(crate) use module::PythonModule;
 pub(crate) use module::PythonNamespacePackage;
 pub use module::PythonSourceModule;

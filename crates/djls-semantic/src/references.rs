@@ -1,13 +1,13 @@
 use std::slice;
 
-use djls_project::FindTemplateResult;
-use djls_project::InconclusiveTemplateSearch;
+use djls_project::InconclusiveTemplateResolution;
 use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::ScopedTemplateReferenceResolution;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
 use djls_project::TemplateResolution;
+use djls_project::TemplateResolutionResult;
 use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
@@ -66,13 +66,14 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
                 continue;
             };
             match scoped.result {
-                FindTemplateResult::Found(_) => {}
+                TemplateResolutionResult::Found(_) => {}
                 // Possible origins surviving an incomplete scoped search are still real reference
                 // targets worth indexing; an inconclusive miss with no candidates indexes
                 // nothing rather than guessing across backends.
-                FindTemplateResult::Inconclusive(search) if !search.possible_origins.is_empty() => {
-                }
-                FindTemplateResult::DoesNotExist(_) | FindTemplateResult::Inconclusive(_) => {
+                TemplateResolutionResult::Inconclusive(search)
+                    if !search.possible_origins.is_empty() => {}
+                TemplateResolutionResult::DoesNotExist(_)
+                | TemplateResolutionResult::Inconclusive(_) => {
                     continue;
                 }
             }
@@ -202,7 +203,7 @@ pub fn resolve_reference_for_file<'db>(
     file: File,
     raw_name: TemplateName<'db>,
     kind: TemplateReferenceKind,
-) -> Option<FindTemplateResult<'db>> {
+) -> Option<TemplateResolutionResult<'db>> {
     let outcomes = resolve_reference_origins(db, resolution, file, raw_name, kind);
     let Some(first) = outcomes.first() else {
         // Files outside the template inventory have no origin from which to derive a backend
@@ -213,23 +214,25 @@ pub fn resolve_reference_for_file<'db>(
         return Some(resolution.resolve(db, raw_name));
     };
     let found_file = match first.result {
-        FindTemplateResult::Found(origin) => Some(origin.file(db)),
-        FindTemplateResult::DoesNotExist(_) | FindTemplateResult::Inconclusive(_) => None,
+        TemplateResolutionResult::Found(origin) => Some(origin.file(db)),
+        TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
+            None
+        }
     };
     if let Some(file) = found_file
         && outcomes.iter().all(
-            |outcome| matches!(outcome.result, FindTemplateResult::Found(origin) if origin.file(db) == file),
+            |outcome| matches!(outcome.result, TemplateResolutionResult::Found(origin) if origin.file(db) == file),
         )
     {
-        let FindTemplateResult::Found(origin) = first.result else {
+        let TemplateResolutionResult::Found(origin) = first.result else {
             unreachable!("the joined reference outcome was checked as found")
         };
-        return Some(FindTemplateResult::Found(origin));
+        return Some(TemplateResolutionResult::Found(origin));
     }
 
     if outcomes
         .iter()
-        .all(|outcome| matches!(outcome.result, FindTemplateResult::DoesNotExist(_)))
+        .all(|outcome| matches!(outcome.result, TemplateResolutionResult::DoesNotExist(_)))
     {
         return Some(first.result.clone());
     }
@@ -237,23 +240,23 @@ pub fn resolve_reference_for_file<'db>(
     let mut possible_origins = Vec::new();
     for outcome in &outcomes {
         match &outcome.result {
-            FindTemplateResult::Found(origin) => {
+            TemplateResolutionResult::Found(origin) => {
                 if !possible_origins.iter().any(|possible| possible == origin) {
                     possible_origins.push(*origin);
                 }
             }
-            FindTemplateResult::Inconclusive(search) => {
+            TemplateResolutionResult::Inconclusive(search) => {
                 for origin in &search.possible_origins {
                     if !possible_origins.iter().any(|possible| possible == origin) {
                         possible_origins.push(*origin);
                     }
                 }
             }
-            FindTemplateResult::DoesNotExist(_) => {}
+            TemplateResolutionResult::DoesNotExist(_) => {}
         }
     }
-    Some(FindTemplateResult::Inconclusive(
-        InconclusiveTemplateSearch {
+    Some(TemplateResolutionResult::Inconclusive(
+        InconclusiveTemplateResolution {
             name: first.target_name,
             possible_origins,
         },

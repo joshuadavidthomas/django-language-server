@@ -115,7 +115,7 @@ fn realistic_specs() -> &'static RealisticSpecs {
     SPECS.get_or_init(build_realistic_specs)
 }
 
-fn install_template_environment(db: &mut Db, specs: &RealisticSpecs) {
+fn install_template_library_fixture(db: &mut Db, specs: &RealisticSpecs) {
     // Canonical builtin identities make extracted source facts fuse with semantic's hardcoded
     // Django roles and fallback grammar, matching production project analysis.
     const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}}}]\n";
@@ -200,7 +200,7 @@ fn configure_realistic_db(db: Db) -> Db {
     let mut db = db
         .with_projectless_tag_specs(specs.tag_specs.clone())
         .with_projectless_filter_arity_specs(specs.filter_arity_specs.clone());
-    install_template_environment(&mut db, specs);
+    install_template_library_fixture(&mut db, specs);
     db
 }
 
@@ -223,9 +223,9 @@ mod tests {
     use std::sync::Mutex;
 
     use djls_project::Db as ProjectDb;
-    use djls_project::TemplateEnvironment;
+    use djls_project::ScopedTemplateLibraries;
     use djls_project::TemplateLibrary;
-    use djls_project::template_libraries;
+    use djls_project::template_library_catalog;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::TagRole;
     use djls_semantic::tag_spec_at;
@@ -250,7 +250,7 @@ mod tests {
             .project()
             .expect("realistic fixture should install a Project");
         let environment =
-            TemplateEnvironment::from_project_inventory(template_libraries(&db, project));
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project));
         let builtin_modules: Vec<_> = environment
             .resolved_libraries()
             .into_iter()

@@ -11,7 +11,7 @@ use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
 use super::filters::FilterArityMap;
-use super::libraries::TemplateLibraryKey;
+use super::libraries::TemplateLibraryId;
 use super::names::TemplateSymbolName;
 use super::symbols::SymbolDefinition;
 use super::symbols::SymbolKey;
@@ -403,8 +403,12 @@ fn callable_name(expr: &Expr) -> Option<String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TemplateLibraryDefinitionState {
     Failed,
-    ParsedNotLibrary { source: TemplateLibrarySource },
-    Library { source: TemplateLibrarySource },
+    ParsedNotLibrary {
+        parse_quality: TemplateLibraryParseQuality,
+    },
+    Library {
+        parse_quality: TemplateLibraryParseQuality,
+    },
 }
 
 /// Equality-bearing registration facts for one Template Library source module.
@@ -426,9 +430,9 @@ impl TemplateLibraryDefinitionFacts {
         matches!(
             self.state,
             TemplateLibraryDefinitionState::ParsedNotLibrary {
-                source: TemplateLibrarySource::Recovered,
+                parse_quality: TemplateLibraryParseQuality::Recovered,
             } | TemplateLibraryDefinitionState::Library {
-                source: TemplateLibrarySource::Recovered,
+                parse_quality: TemplateLibraryParseQuality::Recovered,
             }
         )
     }
@@ -452,7 +456,7 @@ impl TemplateLibraryDefinitionFacts {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TemplateLibrarySource {
+pub(crate) enum TemplateLibraryParseQuality {
     Exact,
     Recovered,
 }
@@ -487,7 +491,7 @@ impl TemplateLibrarySourceAnalysis {
 #[salsa::tracked(returns(ref))]
 fn template_library_source_analysis(
     db: &dyn ProjectDb,
-    key: TemplateLibraryKey,
+    key: TemplateLibraryId,
 ) -> TemplateLibrarySourceAnalysis {
     let Some(file) = key.file(db) else {
         return TemplateLibrarySourceAnalysis::failed();
@@ -495,10 +499,10 @@ fn template_library_source_analysis(
     let Ok(Some(module)) = RecoveredPythonModule::from_file(db, file) else {
         return TemplateLibrarySourceAnalysis::failed();
     };
-    let source = if module.has_ordinary_syntax_errors(db) {
-        TemplateLibrarySource::Recovered
+    let parse_quality = if module.has_ordinary_syntax_errors(db) {
+        TemplateLibraryParseQuality::Recovered
     } else {
-        TemplateLibrarySource::Exact
+        TemplateLibraryParseQuality::Exact
     };
 
     let mut tags = BTreeMap::new();
@@ -564,9 +568,9 @@ fn template_library_source_analysis(
         .iter()
         .any(TemplateLibraryDefinitionFacts::stmt_defines_library);
     let state = if defines_library || !tags.is_empty() || !filters.is_empty() {
-        TemplateLibraryDefinitionState::Library { source }
+        TemplateLibraryDefinitionState::Library { parse_quality }
     } else {
-        TemplateLibraryDefinitionState::ParsedNotLibrary { source }
+        TemplateLibraryDefinitionState::ParsedNotLibrary { parse_quality }
     };
     TemplateLibrarySourceAnalysis {
         definitions: TemplateLibraryDefinitionFacts {
@@ -615,7 +619,7 @@ impl TemplateLibraryFilterFacts {
 #[salsa::tracked(returns(ref))]
 pub fn template_library_definition_facts(
     db: &dyn ProjectDb,
-    key: TemplateLibraryKey,
+    key: TemplateLibraryId,
 ) -> TemplateLibraryDefinitionFacts {
     template_library_source_analysis(db, key)
         .definitions
@@ -625,7 +629,7 @@ pub fn template_library_definition_facts(
 #[salsa::tracked(returns(ref))]
 pub fn template_library_tag_facts(
     db: &dyn ProjectDb,
-    key: TemplateLibraryKey,
+    key: TemplateLibraryId,
 ) -> TemplateLibraryTagFacts {
     let analysis = template_library_source_analysis(db, key);
     TemplateLibraryTagFacts {
@@ -637,7 +641,7 @@ pub fn template_library_tag_facts(
 #[salsa::tracked(returns(ref))]
 pub fn template_library_filter_facts(
     db: &dyn ProjectDb,
-    key: TemplateLibraryKey,
+    key: TemplateLibraryId,
 ) -> TemplateLibraryFilterFacts {
     TemplateLibraryFilterFacts {
         filter_arities: template_library_source_analysis(db, key)

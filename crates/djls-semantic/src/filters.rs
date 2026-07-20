@@ -3,9 +3,9 @@ use std::sync::LazyLock;
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
+use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolKey;
-use djls_project::TemplateEnvironment;
-use djls_project::TemplateLibraryKey;
+use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_library_filter_facts;
 use rustc_hash::FxHashMap;
@@ -70,7 +70,7 @@ impl LibraryFilterSpecs {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryKey) -> LibraryFilterSpecs {
+pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryId) -> LibraryFilterSpecs {
     let facts = template_library_filter_facts(db, key);
     let mut specs = FilterAritySpecs::new();
     specs.merge_filter_arities(facts.filter_arities());
@@ -78,25 +78,25 @@ pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryKey) -> LibraryFilt
 }
 
 /// Return the effective filter arity at one occurrence when every feasible backend agrees.
-pub(crate) fn effective_filter_arity_in_environment(
+pub(crate) fn effective_filter_arity_in_scope(
     db: &dyn Db,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     filter_name: &str,
     load_state: &LoadState<'_>,
 ) -> Option<FilterArity> {
     let loaded = load_state.libraries_loading_symbol(filter_name);
     let mut agreed = None;
     let mut alternatives_agree = true;
-    environment.for_each_effective_definition_library(
+    scoped_libraries.for_each_effective_definition_library(
         filter_name,
         TemplateSymbolKind::Filter,
         &loaded,
         |alternative| {
             let definition = match alternative {
                 EffectiveDefinitionLibrary::Known(library) => library
-                    .and_then(|library| library_filter_specs(db, library.key()).get(filter_name)),
+                    .and_then(|library| library_filter_specs(db, library.id()).get(filter_name)),
                 EffectiveDefinitionLibrary::Unobserved(library) => {
-                    let Some(arity) = library_filter_specs(db, library.key()).get(filter_name)
+                    let Some(arity) = library_filter_specs(db, library.id()).get(filter_name)
                     else {
                         alternatives_agree = false;
                         return;

@@ -10,11 +10,11 @@ use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_project::ArgumentCountConstraint;
+use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
 use djls_project::TagRule;
-use djls_project::TemplateEnvironment;
 use djls_project::TemplateSymbolKind;
-use djls_project::template_libraries;
+use djls_project::template_library_catalog;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
@@ -334,7 +334,7 @@ fn partial_django_backend_keeps_configured_library_validation_inconclusive() {
 }
 
 #[test]
-fn validation_uses_only_the_library_environment_of_the_resolving_backend() {
+fn validation_uses_only_the_library_scope_of_the_resolving_backend() {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/a'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/b'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}},\n]\n";
     ProjectFixture::new("/proj")
@@ -443,7 +443,7 @@ fn source_less_configured_library_preserves_block_structure() {
 }
 
 #[test]
-fn loaded_source_less_alias_suppresses_same_named_available_app_guidance() {
+fn loaded_source_less_alias_suppresses_same_named_available_in_app_guidance() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -451,10 +451,10 @@ fn loaded_source_less_alias_suppresses_same_named_available_app_guidance() {
             "/proj/myproject/settings.py",
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'missing.shared'}}}]\n",
         )
-        .file("/proj/available_app/__init__.py", "")
-        .file("/proj/available_app/templatetags/__init__.py", "")
+        .file("/proj/available_in_app/__init__.py", "")
+        .file("/proj/available_in_app/templatetags/__init__.py", "")
         .file(
-            "/proj/available_app/templatetags/shared.py",
+            "/proj/available_in_app/templatetags/shared.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef shared_tag(): pass\n@register.filter\ndef shared_filter(value): return value\n",
         )
         .file(
@@ -504,34 +504,34 @@ fn source_less_default_builtins_keep_django_grammar_and_load_configured_library(
         .build(&db);
     db.set_project(project);
 
-    let libraries = template_libraries(&db, project);
-    let environment = TemplateEnvironment::from_project_inventory(libraries);
+    let libraries = template_library_catalog(&db, project);
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
     for module in [
         "django.template.defaulttags",
         "django.template.defaultfilters",
         "django.template.loader_tags",
     ] {
-        let library = environment
+        let library = scoped_libraries
             .resolved_libraries()
             .into_iter()
             .find(|library| library.module_name_str() == module)
             .expect("canonical default builtin identity should remain present");
         assert!(library.source_file().is_none());
-        assert!(library.symbol_inventory_is_open());
+        assert!(library.symbols_are_unobserved());
     }
-    let panel_library = environment
+    let panel_library = scoped_libraries
         .resolved_libraries()
         .into_iter()
         .find(|library| library.module_name_str() == "missing.panel_tags")
         .expect("configured source-less library should remain present");
     assert!(panel_library.source_file().is_none());
 
-    let defaulttags = environment
+    let defaulttags = scoped_libraries
         .resolved_libraries()
         .into_iter()
         .find(|library| library.module_name_str() == "django.template.defaulttags")
         .expect("defaulttags identity should remain present");
-    let specs = library_tag_specs(&db, project, defaulttags.key());
+    let specs = library_tag_specs(&db, project, defaulttags.id());
     for name in ["if", "for", "load", "comment", "verbatim"] {
         assert!(
             specs.get(name).is_some(),
@@ -590,28 +590,28 @@ fn configured_same_name_specs_remain_keyed_by_library() {
         .file("/proj/templates/page.html", "")
         .install(&mut db);
 
-    let libraries = template_libraries(&db, project);
-    let environment = TemplateEnvironment::from_project_inventory(libraries);
-    let alpha = environment
+    let libraries = template_library_catalog(&db, project);
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
+    let alpha = scoped_libraries
         .resolved_libraries()
         .into_iter()
         .find(|library| library.module_name_str() == "alpha_tags")
         .expect("alpha should resolve");
-    let beta = environment
+    let beta = scoped_libraries
         .resolved_libraries()
         .into_iter()
         .find(|library| library.module_name_str() == "beta_tags")
         .expect("beta should resolve");
 
     assert!(
-        library_tag_specs(&db, project, alpha.key())
+        library_tag_specs(&db, project, alpha.id())
             .get("shared")
             .and_then(|spec| spec.end_tag.as_ref())
             .is_some(),
         "alpha's configured block shape must not be overwritten by beta"
     );
     assert!(
-        library_tag_specs(&db, project, beta.key())
+        library_tag_specs(&db, project, beta.id())
             .get("shared")
             .is_some_and(|spec| spec.end_tag.is_none()),
         "beta's configured standalone shape must not inherit alpha's same-name spec"
@@ -642,8 +642,8 @@ fn configured_dynamic_registration_is_available_through_its_library_catalog() {
         )
         .install(&mut db);
 
-    let libraries = template_libraries(&db, project);
-    let dynamic = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let dynamic = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .find(|library| library.module_name_str() == "dynamic_tags")
@@ -660,7 +660,7 @@ fn configured_dynamic_registration_is_available_through_its_library_catalog() {
         SymbolDefinition::Exact { .. }
     ));
     assert!(
-        library_tag_specs(&db, project, dynamic.key())
+        library_tag_specs(&db, project, dynamic.id())
             .get("dynamic_panel")
             .is_some(),
         "configured-only definition should enter the keyed semantic product"
@@ -1335,7 +1335,7 @@ fn alias_shadowing_db(settings: &str, source: &str) -> TestDatabase {
 }
 
 #[test]
-fn authoritative_aliases_on_all_feasible_backends_suppress_available_app_guidance() {
+fn authoritative_aliases_on_all_feasible_backends_suppress_available_in_app_guidance() {
     let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]\n";
     let db = alias_shadowing_db(settings, "{% candidate_tag %}{{ value|candidate_filter }}");
     let errors = collect_file_errors(&db, "/proj/shared/page.html");
@@ -1351,7 +1351,7 @@ fn authoritative_aliases_on_all_feasible_backends_suppress_available_app_guidanc
 }
 
 #[test]
-fn mixed_authoritative_alias_shadowing_makes_available_app_guidance_inconclusive() {
+fn mixed_authoritative_alias_shadowing_makes_available_in_app_guidance_inconclusive() {
     let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/shared'], 'APP_DIRS': False}]\n";
     let db = alias_shadowing_db(settings, "{% candidate_tag %}{{ value|candidate_filter }}");
     let errors = collect_file_errors(&db, "/proj/shared/page.html");
@@ -1397,12 +1397,13 @@ fn extracted_block_db(source: &str) -> TestDatabase {
         )
         .install(&mut db);
 
-    let library = TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
-        .resolved_libraries()
-        .into_iter()
-        .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
-        .expect("fixture library should be discovered");
-    let library_specs = library_tag_specs(&db, project, library.key());
+    let library =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .resolved_libraries()
+            .into_iter()
+            .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
+            .expect("fixture library should be discovered");
+    let library_specs = library_tag_specs(&db, project, library.id());
     let mut specs = TagSpecs::default();
     if let Some(spec) = library_specs.get("mystery") {
         specs.insert("mystery".to_string(), spec.clone());

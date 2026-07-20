@@ -22,29 +22,29 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::resolve_package_dirs;
 use crate::settings::types::InstalledAppEvidence;
-use crate::templates::configurations::TemplateBackendConfiguration;
-use crate::templates::configurations::TemplateBackendId;
-use crate::templates::configurations::TemplateConfigurationId;
-use crate::templates::configurations::TemplateConfigurationSlot;
-use crate::templates::configurations::TemplateDirectoryEvidence;
-use crate::templates::configurations::template_configurations;
 use crate::templates::installed_app_package_module;
+use crate::templates::settings_cases::TemplateBackendCase;
+use crate::templates::settings_cases::TemplateBackendId;
+use crate::templates::settings_cases::TemplateBackendSlot;
+use crate::templates::settings_cases::TemplateDirectorySlot;
+use crate::templates::settings_cases::TemplateSettingsCaseId;
+use crate::templates::settings_cases::template_settings_cases;
 
 /// The feasible ordered template-root search sequences extracted from settings.
 ///
 /// Settings alternatives remain separate so resolution can compare the winner of each complete
-/// configuration rather than treating roots from mutually exclusive branches as one loader list.
+/// settings case rather than treating roots from mutually exclusive branches as one loader list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateDirectories(Vec<TemplateDirectoryAlternative>);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TemplateDirectoryAlternative {
-    configuration: TemplateConfigurationId,
-    roots: Vec<RootEntry>,
+    settings_case: TemplateSettingsCaseId,
+    roots: Vec<TemplateRootEntry>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum RootEntry {
+enum TemplateRootEntry {
     Known {
         root: Utf8PathBuf,
         backend: TemplateBackendId,
@@ -56,13 +56,13 @@ enum RootEntry {
 
 impl TemplateDirectoryAlternative {
     fn push_root(&mut self, root: Utf8PathBuf, backend: TemplateBackendId) {
-        self.roots.push(RootEntry::Known { root, backend });
+        self.roots.push(TemplateRootEntry::Known { root, backend });
     }
 
     fn mark_unknown_roots(&mut self, selection: TemplateBackendSelection) {
-        if !matches!(self.roots.last(), Some(RootEntry::Unknown { selection: existing }) if *existing == selection)
+        if !matches!(self.roots.last(), Some(TemplateRootEntry::Unknown { selection: existing }) if *existing == selection)
         {
-            self.roots.push(RootEntry::Unknown { selection });
+            self.roots.push(TemplateRootEntry::Unknown { selection });
         }
     }
 }
@@ -74,21 +74,21 @@ impl TemplateDirectories {
             .iter()
             .flat_map(|alternative| &alternative.roots)
             .filter_map(move |entry| match entry {
-                RootEntry::Known { root, .. } if seen.insert(root.as_path()) => {
+                TemplateRootEntry::Known { root, .. } if seen.insert(root.as_path()) => {
                     Some(root.as_path())
                 }
-                RootEntry::Known { .. } | RootEntry::Unknown { .. } => None,
+                TemplateRootEntry::Known { .. } | TemplateRootEntry::Unknown { .. } => None,
             })
     }
 
     #[must_use]
-    pub fn configuration_may_omit_roots(&self) -> bool {
+    pub fn settings_cases_may_omit_roots(&self) -> bool {
         self.0.len() > 1
             || self.0.iter().any(|alternative| {
                 alternative
                     .roots
                     .iter()
-                    .any(|entry| matches!(entry, RootEntry::Unknown { .. }))
+                    .any(|entry| matches!(entry, TemplateRootEntry::Unknown { .. }))
             })
     }
 
@@ -110,7 +110,7 @@ fn known_roots_for_scope<'a>(
     let mut roots = Vec::new();
     for selection in selections {
         let TemplateBackendSelection::Backend(backend) = *selection else {
-            // A configuration remainder has no concrete roots to report as tried.
+            // A settings-case remainder has no concrete roots to report as tried.
             continue;
         };
         for entry in directories
@@ -118,7 +118,7 @@ fn known_roots_for_scope<'a>(
             .iter()
             .flat_map(|alternative| &alternative.roots)
         {
-            let RootEntry::Known {
+            let TemplateRootEntry::Known {
                 root,
                 backend: candidate,
             } = entry
@@ -136,11 +136,11 @@ fn known_roots_for_scope<'a>(
 fn add_backend_roots(
     db: &dyn ProjectDb,
     project: Project,
-    backend: &TemplateBackendConfiguration,
+    backend: &TemplateBackendCase,
     installed_apps: &[InstalledAppEvidence],
     alternative: &mut TemplateDirectoryAlternative,
 ) {
-    if backend.backend_state().is_open() {
+    if backend.backend_completeness().is_open() {
         alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
     }
     if backend.backend_name() != Some("django.template.backends.django.DjangoTemplates") {
@@ -148,15 +148,15 @@ fn add_backend_roots(
     }
     for evidence in backend.directories() {
         match evidence {
-            TemplateDirectoryEvidence::Path(path) => {
+            TemplateDirectorySlot::Path(path) => {
                 alternative.push_root(path.clone(), backend.id());
             }
-            TemplateDirectoryEvidence::Unknown => {
+            TemplateDirectorySlot::Unknown => {
                 alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
             }
         }
     }
-    if backend.app_directories_state().is_open() {
+    if backend.app_directories_completeness().is_open() {
         alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
     }
     if backend.app_directories() == Some(true) {
@@ -184,31 +184,31 @@ fn add_backend_roots(
 pub fn template_directories(db: &dyn ProjectDb, project: Project) -> TemplateDirectories {
     project.touch_search_path_roots(db);
 
-    let configurations = template_configurations(db, project);
-    let alternatives = configurations
-        .configurations()
+    let settings_cases = template_settings_cases(db, project);
+    let alternatives = settings_cases
+        .settings_cases()
         .iter()
-        .map(|configuration| {
+        .map(|settings_case| {
             let mut alternative = TemplateDirectoryAlternative {
-                configuration: configuration.id(),
+                settings_case: settings_case.id(),
                 roots: Vec::new(),
             };
-            for slot in configuration.slots() {
+            for slot in settings_case.slots() {
                 match *slot {
-                    TemplateConfigurationSlot::Backend(backend) => {
-                        let backend = configurations
+                    TemplateBackendSlot::Backend(backend) => {
+                        let backend = settings_cases
                             .backend(backend)
                             .expect("a canonical backend slot should resolve");
                         add_backend_roots(
                             db,
                             project,
                             backend,
-                            configuration.installed_apps(),
+                            settings_case.installed_apps(),
                             &mut alternative,
                         );
                     }
-                    TemplateConfigurationSlot::Remainder => alternative.mark_unknown_roots(
-                        TemplateBackendSelection::ConfigurationRemainder(configuration.id()),
+                    TemplateBackendSlot::Remainder => alternative.mark_unknown_roots(
+                        TemplateBackendSelection::SettingsCaseRemainder(settings_case.id()),
                     ),
                 }
             }
@@ -327,9 +327,11 @@ impl<'db> TemplateResolution<'db> {
         self.template_names(db)
             .filter(
                 |name| match self.resolve_excluding_in_scope(db, *name, &[], &scope) {
-                    FindTemplateResult::Found(_) => true,
-                    FindTemplateResult::Inconclusive(search) => !search.possible_origins.is_empty(),
-                    FindTemplateResult::DoesNotExist(_) => false,
+                    TemplateResolutionResult::Found(_) => true,
+                    TemplateResolutionResult::Inconclusive(search) => {
+                        !search.possible_origins.is_empty()
+                    }
+                    TemplateResolutionResult::DoesNotExist(_) => false,
                 },
             )
             .collect()
@@ -362,7 +364,7 @@ impl<'db> TemplateResolution<'db> {
         self,
         db: &'db dyn ProjectDb,
         name: TemplateName<'db>,
-    ) -> FindTemplateResult<'db> {
+    ) -> TemplateResolutionResult<'db> {
         self.resolve_excluding(db, name, &[])
     }
 
@@ -399,7 +401,7 @@ impl<'db> TemplateResolution<'db> {
         db: &'db dyn ProjectDb,
         name: TemplateName<'db>,
         file: File,
-    ) -> FindTemplateResult<'db> {
+    ) -> TemplateResolutionResult<'db> {
         self.resolve_excluding_in_scope(db, name, &[], &self.backend_scope_for_file(db, file))
     }
 
@@ -469,7 +471,7 @@ impl<'db> TemplateResolution<'db> {
         db: &'db dyn ProjectDb,
         name: TemplateName<'db>,
         excluded: &[File],
-    ) -> FindTemplateResult<'db> {
+    ) -> TemplateResolutionResult<'db> {
         self.resolve_excluding_in_scope(
             db,
             name,
@@ -485,7 +487,7 @@ impl<'db> TemplateResolution<'db> {
         name: TemplateName<'db>,
         excluded: &[TemplateOrigin<'db>],
         scope: &TemplateBackendScope,
-    ) -> FindTemplateResult<'db> {
+    ) -> TemplateResolutionResult<'db> {
         // Django's skip set follows loader origin identity, not the Template Name alias used to
         // reach that origin. A physical source must therefore stay excluded across all aliases.
         let excluded_files = excluded
@@ -502,7 +504,7 @@ impl<'db> TemplateResolution<'db> {
         name: TemplateName<'db>,
         excluded: &[File],
         scope: &TemplateBackendScope,
-    ) -> FindTemplateResult<'db> {
+    ) -> TemplateResolutionResult<'db> {
         let index = template_directory_index(db, self);
         let excluded: FxHashSet<_> = excluded.iter().copied().collect();
         let outcomes = match scope.kind() {
@@ -512,26 +514,26 @@ impl<'db> TemplateResolution<'db> {
                 .map(|search| resolve_alternative(db, &search.evidence, name, &excluded))
                 .collect::<Vec<_>>(),
             TemplateBackendScopeKind::Selected(selections) => {
-                let configurations = template_configurations(db, self.project(db));
+                let settings_cases = template_settings_cases(db, self.project(db));
                 selections
                     .as_slice()
                     .iter()
                     .map(|selection| match *selection {
                         TemplateBackendSelection::Backend(backend) => {
-                            let Some(configuration) = configurations
+                            let Some(settings_case) = settings_cases
                                 .backend(backend)
-                                .map(TemplateBackendConfiguration::configuration)
+                                .map(TemplateBackendCase::settings_case)
                             else {
-                                return AlternativeOutcome::Inconclusive {
+                                return TemplateSearchOutcome::Inconclusive {
                                     origins: Vec::new(),
                                 };
                             };
                             let Some(search) = index
                                 .searches(db)
                                 .iter()
-                                .find(|search| search.configuration == configuration)
+                                .find(|search| search.settings_case == settings_case)
                             else {
-                                return AlternativeOutcome::Inconclusive {
+                                return TemplateSearchOutcome::Inconclusive {
                                     origins: Vec::new(),
                                 };
                             };
@@ -543,8 +545,8 @@ impl<'db> TemplateResolution<'db> {
                                 .collect::<Vec<_>>();
                             resolve_alternative(db, &filtered, name, &excluded)
                         }
-                        TemplateBackendSelection::ConfigurationRemainder(_) => {
-                            AlternativeOutcome::Inconclusive {
+                        TemplateBackendSelection::SettingsCaseRemainder(_) => {
+                            TemplateSearchOutcome::Inconclusive {
                                 origins: Vec::new(),
                             }
                         }
@@ -554,33 +556,35 @@ impl<'db> TemplateResolution<'db> {
         };
 
         let unanimous_file = outcomes.first().and_then(|outcome| match outcome {
-            AlternativeOutcome::Found { origin, .. } => Some(origin.file(db)),
-            AlternativeOutcome::DoesNotExist | AlternativeOutcome::Inconclusive { .. } => None,
+            TemplateSearchOutcome::Found { origin, .. } => Some(origin.file(db)),
+            TemplateSearchOutcome::DoesNotExist | TemplateSearchOutcome::Inconclusive { .. } => {
+                None
+            }
         });
         if let Some(file) = unanimous_file
             && outcomes.iter().all(
-                |outcome| matches!(outcome, AlternativeOutcome::Found { origin, .. } if origin.file(db) == file),
+                |outcome| matches!(outcome, TemplateSearchOutcome::Found { origin, .. } if origin.file(db) == file),
             )
         {
-            let AlternativeOutcome::Found { origin, .. } = outcomes[0] else {
+            let TemplateSearchOutcome::Found { origin, .. } = outcomes[0] else {
                 unreachable!("the unanimous outcome was checked as found")
             };
-            return FindTemplateResult::Found(origin);
+            return TemplateResolutionResult::Found(origin);
         }
 
         if outcomes
             .iter()
-            .all(|outcome| matches!(outcome, AlternativeOutcome::DoesNotExist))
+            .all(|outcome| matches!(outcome, TemplateSearchOutcome::DoesNotExist))
         {
             let directories = template_directories(db, self.project(db));
             let tried = known_roots_for_scope(directories, scope)
                 .into_iter()
                 .filter_map(|root| safe_join(root, name.name(db)).ok())
                 .collect();
-            return FindTemplateResult::DoesNotExist(TemplateDoesNotExist { name, tried });
+            return TemplateResolutionResult::DoesNotExist(TemplateDoesNotExist { name, tried });
         }
 
-        FindTemplateResult::Inconclusive(InconclusiveTemplateSearch {
+        TemplateResolutionResult::Inconclusive(InconclusiveTemplateResolution {
             name,
             possible_origins: possible_origins(db, outcomes),
         })
@@ -645,7 +649,7 @@ fn collect_backend_selections_scan<'db>(
 }
 
 #[derive(Default)]
-struct BackendSelectionEvidenceIndex<'db> {
+struct TemplateScopeIndexBuilder<'db> {
     concrete_by_origin: FxHashMap<(File, TemplateName<'db>), Vec<TemplateBackendSelection>>,
     global: Vec<TemplateBackendSelection>,
     file_issues: FxHashMap<Utf8PathBuf, FxHashMap<String, Vec<TemplateBackendSelection>>>,
@@ -653,12 +657,12 @@ struct BackendSelectionEvidenceIndex<'db> {
     canonical_order: Vec<TemplateBackendSelection>,
 }
 
-struct BackendSelectionIndexes {
+struct TemplateScopeIndexes {
     by_origin: FxHashMap<File, FxHashMap<String, TemplateBackendScope>>,
     by_file: FxHashMap<File, TemplateBackendScope>,
 }
 
-impl<'db> BackendSelectionEvidenceIndex<'db> {
+impl<'db> TemplateScopeIndexBuilder<'db> {
     fn record(&mut self, db: &'db dyn ProjectDb, evidence: &TemplateSearchEvidence<'db>) {
         let selection = evidence.selection();
         if !self.canonical_order.contains(&selection) {
@@ -701,7 +705,7 @@ impl<'db> BackendSelectionEvidenceIndex<'db> {
         mut self,
         db: &'db dyn ProjectDb,
         names_by_file: &FxHashMap<File, Vec<TemplateName<'db>>>,
-    ) -> BackendSelectionIndexes {
+    ) -> TemplateScopeIndexes {
         stable_deduplicate_backend_selections(&mut self.global);
 
         let mut by_origin = FxHashMap::default();
@@ -750,7 +754,7 @@ impl<'db> BackendSelectionEvidenceIndex<'db> {
             }
         }
 
-        BackendSelectionIndexes { by_origin, by_file }
+        TemplateScopeIndexes { by_origin, by_file }
     }
 }
 
@@ -782,7 +786,7 @@ fn backend_selections_in_canonical_order(
 pub struct ScopedTemplateReferenceResolution<'db> {
     pub source: TemplateOrigin<'db>,
     pub target_name: TemplateName<'db>,
-    pub result: FindTemplateResult<'db>,
+    pub result: TemplateResolutionResult<'db>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -791,13 +795,13 @@ pub struct TemplateBackendScope(TemplateBackendScopeKind);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum TemplateBackendScopeKind {
     ProjectInventory,
-    Selected(SelectedTemplateBackends),
+    Selected(TemplateBackendSelections),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct SelectedTemplateBackends(Vec<TemplateBackendSelection>);
+pub(super) struct TemplateBackendSelections(Vec<TemplateBackendSelection>);
 
-impl SelectedTemplateBackends {
+impl TemplateBackendSelections {
     pub(super) fn as_slice(&self) -> &[TemplateBackendSelection] {
         &self.0
     }
@@ -806,8 +810,8 @@ impl SelectedTemplateBackends {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TemplateBackendSelection {
     Backend(TemplateBackendId),
-    /// A feasible settings configuration whose backend and roots cannot be enumerated.
-    ConfigurationRemainder(TemplateConfigurationId),
+    /// A feasible settings case whose backend and roots cannot be enumerated.
+    SettingsCaseRemainder(TemplateSettingsCaseId),
 }
 
 impl fmt::Debug for TemplateBackendScope {
@@ -837,7 +841,7 @@ impl TemplateBackendScope {
         stable_deduplicate_backend_selections(&mut selections);
         (!selections.is_empty()).then_some({
             Self(TemplateBackendScopeKind::Selected(
-                SelectedTemplateBackends(selections),
+                TemplateBackendSelections(selections),
             ))
         })
     }
@@ -871,18 +875,18 @@ struct TemplateDirectoryIndex<'db> {
     /// Equality-bearing direct scope evidence for each discovered physical Template.
     ///
     /// This is derived beside the origin/search indexes so per-Template semantic analysis does
-    /// not rescan every configuration and compare every candidate path.
+    /// not rescan every settings case and compare every candidate path.
     #[tracked]
     #[returns(ref)]
     backend_scopes_by_file: FxHashMap<File, TemplateBackendScope>,
     #[tracked]
     #[returns(ref)]
-    searches: Vec<ConfigurationSearch<'db>>,
+    searches: Vec<TemplateSettingsCaseSearch<'db>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
-struct ConfigurationSearch<'db> {
-    configuration: TemplateConfigurationId,
+struct TemplateSettingsCaseSearch<'db> {
+    settings_case: TemplateSettingsCaseId,
     evidence: Vec<TemplateSearchEvidence<'db>>,
 }
 
@@ -945,17 +949,17 @@ fn template_directory_index<'db>(
     resolution: TemplateResolution<'db>,
 ) -> TemplateDirectoryIndex<'db> {
     let project = resolution.project(db);
-    let files = project_template_files(db, project);
+    let project_searches = project_template_searches(db, project);
     let mut ordered = Vec::new();
     let mut by_template_name = FxHashMap::default();
     let mut names_by_file = FxHashMap::default();
     let mut searches = Vec::new();
     let mut origins = FxHashMap::default();
-    let mut backend_selection_evidence = BackendSelectionEvidenceIndex::default();
+    let mut backend_selection_evidence = TemplateScopeIndexBuilder::default();
 
-    for alternative in files.searches() {
+    for settings_case_search in project_searches.searches() {
         let mut search = Vec::new();
-        for evidence in &alternative.evidence {
+        for evidence in &settings_case_search.evidence {
             let evidence = match evidence {
                 ProjectTemplateSearchEvidence::File { template, backend } => {
                     let template_name = TemplateName::new(db, template.name().to_string());
@@ -996,13 +1000,13 @@ fn template_directory_index<'db>(
             backend_selection_evidence.record(db, &evidence);
             search.push(evidence);
         }
-        searches.push(ConfigurationSearch {
-            configuration: alternative.configuration,
+        searches.push(TemplateSettingsCaseSearch {
+            settings_case: settings_case_search.settings_case,
             evidence: search,
         });
     }
 
-    let BackendSelectionIndexes {
+    let TemplateScopeIndexes {
         by_origin: backend_scopes_by_origin,
         by_file: backend_scopes_by_file,
     } = backend_selection_evidence.finish(db, &names_by_file);
@@ -1026,13 +1030,13 @@ fn template_directory_index<'db>(
 /// retains whatever positive evidence the incomplete search established; how much weight to
 /// give that evidence is deliberately a per-consumer policy decision, not one this crate makes.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FindTemplateResult<'db> {
+pub enum TemplateResolutionResult<'db> {
     Found(TemplateOrigin<'db>),
     DoesNotExist(TemplateDoesNotExist<'db>),
-    Inconclusive(InconclusiveTemplateSearch<'db>),
+    Inconclusive(InconclusiveTemplateResolution<'db>),
 }
 
-enum AlternativeOutcome<'db> {
+enum TemplateSearchOutcome<'db> {
     Found { origin: TemplateOrigin<'db> },
     DoesNotExist,
     Inconclusive { origins: Vec<TemplateOrigin<'db>> },
@@ -1040,15 +1044,15 @@ enum AlternativeOutcome<'db> {
 
 fn possible_origins<'db>(
     db: &'db dyn ProjectDb,
-    outcomes: Vec<AlternativeOutcome<'db>>,
+    outcomes: Vec<TemplateSearchOutcome<'db>>,
 ) -> Vec<TemplateOrigin<'db>> {
     let mut possible = Vec::new();
     let mut seen = FxHashSet::default();
     for outcome in outcomes {
         let origins = match outcome {
-            AlternativeOutcome::Found { origin } => vec![origin],
-            AlternativeOutcome::Inconclusive { origins } => origins,
-            AlternativeOutcome::DoesNotExist => Vec::new(),
+            TemplateSearchOutcome::Found { origin } => vec![origin],
+            TemplateSearchOutcome::Inconclusive { origins } => origins,
+            TemplateSearchOutcome::DoesNotExist => Vec::new(),
         };
         for origin in origins {
             if seen.insert(origin.file(db)) {
@@ -1064,7 +1068,7 @@ fn resolve_alternative<'db>(
     search: &[TemplateSearchEvidence<'db>],
     name: TemplateName<'db>,
     excluded: &FxHashSet<File>,
-) -> AlternativeOutcome<'db> {
+) -> TemplateSearchOutcome<'db> {
     let mut open_selections = Vec::new();
     for evidence in search {
         match evidence {
@@ -1072,9 +1076,9 @@ fn resolve_alternative<'db>(
                 if origin.template_name(db) == name && !excluded.contains(&origin.file(db)) =>
             {
                 return if open_selections.is_empty() {
-                    AlternativeOutcome::Found { origin: *origin }
+                    TemplateSearchOutcome::Found { origin: *origin }
                 } else {
-                    AlternativeOutcome::Inconclusive {
+                    TemplateSearchOutcome::Inconclusive {
                         origins: vec![*origin],
                     }
                 };
@@ -1109,9 +1113,9 @@ fn resolve_alternative<'db>(
         }
     }
     if open_selections.is_empty() {
-        AlternativeOutcome::DoesNotExist
+        TemplateSearchOutcome::DoesNotExist
     } else {
-        AlternativeOutcome::Inconclusive {
+        TemplateSearchOutcome::Inconclusive {
             origins: Vec::new(),
         }
     }
@@ -1124,32 +1128,32 @@ pub struct TemplateDoesNotExist<'db> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InconclusiveTemplateSearch<'db> {
+pub struct InconclusiveTemplateResolution<'db> {
     pub name: TemplateName<'db>,
     pub possible_origins: Vec<TemplateOrigin<'db>>,
 }
 
 /// Positive template files and ordered evidence from searching configured roots.
 #[derive(Clone, Default, PartialEq, Eq)]
-struct ProjectTemplateFiles {
-    searches: Vec<ProjectConfigurationSearch>,
+struct ProjectTemplateSearches {
+    searches: Vec<ProjectTemplateSearch>,
 }
 
-impl ProjectTemplateFiles {
-    fn searches(&self) -> &[ProjectConfigurationSearch] {
+impl ProjectTemplateSearches {
+    fn searches(&self) -> &[ProjectTemplateSearch] {
         &self.searches
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct ProjectConfigurationSearch {
-    configuration: TemplateConfigurationId,
+struct ProjectTemplateSearch {
+    settings_case: TemplateSettingsCaseId,
     evidence: Vec<ProjectTemplateSearchEvidence>,
 }
 
-impl fmt::Debug for ProjectTemplateFiles {
+impl fmt::Debug for ProjectTemplateSearches {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ProjectTemplateFiles")
+        f.debug_struct("ProjectTemplateSearches")
             .field("searches", &self.searches)
             .finish()
     }
@@ -1222,7 +1226,7 @@ impl fmt::Debug for ProjectTemplateFile {
 }
 
 #[salsa::tracked(returns(ref))]
-fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTemplateFiles {
+fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTemplateSearches {
     // Freshness boundary: template discovery re-runs when any search-path root revision is bumped
     // during Django Discovery. Directories outside registered roots are re-walked with the query.
     for search_path in project.search_paths(db).iter() {
@@ -1244,13 +1248,13 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
         let mut search = Vec::new();
         for entry in &alternative.roots {
             let (root, backend) = match entry {
-                RootEntry::Unknown { selection } => {
+                TemplateRootEntry::Unknown { selection } => {
                     search.push(ProjectTemplateSearchEvidence::UnknownRoots {
                         selection: *selection,
                     });
                     continue;
                 }
-                RootEntry::Known { root, backend } => (root, *backend),
+                TemplateRootEntry::Known { root, backend } => (root, *backend),
             };
             let (entries, issues) = match db.walk_root(root, &walk_options) {
                 // Missing and file roots are exhaustively empty: nothing to load templates from.
@@ -1319,13 +1323,13 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
             });
             search.extend(root_evidence);
         }
-        searches.push(ProjectConfigurationSearch {
-            configuration: alternative.configuration,
+        searches.push(ProjectTemplateSearch {
+            settings_case: alternative.settings_case,
             evidence: search,
         });
     }
 
-    ProjectTemplateFiles { searches }
+    ProjectTemplateSearches { searches }
 }
 
 #[cfg(test)]
@@ -1335,13 +1339,13 @@ mod tests {
     use djls_testing::TestDatabase;
 
     use super::*;
-    use crate::templates::configurations::TemplateConfigurations;
+    use crate::templates::settings_cases::TemplateSettingsCases;
 
     fn scan_selection_indexes<'db>(
         db: &'db TestDatabase,
         searches: &[Vec<TemplateSearchEvidence<'db>>],
         names_by_file: &FxHashMap<File, Vec<TemplateName<'db>>>,
-    ) -> BackendSelectionIndexes {
+    ) -> TemplateScopeIndexes {
         let mut canonical_order = Vec::new();
         for evidence in searches.iter().flatten() {
             let selection = evidence.selection();
@@ -1376,7 +1380,7 @@ mod tests {
             }
         }
 
-        BackendSelectionIndexes { by_origin, by_file }
+        TemplateScopeIndexes { by_origin, by_file }
     }
 
     #[test]
@@ -1394,18 +1398,18 @@ mod tests {
         let origin_a = test_template_origin(&db, page, file_a);
         let origin_a_alias = test_template_origin(&db, alias, file_a);
         let origin_b = test_template_origin(&db, page, file_b);
-        let identities = TemplateConfigurations::for_testing(&[7, 2], false);
-        let first_configuration = &identities.configurations()[0];
-        let second_configuration = &identities.configurations()[1];
-        let first_backends = first_configuration
+        let identities = TemplateSettingsCases::for_testing(&[7, 2], false);
+        let first_settings_case = &identities.settings_cases()[0];
+        let second_settings_case = &identities.settings_cases()[1];
+        let first_backends = first_settings_case
             .backends()
             .iter()
-            .map(TemplateBackendConfiguration::id)
+            .map(TemplateBackendCase::id)
             .collect::<Vec<_>>();
-        let second_backends = second_configuration
+        let second_backends = second_settings_case
             .backends()
             .iter()
-            .map(TemplateBackendConfiguration::id)
+            .map(TemplateBackendCase::id)
             .collect::<Vec<_>>();
 
         let searches = vec![
@@ -1422,8 +1426,8 @@ mod tests {
                     selection: TemplateBackendSelection::Backend(first_backends[2]),
                 },
                 TemplateSearchEvidence::UnknownRoots {
-                    selection: TemplateBackendSelection::ConfigurationRemainder(
-                        first_configuration.id(),
+                    selection: TemplateBackendSelection::SettingsCaseRemainder(
+                        first_settings_case.id(),
                     ),
                 },
                 TemplateSearchEvidence::Issue {
@@ -1470,7 +1474,7 @@ mod tests {
         let names_by_file =
             FxHashMap::from_iter([(file_a, vec![page, alias]), (file_b, vec![page])]);
 
-        let mut evidence_index = BackendSelectionEvidenceIndex::default();
+        let mut evidence_index = TemplateScopeIndexBuilder::default();
         for search in &searches {
             for evidence in search {
                 evidence_index.record(&db, evidence);
@@ -1520,11 +1524,11 @@ mod tests {
 
     #[test]
     fn selected_backend_scope_stably_deduplicates_canonical_order() {
-        let configurations = TemplateConfigurations::for_testing(&[2], true);
-        let configuration = &configurations.configurations()[0];
-        let first = configuration.backends()[0].id();
-        let second = configuration.backends()[1].id();
-        let remainder = TemplateBackendSelection::ConfigurationRemainder(configuration.id());
+        let settings_cases = TemplateSettingsCases::for_testing(&[2], true);
+        let settings_case = &settings_cases.settings_cases()[0];
+        let first = settings_case.backends()[0].id();
+        let second = settings_case.backends()[1].id();
+        let remainder = TemplateBackendSelection::SettingsCaseRemainder(settings_case.id());
         let scope = TemplateBackendScope::selected(vec![
             TemplateBackendSelection::Backend(first),
             remainder,
@@ -1553,8 +1557,8 @@ mod tests {
 
     #[test]
     fn backend_scope_debug_is_opaque() {
-        let configurations = TemplateConfigurations::for_testing(&[1], false);
-        let backend = configurations.configurations()[0].backends()[0].id();
+        let settings_cases = TemplateSettingsCases::for_testing(&[1], false);
+        let backend = settings_cases.settings_cases()[0].backends()[0].id();
         let scope =
             TemplateBackendScope::selected(vec![TemplateBackendSelection::Backend(backend)])
                 .expect("one backend selection should form a scope");

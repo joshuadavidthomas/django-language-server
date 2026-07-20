@@ -3,7 +3,7 @@
 //! Module identity belongs to the Python domain. This evaluator-owned state
 //! records loaded-child coordinates, open causes, and contamination of the
 //! recognized standard-library path namespaces without embedding intrinsic
-//! `PythonModuleValues`.
+//! `PythonModuleFacts`.
 
 use std::cmp::Ordering;
 
@@ -102,13 +102,13 @@ impl StructuralOrd for ModuleEffectCause {
 /// One child-fallback transition: the selected member projection and the paths
 /// where prior object coordinates must survive travel as one coherent value.
 #[derive(Clone)]
-pub(crate) struct PythonImportFallback {
+pub(crate) struct ChildImportFallback {
     member: PythonBinding,
     constraints: BranchConstraints,
     preserved: Option<BranchConstraints>,
 }
 
-impl PythonImportFallback {
+impl ChildImportFallback {
     pub(crate) fn new(
         member: &PythonBinding,
         preserved: Option<&BranchConstraints>,
@@ -152,7 +152,7 @@ impl PythonImportFallback {
 /// Finite, deterministic loaded-child coordinates, object-scoped open causes,
 /// and path-namespace contamination. This is a private recursive-import effect
 /// product; it is never added
-/// to settings-facing `PythonModuleValues` equality or projection.
+/// to settings-facing `PythonModuleFacts` equality or projection.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub(super) struct PathIntrinsicContamination(Vec<PythonPathNamespace>);
 
@@ -318,7 +318,7 @@ impl PythonModuleEffects {
         object: PythonModule,
         attribute: String,
         child: &PythonModule,
-        fallback: &PythonImportFallback,
+        fallback: &ChildImportFallback,
         origin: Origin,
     ) {
         let prior = self
@@ -379,7 +379,7 @@ impl PythonModuleEffects {
     pub(crate) fn merge_for_import_fallback(
         &mut self,
         incoming: Self,
-        fallback: &PythonImportFallback,
+        fallback: &ChildImportFallback,
         origin: Origin,
     ) {
         for ModuleChildCoordinate {
@@ -703,7 +703,7 @@ mod tests {
         let member = present.join(absent, join).join(uncertain, join);
 
         let mut objects = PythonModuleEffects::default();
-        let fallback = PythonImportFallback::new(&member, None)
+        let fallback = ChildImportFallback::new(&member, None)
             .expect("the conditional member has a feasible fallback path");
         objects.attach_child_for_import_fallback(
             parent.clone(),

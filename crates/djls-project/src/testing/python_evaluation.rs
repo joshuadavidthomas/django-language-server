@@ -1,3 +1,9 @@
+//! Owned test projections of private Python evaluation state.
+//!
+//! These views keep cross-module assertions stable without exposing production internals. They may
+//! omit branch constraints, allocation identities, and other evaluator-only details; they are not
+//! production domain types or necessarily serialized snapshots.
+
 use std::io::ErrorKind;
 
 use camino::Utf8PathBuf;
@@ -8,7 +14,7 @@ use djls_source::Origin;
 use crate::db::Db;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
-use crate::python::PythonImportError;
+use crate::python::PythonImportNameError;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSourceModule;
@@ -126,7 +132,7 @@ pub struct PythonUnknownView {
 pub enum PythonUnknownCauseView {
     UnsupportedExpression,
     UnsupportedMutation,
-    InvalidImport(PythonImportErrorView),
+    InvalidImport(PythonImportNameErrorView),
     ImportNotFound(PythonModuleName),
     MissingImportMember {
         module: PythonModuleName,
@@ -150,7 +156,7 @@ pub struct PythonFileReadErrorView {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PythonImportErrorView {
+pub enum PythonImportNameErrorView {
     InvalidModuleName(InvalidModuleName),
     EmptyAbsoluteImport,
     TooManyDots,
@@ -166,7 +172,7 @@ pub enum PythonImportOutcomeView {
     },
     InvalidImport {
         origin: Origin,
-        reason: PythonImportErrorView,
+        reason: PythonImportNameErrorView,
     },
     NotFound {
         origin: Origin,
@@ -236,11 +242,11 @@ pub fn python_module_evaluation_for_module(
     project: Project,
     module: PythonSourceModule,
 ) -> PythonModuleEvaluationView {
-    let values = evaluation::python_module_values(db, project, module.clone()).clone();
-    let dependencies = evaluation::python_module_dependencies(db, project, module).clone();
-    let (bindings, namespace_unknowns, syntax_errors, mutations, read_error) = match values {
-        Ok(values) => (
-            values
+    let facts = evaluation::python_module_facts(db, project, module.clone()).clone();
+    let import_trace = evaluation::python_import_trace(db, project, module).clone();
+    let (bindings, namespace_unknowns, syntax_errors, mutations, read_error) = match facts {
+        Ok(facts) => (
+            facts
                 .bindings
                 .into_iter()
                 .map(|(name, binding)| PythonBindingView {
@@ -248,7 +254,7 @@ pub fn python_module_evaluation_for_module(
                     alternatives: binding_alternatives_view(&binding),
                 })
                 .collect(),
-            values
+            facts
                 .namespace_remainder
                 .map_or_else(Vec::new, |remainder| {
                     remainder
@@ -257,8 +263,8 @@ pub fn python_module_evaluation_for_module(
                         .map(|cause| unknown_view(cause.unknown))
                         .collect()
                 }),
-            values.syntax_errors,
-            values
+            facts.syntax_errors,
+            facts
                 .mutations
                 .into_iter()
                 .map(|mutation| PythonMutationView {
@@ -289,8 +295,8 @@ pub fn python_module_evaluation_for_module(
         syntax_errors,
         mutations,
         read_error,
-        dependency_files: dependencies.files().collect(),
-        imports: dependencies
+        dependency_files: import_trace.files().collect(),
+        imports: import_trace
             .imports()
             .cloned()
             .map(import_outcome_view)
@@ -360,13 +366,13 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
                 dict.mapping()
                     .projection()
                     .map(|item| match item {
-                        evaluation::MappingProjection::Entry { key, value } => {
+                        evaluation::MappingLogItem::Entry { key, value } => {
                             PythonDictItemView::Entry {
                                 key: value_view(key.clone()),
                                 value: value_view(value.clone()),
                             }
                         }
-                        evaluation::MappingProjection::UnknownUnpack(unknown) => {
+                        evaluation::MappingLogItem::UnknownUnpack(unknown) => {
                             PythonDictItemView::UnknownUnpack(unknown_view(unknown.clone()))
                         }
                     })
@@ -460,13 +466,15 @@ fn file_read_error_view(error: &FileReadError) -> PythonFileReadErrorView {
     }
 }
 
-fn import_error_view(error: PythonImportError) -> PythonImportErrorView {
+fn import_error_view(error: PythonImportNameError) -> PythonImportNameErrorView {
     match error {
-        PythonImportError::InvalidModuleName(error) => {
-            PythonImportErrorView::InvalidModuleName(error)
+        PythonImportNameError::InvalidModuleName(error) => {
+            PythonImportNameErrorView::InvalidModuleName(error)
         }
-        PythonImportError::EmptyAbsoluteImport => PythonImportErrorView::EmptyAbsoluteImport,
-        PythonImportError::TooManyDots => PythonImportErrorView::TooManyDots,
+        PythonImportNameError::EmptyAbsoluteImport => {
+            PythonImportNameErrorView::EmptyAbsoluteImport
+        }
+        PythonImportNameError::TooManyDots => PythonImportNameErrorView::TooManyDots,
     }
 }
 

@@ -23,16 +23,16 @@ use crate::python::PythonModuleName;
 use crate::python::PythonPath;
 use crate::python::PythonPathIntrinsic;
 use crate::python::PythonSyntaxError;
-use crate::python::module::PythonImportError;
+use crate::python::module::PythonImportNameError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PythonValueEvidence {
+struct ValueEvidence {
     origin: Origin,
     constraints: BranchConstraints,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PythonScalar<'a> {
+enum Scalar<'a> {
     String(&'a str),
     Bool(bool),
 }
@@ -42,21 +42,21 @@ enum PythonScalar<'a> {
 /// Construction stays behind [`PythonValue::known_scalar`], which returns no
 /// projection when an internally malformed scalar has no evidence.
 pub(crate) struct PythonKnownScalar<'a> {
-    scalar: PythonScalar<'a>,
-    first_evidence: &'a PythonValueEvidence,
-    additional_evidence: &'a [PythonValueEvidence],
+    scalar: Scalar<'a>,
+    first_evidence: &'a ValueEvidence,
+    additional_evidence: &'a [ValueEvidence],
 }
 
 impl<'a> PythonKnownScalar<'a> {
     pub(crate) fn string_value(&self) -> Option<&'a str> {
-        let PythonScalar::String(value) = self.scalar else {
+        let Scalar::String(value) = self.scalar else {
             return None;
         };
         Some(value)
     }
 
     pub(crate) fn bool_value(&self) -> Option<bool> {
-        let PythonScalar::Bool(value) = self.scalar else {
+        let Scalar::Bool(value) = self.scalar else {
             return None;
         };
         Some(value)
@@ -84,9 +84,9 @@ impl<'a> PythonKnownScalar<'a> {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct PythonValueEvidenceSet(Vec<PythonValueEvidence>);
+struct ValueEvidenceSet(Vec<ValueEvidence>);
 
-impl StructuralOrd for PythonValueEvidenceSet {
+impl StructuralOrd for ValueEvidenceSet {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         for (left, right) in self.0.iter().zip(&other.0) {
             let ordering = left.structural_cmp(right);
@@ -98,9 +98,9 @@ impl StructuralOrd for PythonValueEvidenceSet {
     }
 }
 
-impl PythonValueEvidenceSet {
+impl ValueEvidenceSet {
     fn one(origin: Origin) -> Self {
-        Self(vec![PythonValueEvidence {
+        Self(vec![ValueEvidence {
             origin,
             constraints: BranchConstraints::unconstrained(),
         }])
@@ -108,19 +108,19 @@ impl PythonValueEvidenceSet {
 
     fn from_origins(origins: impl IntoIterator<Item = Origin>) -> Self {
         let mut evidence = Self::default();
-        evidence.extend(origins.into_iter().map(|origin| PythonValueEvidence {
+        evidence.extend(origins.into_iter().map(|origin| ValueEvidence {
             origin,
             constraints: BranchConstraints::unconstrained(),
         }));
         evidence
     }
 
-    fn insert(&mut self, evidence: PythonValueEvidence) {
+    fn insert(&mut self, evidence: ValueEvidence) {
         self.0.push(evidence);
         self.normalize();
     }
 
-    fn extend(&mut self, evidence: impl IntoIterator<Item = PythonValueEvidence>) {
+    fn extend(&mut self, evidence: impl IntoIterator<Item = ValueEvidence>) {
         self.0.extend(evidence);
         self.normalize();
     }
@@ -141,14 +141,14 @@ impl PythonValueEvidenceSet {
 
     fn rebase(&mut self, origin: Origin) {
         self.0.clear();
-        self.0.push(PythonValueEvidence {
+        self.0.push(ValueEvidence {
             origin,
             constraints: BranchConstraints::unconstrained(),
         });
     }
 
     fn record(&mut self, origin: Origin) {
-        self.insert(PythonValueEvidence {
+        self.insert(ValueEvidence {
             origin,
             constraints: BranchConstraints::unconstrained(),
         });
@@ -161,8 +161,8 @@ impl PythonValueEvidenceSet {
     }
 
     fn normalize(&mut self) {
-        self.0.sort_by(PythonValueEvidence::structural_cmp);
-        let mut normalized: Vec<PythonValueEvidence> = Vec::with_capacity(self.0.len());
+        self.0.sort_by(ValueEvidence::structural_cmp);
+        let mut normalized: Vec<ValueEvidence> = Vec::with_capacity(self.0.len());
         for evidence in mem::take(&mut self.0) {
             if let Some(existing) = normalized
                 .iter_mut()
@@ -177,7 +177,7 @@ impl PythonValueEvidenceSet {
     }
 }
 
-impl StructuralOrd for PythonValueEvidence {
+impl StructuralOrd for ValueEvidence {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.origin
             .structural_cmp(&other.origin)
@@ -188,7 +188,7 @@ impl StructuralOrd for PythonValueEvidence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonValue {
     pub(in crate::python::evaluation) kind: PythonValueKind,
-    evidence: PythonValueEvidenceSet,
+    evidence: ValueEvidenceSet,
 }
 
 impl StructuralOrd for PythonValue {
@@ -205,7 +205,7 @@ impl PythonValue {
         origins: impl IntoIterator<Item = Origin>,
     ) -> Self {
         let unknown = PythonUnknown::new(cause, origins);
-        let evidence = PythonValueEvidenceSet::from_origins(unknown.origins());
+        let evidence = ValueEvidenceSet::from_origins(unknown.origins());
         Self {
             kind: PythonValueKind::Unknown(unknown),
             evidence,
@@ -239,14 +239,14 @@ impl PythonValue {
     pub(super) fn list(items: Vec<PythonSequenceItem>, origin: Origin) -> Self {
         Self {
             kind: PythonValueKind::List(PythonList::new(items, origin)),
-            evidence: PythonValueEvidenceSet::one(origin),
+            evidence: ValueEvidenceSet::one(origin),
         }
     }
 
     pub(super) fn tuple(items: Vec<PythonSequenceItem>, origin: Origin) -> Self {
         Self {
             kind: PythonValueKind::Tuple(PythonTuple::new(items)),
-            evidence: PythonValueEvidenceSet::one(origin),
+            evidence: ValueEvidenceSet::one(origin),
         }
     }
 
@@ -255,14 +255,14 @@ impl PythonValue {
     pub(super) fn module(id: PythonModule, origin: Origin) -> Self {
         Self {
             kind: PythonValueKind::Module(id),
-            evidence: PythonValueEvidenceSet::one(origin),
+            evidence: ValueEvidenceSet::one(origin),
         }
     }
 
     pub(super) fn empty_dict(origin: Origin) -> Self {
         Self {
             kind: PythonValueKind::Dict(PythonDict::empty(origin)),
-            evidence: PythonValueEvidenceSet::one(origin),
+            evidence: ValueEvidenceSet::one(origin),
         }
     }
 
@@ -271,7 +271,7 @@ impl PythonValue {
         dict.append_entry(key, value);
         Self {
             kind: PythonValueKind::Dict(dict),
-            evidence: PythonValueEvidenceSet::one(origin),
+            evidence: ValueEvidenceSet::one(origin),
         }
     }
 
@@ -285,7 +285,7 @@ impl PythonValue {
         ));
         Self {
             kind,
-            evidence: PythonValueEvidenceSet::one(origin),
+            evidence: ValueEvidenceSet::one(origin),
         }
     }
 
@@ -293,7 +293,7 @@ impl PythonValue {
     fn known(kind: PythonValueKind, origin: Origin) -> Self {
         Self {
             kind,
-            evidence: PythonValueEvidenceSet::one(origin),
+            evidence: ValueEvidenceSet::one(origin),
         }
     }
 
@@ -303,8 +303,8 @@ impl PythonValue {
 
     pub(crate) fn known_scalar(&self) -> Option<PythonKnownScalar<'_>> {
         let scalar = match &self.kind {
-            PythonValueKind::Str(value) => PythonScalar::String(value),
-            PythonValueKind::Bool(value) => PythonScalar::Bool(*value),
+            PythonValueKind::Str(value) => Scalar::String(value),
+            PythonValueKind::Bool(value) => Scalar::Bool(*value),
             PythonValueKind::Path(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
@@ -386,33 +386,31 @@ impl PythonValue {
     /// modules, exact `pathlib.Path` values, and path intrinsics are definitely
     /// not iterable. Unknown and `UnsupportedLiteral` values are indeterminate
     /// because their runtime iterability cannot be decided here.
-    pub(super) fn iterable_knowledge(&self) -> PythonIterableKnowledge<'_> {
+    pub(super) fn iterability(&self) -> Iterability<'_> {
         match &self.kind {
             PythonValueKind::List(list) => {
-                PythonIterableKnowledge::Known(PythonIterable::Sequence(PythonSequence::List(list)))
+                Iterability::Known(Iterable::Sequence(PythonSequence::List(list)))
             }
-            PythonValueKind::Tuple(tuple) => PythonIterableKnowledge::Known(
-                PythonIterable::Sequence(PythonSequence::Tuple(tuple)),
-            ),
-            PythonValueKind::Str(text) => PythonIterableKnowledge::Known(PythonIterable::Sequence(
-                PythonSequence::String(text),
-            )),
+            PythonValueKind::Tuple(tuple) => {
+                Iterability::Known(Iterable::Sequence(PythonSequence::Tuple(tuple)))
+            }
+            PythonValueKind::Str(text) => {
+                Iterability::Known(Iterable::Sequence(PythonSequence::String(text)))
+            }
             PythonValueKind::Dict(dict) => {
-                PythonIterableKnowledge::Known(PythonIterable::MappingKeys(dict.mapping()))
+                Iterability::Known(Iterable::MappingKeys(dict.mapping()))
             }
             // Module objects and path intrinsics are nominal values, never Python
             // sequences, mappings, or iterables.
             PythonValueKind::Bool(_) | PythonValueKind::Path(_) | PythonValueKind::Module(_) => {
-                PythonIterableKnowledge::NotIterable
+                Iterability::NotIterable
             }
             // `UnsupportedLiteral` erases the concrete closed literal kind, which may
             // or may not be iterable.
             PythonValueKind::UnsupportedLiteral => {
-                PythonIterableKnowledge::Indeterminate(self.imprecise_iteration_unknown())
+                Iterability::Indeterminate(self.imprecise_iteration_unknown())
             }
-            PythonValueKind::Unknown(unknown) => {
-                PythonIterableKnowledge::Indeterminate(unknown.clone())
-            }
+            PythonValueKind::Unknown(unknown) => Iterability::Indeterminate(unknown.clone()),
         }
     }
 
@@ -887,15 +885,15 @@ impl PythonValueKind {
 /// The classification of a value's iterability: what an iteration consumer can
 /// know about iterating it. It is a data-bearing projection over the closed
 /// value model, not a stored capability tag.
-pub(super) enum PythonIterableKnowledge<'a> {
-    Known(PythonIterable<'a>),
+pub(super) enum Iterability<'a> {
+    Known(Iterable<'a>),
     Indeterminate(PythonUnknown),
     NotIterable,
 }
 
 /// A definitely-iterable value: a sequence (list, tuple, or string) or a
 /// mapping iterated over its keys.
-pub(super) enum PythonIterable<'a> {
+pub(super) enum Iterable<'a> {
     Sequence(PythonSequence<'a>),
     MappingKeys(PythonMapping<'a>),
 }
@@ -951,7 +949,7 @@ impl PythonUnknown {
 pub(crate) enum PythonUnknownCause {
     UnsupportedExpression,
     UnsupportedMutation,
-    InvalidImport(PythonImportError),
+    InvalidImport(PythonImportNameError),
     ImportNotFound(PythonModuleName),
     MissingImportMember {
         module: PythonModuleName,
@@ -1103,10 +1101,10 @@ mod tests {
     use salsa::plumbing::Id;
 
     use super::BranchConstraints;
+    use super::Iterability;
+    use super::Iterable;
     use super::Origin;
     use super::PythonDict;
-    use super::PythonIterable;
-    use super::PythonIterableKnowledge;
     use super::PythonList;
     use super::PythonSequence;
     use super::PythonSequenceItem;
@@ -1114,11 +1112,11 @@ mod tests {
     use super::PythonUnknown;
     use super::PythonUnknownCause;
     use super::PythonValue;
-    use super::PythonValueEvidence;
-    use super::PythonValueEvidenceSet;
     use super::PythonValueKind;
     use super::ReachableAllocationSites;
     use super::StructuralOrd;
+    use super::ValueEvidence;
+    use super::ValueEvidenceSet;
     use crate::python::InvalidModuleName;
     use crate::python::PythonModule;
     use crate::python::PythonModuleName;
@@ -1126,7 +1124,7 @@ mod tests {
     use crate::python::PythonPathIntrinsic;
     use crate::python::PythonSyntaxError;
     use crate::python::PythonSyntaxErrorClass;
-    use crate::python::module::PythonImportError;
+    use crate::python::module::PythonImportNameError;
 
     fn origin(offset: usize) -> Origin {
         let file = File::from_id(Id::from_bits(1));
@@ -1260,7 +1258,7 @@ mod tests {
             PythonUnknownCause::AlternativeLimitExceeded,
             PythonUnknownCause::Cycle,
             PythonUnknownCause::ImportNotFound(module("a")),
-            PythonUnknownCause::InvalidImport(PythonImportError::EmptyAbsoluteImport),
+            PythonUnknownCause::InvalidImport(PythonImportNameError::EmptyAbsoluteImport),
             PythonUnknownCause::MissingImportMember {
                 module: module("a"),
                 member: "member".to_string(),
@@ -1292,9 +1290,9 @@ mod tests {
         }
 
         let import_errors = [
-            PythonImportError::EmptyAbsoluteImport,
-            PythonImportError::InvalidModuleName(InvalidModuleName::Empty),
-            PythonImportError::TooManyDots,
+            PythonImportNameError::EmptyAbsoluteImport,
+            PythonImportNameError::InvalidModuleName(InvalidModuleName::Empty),
+            PythonImportNameError::TooManyDots,
         ];
         for (index, left) in import_errors.iter().enumerate() {
             for (other_index, right) in import_errors.iter().enumerate() {
@@ -1327,10 +1325,10 @@ mod tests {
         let module = |name| PythonModuleName::parse(name).expect("valid module name");
         let payload_pairs = [
             (
-                PythonUnknownCause::InvalidImport(PythonImportError::InvalidModuleName(
+                PythonUnknownCause::InvalidImport(PythonImportNameError::InvalidModuleName(
                     InvalidModuleName::InvalidSegment("a".to_string()),
                 )),
-                PythonUnknownCause::InvalidImport(PythonImportError::InvalidModuleName(
+                PythonUnknownCause::InvalidImport(PythonImportNameError::InvalidModuleName(
                     InvalidModuleName::InvalidSegment("b".to_string()),
                 )),
             ),
@@ -1339,8 +1337,8 @@ mod tests {
                 PythonUnknownCause::ImportNotFound(module("b")),
             ),
             (
-                PythonUnknownCause::InvalidImport(PythonImportError::EmptyAbsoluteImport),
-                PythonUnknownCause::InvalidImport(PythonImportError::TooManyDots),
+                PythonUnknownCause::InvalidImport(PythonImportNameError::EmptyAbsoluteImport),
+                PythonUnknownCause::InvalidImport(PythonImportNameError::TooManyDots),
             ),
             (
                 PythonUnknownCause::MissingImportMember {
@@ -1441,15 +1439,15 @@ mod tests {
         first_constraints.select(join, 0);
         let mut second_constraints = BranchConstraints::unconstrained();
         second_constraints.select(join, 1);
-        let first = PythonValueEvidenceSet(vec![PythonValueEvidence {
+        let first = ValueEvidenceSet(vec![ValueEvidence {
             origin: origin(10),
             constraints: first_constraints,
         }]);
-        let different_constraints = PythonValueEvidenceSet(vec![PythonValueEvidence {
+        let different_constraints = ValueEvidenceSet(vec![ValueEvidence {
             origin: origin(10),
             constraints: second_constraints,
         }]);
-        let different_origin = PythonValueEvidenceSet(vec![PythonValueEvidence {
+        let different_origin = ValueEvidenceSet(vec![ValueEvidence {
             origin: origin(11),
             constraints: BranchConstraints::unconstrained(),
         }]);
@@ -1459,9 +1457,9 @@ mod tests {
         }
 
         let evidence = |entries: [(Origin, BranchConstraints); 2]| {
-            let mut evidence = PythonValueEvidenceSet::default();
+            let mut evidence = ValueEvidenceSet::default();
             for (origin, constraints) in entries {
-                evidence.insert(PythonValueEvidence {
+                evidence.insert(ValueEvidence {
                     origin,
                     constraints,
                 });
@@ -1521,13 +1519,13 @@ mod tests {
     fn scalar_without_evidence_has_no_known_projection() {
         let string = PythonValue {
             kind: PythonValueKind::Str("malformed".to_string()),
-            evidence: PythonValueEvidenceSet::default(),
+            evidence: ValueEvidenceSet::default(),
         };
         assert!(string.known_scalar().is_none());
 
         let boolean = PythonValue {
             kind: PythonValueKind::Bool(true),
-            evidence: PythonValueEvidenceSet::default(),
+            evidence: ValueEvidenceSet::default(),
         };
         assert!(boolean.known_scalar().is_none());
     }
@@ -1738,12 +1736,12 @@ mod tests {
         let mut second = BranchConstraints::unconstrained();
         second.select(join, 1);
 
-        let mut evidence = PythonValueEvidenceSet::default();
-        evidence.insert(PythonValueEvidence {
+        let mut evidence = ValueEvidenceSet::default();
+        evidence.insert(ValueEvidence {
             origin: evidence_origin,
             constraints: first.clone(),
         });
-        evidence.insert(PythonValueEvidence {
+        evidence.insert(ValueEvidence {
             origin: evidence_origin,
             constraints: second.clone(),
         });
@@ -1855,41 +1853,40 @@ mod tests {
     #[test]
     fn iterable_classification_covers_every_value_kind() {
         assert!(matches!(
-            list_value(origin(1), Vec::new()).iterable_knowledge(),
-            PythonIterableKnowledge::Known(PythonIterable::Sequence(PythonSequence::List(_)))
+            list_value(origin(1), Vec::new()).iterability(),
+            Iterability::Known(Iterable::Sequence(PythonSequence::List(_)))
         ));
         assert!(matches!(
-            tuple_value(origin(1), Vec::new()).iterable_knowledge(),
-            PythonIterableKnowledge::Known(PythonIterable::Sequence(PythonSequence::Tuple(_)))
+            tuple_value(origin(1), Vec::new()).iterability(),
+            Iterability::Known(Iterable::Sequence(PythonSequence::Tuple(_)))
         ));
         assert!(matches!(
-            str_value(origin(1), "x").iterable_knowledge(),
-            PythonIterableKnowledge::Known(PythonIterable::Sequence(PythonSequence::String(_)))
+            str_value(origin(1), "x").iterability(),
+            Iterability::Known(Iterable::Sequence(PythonSequence::String(_)))
         ));
         assert!(matches!(
-            dict_value(origin(1)).iterable_knowledge(),
-            PythonIterableKnowledge::Known(PythonIterable::MappingKeys(_))
+            dict_value(origin(1)).iterability(),
+            Iterability::Known(Iterable::MappingKeys(_))
         ));
         assert!(matches!(
-            bool_value(origin(1), true).iterable_knowledge(),
-            PythonIterableKnowledge::NotIterable
+            bool_value(origin(1), true).iterability(),
+            Iterability::NotIterable
         ));
         assert!(matches!(
-            path_value(origin(1), "p").iterable_knowledge(),
-            PythonIterableKnowledge::NotIterable
+            path_value(origin(1), "p").iterability(),
+            Iterability::NotIterable
         ));
         assert!(matches!(
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType)
-                .iterable_knowledge(),
-            PythonIterableKnowledge::NotIterable
+            path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType).iterability(),
+            Iterability::NotIterable
         ));
         assert!(matches!(
-            unsupported_literal_value(origin(1)).iterable_knowledge(),
-            PythonIterableKnowledge::Indeterminate(_)
+            unsupported_literal_value(origin(1)).iterability(),
+            Iterability::Indeterminate(_)
         ));
         assert!(matches!(
-            unknown_value(origin(1)).iterable_knowledge(),
-            PythonIterableKnowledge::Indeterminate(_)
+            unknown_value(origin(1)).iterability(),
+            Iterability::Indeterminate(_)
         ));
     }
 
@@ -1899,10 +1896,7 @@ mod tests {
         assert!(module.sequence().is_none(), "a module is not a sequence");
         assert!(module.mapping().is_none(), "a module is not a mapping");
         assert!(
-            matches!(
-                module.iterable_knowledge(),
-                PythonIterableKnowledge::NotIterable
-            ),
+            matches!(module.iterability(), Iterability::NotIterable),
             "a module object is a nominal value and never iterable",
         );
         assert!(module.known_scalar().is_none(), "a module is not a scalar");

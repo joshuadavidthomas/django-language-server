@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use djls_project::ProjectFactsPhase;
-use djls_project::TemplateEnvironment;
+use djls_project::ScopedTemplateLibraries;
 use djls_project::template_directories;
-use djls_project::template_libraries;
+use djls_project::template_library_catalog;
 use djls_project::template_library_definition_facts;
 use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
@@ -67,14 +67,14 @@ impl PrimedTemplateLibraries {
 #[must_use]
 pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemplateLibraries> {
     let project = db.project()?;
-    let libraries = template_libraries(db, project);
-    let environment = TemplateEnvironment::from_project_inventory(libraries);
+    let libraries = template_library_catalog(db, project);
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
     let mut reprime_files = Vec::new();
     let mut library_count = 0;
 
-    for library in environment.resolved_libraries() {
+    for library in scoped_libraries.resolved_libraries() {
         library_count += 1;
-        let key = library.key();
+        let key = library.id();
         let _ = template_library_definition_facts(db, key);
         let _ = library_tag_specs(db, project, key);
         let _ = library_filter_specs(db, key);
@@ -203,10 +203,10 @@ impl WarmCachePhase {
                 Some(template_directories(db, project).known_roots().count())
             }
             Self::IndexTemplateLibraries => {
-                let libraries = template_libraries(db, project);
+                let libraries = template_library_catalog(db, project);
                 Some(
-                    TemplateEnvironment::from_project_inventory(libraries)
-                        .installed_library_count(),
+                    ScopedTemplateLibraries::from_project_inventory(libraries)
+                        .resolved_library_count(),
                 )
             }
             Self::IndexTemplates => Some(template_resolution(db, project).origins(db).count()),

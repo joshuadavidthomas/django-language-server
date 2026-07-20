@@ -43,11 +43,11 @@ use serde_json::to_value;
 #[derive(Deserialize)]
 struct DjangoFactsGolden {
     template_dirs: Vec<String>,
-    template_libraries: GoldenTemplateLibraries,
+    template_library_catalog: GoldenTemplateLibraryCatalog,
 }
 
 #[derive(Deserialize)]
-struct GoldenTemplateLibraries {
+struct GoldenTemplateLibraryCatalog {
     builtins: Vec<String>,
     libraries: BTreeMap<String, String>,
     symbols: Vec<GoldenTemplateSymbol>,
@@ -66,8 +66,8 @@ fn library_name(name: &str) -> LibraryName {
     LibraryName::parse(name).unwrap()
 }
 
-fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
-    TemplateEnvironment::from_project_inventory(libraries)
+fn active_builtin_modules(libraries: &TemplateLibraryCatalog) -> Vec<String> {
+    ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .filter(|&library| library.load_name().is_none())
@@ -356,11 +356,8 @@ fn settings_consumers_share_one_core_evaluation_without_mutation() {
     let events = event_log.take();
 
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        1
-    );
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
     assert_eq!(execution_count(&db, &events, "django_settings"), 1);
     assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
 }
@@ -395,11 +392,8 @@ fn comment_only_leaf_edit_backdates_before_evaluation_root_and_sibling() {
 
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 0);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        0
-    );
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
     assert_eq!(execution_count(&db, &events, "django_settings"), 0);
     assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
 }
@@ -424,12 +418,9 @@ fn value_change_backdates_dependency_projection() {
     let events = event_log.take();
 
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
     assert_eq!(execution_count(&db, &events, "django_settings"), 1);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        1
-    );
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
     assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
 }
 
@@ -459,12 +450,9 @@ fn dependency_change_backdates_value_projection() {
     // modules evaluate and all three files are dependency sources.
     assert_eq!(sources.count(), 3);
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 3);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        1
-    );
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
     assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
     assert_eq!(execution_count(&db, &events, "django_settings"), 0);
 }
 
@@ -489,12 +477,9 @@ fn origin_shift_changes_values_but_backdates_dependency_projection() {
 
     assert_ne!(after, before);
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
     assert_eq!(execution_count(&db, &events, "django_settings"), 1);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        1
-    );
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
     assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
 }
 
@@ -523,11 +508,8 @@ fn unreachable_import_edit_keeps_root_paths_cold() {
     let events = event_log.take();
 
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 0);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        0
-    );
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
     assert_eq!(execution_count(&db, &events, "django_settings"), 0);
     assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
 }
@@ -559,11 +541,8 @@ fn direct_settings_cycle_is_bounded_and_retains_local_values() {
     assert_eq!(sources.count(), 2);
     let evaluations = execution_count(&db, &events, "evaluate_python_module");
     assert!((1..=12).contains(&evaluations));
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        1
-    );
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
 }
 
 #[test]
@@ -700,11 +679,8 @@ fn two_file_settings_cycle_is_bounded_and_retains_local_values() {
     assert_eq!(sources.count(), 3);
     let evaluations = execution_count(&db, &events, "evaluate_python_module");
     assert!((2..=24).contains(&evaluations));
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        1
-    );
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
 }
 
 #[test]
@@ -743,14 +719,11 @@ fn child_topology_change_backdates_values_projection() {
     // both recompute against the new child topology.
     assert_eq!(after, before);
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 3);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        1
-    );
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
     assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
-    // `python_module_values` recomputes but produces an equal projection, so it
+    // `python_module_facts` recomputes but produces an equal projection, so it
     // backdates and `django_settings` never re-runs.
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
     assert_eq!(execution_count(&db, &events, "django_settings"), 0);
 }
 
@@ -787,11 +760,8 @@ fn parent_package_init_edit_invalidates_dotted_consumer() {
     // consumer recompute and the changed lexical value flows to settings.
     assert_ne!(after, before);
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        1
-    );
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
     assert_eq!(execution_count(&db, &events, "django_settings"), 1);
 }
 
@@ -830,11 +800,8 @@ fn external_module_body_edit_never_reaches_the_consumer() {
     assert_eq!(after, before);
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 0);
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 0);
-    assert_eq!(
-        execution_count(&db, &events, "python_module_dependencies"),
-        0
-    );
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
     assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
     assert_eq!(execution_count(&db, &events, "django_settings"), 0);
 }
@@ -886,7 +853,7 @@ fn search_path_winner_change_recomputes_module_reads() {
         "root"
     );
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
-    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
     assert_eq!(execution_count(&db, &events, "django_settings"), 1);
 }
 
@@ -1036,11 +1003,11 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
             2
         );
         assert_eq!(
-            execution_count(&db, &transition_events, "python_module_values"),
+            execution_count(&db, &transition_events, "python_module_facts"),
             1
         );
         assert_eq!(
-            execution_count(&db, &transition_events, "python_module_dependencies"),
+            execution_count(&db, &transition_events, "python_import_trace"),
             1
         );
         assert_eq!(
@@ -1175,7 +1142,7 @@ fn project_with_file_system_failure(
 
 fn complete_template_dirs(db: &dyn ProjectDb, project: Project) -> Vec<Utf8PathBuf> {
     let directories = template_directories(db, project);
-    assert!(!directories.configuration_may_omit_roots());
+    assert!(!directories.settings_cases_may_omit_roots());
     directories
         .known_roots()
         .map(Utf8Path::to_path_buf)
@@ -1227,8 +1194,8 @@ fn django_discovery_run_matches_explicit_phase_sequence() {
     let sequenced_revision_before = sequenced_library.revision(&sequenced);
     sequenced.add_file(library_path.as_str(), updated_source);
 
-    let environment = compute_django_environment(&sequenced, sequenced_project);
-    apply_django_environment(&mut sequenced, environment);
+    let scoped_libraries = compute_django_environment(&sequenced, sequenced_project);
+    apply_django_environment(&mut sequenced, scoped_libraries);
     let expected = compute_project_facts(&sequenced, sequenced_project);
     apply_project_facts(&mut sequenced, &expected);
 
@@ -1555,11 +1522,11 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
 
     let settings = to_value(django_settings(&db, project)).unwrap();
     assert_eq!(
-        settings["installed_apps"]["cases"][0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"],
+        settings["installed_apps"]["cases"][0]["dynamic"]["evidence"][0]["issue"]["kind"],
         "unreadable"
     );
     assert_eq!(
-        settings["templates"]["cases"][0]["dynamic"]["templates"]["evidence"][0]["issue"]["kind"],
+        settings["templates"]["cases"][0]["dynamic"]["evidence"][0]["issue"]["kind"],
         "unreadable"
     );
 }
@@ -1705,7 +1672,7 @@ fn template_resolution_earlier_walk_failure_weakens_later_candidate() {
     );
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the earlier walk failure to make resolution inconclusive");
@@ -1733,7 +1700,7 @@ fn template_resolution_retains_candidate_from_partial_walk_as_possible_origin() 
 
     let resolution = template_resolution(&db, project);
     assert_eq!(resolution.origins(&db).count(), 1);
-    let FindTemplateResult::Inconclusive(search) = resolution.resolve(&db, name) else {
+    let TemplateResolutionResult::Inconclusive(search) = resolution.resolve(&db, name) else {
         panic!("expected the partial walk to make its retained candidate uncertain");
     };
 
@@ -1757,7 +1724,8 @@ fn template_resolution_definite_earlier_candidate_wins_before_later_walk_failure
     );
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let FindTemplateResult::Found(origin) = template_resolution(&db, project).resolve(&db, name)
+    let TemplateResolutionResult::Found(origin) =
+        template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the definite earlier candidate to win");
     };
@@ -1777,7 +1745,7 @@ fn template_resolution_no_candidate_with_walk_failure_is_inconclusive() {
     );
     let name = TemplateName::new(&db, "missing.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the failed walk to make a missing result inconclusive");
@@ -1800,7 +1768,7 @@ fn template_resolution_target_path_conversion_failure_is_inconclusive() {
     );
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the target indexing failure to make resolution inconclusive");
@@ -1822,7 +1790,7 @@ fn template_resolution_app_dirs_candidate_walk_failure_is_inconclusive() {
     );
     let name = TemplateName::new(&db, "missing.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the APP_DIRS metadata failure to make resolution inconclusive");
@@ -1854,7 +1822,7 @@ fn template_dirs_keep_different_explicit_backend_alternatives() {
     );
 
     let directories = template_directories(&db, project);
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 
     let origins: Vec<_> = template_resolution(&db, project)
         .origins(&db)
@@ -1871,7 +1839,7 @@ fn template_dirs_keep_different_explicit_backend_alternatives() {
     );
 
     let name = TemplateName::new(&db, "index.html".to_string());
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected alternative backend ordering to precede known roots");
@@ -1895,7 +1863,7 @@ fn unknown_backend_before_known_backend_weakens_known_candidate() {
     );
     let name = TemplateName::new(&db, "index.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected unknown backend ordering to precede the known root");
@@ -1925,7 +1893,7 @@ fn uncertain_backend_dictionary_before_known_backend_keeps_library_identity_alig
 
     assert!(
         matches!(
-            template_environment(&db, project, file).loadable_library_str("custom"),
+            scoped_template_libraries(&db, project, file).loadable_library_str("custom"),
             LoadableLibraryLookup::Inconclusive(candidates)
                 if candidates.iter().any(|library| library.module_name_str() == "custom_tags")
         ),
@@ -1956,10 +1924,10 @@ fn missing_template_backend_excludes_directory_and_library_consumers() {
     assert!(has_case(&settings["templates"], "malformed"));
 
     let directories = template_directories(&db, project);
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
     assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
     assert!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .loadable_library_str("custom")
             .found()
             .is_none()
@@ -1989,10 +1957,10 @@ fn dynamic_template_backend_excludes_directory_and_library_consumers() {
     assert!(has_case(&settings["templates"], "dynamic"));
 
     let directories = template_directories(&db, project);
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
     assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
     assert!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .loadable_library_str("custom")
             .found()
             .is_none()
@@ -2010,7 +1978,7 @@ fn template_dirs_treat_unset_templates_as_exact_absence() {
 
     let directories = template_directories(&db, project);
 
-    assert!(!directories.configuration_may_omit_roots());
+    assert!(!directories.settings_cases_may_omit_roots());
 }
 
 #[test]
@@ -2020,7 +1988,7 @@ fn template_dirs_treat_unresolved_configured_settings_as_unknown() {
 
     let directories = template_directories(&db, project);
 
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 }
 
 #[test]
@@ -2204,7 +2172,7 @@ fn template_dirs_demote_broken_app_config_entry_to_partial() {
 
     let directories = template_directories(&db, project);
 
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 }
 
 #[test]
@@ -2303,7 +2271,7 @@ fn template_dirs_demote_file_module_app_to_partial() {
 
     let directories = template_directories(&db, project);
 
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 }
 
 #[test]
@@ -2320,11 +2288,11 @@ fn template_dirs_demote_unresolved_app_to_partial() {
 
     let directories = template_directories(&db, project);
 
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 }
 
 #[test]
-fn template_libraries_discover_app_templatetags_and_builtins() {
+fn template_library_catalog_discover_app_templatetags_and_builtins() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2355,9 +2323,9 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = TemplateEnvironment::from_project_inventory(libraries)
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("custom library should be discovered");
@@ -2379,7 +2347,7 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
 }
 
 #[test]
-fn template_libraries_cross_product_divergent_installed_apps_with_templates() {
+fn template_library_catalog_cross_product_divergent_installed_apps_with_templates() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2403,7 +2371,7 @@ fn template_libraries_cross_product_divergent_installed_apps_with_templates() {
     );
 
     let LoadableLibraryLookup::Ambiguous(candidates) =
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .loadable_library_str("shared")
     else {
         panic!("divergent app alternatives must retain both library outcomes");
@@ -2439,7 +2407,7 @@ fn unset_templates_is_closed_absence_for_app_libraries() {
     );
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .loadable_library_str("custom"),
         LoadableLibraryLookup::Absent
     );
@@ -2464,23 +2432,23 @@ fn dynamic_installed_apps_keep_guidance_open_without_template_backends() {
             ],
         );
 
-        let libraries = template_libraries(&db, project);
+        let libraries = template_library_catalog(&db, project);
         assert_eq!(
-            TemplateEnvironment::from_project_inventory(libraries)
-                .available_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
-            TemplateSymbolLookup::Inconclusive,
+            ScopedTemplateLibraries::from_project_inventory(libraries)
+                .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
+            AppTemplateSymbolLookup::Inconclusive,
             "dynamic apps with {templates:?} must not produce definitive tag guidance"
         );
         assert_eq!(
-            TemplateEnvironment::from_project_inventory(libraries)
-                .available_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
-            TemplateSymbolLookup::Inconclusive,
+            ScopedTemplateLibraries::from_project_inventory(libraries)
+                .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
+            AppTemplateSymbolLookup::Inconclusive,
             "dynamic apps with {templates:?} must not produce definitive filter guidance"
         );
         assert_eq!(
-            TemplateEnvironment::from_project_inventory(libraries)
+            ScopedTemplateLibraries::from_project_inventory(libraries)
                 .missing_library(&library_name("crispy")),
-            MissingLibraryLookup::Inconclusive,
+            MissingTemplateLibraryLookup::Inconclusive,
             "dynamic apps with {templates:?} must not produce definitive library guidance"
         );
     }
@@ -2517,9 +2485,9 @@ fn template_symbol_lookup_uses_later_definite_available_candidate() {
     );
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
-            .available_app_symbol("shared_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::FoundInApp {
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .available_in_app_symbol("shared_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::FoundInApp {
             app: PythonModuleName::parse("zeta").unwrap(),
             load_name: library_name("zeta"),
         },
@@ -2528,7 +2496,7 @@ fn template_symbol_lookup_uses_later_definite_available_candidate() {
 }
 
 #[test]
-fn template_libraries_discover_package_templatetags() {
+fn template_library_catalog_discover_package_templatetags() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2547,9 +2515,9 @@ fn template_libraries_discover_package_templatetags() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = TemplateEnvironment::from_project_inventory(libraries)
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("package templatetag should be discovered");
@@ -2563,7 +2531,7 @@ fn template_libraries_discover_package_templatetags() {
 }
 
 #[test]
-fn template_libraries_discover_namespace_package_templatetags() {
+fn template_library_catalog_discover_namespace_package_templatetags() {
     let mut db = TestDatabase::new();
     db.add_file("/proj/nsapp/other.py", "");
     db.add_file("/vendor/nsapp/templatetags/__init__.py", "");
@@ -2587,9 +2555,9 @@ fn template_libraries_discover_namespace_package_templatetags() {
         .search_paths(search_paths)
         .install(&mut db);
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = TemplateEnvironment::from_project_inventory(libraries)
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("namespace package templatetag should be discovered");
@@ -2603,7 +2571,7 @@ fn template_libraries_discover_namespace_package_templatetags() {
 }
 
 #[test]
-fn template_libraries_include_empty_registered_modules() {
+fn template_library_catalog_include_empty_registered_modules() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2634,9 +2602,9 @@ fn template_libraries_include_empty_registered_modules() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let empty = TemplateEnvironment::from_project_inventory(libraries)
+    let empty = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("empty")
         .found()
         .unwrap();
@@ -2645,7 +2613,7 @@ fn template_libraries_include_empty_registered_modules() {
 }
 
 #[test]
-fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
+fn template_library_catalog_skip_discovered_helpers_without_demoting_inventory() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2666,15 +2634,15 @@ fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .loadable_library_str("helpers")
             .found()
             .is_none()
     );
-    let orphan = TemplateEnvironment::from_project_inventory(libraries)
+    let orphan = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("orphan")
         .found()
         .expect("symbol-bearing modules are template libraries even without register assignment");
@@ -2687,7 +2655,7 @@ fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
 }
 
 #[test]
-fn template_libraries_preserve_installed_app_discovery_order_across_failures() {
+fn template_library_catalog_preserve_installed_app_discovery_order_across_failures() {
     let settings = "INSTALLED_APPS = ['first', 'second']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n";
     let files = [
         ("/proj/myproject/settings.py", settings),
@@ -2710,7 +2678,7 @@ fn template_libraries_preserve_installed_app_discovery_order_across_failures() {
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/first/templatetags")),
     );
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project)).loadable_library_str("shared"),
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "second.templatetags.shared"
     ));
@@ -2720,7 +2688,7 @@ fn template_libraries_preserve_installed_app_discovery_order_across_failures() {
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/second/templatetags")),
     );
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project)).loadable_library_str("shared"),
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Inconclusive(candidates)
             if candidates.iter().any(|library| {
                 library.module_name_str() == "first.templatetags.shared"
@@ -2729,7 +2697,7 @@ fn template_libraries_preserve_installed_app_discovery_order_across_failures() {
 }
 
 #[test]
-fn template_libraries_preserve_installed_app_order_across_source_analysis_failures() {
+fn template_library_catalog_preserve_installed_app_order_across_source_analysis_failures() {
     let valid_library = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known(): pass\n";
     let backend = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n";
 
@@ -2747,7 +2715,7 @@ fn template_libraries_preserve_installed_app_order_across_source_analysis_failur
         FileSystemFailure::Read(Utf8PathBuf::from("/proj/second/templatetags/shared.py")),
     );
     let LoadableLibraryLookup::Inconclusive(candidates) =
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .loadable_library_str("shared")
     else {
         panic!("the unreadable later candidate should leave the earlier library feasible");
@@ -2771,14 +2739,14 @@ fn template_libraries_preserve_installed_app_order_across_source_analysis_failur
         FileSystemFailure::Read(Utf8PathBuf::from("/proj/second/templatetags/shared.py")),
     );
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project)).loadable_library_str("shared"),
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "first.templatetags.shared"
     ));
 }
 
 #[test]
-fn template_libraries_recovered_positive_candidate_remains_resolved() {
+fn template_library_catalog_recovered_positive_candidate_remains_resolved() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2801,9 +2769,9 @@ fn template_libraries_recovered_positive_candidate_remains_resolved() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     let LoadableLibraryLookup::Found(library) =
-        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("shared")
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("shared")
     else {
         panic!("the recovered later candidate should remain a known library");
     };
@@ -2815,14 +2783,14 @@ fn template_libraries_recovered_positive_candidate_remains_resolved() {
             .any(|symbol| symbol.name() == "known")
     );
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("possibly_hidden", TemplateSymbolKind::Filter),
-        TemplateSymbolLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("possibly_hidden", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Inconclusive
     );
 }
 
 #[test]
-fn template_libraries_retain_recovered_symbols_with_source_uncertainty() {
+fn template_library_catalog_retain_recovered_symbols_with_source_uncertainty() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2841,10 +2809,10 @@ fn template_libraries_retain_recovered_symbols_with_source_uncertainty() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     let LoadableLibraryLookup::Found(library) =
-        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("broken")
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("broken")
     else {
         panic!("the recovered module still identifies the same loadable library");
     };
@@ -2855,14 +2823,14 @@ fn template_libraries_retain_recovered_symbols_with_source_uncertainty() {
             .any(|symbol| symbol.name() == "known")
     );
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("possibly_hidden", TemplateSymbolKind::Filter),
-        TemplateSymbolLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("possibly_hidden", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Inconclusive
     );
 }
 
 #[test]
-fn template_libraries_accept_supported_python_newer_than_ruff_default_target() {
+fn template_library_catalog_accept_supported_python_newer_than_ruff_default_target() {
     let mut db = TestDatabase::new();
     let path = Utf8Path::new("/proj/blog/templatetags/modern.py");
     let project = project_with_settings(
@@ -2882,11 +2850,11 @@ fn template_libraries_accept_supported_python_newer_than_ruff_default_target() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     let errors = python_syntax_errors(&db, db.file(path)).expect("file should be Python");
 
     assert!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .loadable_library_str("modern")
             .found()
             .is_some()
@@ -2921,11 +2889,11 @@ fn invalid_available_identifier_makes_missing_library_inconclusive() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .missing_library(&library_name("missing")),
-        MissingLibraryLookup::Inconclusive
+        MissingTemplateLibraryLookup::Inconclusive
     ));
 }
 
@@ -2964,16 +2932,16 @@ fn failed_available_candidate_walk_makes_missing_library_inconclusive() {
     );
     db.set_project(project);
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .missing_library(&library_name("missing")),
-        MissingLibraryLookup::Inconclusive
+        MissingTemplateLibraryLookup::Inconclusive
     ));
 }
 
 #[test]
-fn template_libraries_collect_available_uninstalled_templatetags() {
+fn template_library_catalog_collects_templatetags_available_outside_installed_apps() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3010,13 +2978,13 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let MissingLibraryLookup::FoundInApps(apps) =
-        TemplateEnvironment::from_project_inventory(libraries)
+    let MissingTemplateLibraryLookup::FoundInApps(apps) =
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .missing_library(&library_name("crispy"))
     else {
-        panic!("crispy should be reported as an available-app library candidate");
+        panic!("crispy should be reported as an available-in-app library candidate");
     };
     assert_eq!(apps.primary().as_str(), "crispy");
     assert_eq!(
@@ -3027,34 +2995,34 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
         vec!["crispy"]
     );
 
-    let TemplateSymbolLookup::FoundInApp { app, load_name } =
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("crispy_tag", TemplateSymbolKind::Tag)
+    let AppTemplateSymbolLookup::FoundInApp { app, load_name } =
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag)
     else {
-        panic!("crispy_tag should be reported as an available-app tag candidate");
+        panic!("crispy_tag should be reported as an available-in-app tag candidate");
     };
     assert_eq!(app.as_str(), "crispy");
     assert_eq!(load_name.as_str(), "crispy");
 
-    let TemplateSymbolLookup::FoundInApp { app, load_name } =
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("crispy_filter", TemplateSymbolKind::Filter)
+    let AppTemplateSymbolLookup::FoundInApp { app, load_name } =
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter)
     else {
-        panic!("crispy_filter should be reported as an available-app filter candidate");
+        panic!("crispy_filter should be reported as an available-in-app filter candidate");
     };
     assert_eq!(app.as_str(), "crispy");
     assert_eq!(load_name.as_str(), "crispy");
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .missing_library(&library_name("myapp_tags")),
-        MissingLibraryLookup::Inconclusive,
+        MissingTemplateLibraryLookup::Inconclusive,
         "installed app libraries must be subtracted from available candidates"
     );
 }
 
 #[test]
-fn template_libraries_available_candidates_rerun_after_search_root_revision_bump() {
+fn template_library_catalog_available_candidates_rerun_after_search_root_revision_bump() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3086,9 +3054,9 @@ fn template_libraries_available_candidates_rerun_after_search_root_revision_bump
     );
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .missing_library(&library_name("crispy")),
-        MissingLibraryLookup::Absent
+        MissingTemplateLibraryLookup::Absent
     );
 
     db.add_file("/proj/crispy/__init__.py", "");
@@ -3102,12 +3070,12 @@ fn template_libraries_available_candidates_rerun_after_search_root_revision_bump
         .expect_root(&db, Utf8Path::new("/proj/crispy/templatetags/crispy.py"));
     db.bump_file_root_revision(root);
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .missing_library(&library_name("crispy")),
-        MissingLibraryLookup::FoundInApps(_)
+        MissingTemplateLibraryLookup::FoundInApps(_)
     ));
 }
 
@@ -3150,9 +3118,9 @@ fn django_discovery_updates_available_template_library_symbols() {
     );
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
-            .available_app_symbol("new_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::Absent
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .available_in_app_symbol("new_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Absent
     );
 
     db.add_file(
@@ -3162,14 +3130,14 @@ fn django_discovery_updates_available_template_library_symbols() {
     apply_project_discovery(&mut db);
 
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
-            .available_app_symbol("new_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::FoundInApp { .. }
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .available_in_app_symbol("new_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::FoundInApp { .. }
     ));
 }
 
 #[test]
-fn template_libraries_demote_unresolved_app_to_partial() {
+fn template_library_catalog_demote_unresolved_app_to_partial() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3180,16 +3148,16 @@ fn template_libraries_demote_unresolved_app_to_partial() {
         )],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .missing_library(&library_name("missing")),
-        MissingLibraryLookup::Inconclusive
+        MissingTemplateLibraryLookup::Inconclusive
     ));
 }
 
 #[test]
-fn template_libraries_include_options_libraries_and_builtins() {
+fn template_library_catalog_include_options_libraries_and_builtins() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3222,9 +3190,9 @@ fn template_libraries_include_options_libraries_and_builtins() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = TemplateEnvironment::from_project_inventory(libraries)
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .unwrap();
@@ -3235,10 +3203,10 @@ fn template_libraries_include_options_libraries_and_builtins() {
             .iter()
             .any(|symbol| symbol.name() == "configured")
     );
-    let environment = TemplateEnvironment::from_project_inventory(libraries);
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
     assert!(
-        environment
-            .contextual_symbol_candidates("configured_filter", TemplateSymbolKind::Filter)
+        scoped_libraries
+            .scoped_symbol_candidates("configured_filter", TemplateSymbolKind::Filter)
             .iter()
             .any(|candidate| {
                 matches!(
@@ -3271,12 +3239,12 @@ fn partial_django_backend_keeps_alias_definitive_until_open_backend_selection() 
     let file = db.file(Utf8Path::new("/proj/templates/page.html"));
 
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project)).loadable_library_str("custom"),
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("custom"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "custom_tags"
     ));
     assert!(matches!(
-        template_environment(&db, project, file).loadable_library_str("custom"),
+        scoped_template_libraries(&db, project, file).loadable_library_str("custom"),
         LoadableLibraryLookup::Inconclusive(candidates)
             if candidates.iter().any(|library| library.module_name_str() == "custom_tags")
     ));
@@ -3295,14 +3263,14 @@ fn partial_non_django_backend_contributes_open_library_alternative() {
     );
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(template_libraries(&db, project))
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .loadable_library_str("missing"),
         LoadableLibraryLookup::Inconclusive(Vec::new())
     );
 }
 
 #[test]
-fn template_libraries_keep_candidate_with_later_backend_uncertainty() {
+fn template_library_catalog_keep_candidate_with_later_backend_uncertainty() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3331,10 +3299,10 @@ fn template_libraries_keep_candidate_with_later_backend_uncertainty() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     let LoadableLibraryLookup::Inconclusive(candidates) =
-        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("custom")
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("custom")
     else {
         panic!("the open backend alternative should keep lookup inconclusive");
     };
@@ -3352,7 +3320,7 @@ fn template_libraries_keep_candidate_with_later_backend_uncertainty() {
 }
 
 #[test]
-fn template_libraries_options_override_app_library_load_name() {
+fn template_library_catalog_options_override_app_library_load_name() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3387,9 +3355,9 @@ fn template_libraries_options_override_app_library_load_name() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = TemplateEnvironment::from_project_inventory(libraries)
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .unwrap();
@@ -3407,9 +3375,9 @@ fn template_libraries_options_override_app_library_load_name() {
             .any(|symbol| symbol.name() == "old_tag")
     );
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("old_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::Absent,
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("old_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Absent,
         "a configured alias can shadow an installed app library without making that app available"
     );
 }
@@ -3441,10 +3409,10 @@ fn failed_configured_library_is_inconclusive() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .loadable_library_str("broken")
             .found()
             .is_none()
@@ -3452,7 +3420,7 @@ fn failed_configured_library_is_inconclusive() {
 }
 
 #[test]
-fn unknown_configured_alias_keys_suppress_available_app_guidance() {
+fn unknown_configured_alias_keys_suppress_available_in_app_guidance() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3470,22 +3438,22 @@ fn unknown_configured_alias_keys_suppress_available_app_guidance() {
             ),
         ],
     );
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
-        TemplateSymbolLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .missing_library(&library_name("shared")),
-        MissingLibraryLookup::Inconclusive
+        MissingTemplateLibraryLookup::Inconclusive
     );
 }
 
@@ -3512,26 +3480,26 @@ fn exact_alias_after_unknown_keys_remains_authoritative() {
             ),
         ],
     );
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::Absent
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Absent
     );
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
-            .available_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
-        TemplateSymbolLookup::Absent
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Absent
     );
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("shared"),
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library) if library.module_name_str() == "project_tags"
     ));
 }
 
 #[test]
-fn unresolved_configured_alias_shadows_available_app_guidance() {
+fn unresolved_configured_alias_shadows_available_in_app_guidance() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3550,17 +3518,17 @@ fn unresolved_configured_alias_shadows_available_app_guidance() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert_eq!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .missing_library(&library_name("shared")),
-        MissingLibraryLookup::Inconclusive
+        MissingTemplateLibraryLookup::Inconclusive
     );
 }
 
 #[test]
-fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
+fn template_library_catalog_omit_invalid_configured_alias_and_demote_knowledge() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3571,10 +3539,10 @@ fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
         )],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .loadable_library_str("broken")
             .found()
             .is_none()
@@ -3582,7 +3550,7 @@ fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
 }
 
 #[test]
-fn template_libraries_retain_missing_configured_alias_without_source() {
+fn template_library_catalog_retain_missing_configured_alias_without_source() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3593,17 +3561,17 @@ fn template_libraries_retain_missing_configured_alias_without_source() {
         )],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("missing"),
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("missing"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "missing_tags" && library.source_file().is_none()
     ));
 }
 
 #[test]
-fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() {
+fn template_library_catalog_omit_configured_non_library_module_and_demote_knowledge() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3629,10 +3597,10 @@ fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() 
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .loadable_library_str("custom")
             .found()
             .is_none()
@@ -3640,7 +3608,7 @@ fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() 
 }
 
 #[test]
-fn template_libraries_include_resolved_and_configured_only_libraries() {
+fn template_library_catalog_include_resolved_and_configured_only_libraries() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -3658,8 +3626,8 @@ fn template_libraries_include_resolved_and_configured_only_libraries() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
-    let active_modules: Vec<_> = TemplateEnvironment::from_project_inventory(libraries)
+    let libraries = template_library_catalog(&db, project);
+    let active_modules: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
         .into_iter()
         .map(|library| library.module_name_str().to_string())
@@ -3676,17 +3644,17 @@ fn template_libraries_include_resolved_and_configured_only_libraries() {
         ]
     );
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("good"),
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("good"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "good_tags"
     ));
     assert!(matches!(
-        TemplateEnvironment::from_project_inventory(libraries).loadable_library_str("missing"),
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("missing"),
         LoadableLibraryLookup::Found(library)
             if library.module_name_str() == "missing_tags" && library.source_file().is_none()
     ));
     assert!(
-        TemplateEnvironment::from_project_inventory(libraries)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
             .loadable_library_str("invalid")
             .found()
             .is_none()
@@ -3767,37 +3735,37 @@ fn django_facts_golden_template_dirs_match() {
 }
 
 #[test]
-fn django_facts_golden_template_libraries_match() {
+fn django_facts_golden_template_library_catalog_matches() {
     let (db, project, _, _, golden) = django_facts_golden_fixture();
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     let actual_builtins = active_builtin_modules(libraries);
-    assert_eq!(actual_builtins, golden.template_libraries.builtins);
+    assert_eq!(actual_builtins, golden.template_library_catalog.builtins);
 
-    let environment = TemplateEnvironment::from_project_inventory(libraries);
-    let actual_libraries: BTreeMap<_, _> = environment
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
+    let actual_libraries: BTreeMap<_, _> = scoped_libraries
         .completion_library_names()
         .into_iter()
         .filter_map(|name| {
-            let library = environment.loadable_library(&name).found()?;
+            let library = scoped_libraries.loadable_library(&name).found()?;
             Some((
                 name.as_str().to_string(),
                 library.module_name_str().to_string(),
             ))
         })
         .collect();
-    assert_eq!(actual_libraries, golden.template_libraries.libraries);
+    assert_eq!(actual_libraries, golden.template_library_catalog.libraries);
 
     let mut actual_symbols = comparable_symbols(libraries);
-    let mut expected_symbols = golden.template_libraries.symbols;
+    let mut expected_symbols = golden.template_library_catalog.symbols;
     actual_symbols.sort();
     expected_symbols.sort();
     assert_eq!(actual_symbols, expected_symbols);
 }
 
-fn comparable_symbols(libraries: &TemplateLibraries) -> Vec<GoldenTemplateSymbol> {
+fn comparable_symbols(libraries: &TemplateLibraryCatalog) -> Vec<GoldenTemplateSymbol> {
     let mut symbols = Vec::new();
 
-    for library in TemplateEnvironment::from_project_inventory(libraries).resolved_libraries() {
+    for library in ScopedTemplateLibraries::from_project_inventory(libraries).resolved_libraries() {
         let load_name = library.load_name().map(|name| name.as_str().to_string());
 
         for symbol in library.symbols() {

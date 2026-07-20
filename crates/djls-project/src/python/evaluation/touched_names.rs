@@ -5,7 +5,7 @@ use ruff_python_ast as ast;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use super::PythonSyntaxImpact;
+use super::PythonSyntaxErrorImpact;
 use super::mutation::MutationTarget;
 use super::name_analysis::expr_read_names;
 use super::name_analysis::pattern_bound_names;
@@ -151,7 +151,7 @@ impl TouchedNames {
 pub(super) fn collect_syntax_impacts(
     body: &[ast::Stmt],
     errors: &[PythonSyntaxError],
-) -> Vec<PythonSyntaxImpact> {
+) -> Vec<PythonSyntaxErrorImpact> {
     errors
         .iter()
         .filter_map(|error| {
@@ -192,7 +192,7 @@ pub(super) fn collect_syntax_impacts(
                 .into_iter()
                 .filter(|name| !later_assignments.contains(name))
                 .collect::<BTreeSet<_>>();
-            (!names.is_empty() || touched.all).then(|| PythonSyntaxImpact {
+            (!names.is_empty() || touched.all).then(|| PythonSyntaxErrorImpact {
                 error: error.clone(),
                 names,
                 namespace_open: touched.all,

@@ -29,7 +29,7 @@ pub use fixtures::collect_argument_validation_errors_with_revision;
 pub use fixtures::collect_errors;
 pub use fixtures::library_filter;
 pub use fixtures::library_tag;
-pub use fixtures::make_template_libraries;
+pub use fixtures::make_template_library_catalog;
 pub use fixtures::partial_validation_db;
 pub use fixtures::render_validate_snapshot;
 pub use fixtures::standard_validation_db;

@@ -2,21 +2,21 @@ use djls_conf::TagDef;
 use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
+use djls_project::AppTemplateSymbolLookup;
 use djls_project::EffectiveDefinitionLibrary;
-use djls_project::EnvironmentSymbolLookup;
 use djls_project::LibraryName;
 use djls_project::LoadableLibraryLookup;
-use djls_project::MissingLibraryLookup;
+use djls_project::MissingTemplateLibraryLookup;
 use djls_project::PythonModuleName;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::ScopedTemplateSymbolLookup;
 use djls_project::SymbolDefinition;
-use djls_project::TemplateEnvironment;
-use djls_project::TemplateLibraries;
+use djls_project::TemplateLibraryCatalog;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
-use djls_project::TemplateSymbolLookup;
 use djls_project::TemplateSymbolName;
-use djls_project::template_libraries;
+use djls_project::template_library_catalog;
 use djls_project::testing;
 use djls_project::testing::TemplateBackendLibrariesInput;
 use djls_project::testing::TemplateLibraryInput;
@@ -47,21 +47,21 @@ fn builtin(module: &str, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
     }
 }
 
-fn installed(load_name: &str, module: &str, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
-    TemplateLibraryInput::Installed {
+fn loadable(load_name: &str, module: &str, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
+    TemplateLibraryInput::Loadable {
         load_name: library_name(load_name),
         module: self::module(module),
         symbols,
     }
 }
 
-fn available(
+fn available_in_app(
     load_name: &str,
     app: &str,
     module: &str,
     symbols: Vec<TemplateSymbol>,
 ) -> TemplateLibraryInput {
-    TemplateLibraryInput::Available {
+    TemplateLibraryInput::AvailableInApp {
         load_name: library_name(load_name),
         app: self::module(app),
         module: self::module(module),
@@ -69,12 +69,12 @@ fn available(
     }
 }
 
-fn libraries(open: bool, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraries {
+fn libraries(open: bool, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraryCatalog {
     let db = TestDatabase::new();
     if open {
-        testing::template_libraries_with_omissions(&db, inputs)
+        testing::template_library_catalog_with_omissions(&db, inputs)
     } else {
-        testing::template_libraries(&db, inputs)
+        testing::template_library_catalog(&db, inputs)
     }
 }
 
@@ -88,20 +88,20 @@ fn backend(loadable: Vec<(&str, &str)>, builtins: Vec<&str>) -> TemplateBackendL
     }
 }
 
-fn project_inventory(libraries: &TemplateLibraries) -> TemplateEnvironment<'_> {
-    TemplateEnvironment::from_project_inventory(libraries)
+fn project_inventory(libraries: &TemplateLibraryCatalog) -> ScopedTemplateLibraries<'_> {
+    ScopedTemplateLibraries::from_project_inventory(libraries)
 }
 
 fn configured_libraries(
     open: bool,
     inputs: Vec<TemplateLibraryInput>,
-    configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TemplateLibraries {
+    settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
+) -> TemplateLibraryCatalog {
     let db = TestDatabase::new();
     if open {
-        testing::template_libraries_with_configuration_omissions(&db, inputs, configurations)
+        testing::template_library_catalog_with_settings_case_omissions(&db, inputs, settings_cases)
     } else {
-        testing::template_libraries_with_configurations(&db, inputs, configurations)
+        testing::template_library_catalog_with_settings_cases(&db, inputs, settings_cases)
     }
 }
 
@@ -121,10 +121,10 @@ fn closed_and_open_misses_are_distinct() {
 }
 
 #[test]
-fn configuration_lookup_distinguishes_unanimous_disagreement_and_open_remainder() {
+fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder() {
     let inputs = vec![
-        installed("shared", "project.alpha", Vec::new()),
-        installed("shared", "project.beta", Vec::new()),
+        loadable("shared", "project.alpha", Vec::new()),
+        loadable("shared", "project.beta", Vec::new()),
     ];
     let unanimous = configured_libraries(
         false,
@@ -176,7 +176,7 @@ fn configuration_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
 #[test]
 fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
     let inputs = vec![
-        installed(
+        loadable(
             "shared",
             "project.alpha",
             vec![
@@ -186,7 +186,7 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
                 symbol(TemplateSymbolKind::Filter, "one_filter", None),
             ],
         ),
-        installed(
+        loadable(
             "shared",
             "project.beta",
             vec![
@@ -206,19 +206,19 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
 
     assert_eq!(
         project_inventory(&libraries).symbol("all_tag", TemplateSymbolKind::Tag),
-        EnvironmentSymbolLookup::RequiresLoad(vec![library_name("shared")])
+        ScopedTemplateSymbolLookup::RequiresLoad(vec![library_name("shared")])
     );
     assert_eq!(
         project_inventory(&libraries).symbol("one_tag", TemplateSymbolKind::Tag),
-        EnvironmentSymbolLookup::Inconclusive
+        ScopedTemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
         project_inventory(&libraries).symbol("all_filter", TemplateSymbolKind::Filter),
-        EnvironmentSymbolLookup::RequiresLoad(vec![library_name("shared")])
+        ScopedTemplateSymbolLookup::RequiresLoad(vec![library_name("shared")])
     );
     assert_eq!(
         project_inventory(&libraries).symbol("one_filter", TemplateSymbolKind::Filter),
-        EnvironmentSymbolLookup::Inconclusive
+        ScopedTemplateSymbolLookup::Inconclusive
     );
 }
 
@@ -231,12 +231,12 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
                 "django.template.defaulttags",
                 vec![symbol(TemplateSymbolKind::Tag, "if", None)],
             ),
-            installed(
+            loadable(
                 "alpha",
                 "project.alpha",
                 vec![symbol(TemplateSymbolKind::Tag, "if", None)],
             ),
-            installed(
+            loadable(
                 "beta",
                 "project.beta",
                 vec![symbol(TemplateSymbolKind::Tag, "if", None)],
@@ -253,15 +253,16 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
             ),
         ]],
     );
-    let environment = TemplateEnvironment::from_project_inventory(&inventory);
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&inventory);
 
-    let unloaded = environment.effective_definition_libraries("if", TemplateSymbolKind::Tag, &[]);
+    let unloaded =
+        scoped_libraries.effective_definition_libraries("if", TemplateSymbolKind::Tag, &[]);
     assert!(matches!(unloaded.as_slice(), [
         EffectiveDefinitionLibrary::Known(Some(library)),
         EffectiveDefinitionLibrary::Known(None),
     ] if library.module_name_str() == "django.template.defaulttags"));
     let mut streamed_unloaded = Vec::new();
-    environment.for_each_effective_definition_library(
+    scoped_libraries.for_each_effective_definition_library(
         "if",
         TemplateSymbolKind::Tag,
         &[],
@@ -270,15 +271,15 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
     assert_eq!(streamed_unloaded, unloaded);
 
     let loaded =
-        environment.effective_definition_libraries("if", TemplateSymbolKind::Tag, &["alpha"]);
+        scoped_libraries.effective_definition_libraries("if", TemplateSymbolKind::Tag, &["alpha"]);
     assert!(loaded.iter().all(|alternative| matches!(
         alternative,
         EffectiveDefinitionLibrary::Known(Some(library))
             if library.module_name_str() == "project.alpha"
     )));
-    let materialized_chains = environment.contextual_library_chains(&["alpha"]);
+    let materialized_chains = scoped_libraries.library_chains(&["alpha"]);
     let mut folded_chains = Vec::new();
-    environment.fold_contextual_library_chains(&["alpha"], Vec::new, Vec::push, |chain| {
+    scoped_libraries.fold_library_chains(&["alpha"], Vec::new, Vec::push, |chain| {
         folded_chains.push(chain);
     });
     assert_eq!(
@@ -317,7 +318,7 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
         )
         .build(&db);
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     let LoadableLibraryLookup::Found(library) =
         project_inventory(libraries).loadable_library_str("panels")
     else {
@@ -330,11 +331,11 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
             .symbol(TemplateSymbolKind::Tag, "panel")
             .is_some_and(|symbol| matches!(symbol.definition, SymbolDefinition::Unknown))
     );
-    assert_eq!(library.key().file(&db), None);
+    assert_eq!(library.id().file(&db), None);
 }
 
 #[test]
-fn source_less_alias_keeps_missing_same_named_available_app_symbols_inconclusive() {
+fn source_less_alias_keeps_missing_same_named_available_in_app_symbols_inconclusive() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .django_settings_module("project.settings")
@@ -342,36 +343,37 @@ fn source_less_alias_keeps_missing_same_named_available_app_symbols_inconclusive
             "/project/project/settings.py",
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'shared': 'missing.shared'}}}]\n",
         )
-        .file("/project/available_app/__init__.py", "")
-        .file("/project/available_app/templatetags/__init__.py", "")
+        .file("/project/available_in_app/__init__.py", "")
+        .file("/project/available_in_app/templatetags/__init__.py", "")
         .file(
-            "/project/available_app/templatetags/shared.py",
+            "/project/available_in_app/templatetags/shared.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef shared_tag(): pass\n@register.filter\ndef shared_filter(value): return value\n",
         )
         .build(&db);
 
-    let libraries = template_libraries(&db, project);
-    let environment = project_inventory(libraries);
-    let LoadableLibraryLookup::Found(library) = environment.loadable_library_str("shared") else {
+    let libraries = template_library_catalog(&db, project);
+    let scoped_libraries = project_inventory(libraries);
+    let LoadableLibraryLookup::Found(library) = scoped_libraries.loadable_library_str("shared")
+    else {
         panic!("the configured source-less alias should be definitively loadable");
     };
     assert!(library.source_file().is_none());
-    assert!(library.symbol_inventory_is_open());
+    assert!(library.symbols_are_unobserved());
     assert_eq!(
-        environment.symbol("shared_tag", TemplateSymbolKind::Tag),
-        EnvironmentSymbolLookup::Inconclusive
+        scoped_libraries.symbol("shared_tag", TemplateSymbolKind::Tag),
+        ScopedTemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
-        environment.symbol("shared_filter", TemplateSymbolKind::Filter),
-        EnvironmentSymbolLookup::Inconclusive
+        scoped_libraries.symbol("shared_filter", TemplateSymbolKind::Filter),
+        ScopedTemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
-        environment.available_app_symbol("shared_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::Inconclusive
+        scoped_libraries.available_in_app_symbol("shared_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Inconclusive
     );
     assert_eq!(
-        environment.available_app_symbol("shared_filter", TemplateSymbolKind::Filter),
-        TemplateSymbolLookup::Inconclusive
+        scoped_libraries.available_in_app_symbol("shared_filter", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Inconclusive
     );
 
     for kind in [TemplateSymbolKind::Tag, TemplateSymbolKind::Filter] {
@@ -380,11 +382,11 @@ fn source_less_alias_keeps_missing_same_named_available_app_symbols_inconclusive
             TemplateSymbolKind::Filter => "shared_filter",
         };
         assert!(matches!(
-            environment
+            scoped_libraries
                 .effective_definition_libraries(name, kind, &["shared"])
                 .as_slice(),
             [EffectiveDefinitionLibrary::Unobserved(candidate)]
-                if candidate.key() == library.key()
+                if candidate.id() == library.id()
         ));
     }
 }
@@ -404,7 +406,7 @@ fn exact_alias_after_unknown_key_is_definitive_while_other_names_stay_open() {
         )
         .build(&db);
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     assert!(matches!(
         project_inventory(libraries).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library)
@@ -430,10 +432,10 @@ fn definite_load_restores_certainty_after_uncertain_builtins() {
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef restored(): pass\n",
         )
         .build(&db);
-    let inventory = template_libraries(&db, project);
-    let environment = TemplateEnvironment::from_project_inventory(inventory);
+    let inventory = template_library_catalog(&db, project);
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(inventory);
 
-    let definitions = environment.effective_definition_libraries(
+    let definitions = scoped_libraries.effective_definition_libraries(
         "restored",
         TemplateSymbolKind::Tag,
         &["certain"],
@@ -446,18 +448,18 @@ fn definite_load_restores_certainty_after_uncertain_builtins() {
 }
 
 #[test]
-fn installed_duplicate_load_name_uses_last_record() {
+fn loadable_duplicate_load_name_uses_last_record() {
     let libraries = libraries(
         false,
         vec![
-            installed("custom", "project.templatetags.original", Vec::new()),
-            installed("custom", "project.templatetags.replacement", Vec::new()),
+            loadable("custom", "project.templatetags.original", Vec::new()),
+            loadable("custom", "project.templatetags.replacement", Vec::new()),
         ],
     );
     let LoadableLibraryLookup::Found(library) =
         project_inventory(&libraries).loadable_library(&library_name("custom"))
     else {
-        panic!("expected a definitive installed library");
+        panic!("expected a definitive loadable library");
     };
     assert_eq!(
         library.module_name_str(),
@@ -467,42 +469,42 @@ fn installed_duplicate_load_name_uses_last_record() {
 
 #[test]
 fn available_symbol_guidance_survives_open_remainder() {
-    let app = module("available_app");
+    let app = module("available_in_app");
     let load_name = library_name("extra_tags");
     let libraries = libraries(
         true,
-        vec![available(
+        vec![available_in_app(
             "extra_tags",
-            "available_app",
-            "available_app.templatetags.extra_tags",
+            "available_in_app",
+            "available_in_app.templatetags.extra_tags",
             vec![symbol(TemplateSymbolKind::Tag, "extra", None)],
         )],
     );
     assert_eq!(
-        project_inventory(&libraries).available_app_symbol("extra", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::FoundInApp { app, load_name }
+        project_inventory(&libraries).available_in_app_symbol("extra", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::FoundInApp { app, load_name }
     );
 }
 
 #[test]
-fn available_library_guidance_is_sorted_and_deduplicated() {
+fn available_in_app_library_guidance_is_sorted_and_deduplicated() {
     let libraries = libraries(
         false,
         vec![
-            available("shared", "beta", "beta.templatetags.shared", Vec::new()),
-            available(
+            available_in_app("shared", "beta", "beta.templatetags.shared", Vec::new()),
+            available_in_app(
                 "shared",
                 "alpha",
                 "alpha.templatetags.shared_extra",
                 Vec::new(),
             ),
-            available("shared", "alpha", "alpha.templatetags.shared", Vec::new()),
+            available_in_app("shared", "alpha", "alpha.templatetags.shared", Vec::new()),
         ],
     );
-    let MissingLibraryLookup::FoundInApps(apps) =
+    let MissingTemplateLibraryLookup::FoundInApps(apps) =
         project_inventory(&libraries).missing_library(&library_name("shared"))
     else {
-        panic!("shared should have available app candidates");
+        panic!("shared should have available-in-app candidates");
     };
     assert_eq!(apps.primary(), &module("alpha"));
     assert_eq!(apps.as_slice(), [module("alpha"), module("beta")]);
@@ -529,21 +531,23 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
                     Some("second"),
                 )],
             ),
-            installed(
+            loadable(
                 "humanize",
                 "django.contrib.humanize.templatetags.humanize",
                 vec![symbol(TemplateSymbolKind::Filter, "intcomma", None)],
             ),
         ],
     );
-    let environment = project_inventory(&libraries);
-    let candidates: Vec<_> = environment
+    let scoped_libraries = project_inventory(&libraries);
+    let candidates: Vec<_> = scoped_libraries
         .inventory_symbol_names(TemplateSymbolKind::Filter)
-        .flat_map(|name| environment.contextual_symbol_candidates(name, TemplateSymbolKind::Filter))
+        .flat_map(|name| {
+            scoped_libraries.scoped_symbol_candidates(name, TemplateSymbolKind::Filter)
+        })
         .collect();
     assert_eq!(candidates.len(), 2);
     assert_eq!(candidates[0].symbol.name(), "duplicate");
-    let duplicate_library = environment
+    let duplicate_library = scoped_libraries
         .resolved_libraries()
         .into_iter()
         .find(|library| library.module_name_str() == "a_second")
@@ -573,7 +577,7 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
 #[test]
 fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
     let db = TestDatabase::new();
-    let libraries = testing::template_libraries(
+    let libraries = testing::template_library_catalog(
         &db,
         vec![
             builtin("django.template.defaulttags", Vec::new()),
@@ -581,8 +585,8 @@ fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
             builtin("django.template.defaulttags", Vec::new()),
         ],
     );
-    let environment = project_inventory(&libraries);
-    let modules: Vec<_> = environment
+    let scoped_libraries = project_inventory(&libraries);
+    let modules: Vec<_> = scoped_libraries
         .resolved_libraries()
         .into_iter()
         .map(djls_project::TemplateLibrary::module_name_str)
@@ -592,7 +596,7 @@ fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
         vec!["django.template.defaulttags", "project.builtins"]
     );
     assert!(
-        environment
+        scoped_libraries
             .resolved_libraries()
             .into_iter()
             .all(|library| library.source_file().is_none()),

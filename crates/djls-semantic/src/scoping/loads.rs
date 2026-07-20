@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use djls_project::LoadableLibraryLookup;
-use djls_project::TemplateEnvironment;
+use djls_project::ScopedTemplateLibraries;
 use djls_project::TemplateSymbolKind;
 use djls_source::Span;
 use djls_templates::TagBit;
@@ -234,19 +234,20 @@ impl<'a> LoadState<'a> {
         self,
         symbol: &str,
         kind: TemplateSymbolKind,
-        environment: TemplateEnvironment<'_>,
+        scoped_libraries: ScopedTemplateLibraries<'_>,
     ) -> bool {
         let mut can_shadow = false;
-        let mut fold_library =
-            |library: &LoadArgument| match environment.loadable_library_str(library.as_str()) {
-                LoadableLibraryLookup::Inconclusive(_) => can_shadow = true,
-                LoadableLibraryLookup::Found(library) if library.symbol(kind, symbol).is_some() => {
-                    can_shadow = false;
-                }
-                LoadableLibraryLookup::Found(_)
-                | LoadableLibraryLookup::Ambiguous(_)
-                | LoadableLibraryLookup::Absent => {}
-            };
+        let mut fold_library = |library: &LoadArgument| match scoped_libraries
+            .loadable_library_str(library.as_str())
+        {
+            LoadableLibraryLookup::Inconclusive(_) => can_shadow = true,
+            LoadableLibraryLookup::Found(library) if library.symbol(kind, symbol).is_some() => {
+                can_shadow = false;
+            }
+            LoadableLibraryLookup::Found(_)
+            | LoadableLibraryLookup::Ambiguous(_)
+            | LoadableLibraryLookup::Absent => {}
+        };
 
         for statement in self.statements() {
             match &statement.kind {

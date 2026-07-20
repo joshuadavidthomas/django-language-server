@@ -19,12 +19,12 @@ use crate::python::module::relative_import_source;
 /// no known alias, and module bodies are never evaluated. It is not the general
 /// Python import model; it exists only to qualify Model symbolic references.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ModelImportAliases {
+pub(crate) struct ModelImportState {
     aliases: BTreeMap<String, PythonModuleName>,
     shadowed: BTreeSet<String>,
 }
 
-impl ModelImportAliases {
+impl ModelImportState {
     /// Add/replace the aliases introduced by an `import ...` statement.
     ///
     /// Each bound root is invalidated first so that an unusable spelling leaves
@@ -176,10 +176,10 @@ mod tests {
     /// Build occurrence-local aliases by applying every top-level import in
     /// source order, mirroring the model extraction scanner without
     /// invalidation. Adequate for the import-spelling unit tests here.
-    fn aliases(source: &str, module: &str, module_kind: ModuleKind) -> ModelImportAliases {
+    fn aliases(source: &str, module: &str, module_kind: ModuleKind) -> ModelImportState {
         let name = module_name(module);
         let parsed = parse_module(source).unwrap().into_syntax();
-        let mut state = ModelImportAliases::default();
+        let mut state = ModelImportState::default();
         for stmt in &parsed.body {
             match stmt {
                 Stmt::Import(import) => {
@@ -194,7 +194,7 @@ mod tests {
         state
     }
 
-    fn target(state: &ModelImportAliases, name: &str) -> String {
+    fn target(state: &ModelImportState, name: &str) -> String {
         state
             .aliases
             .get(name)

@@ -5,35 +5,36 @@ use camino::Utf8PathBuf;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModuleName;
-use crate::settings::EvaluatedPath;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::InstalledAppEvidence;
 use crate::settings::types::PartialTemplateBackend;
-use crate::settings::types::PathListEvidence;
 use crate::settings::types::SettingCase;
 use crate::settings::types::TemplateBackend;
-use crate::settings::types::TemplateListEvidence;
+use crate::settings::types::TemplateBackendEvidence;
+use crate::settings::types::TemplateDirectoryEvidence;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) struct TemplateConfigurationId(u32);
+pub(super) struct TemplateSettingsCaseId(u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct TemplateBackendId(u32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TemplateEvidenceState {
+/// Whether Template settings evidence is exhaustive or may omit additional values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum TemplateEvidenceCompleteness {
+    #[default]
     Complete,
     Open,
 }
 
-impl TemplateEvidenceState {
+impl TemplateEvidenceCompleteness {
     pub(super) const fn is_open(self) -> bool {
         matches!(self, Self::Open)
     }
 
-    const fn open_if(condition: bool) -> Self {
+    pub(super) const fn open_if(condition: bool) -> Self {
         if condition {
             Self::Open
         } else {
@@ -43,56 +44,57 @@ impl TemplateEvidenceState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum TemplateDirectoryEvidence {
+pub(super) enum TemplateDirectorySlot {
     Path(Utf8PathBuf),
     Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct TemplateConfigurations {
-    configurations: Vec<TemplateConfiguration>,
+pub(super) struct TemplateSettingsCases {
+    settings_cases: Vec<TemplateSettingsCase>,
 }
 
+/// One feasible branch-correlated combination of supported Django Template settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct TemplateConfiguration {
-    id: TemplateConfigurationId,
+pub(super) struct TemplateSettingsCase {
+    id: TemplateSettingsCaseId,
     installed_apps: Vec<InstalledAppEvidence>,
-    backends: Vec<TemplateBackendConfiguration>,
-    slots: Vec<TemplateConfigurationSlot>,
+    backends: Vec<TemplateBackendCase>,
+    slots: Vec<TemplateBackendSlot>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct TemplateBackendConfiguration {
+pub(super) struct TemplateBackendCase {
     id: TemplateBackendId,
-    configuration: TemplateConfigurationId,
-    data: TemplateBackendData,
+    settings_case: TemplateSettingsCaseId,
+    data: TemplateBackendSettings,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct TemplateBackendData {
+struct TemplateBackendSettings {
     backend_name: Option<String>,
-    backend_state: TemplateEvidenceState,
-    directories: Vec<TemplateDirectoryEvidence>,
+    backend_completeness: TemplateEvidenceCompleteness,
+    directories: Vec<TemplateDirectorySlot>,
     app_directories: Option<bool>,
-    app_directories_state: TemplateEvidenceState,
+    app_directories_completeness: TemplateEvidenceCompleteness,
     libraries: Vec<(String, PythonModuleName)>,
-    libraries_state: TemplateEvidenceState,
+    libraries_completeness: TemplateEvidenceCompleteness,
     builtins: Vec<PythonModuleName>,
-    builtins_state: TemplateEvidenceState,
+    builtins_completeness: TemplateEvidenceCompleteness,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TemplateConfigurationSlot {
+pub(super) enum TemplateBackendSlot {
     Backend(TemplateBackendId),
     Remainder,
 }
 
-impl TemplateConfigurations {
+impl TemplateSettingsCases {
     fn from_settings(settings: &DjangoSettings) -> Self {
         let mut result = Self {
-            configurations: Vec::new(),
+            settings_cases: Vec::new(),
         };
-        for feasible in settings.feasible_configurations() {
+        for feasible in settings.feasible_cases() {
             let installed_apps = match feasible.installed_apps {
                 SettingCase::Known(value) => value
                     .apps
@@ -101,7 +103,7 @@ impl TemplateConfigurations {
                     .map(InstalledAppEvidence::Known)
                     .collect(),
                 SettingCase::Dynamic(value) | SettingCase::Malformed(value) => {
-                    value.apps.evidence.clone()
+                    value.evidence.clone()
                 }
                 SettingCase::Unset => Vec::new(),
             };
@@ -109,68 +111,67 @@ impl TemplateConfigurations {
                 SettingCase::Known(value) => value
                     .backends
                     .iter()
-                    .map(TemplateBackendData::from_complete)
+                    .map(TemplateBackendSettings::from_complete)
                     .map(Some)
                     .collect(),
                 SettingCase::Dynamic(value) | SettingCase::Malformed(value) => value
-                    .templates
                     .evidence
                     .iter()
                     .map(|evidence| match evidence {
-                        TemplateListEvidence::Backend(backend) => {
-                            Some(TemplateBackendData::from_partial(backend))
+                        TemplateBackendEvidence::Backend(backend) => {
+                            Some(TemplateBackendSettings::from_partial(backend))
                         }
-                        TemplateListEvidence::Issue(_) => None,
+                        TemplateBackendEvidence::Issue(_) => None,
                     })
                     .collect(),
                 SettingCase::Unset => Vec::new(),
             };
-            result.push_configuration(installed_apps, slots);
+            result.push_settings_case(installed_apps, slots);
         }
         result
     }
 
     fn unavailable() -> Self {
         let mut result = Self {
-            configurations: Vec::new(),
+            settings_cases: Vec::new(),
         };
-        result.push_configuration(Vec::new(), vec![None]);
+        result.push_settings_case(Vec::new(), vec![None]);
         result
     }
 
-    fn push_configuration(
+    fn push_settings_case(
         &mut self,
         installed_apps: Vec<InstalledAppEvidence>,
-        backend_slots: Vec<Option<TemplateBackendData>>,
+        backend_slots: Vec<Option<TemplateBackendSettings>>,
     ) {
-        let id = TemplateConfigurationId(
-            u32::try_from(self.configurations.len())
-                .expect("template configuration count should fit in u32"),
+        let id = TemplateSettingsCaseId(
+            u32::try_from(self.settings_cases.len())
+                .expect("Template settings case count should fit in u32"),
         );
         let next_backend = self
-            .configurations
+            .settings_cases
             .iter()
-            .map(|configuration| configuration.backends.len())
+            .map(|settings_case| settings_case.backends.len())
             .sum::<usize>();
         let mut backends = Vec::new();
         let mut slots = Vec::new();
         for data in backend_slots {
             let Some(data) = data else {
-                slots.push(TemplateConfigurationSlot::Remainder);
+                slots.push(TemplateBackendSlot::Remainder);
                 continue;
             };
             let backend_id = TemplateBackendId(
                 u32::try_from(next_backend + backends.len())
                     .expect("template backend count should fit in u32"),
             );
-            backends.push(TemplateBackendConfiguration {
+            backends.push(TemplateBackendCase {
                 id: backend_id,
-                configuration: id,
+                settings_case: id,
                 data,
             });
-            slots.push(TemplateConfigurationSlot::Backend(backend_id));
+            slots.push(TemplateBackendSlot::Backend(backend_id));
         }
-        self.configurations.push(TemplateConfiguration {
+        self.settings_cases.push(TemplateSettingsCase {
             id,
             installed_apps,
             backends,
@@ -178,37 +179,37 @@ impl TemplateConfigurations {
         });
     }
 
-    pub(super) fn configurations(&self) -> &[TemplateConfiguration] {
-        &self.configurations
+    pub(super) fn settings_cases(&self) -> &[TemplateSettingsCase] {
+        &self.settings_cases
     }
 
-    pub(super) fn backend(&self, id: TemplateBackendId) -> Option<&TemplateBackendConfiguration> {
-        self.configurations
+    pub(super) fn backend(&self, id: TemplateBackendId) -> Option<&TemplateBackendCase> {
+        self.settings_cases
             .iter()
-            .flat_map(TemplateConfiguration::backends)
+            .flat_map(TemplateSettingsCase::backends)
             .find(|backend| backend.id == id)
     }
 
     pub(super) fn for_testing(backend_counts: &[usize], has_remainder: bool) -> Self {
         let mut result = Self {
-            configurations: Vec::new(),
+            settings_cases: Vec::new(),
         };
         for &backend_count in backend_counts {
-            let mut slots = iter::repeat_with(TemplateBackendData::for_testing)
+            let mut slots = iter::repeat_with(TemplateBackendSettings::for_testing)
                 .map(Some)
                 .take(backend_count)
                 .collect::<Vec<_>>();
             if has_remainder {
                 slots.push(None);
             }
-            result.push_configuration(Vec::new(), slots);
+            result.push_settings_case(Vec::new(), slots);
         }
         result
     }
 }
 
-impl TemplateConfiguration {
-    pub(super) fn id(&self) -> TemplateConfigurationId {
+impl TemplateSettingsCase {
+    pub(super) fn id(&self) -> TemplateSettingsCaseId {
         self.id
     }
 
@@ -216,27 +217,27 @@ impl TemplateConfiguration {
         &self.installed_apps
     }
 
-    pub(super) fn backends(&self) -> &[TemplateBackendConfiguration] {
+    pub(super) fn backends(&self) -> &[TemplateBackendCase] {
         &self.backends
     }
 
-    pub(super) fn slots(&self) -> &[TemplateConfigurationSlot] {
+    pub(super) fn slots(&self) -> &[TemplateBackendSlot] {
         &self.slots
     }
 }
 
-impl TemplateBackendData {
+impl TemplateBackendSettings {
     fn empty() -> Self {
         Self {
             backend_name: None,
-            backend_state: TemplateEvidenceState::Complete,
+            backend_completeness: TemplateEvidenceCompleteness::Complete,
             directories: Vec::new(),
             app_directories: None,
-            app_directories_state: TemplateEvidenceState::Complete,
+            app_directories_completeness: TemplateEvidenceCompleteness::Complete,
             libraries: Vec::new(),
-            libraries_state: TemplateEvidenceState::Complete,
+            libraries_completeness: TemplateEvidenceCompleteness::Complete,
             builtins: Vec::new(),
-            builtins_state: TemplateEvidenceState::Complete,
+            builtins_completeness: TemplateEvidenceCompleteness::Complete,
         }
     }
 
@@ -246,9 +247,7 @@ impl TemplateBackendData {
             directories: backend
                 .dirs
                 .iter()
-                .map(|directory| match &directory.value {
-                    EvaluatedPath::Resolved(path) => TemplateDirectoryEvidence::Path(path.clone()),
-                })
+                .map(|directory| TemplateDirectorySlot::Path(directory.value.path().to_path_buf()))
                 .collect(),
             app_directories: backend.app_dirs.as_ref().map(|value| value.value),
             libraries: backend
@@ -272,22 +271,22 @@ impl TemplateBackendData {
                 .known
                 .as_ref()
                 .map(|name| name.value.clone()),
-            backend_state: TemplateEvidenceState::open_if(!backend.backend.issues.is_empty()),
+            backend_completeness: TemplateEvidenceCompleteness::open_if(
+                !backend.backend.issues.is_empty(),
+            ),
             directories: backend
                 .dirs
                 .evidence
                 .iter()
                 .map(|evidence| match evidence {
-                    PathListEvidence::Known(directory) => match &directory.value {
-                        EvaluatedPath::Resolved(path) => {
-                            TemplateDirectoryEvidence::Path(path.clone())
-                        }
-                    },
-                    PathListEvidence::Issue(_) => TemplateDirectoryEvidence::Unknown,
+                    TemplateDirectoryEvidence::Known(directory) => {
+                        TemplateDirectorySlot::Path(directory.value.path().to_path_buf())
+                    }
+                    TemplateDirectoryEvidence::Issue(_) => TemplateDirectorySlot::Unknown,
                 })
                 .collect(),
             app_directories: backend.app_dirs.known.as_ref().map(|value| value.value),
-            app_directories_state: TemplateEvidenceState::open_if(
+            app_directories_completeness: TemplateEvidenceCompleteness::open_if(
                 !backend.app_dirs.issues.is_empty(),
             ),
             libraries: backend
@@ -296,7 +295,7 @@ impl TemplateBackendData {
                 .iter()
                 .map(|(name, module)| (name.clone(), module.value.clone()))
                 .collect(),
-            libraries_state: TemplateEvidenceState::open_if(
+            libraries_completeness: TemplateEvidenceCompleteness::open_if(
                 !backend.options.issues.is_empty() || !backend.libraries.issues.is_empty(),
             ),
             builtins: backend
@@ -305,7 +304,7 @@ impl TemplateBackendData {
                 .iter()
                 .map(|module| module.value.clone())
                 .collect(),
-            builtins_state: TemplateEvidenceState::open_if(
+            builtins_completeness: TemplateEvidenceCompleteness::open_if(
                 !backend.options.issues.is_empty() || !backend.builtins.issues.is_empty(),
             ),
         }
@@ -319,24 +318,24 @@ impl TemplateBackendData {
     }
 }
 
-impl TemplateBackendConfiguration {
+impl TemplateBackendCase {
     pub(super) fn id(&self) -> TemplateBackendId {
         self.id
     }
 
-    pub(super) fn configuration(&self) -> TemplateConfigurationId {
-        self.configuration
+    pub(super) fn settings_case(&self) -> TemplateSettingsCaseId {
+        self.settings_case
     }
 
     pub(super) fn backend_name(&self) -> Option<&str> {
         self.data.backend_name.as_deref()
     }
 
-    pub(super) fn backend_state(&self) -> TemplateEvidenceState {
-        self.data.backend_state
+    pub(super) fn backend_completeness(&self) -> TemplateEvidenceCompleteness {
+        self.data.backend_completeness
     }
 
-    pub(super) fn directories(&self) -> &[TemplateDirectoryEvidence] {
+    pub(super) fn directories(&self) -> &[TemplateDirectorySlot] {
         &self.data.directories
     }
 
@@ -344,36 +343,36 @@ impl TemplateBackendConfiguration {
         self.data.app_directories
     }
 
-    pub(super) fn app_directories_state(&self) -> TemplateEvidenceState {
-        self.data.app_directories_state
+    pub(super) fn app_directories_completeness(&self) -> TemplateEvidenceCompleteness {
+        self.data.app_directories_completeness
     }
 
     pub(super) fn libraries(&self) -> &[(String, PythonModuleName)] {
         &self.data.libraries
     }
 
-    pub(super) fn libraries_state(&self) -> TemplateEvidenceState {
-        self.data.libraries_state
+    pub(super) fn libraries_completeness(&self) -> TemplateEvidenceCompleteness {
+        self.data.libraries_completeness
     }
 
     pub(super) fn builtins(&self) -> &[PythonModuleName] {
         &self.data.builtins
     }
 
-    pub(super) fn builtins_state(&self) -> TemplateEvidenceState {
-        self.data.builtins_state
+    pub(super) fn builtins_completeness(&self) -> TemplateEvidenceCompleteness {
+        self.data.builtins_completeness
     }
 }
 
 #[salsa::tracked(returns(ref))]
-pub(super) fn template_configurations(
+pub(super) fn template_settings_cases(
     db: &dyn ProjectDb,
     project: Project,
-) -> TemplateConfigurations {
+) -> TemplateSettingsCases {
     if settings_module_file(db, project).is_none() {
-        TemplateConfigurations::unavailable()
+        TemplateSettingsCases::unavailable()
     } else {
-        TemplateConfigurations::from_settings(django_settings(db, project))
+        TemplateSettingsCases::from_settings(django_settings(db, project))
     }
 }
 
@@ -383,54 +382,51 @@ mod tests {
 
     #[test]
     fn ids_are_unique_deterministic_and_parent_consistent() {
-        let first = TemplateConfigurations::for_testing(&[2, 1], false);
-        let second = TemplateConfigurations::for_testing(&[2, 1], false);
+        let first = TemplateSettingsCases::for_testing(&[2, 1], false);
+        let second = TemplateSettingsCases::for_testing(&[2, 1], false);
 
         assert_eq!(first, second);
-        let configurations = first.configurations();
-        assert_ne!(configurations[0].id(), configurations[1].id());
-        let backend_ids = configurations
+        let settings_cases = first.settings_cases();
+        assert_ne!(settings_cases[0].id(), settings_cases[1].id());
+        let backend_ids = settings_cases
             .iter()
-            .flat_map(TemplateConfiguration::backends)
-            .map(TemplateBackendConfiguration::id)
+            .flat_map(TemplateSettingsCase::backends)
+            .map(TemplateBackendCase::id)
             .collect::<Vec<_>>();
         assert_eq!(backend_ids.len(), 3);
         assert_ne!(backend_ids[0], backend_ids[1]);
         assert_ne!(backend_ids[1], backend_ids[2]);
-        for configuration in configurations {
+        for settings_case in settings_cases {
             assert!(
-                configuration
+                settings_case
                     .backends()
                     .iter()
-                    .all(|backend| backend.configuration() == configuration.id())
+                    .all(|backend| backend.settings_case() == settings_case.id())
             );
         }
     }
 
     #[test]
     fn testing_owner_exposes_ids_only_through_entries() {
-        let configurations = TemplateConfigurations::for_testing(&[1], false);
-        let configuration = &configurations.configurations()[0];
-        let backend = &configuration.backends()[0];
+        let settings_cases = TemplateSettingsCases::for_testing(&[1], false);
+        let settings_case = &settings_cases.settings_cases()[0];
+        let backend = &settings_case.backends()[0];
 
-        assert_eq!(backend.configuration(), configuration.id());
+        assert_eq!(backend.settings_case(), settings_case.id());
         assert_eq!(
-            configurations
+            settings_cases
                 .backend(backend.id())
-                .map(TemplateBackendConfiguration::id),
+                .map(TemplateBackendCase::id),
             Some(backend.id())
         );
     }
 
     #[test]
-    fn configuration_remainder_has_no_fake_backend() {
-        let configurations = TemplateConfigurations::unavailable();
-        let configuration = &configurations.configurations()[0];
+    fn settings_case_remainder_has_no_fake_backend() {
+        let settings_cases = TemplateSettingsCases::unavailable();
+        let settings_case = &settings_cases.settings_cases()[0];
 
-        assert_eq!(
-            configuration.slots(),
-            [TemplateConfigurationSlot::Remainder]
-        );
-        assert!(configuration.backends().is_empty());
+        assert_eq!(settings_case.slots(), [TemplateBackendSlot::Remainder]);
+        assert!(settings_case.backends().is_empty());
     }
 }

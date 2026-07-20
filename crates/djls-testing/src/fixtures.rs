@@ -24,7 +24,7 @@ use djls_project::SplitPosition;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
-use djls_project::TemplateLibraries;
+use djls_project::TemplateLibraryCatalog;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
@@ -67,7 +67,7 @@ pub fn library_tag(name: &str, load_name: &str, module: &str) -> serde_json::Val
     json!({
         "kind": "tag",
         "name": name,
-        "library_kind": "installed",
+        "library_kind": "loadable",
         "load_name": load_name,
         "library_module": module,
         "module": module,
@@ -92,7 +92,7 @@ pub fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::
     json!({
         "kind": "filter",
         "name": name,
-        "library_kind": "installed",
+        "library_kind": "loadable",
         "load_name": load_name,
         "library_module": module,
         "module": module,
@@ -116,7 +116,7 @@ struct TemplateSymbolFixture {
 #[serde(tag = "library_kind", rename_all = "snake_case")]
 enum TemplateSymbolLibraryFixture {
     Builtin,
-    Installed { load_name: String },
+    Loadable { load_name: String },
 }
 
 /// Build Template Library facts from JSON fixture rows.
@@ -124,15 +124,15 @@ enum TemplateSymbolLibraryFixture {
 /// # Panics
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries(
+pub fn make_template_library_catalog(
     db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
-) -> TemplateLibraries {
+) -> TemplateLibraryCatalog {
     let mut builtin_symbols = builtin_symbol_buckets(builtins);
-    let mut installed_symbols = installed_symbol_buckets(libraries);
+    let mut loadable_symbols = loadable_symbol_buckets(libraries);
 
     for fixture in tags
         .iter()
@@ -142,7 +142,7 @@ pub fn make_template_libraries(
         .collect::<Result<Vec<TemplateSymbolFixture>, _>>()
         .unwrap()
     {
-        add_fixture_symbol(fixture, &mut builtin_symbols, &mut installed_symbols);
+        add_fixture_symbol(fixture, &mut builtin_symbols, &mut loadable_symbols);
     }
 
     let mut library_inputs = Vec::new();
@@ -152,21 +152,21 @@ pub fn make_template_libraries(
             .map(|(module, symbols)| TemplateLibraryInput::Builtin { module, symbols }),
     );
     library_inputs.extend(
-        installed_symbols
+        loadable_symbols
             .into_iter()
             .map(
-                |(load_name, (module, symbols))| TemplateLibraryInput::Installed {
+                |(load_name, (module, symbols))| TemplateLibraryInput::Loadable {
                     load_name,
                     module,
                     symbols,
                 },
             ),
     );
-    testing::template_libraries(db, library_inputs)
+    testing::template_library_catalog(db, library_inputs)
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;
-type InstalledLibrarySymbolBuckets = BTreeMap<LibraryName, (PythonModuleName, Vec<TemplateSymbol>)>;
+type LoadableLibrarySymbolBuckets = BTreeMap<LibraryName, (PythonModuleName, Vec<TemplateSymbol>)>;
 
 fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
     builtins
@@ -176,9 +176,9 @@ fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
         .collect()
 }
 
-fn installed_symbol_buckets(
+fn loadable_symbol_buckets(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-) -> InstalledLibrarySymbolBuckets {
+) -> LoadableLibrarySymbolBuckets {
     let mut buckets = BTreeMap::new();
     for (load_name, module_name) in libraries {
         let Ok(load_name) = LibraryName::parse(load_name) else {
@@ -195,7 +195,7 @@ fn installed_symbol_buckets(
 fn add_fixture_symbol(
     fixture: TemplateSymbolFixture,
     builtin_symbols: &mut BuiltinSymbolBuckets,
-    installed_symbols: &mut InstalledLibrarySymbolBuckets,
+    loadable_symbols: &mut LoadableLibrarySymbolBuckets,
 ) {
     let TemplateSymbolFixture {
         kind,
@@ -221,8 +221,8 @@ fn add_fixture_symbol(
         TemplateSymbolLibraryFixture::Builtin => {
             add_builtin_symbol(builtin_symbols, &library_module, &symbol);
         }
-        TemplateSymbolLibraryFixture::Installed { load_name } => {
-            add_installed_symbol(installed_symbols, &load_name, &library_module, symbol);
+        TemplateSymbolLibraryFixture::Loadable { load_name } => {
+            add_loadable_symbol(loadable_symbols, &load_name, &library_module, symbol);
         }
     }
 }
@@ -242,8 +242,8 @@ fn add_builtin_symbol(
     }
 }
 
-fn add_installed_symbol(
-    buckets: &mut InstalledLibrarySymbolBuckets,
+fn add_loadable_symbol(
+    buckets: &mut LoadableLibrarySymbolBuckets,
     load_name: &str,
     module_name: &str,
     symbol: TemplateSymbol,
@@ -564,7 +564,7 @@ pub fn snapshot_validate_files<'a>(
     render_diagnostic_snapshot(primary_path, primary_source, &errors)
 }
 
-/// Curated validation environment for mdtest snapshots.
+/// Curated validation fixture for mdtest snapshots.
 ///
 /// This keeps diagnostic snapshots deterministic and easy to author. It is not
 /// a live Django project inspection fixture; add libraries, tags, and filters

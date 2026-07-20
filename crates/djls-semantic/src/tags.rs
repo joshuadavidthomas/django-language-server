@@ -3,12 +3,12 @@ mod specs;
 
 use std::collections::HashSet;
 
-use djls_project::ContextualLibraryStep;
 use djls_project::Project;
-use djls_project::TemplateEnvironment;
-use djls_project::TemplateLibraryKey;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::TemplateLibraryChainStep;
+use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
-use djls_project::template_environment;
+use djls_project::scoped_template_libraries;
 use djls_project::template_library_tag_facts;
 use djls_source::File;
 use djls_source::Offset;
@@ -62,11 +62,7 @@ impl LibraryTagSpecs {
 /// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
 #[salsa::tracked(returns(ref))]
 #[allow(clippy::needless_pass_by_value)]
-pub fn library_tag_specs(
-    db: &dyn Db,
-    project: Project,
-    key: TemplateLibraryKey,
-) -> LibraryTagSpecs {
+pub fn library_tag_specs(db: &dyn Db, project: Project, key: TemplateLibraryId) -> LibraryTagSpecs {
     let mut specs = builtin_tag_specs();
     specs.retain(|_, spec| spec.module() == key.module(db).as_str());
 
@@ -84,11 +80,7 @@ pub fn library_tag_specs(
 
 /// Equality-bearing configured fallback for one Template Library.
 #[salsa::tracked(returns(ref))]
-fn configured_library_tag_specs(
-    db: &dyn Db,
-    project: Project,
-    key: TemplateLibraryKey,
-) -> TagSpecs {
+fn configured_library_tag_specs(db: &dyn Db, project: Project, key: TemplateLibraryId) -> TagSpecs {
     project
         .tagspecs(db)
         .libraries
@@ -122,19 +114,19 @@ fn effective_tag_spec_in_project(
     load_state: &LoadState<'_>,
 ) -> Option<TagSpec> {
     let loaded = load_state.libraries_loading_symbol(name);
-    effective_tag_spec_from_environment(
+    effective_tag_spec_in_scope(
         db,
         project,
-        template_environment(db, project, file),
+        scoped_template_libraries(db, project, file),
         name,
         &loaded,
     )
 }
 
-pub(crate) fn effective_tag_spec_from_environment(
+pub(crate) fn effective_tag_spec_in_scope(
     db: &dyn Db,
     project: Project,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     name: &str,
     loaded: &[&str],
 ) -> Option<TagSpec> {
@@ -146,21 +138,21 @@ pub(crate) fn effective_tag_spec_from_environment(
 
     let mut agreed = None;
     let mut alternatives_agree = true;
-    environment.fold_contextual_library_chains(
+    scoped_libraries.fold_library_chains(
         loaded,
         Alternative::default,
         |alternative, step| {
-            let ContextualLibraryStep::Library(library) = step else {
+            let TemplateLibraryChainStep::Library(library) = step else {
                 alternative.unknown = true;
                 return;
             };
-            if let Some(spec) = library_tag_specs(db, project, library.key()).get(name) {
+            if let Some(spec) = library_tag_specs(db, project, library.id()).get(name) {
                 alternative.effective = Some(spec);
                 alternative.unknown = false;
             } else if library.symbol(TemplateSymbolKind::Tag, name).is_some() {
                 alternative.effective = None;
                 alternative.unknown = false;
-            } else if library.symbol_inventory_is_open()
+            } else if library.symbols_are_unobserved()
                 && !hardcoded_tag_inventory_is_complete(library.module_name_str())
             {
                 alternative.unknown = true;
@@ -256,7 +248,7 @@ fn completion_tag_specs_for_load_state(
     load_state: &LoadState<'_>,
 ) -> TagSpecs {
     let names = if let Some(project) = db.project() {
-        completion_tag_candidate_names(db, project, template_environment(db, project, file))
+        completion_tag_candidate_names(db, project, scoped_template_libraries(db, project, file))
     } else {
         db.projectless_tag_specs().keys().cloned().collect()
     };
@@ -282,15 +274,15 @@ fn hardcoded_tag_inventory_is_complete(module: &str) -> bool {
 fn completion_tag_candidate_names(
     db: &dyn Db,
     project: Project,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
 ) -> HashSet<String> {
-    let mut names: HashSet<_> = environment
+    let mut names: HashSet<_> = scoped_libraries
         .inventory_symbol_names(TemplateSymbolKind::Tag)
         .map(str::to_owned)
         .collect();
-    for library in environment.resolved_libraries() {
+    for library in scoped_libraries.resolved_libraries() {
         names.extend(
-            library_tag_specs(db, project, library.key())
+            library_tag_specs(db, project, library.id())
                 .iter()
                 .map(|(name, _spec)| name.clone()),
         );

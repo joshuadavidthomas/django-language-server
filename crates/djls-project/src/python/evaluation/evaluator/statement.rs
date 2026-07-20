@@ -12,11 +12,11 @@ use super::super::mutation::MutationTarget;
 use super::super::name_analysis::pattern_bound_names;
 use super::super::name_analysis::target_write_names;
 use super::super::truthiness::Truthiness;
-use super::Evaluator;
+use super::PythonModuleEvaluator;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 
-impl Evaluator<'_> {
+impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_body(&mut self, body: &[ast::Stmt]) {
         for stmt in body {
             self.walk_stmt(stmt);

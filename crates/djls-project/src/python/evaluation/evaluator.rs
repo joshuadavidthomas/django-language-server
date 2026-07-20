@@ -11,20 +11,20 @@ use djls_source::Span;
 use ruff_python_ast as ast;
 
 use super::BranchConstraints;
+use super::ChildImportFallback;
 use super::PythonBinding;
 use super::PythonBindingState;
-use super::PythonImportFallback;
 use super::PythonImportOutcome;
-use super::PythonModuleDependencies;
+use super::PythonImportTrace;
 use super::PythonModuleEffects;
-use super::PythonModuleValues;
+use super::PythonModuleFacts;
 use super::PythonMutation;
 use super::PythonMutationOperation;
 use super::PythonMutationPath;
 use super::PythonMutationPathSegment;
 use super::PythonNamespaceCause;
 use super::PythonNamespaceRemainder;
-use super::PythonSyntaxImpact;
+use super::PythonSyntaxErrorImpact;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
@@ -48,18 +48,14 @@ pub(super) fn evaluate_body(
     module: PythonSourceModule,
     body: &[ast::Stmt],
     syntax_errors: Vec<PythonSyntaxError>,
-    syntax_impacts: Vec<PythonSyntaxImpact>,
+    syntax_impacts: Vec<PythonSyntaxErrorImpact>,
     path_intrinsic_contamination: PathIntrinsicContamination,
-) -> (
-    PythonModuleValues,
-    PythonModuleDependencies,
-    PythonModuleEffects,
-) {
-    let state = EvaluationState::with_path_intrinsic_contamination(
+) -> (PythonModuleFacts, PythonImportTrace, PythonModuleEffects) {
+    let state = PythonEvaluationState::with_path_intrinsic_contamination(
         module.file(),
         path_intrinsic_contamination,
     );
-    let mut evaluator = Evaluator {
+    let mut evaluator = PythonModuleEvaluator {
         db,
         project,
         module,
@@ -69,12 +65,12 @@ pub(super) fn evaluate_body(
     evaluator.state.finish(syntax_errors, syntax_impacts)
 }
 
-/// Context-bearing interpreter that evaluates Python syntax into a forkable state.
-pub(super) struct Evaluator<'db> {
+/// Context-bearing abstract evaluator that evaluates Python syntax into a forkable state.
+pub(super) struct PythonModuleEvaluator<'db> {
     db: &'db dyn ProjectDb,
     project: Project,
     module: PythonSourceModule,
-    pub(super) state: EvaluationState,
+    pub(super) state: PythonEvaluationState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +80,7 @@ enum UnsupportedCallEffect {
     ReceiverAndArguments,
 }
 
-impl Evaluator<'_> {
+impl PythonModuleEvaluator<'_> {
     fn fork(&self) -> Self {
         Self {
             db: self.db,
@@ -99,7 +95,7 @@ impl Evaluator<'_> {
             .into_iter()
             .map(|evaluator| evaluator.state)
             .collect::<Vec<_>>();
-        self.state = EvaluationState::join_branches(self.state.clone(), &branches, origin);
+        self.state = PythonEvaluationState::join_branches(self.state.clone(), &branches, origin);
     }
 
     pub(super) fn origin<T: RangedExt>(&self, ranged: &T) -> Origin {
@@ -191,20 +187,20 @@ impl Evaluator<'_> {
     }
 }
 
-/// Cloneable abstract environment for context-free evaluation transitions.
+/// Cloneable abstract state for context-free evaluation transitions.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct EvaluationState {
+pub(super) struct PythonEvaluationState {
     pub(super) bindings: BTreeMap<String, PythonBinding>,
     namespace_causes: Vec<PythonNamespaceCause>,
     pub(super) mutations: UniqueVec<PythonMutation>,
-    dependencies: PythonModuleDependencies,
+    import_trace: PythonImportTrace,
     /// Private recursive-import effect state. It is never projected into
-    /// `PythonModuleValues` equality; only the complete internal result carries
+    /// `PythonModuleFacts` equality; only the complete internal result carries
     /// it out through `evaluate_python_module`.
     module_effects: PythonModuleEffects,
 }
 
-impl EvaluationState {
+impl PythonEvaluationState {
     #[cfg(test)]
     fn new(file: File) -> Self {
         Self::with_path_intrinsic_contamination(file, PathIntrinsicContamination::default())
@@ -218,7 +214,7 @@ impl EvaluationState {
             bindings: BTreeMap::new(),
             namespace_causes: Vec::new(),
             mutations: UniqueVec::new(),
-            dependencies: PythonModuleDependencies::rooted(file),
+            import_trace: PythonImportTrace::rooted(file),
             module_effects: PythonModuleEffects::with_path_intrinsic_contamination(
                 path_intrinsic_contamination,
             ),
@@ -228,14 +224,10 @@ impl EvaluationState {
     fn finish(
         self,
         syntax_errors: Vec<PythonSyntaxError>,
-        syntax_impacts: Vec<PythonSyntaxImpact>,
-    ) -> (
-        PythonModuleValues,
-        PythonModuleDependencies,
-        PythonModuleEffects,
-    ) {
+        syntax_impacts: Vec<PythonSyntaxErrorImpact>,
+    ) -> (PythonModuleFacts, PythonImportTrace, PythonModuleEffects) {
         (
-            PythonModuleValues {
+            PythonModuleFacts {
                 bindings: self.bindings,
                 namespace_remainder: (!self.namespace_causes.is_empty())
                     .then(|| PythonNamespaceRemainder::new(self.namespace_causes)),
@@ -243,7 +235,7 @@ impl EvaluationState {
                 syntax_impacts,
                 mutations: self.mutations,
             },
-            self.dependencies,
+            self.import_trace,
             self.module_effects,
         )
     }
@@ -615,12 +607,12 @@ impl EvaluationState {
                 bindings: _,
                 namespace_causes,
                 mutations,
-                dependencies,
+                import_trace,
                 module_effects,
             } = body;
             self.namespace_causes.extend(namespace_causes);
             self.mutations.extend(mutations);
-            self.dependencies.absorb(&dependencies);
+            self.import_trace.absorb(&import_trace);
             body_objects.push(module_effects);
         }
         self.module_effects.degrade_loop(body_objects, origin);
@@ -657,7 +649,7 @@ impl EvaluationState {
         }
         base.namespace_causes.clear();
         base.mutations.clear();
-        base.dependencies = PythonModuleDependencies::default();
+        base.import_trace = PythonImportTrace::default();
         for (arm, branch) in branches.iter().enumerate() {
             base.namespace_causes
                 .extend(branch.namespace_causes.iter().cloned().map(|mut cause| {
@@ -665,7 +657,7 @@ impl EvaluationState {
                     cause
                 }));
             base.mutations.extend(branch.mutations.iter().cloned());
-            base.dependencies.absorb(&branch.dependencies);
+            base.import_trace.absorb(&branch.import_trace);
         }
         let branch_effects = branches
             .iter()
@@ -730,9 +722,9 @@ mod tests {
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
-    use super::EvaluationState;
     use super::Origin;
     use super::PythonBinding;
+    use super::PythonEvaluationState;
     use super::PythonImportOutcome;
     use super::PythonMutation;
     use super::PythonMutationOperation;
@@ -753,8 +745,8 @@ mod tests {
         Origin::new(test_file(0), Span::saturating_from_parts_usize(start, 1))
     }
 
-    fn state_with_binding() -> EvaluationState {
-        let mut state = EvaluationState::new(test_file(0));
+    fn state_with_binding() -> PythonEvaluationState {
+        let mut state = PythonEvaluationState::new(test_file(0));
         let binding_origin = origin(1);
         state.bindings.insert(
             "VALUE".to_string(),
@@ -784,7 +776,7 @@ mod tests {
 
     #[test]
     fn module_valued_bindings_are_uniformly_truthy() {
-        let mut state = EvaluationState::new(test_file(0));
+        let mut state = PythonEvaluationState::new(test_file(0));
         state.bindings.insert(
             "MOD".to_string(),
             PythonBinding::bound(
@@ -888,7 +880,7 @@ mod tests {
                 PythonUnknownCause::UnsupportedExpression,
                 [origin(2)],
             )));
-        changed.dependencies.record_component(
+        changed.import_trace.record_component(
             test_file(1),
             PythonImportOutcome::NotFound {
                 origin: origin(3),
@@ -932,7 +924,7 @@ mod tests {
             origin(2),
         );
         first_body.mutations.insert(first_mutation.clone());
-        first_body.dependencies.record_file(test_file(1));
+        first_body.import_trace.record_file(test_file(1));
         first_body.namespace_causes.push(first_cause.clone());
 
         let mut second_body = base.clone();
@@ -944,15 +936,15 @@ mod tests {
         second_body
             .mutations
             .extend([later_mutation.clone(), first_mutation.clone()]);
-        second_body.dependencies.record_file(test_file(2));
-        second_body.dependencies.record_file(test_file(1));
+        second_body.import_trace.record_file(test_file(2));
+        second_body.import_trace.record_file(test_file(1));
         second_body.namespace_causes.push(second_cause.clone());
 
         let degraded = base.degrade_loop_effects(vec![first_body, second_body], loop_origin);
 
         assert_eq!(degraded.binding("VALUE"), Some(&expected_binding));
         assert_eq!(
-            degraded.dependencies.files().collect::<Vec<_>>(),
+            degraded.import_trace.files().collect::<Vec<_>>(),
             [test_file(0), test_file(1), test_file(2)]
         );
         assert_eq!(
@@ -964,7 +956,7 @@ mod tests {
 
     #[test]
     fn branch_join_preserves_first_seen_mutation_order_and_deduplicates() {
-        let base = EvaluationState::new(test_file(0));
+        let base = PythonEvaluationState::new(test_file(0));
         let first_seen = mutation(PythonMutationOperation::Extend, 2);
         let later = mutation(PythonMutationOperation::Append, 3);
         let mut first_branch = base.clone();
@@ -975,7 +967,7 @@ mod tests {
             .extend([later.clone(), first_seen.clone()]);
 
         let joined =
-            EvaluationState::join_branches(base, &[first_branch, second_branch], origin(4));
+            PythonEvaluationState::join_branches(base, &[first_branch, second_branch], origin(4));
 
         assert_eq!(joined.mutations.as_slice(), [first_seen, later]);
     }

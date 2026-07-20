@@ -8,17 +8,17 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::TagSpecDef;
 use djls_project::Db;
-use djls_project::FindTemplateResult;
 use djls_project::Interpreter;
 use djls_project::Project;
 use djls_project::PythonModuleName;
 use djls_project::PythonSourceModule;
 use djls_project::SearchPaths;
 use djls_project::TemplateName;
+use djls_project::TemplateResolutionResult;
 use djls_project::template_resolution;
 use djls_project::testing::PythonBindingAlternativeView;
 use djls_project::testing::PythonBoundValueView;
-use djls_project::testing::PythonImportErrorView;
+use djls_project::testing::PythonImportNameErrorView;
 use djls_project::testing::PythonImportOutcomeView;
 use djls_project::testing::PythonModuleEvaluationView;
 use djls_project::testing::PythonModuleView;
@@ -1159,7 +1159,7 @@ fn relative_import_cannot_escape_the_importer_package() {
             if *origin == Origin::new(
                 settings,
                 expected_span(source, source.trim_end()),
-            ) && *reason == PythonImportErrorView::TooManyDots
+            ) && *reason == PythonImportNameErrorView::TooManyDots
     ));
 }
 
@@ -1301,7 +1301,7 @@ fn missing_resolved_named_import_member_is_typed_dynamic_and_replaces_stale_bind
     assert!(setting_cases[0].get("dynamic").is_some(), "{settings:#}");
     assert!(setting_cases.iter().all(|case| case != "unset"));
     assert_eq!(
-        setting_cases[0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"],
+        setting_cases[0]["dynamic"]["evidence"][0]["issue"]["kind"],
         "dynamic_expression",
     );
 }
@@ -1565,7 +1565,8 @@ fn star_import_translates_every_typed_namespace_cause_to_the_import_site() {
         PythonUnknownCauseView::ImportNotFound(module) if module.as_str() == "missing"
     )));
     assert!(unknowns.iter().any(|unknown| {
-        unknown.cause == PythonUnknownCauseView::InvalidImport(PythonImportErrorView::TooManyDots)
+        unknown.cause
+            == PythonUnknownCauseView::InvalidImport(PythonImportNameErrorView::TooManyDots)
     }));
     assert!(unknowns.iter().all(|unknown| {
         unknown.origins.as_slice()
@@ -1605,7 +1606,7 @@ fn ambiguous_while_degrades_writes_and_retains_branch_effects() {
         "{settings:#}"
     );
     assert_eq!(
-        app_cases[1]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
+        app_cases[1]["dynamic"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
         "{settings:#}"
     );
     let file = settings_module_file(&db, project).unwrap();
@@ -5102,7 +5103,7 @@ fn python_module_evaluation_reports_invalid_import_with_typed_cause() {
         [PythonImportOutcomeView::InvalidImport { origin, reason }]
             if origin.file == settings
                 && origin.span == expected_span(source, source.trim_end())
-                && *reason == PythonImportErrorView::TooManyDots
+                && *reason == PythonImportNameErrorView::TooManyDots
     ));
     let binding = evaluation
         .binding("VALUE")
@@ -5115,7 +5116,7 @@ fn python_module_evaluation_reports_invalid_import_with_typed_cause() {
                 ..
             },
             ..
-        })] if unknown.cause == PythonUnknownCauseView::InvalidImport(PythonImportErrorView::TooManyDots)
+        })] if unknown.cause == PythonUnknownCauseView::InvalidImport(PythonImportNameErrorView::TooManyDots)
             && unknown.origins.as_slice() == [Origin::new(
                 settings,
                 expected_span(source, source.trim_end()),
@@ -5701,7 +5702,7 @@ fn canonical_unknown_origins_merge_dynamic_namespace_import_edges() {
     let dynamic_namespace_issues = cases(&settings, "/installed_apps/cases")
         .iter()
         .find_map(|case| case.get("dynamic"))
-        .expect("the open namespace should produce a dynamic settings case")["apps"]["evidence"]
+        .expect("the open namespace should produce a dynamic settings case")["evidence"]
         .as_array()
         .unwrap();
     let [evidence] = dynamic_namespace_issues.as_slice() else {
@@ -5753,7 +5754,7 @@ fn canonical_unknown_origins_import_rebase_is_exactly_local() {
     let evidence = cases(&settings, "/installed_apps/cases")
         .iter()
         .find_map(|case| case.get("dynamic"))
-        .expect("the cycle should produce dynamic setting evidence")["apps"]["evidence"]
+        .expect("the cycle should produce dynamic setting evidence")["evidence"]
         .as_array()
         .unwrap();
     assert_eq!(evidence.len(), 1, "{settings:#}");
@@ -6641,7 +6642,7 @@ fn installed_apps_dynamic_member_retains_ordered_known_fragment() {
     let settings = extract("INSTALLED_APPS = ['a', env('APP'), 'b']");
     let dynamic = &cases(&settings, "/installed_apps/cases")[0]["dynamic"];
 
-    let evidence = &dynamic["apps"]["evidence"];
+    let evidence = &dynamic["evidence"];
     assert_eq!(evidence[0]["known"]["value"], "a");
     assert_eq!(evidence[1]["issue"]["kind"], "unknown_element");
     assert_eq!(evidence[2]["known"]["value"], "b");
@@ -6724,12 +6725,12 @@ fn templates_keep_simultaneous_backends_correlated() {
     let known = &cases(&settings, "/templates/cases")[0]["known"];
 
     assert_eq!(known["backends"].as_array().unwrap().len(), 2);
-    assert_eq!(known["backends"][0]["dirs"][0]["value"]["resolved"], "/a");
-    assert_eq!(known["backends"][1]["dirs"][0]["value"]["resolved"], "/b");
+    assert_eq!(known["backends"][0]["dirs"][0]["value"], "/a");
+    assert_eq!(known["backends"][1]["dirs"][0]["value"], "/b");
 }
 
 #[test]
-fn templates_keep_mutually_exclusive_configurations_separate() {
+fn templates_keep_mutually_exclusive_settings_cases_separate() {
     let settings = extract(
         "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]",
     );
@@ -6739,7 +6740,7 @@ fn templates_keep_mutually_exclusive_configurations_separate() {
     let roots: BTreeSet<_> = cases
         .iter()
         .map(|case| {
-            case["known"]["backends"][0]["dirs"][0]["value"]["resolved"]
+            case["known"]["backends"][0]["dirs"][0]["value"]
                 .as_str()
                 .unwrap()
         })
@@ -6755,10 +6756,10 @@ fn template_field_uncertainty_does_not_erase_siblings() {
     let template_case = &cases(&settings, "/templates/cases")[0];
     assert!(template_case.get("dynamic").is_some(), "{settings:#}");
     assert!(template_case.get("malformed").is_none(), "{settings:#}");
-    let backend = &template_case["dynamic"]["templates"]["evidence"][0]["backend"];
+    let backend = &template_case["dynamic"]["evidence"][0]["backend"];
 
     assert_eq!(
-        backend["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        backend["dirs"]["evidence"][0]["known"]["value"],
         "/templates"
     );
     assert_eq!(backend["libraries"]["known"][0][0], "good");
@@ -6795,10 +6796,10 @@ fn invalid_context_processor_module_path_is_malformed() {
 
     assert!(template_case.get("malformed").is_some(), "{settings:#}");
     assert!(template_case.get("dynamic").is_none(), "{settings:#}");
-    let issues = template_case["malformed"]["templates"]["evidence"][0]["backend"]
-        ["context_processors"]["issues"]
-        .as_array()
-        .unwrap();
+    let issues =
+        template_case["malformed"]["evidence"][0]["backend"]["context_processors"]["issues"]
+            .as_array()
+            .unwrap();
     assert_eq!(issues.len(), 1, "{settings:#}");
     assert_eq!(issues[0]["kind"], "invalid_module_name");
 }
@@ -6829,8 +6830,8 @@ fn explicit_app_dirs_retains_origins_and_absence_stays_distinct() {
     let partial = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN], 'APP_DIRS': False}]",
     );
-    let app_dirs = &cases(&partial, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]["backend"]
-        ["app_dirs"]["known"];
+    let app_dirs = &cases(&partial, "/templates/cases")[0]["dynamic"]["evidence"][0]["backend"]["app_dirs"]
+        ["known"];
     assert_eq!(app_dirs["value"], false);
     assert_eq!(app_dirs["spans"].as_array().unwrap().len(), 1);
 }
@@ -6874,7 +6875,7 @@ fn dynamic_templates_preserve_backend_order_and_complete_siblings() {
     let settings = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN]}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]",
     );
-    let evidence = cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
+    let evidence = cases(&settings, "/templates/cases")[0]["dynamic"]["evidence"]
         .as_array()
         .unwrap();
     let backends = evidence
@@ -6884,11 +6885,11 @@ fn dynamic_templates_preserve_backend_order_and_complete_siblings() {
 
     assert_eq!(backends.len(), 3);
     assert_eq!(
-        backends[0]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        backends[0]["dirs"]["evidence"][0]["known"]["value"],
         "/first"
     );
     assert_eq!(
-        backends[2]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        backends[2]["dirs"]["evidence"][0]["known"]["value"],
         "/third"
     );
 }
@@ -6898,7 +6899,7 @@ fn malformed_templates_preserve_backend_order_and_complete_siblings() {
     let settings = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'DIRS': ['/broken']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]",
     );
-    let evidence = cases(&settings, "/templates/cases")[0]["malformed"]["templates"]["evidence"]
+    let evidence = cases(&settings, "/templates/cases")[0]["malformed"]["evidence"]
         .as_array()
         .unwrap();
     let backends = evidence
@@ -6908,11 +6909,11 @@ fn malformed_templates_preserve_backend_order_and_complete_siblings() {
 
     assert_eq!(backends.len(), 3);
     assert_eq!(
-        backends[0]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        backends[0]["dirs"]["evidence"][0]["known"]["value"],
         "/first"
     );
     assert_eq!(
-        backends[2]["dirs"]["evidence"][0]["known"]["value"]["resolved"],
+        backends[2]["dirs"]["evidence"][0]["known"]["value"],
         "/third"
     );
 }
@@ -6945,7 +6946,7 @@ fn duplicate_mapping_keys_use_last_exact_value() {
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': unknown, 'DIRS': ['/last']}]",
     );
     let backend = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0];
-    assert_eq!(backend["dirs"][0]["value"]["resolved"], "/last");
+    assert_eq!(backend["dirs"][0]["value"], "/last");
 }
 
 #[test]
@@ -6990,7 +6991,7 @@ fn equivalent_template_cases_merge_all_value_origins() {
 fn branch_merged_unknown_appended_to_installed_apps_retains_all_origins() {
     let source = "if FLAG:\n    APP = first_dynamic()\nelse:\n    APP = second_dynamic()\nINSTALLED_APPS = []\nINSTALLED_APPS.append(APP)";
     let settings = extract(source);
-    let evidence = cases(&settings, "/installed_apps/cases")[0]["dynamic"]["apps"]["evidence"]
+    let evidence = cases(&settings, "/installed_apps/cases")[0]["dynamic"]["evidence"]
         .as_array()
         .unwrap();
 
@@ -7019,7 +7020,7 @@ fn typed_unknowns_reach_module_name_and_path_extractors_with_all_origins() {
     ])
     .unwrap();
 
-    let backends = cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
+    let backends = cases(&settings, "/templates/cases")[0]["dynamic"]["evidence"]
         .as_array()
         .unwrap();
     let direct_dirs_issue = &backends[0]["backend"]["dirs"]["evidence"][0]["issue"];
@@ -7037,11 +7038,11 @@ fn path_collections_keep_known_paths_and_uncertainty_in_source_order() {
     let settings = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first', *UNKNOWN, '/later']}]",
     );
-    let template_evidence = &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"]
-        [0]["backend"]["dirs"]["evidence"];
-    assert_eq!(template_evidence[0]["known"]["value"]["resolved"], "/first");
+    let template_evidence = &cases(&settings, "/templates/cases")[0]["dynamic"]["evidence"][0]["backend"]
+        ["dirs"]["evidence"];
+    assert_eq!(template_evidence[0]["known"]["value"], "/first");
     assert_eq!(template_evidence[1]["issue"]["kind"], "unknown_unpack");
-    assert_eq!(template_evidence[2]["known"]["value"]["resolved"], "/later");
+    assert_eq!(template_evidence[2]["known"]["value"], "/later");
 }
 
 #[test]
@@ -7052,8 +7053,8 @@ fn exact_path_lists_preserve_duplicate_entries() {
 
     let template_dirs = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0]["dirs"];
     assert_eq!(template_dirs.as_array().unwrap().len(), 2);
-    assert_eq!(template_dirs[0]["value"]["resolved"], "/same");
-    assert_eq!(template_dirs[1]["value"]["resolved"], "/same");
+    assert_eq!(template_dirs[0]["value"], "/same");
+    assert_eq!(template_dirs[1]["value"], "/same");
 }
 
 #[test]
@@ -7107,7 +7108,7 @@ fn straight_line_unsupported_mutation_discards_stale_installed_apps() {
     assert_eq!(cases.len(), 1, "{source}");
     assert!(cases[0].get("known").is_none(), "{source}");
     assert_eq!(
-        cases[0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "unsupported_mutation",
+        cases[0]["dynamic"]["evidence"][0]["issue"]["kind"], "unsupported_mutation",
         "{source}"
     );
     assert!(!cases[0].to_string().contains("stale"), "{source}");
@@ -7131,7 +7132,7 @@ fn branch_local_unsupported_mutation_preserves_unaffected_known_alternative() {
             .is_some_and(|app| app == "kept")
     }));
     assert!(cases.iter().any(|case| {
-        case["dynamic"]["apps"]["evidence"][0]["issue"]["kind"]
+        case["dynamic"]["evidence"][0]["issue"]["kind"]
             .as_str()
             .is_some_and(|kind| kind == "unsupported_mutation")
     }));
@@ -7160,7 +7161,7 @@ fn dynamic_list_additions_preserve_known_installed_apps_prefix() {
         let cases = cases(&settings, "/installed_apps/cases");
 
         assert_eq!(cases.len(), 1, "{source}");
-        let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+        let evidence = cases[0]["dynamic"]["evidence"].as_array().unwrap();
         assert_eq!(evidence.len(), 2, "{source}");
         assert_eq!(evidence[0]["known"]["value"], "first", "{source}");
         assert_eq!(evidence[1]["issue"]["kind"], "unknown_unpack", "{source}");
@@ -7178,7 +7179,7 @@ fn binary_list_plus_string_does_not_preserve_stale_installed_apps() {
     assert_eq!(cases.len(), 1, "{source}");
     assert!(cases[0].get("known").is_none(), "{source}");
     assert_eq!(
-        cases[0]["dynamic"]["apps"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
+        cases[0]["dynamic"]["evidence"][0]["issue"]["kind"], "dynamic_expression",
         "{source}"
     );
     assert!(!cases[0].to_string().contains("stale"), "{source}");
@@ -7193,7 +7194,7 @@ fn list_augmented_add_string_preserves_prefix_and_unknown_remainder() {
     let cases = cases(&settings, "/installed_apps/cases");
 
     assert_eq!(cases.len(), 1, "{source}");
-    let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+    let evidence = cases[0]["dynamic"]["evidence"].as_array().unwrap();
     assert_eq!(evidence.len(), 2, "{source}");
     assert_eq!(evidence[0]["known"]["value"], "stale", "{source}");
     assert_eq!(evidence[1]["issue"]["kind"], "unknown_unpack", "{source}");
@@ -7402,7 +7403,7 @@ fn tuple_collection_shaped_template_settings_are_accepted() {
     let settings = extract(source);
 
     let backend = &cases(&settings, "/templates/cases")[0]["known"]["backends"][0];
-    assert_eq!(backend["dirs"][0]["value"]["resolved"], "/templates");
+    assert_eq!(backend["dirs"][0]["value"], "/templates");
     assert_eq!(
         backend["context_processors"][0],
         json!({
@@ -7463,7 +7464,7 @@ fn name_target_tuple_augmented_add_unknown_keeps_prefix() {
     let settings = extract("INSTALLED_APPS = ('alpha',)\nINSTALLED_APPS += EXTRA");
     let cases = cases(&settings, "/installed_apps/cases");
     assert_eq!(cases.len(), 1, "{settings:#}");
-    let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+    let evidence = cases[0]["dynamic"]["evidence"].as_array().unwrap();
     assert_eq!(evidence[0]["known"]["value"], "alpha");
     assert_eq!(evidence[1]["issue"]["kind"], "unknown_unpack");
 }
@@ -7602,7 +7603,7 @@ fn list_augmented_add_imprecise_and_indeterminate_sources_keep_prefix() {
         let settings = extract(&source);
         let cases = cases(&settings, "/installed_apps/cases");
         assert_eq!(cases.len(), 1, "{source}");
-        let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+        let evidence = cases[0]["dynamic"]["evidence"].as_array().unwrap();
         assert_eq!(
             evidence[0]["known"]["value"], "alpha",
             "{source}: {settings:#}"
@@ -7623,7 +7624,7 @@ fn list_extend_imprecise_and_indeterminate_sources_keep_prefix() {
         let settings = extract(&source);
         let cases = cases(&settings, "/installed_apps/cases");
         assert_eq!(cases.len(), 1, "{source}");
-        let evidence = cases[0]["dynamic"]["apps"]["evidence"].as_array().unwrap();
+        let evidence = cases[0]["dynamic"]["evidence"].as_array().unwrap();
         assert_eq!(
             evidence[0]["known"]["value"], "alpha",
             "{source}: {settings:#}"
@@ -7752,9 +7753,9 @@ fn nested_template_dirs_append_and_extend_are_supported() {
         .unwrap();
 
     assert_eq!(dirs.len(), 4);
-    assert_eq!(dirs[1]["value"]["resolved"], "/b");
-    assert_eq!(dirs[2]["value"]["resolved"], "/c");
-    assert_eq!(dirs[3]["value"]["resolved"], "/d");
+    assert_eq!(dirs[1]["value"], "/b");
+    assert_eq!(dirs[2]["value"], "/c");
+    assert_eq!(dirs[3]["value"], "/d");
 }
 
 #[test]
@@ -7769,9 +7770,9 @@ TEMPLATES[0]['DIRS'].remove('/removed')",
 
     assert_eq!(cases.len(), 1, "{settings:#}");
     assert_eq!(dirs.len(), 3, "{settings:#}");
-    assert_eq!(dirs[0]["value"]["resolved"], "/a");
-    assert_eq!(dirs[1]["value"]["resolved"], "/b");
-    assert_eq!(dirs[2]["value"]["resolved"], "/c");
+    assert_eq!(dirs[0]["value"], "/a");
+    assert_eq!(dirs[1]["value"], "/b");
+    assert_eq!(dirs[2]["value"], "/c");
 }
 
 #[test]
@@ -7785,8 +7786,8 @@ fn nested_template_dirs_mutation_updates_all_correlated_equal_lists() {
     for case in cases {
         let dirs = case["known"]["backends"][0]["dirs"].as_array().unwrap();
         assert_eq!(dirs.len(), 2, "{settings:#}");
-        assert_eq!(dirs[0]["value"]["resolved"], "/a");
-        assert_eq!(dirs[1]["value"]["resolved"], "/b");
+        assert_eq!(dirs[0]["value"], "/a");
+        assert_eq!(dirs[1]["value"], "/b");
     }
 }
 
@@ -7805,10 +7806,7 @@ fn nested_template_dirs_augmented_assignment_is_supported() {
             .len(),
         2
     );
-    assert_eq!(
-        cases[0]["known"]["backends"][0]["dirs"][1]["value"]["resolved"],
-        "/b"
-    );
+    assert_eq!(cases[0]["known"]["backends"][0]["dirs"][1]["value"], "/b");
 }
 
 #[test]
@@ -7843,7 +7841,7 @@ fn differing_branch_scalars_distribute_through_settings_collections() {
     let paths = cases(&settings, "/templates/cases")
         .iter()
         .map(|case| {
-            case["known"]["backends"][0]["dirs"][0]["value"]["resolved"]
+            case["known"]["backends"][0]["dirs"][0]["value"]
                 .as_str()
                 .unwrap()
         })
@@ -7869,7 +7867,7 @@ fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .map(|dir| dir["value"].as_str().unwrap())
                 .collect::<Vec<_>>()
         })
         .collect::<BTreeSet<_>>();
@@ -7899,7 +7897,7 @@ fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
 }
 
 #[test]
-fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
+fn repeated_branch_selected_scalar_retains_two_feasible_settings_cases() {
     let repeated = iter::repeat_n("SHARED", 7).collect::<Vec<_>>().join(", ");
     let source = format!(
         "if FLAG:\n    from one.values import SHARED\nelse:\n    from two.values import SHARED\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{repeated}]}}]"
@@ -7921,11 +7919,11 @@ fn repeated_branch_selected_scalar_retains_two_feasible_configurations() {
         .map(|case| {
             let paths = case["known"]["backends"][0]["dirs"].as_array().unwrap();
             assert_eq!(paths.len(), 7);
-            let root = paths[0]["value"]["resolved"].as_str().unwrap();
+            let root = paths[0]["value"].as_str().unwrap();
             assert!(
                 paths
                     .iter()
-                    .all(|path| path["value"]["resolved"].as_str() == Some(root))
+                    .all(|path| path["value"].as_str() == Some(root))
             );
             root
         })
@@ -7969,9 +7967,7 @@ fn typed_value_order_setting_lists_keep_cap_projection_for_reversed_input() {
     let installed_apps = cases(&overflowed, "/installed_apps/cases");
     assert_eq!(installed_apps.len(), 2, "{overflowed:#}");
     assert_eq!(installed_apps[0]["known"]["apps"][0]["value"], "shared");
-    let installed_remainder = installed_apps[1]["dynamic"]["apps"]["evidence"]
-        .as_array()
-        .unwrap();
+    let installed_remainder = installed_apps[1]["dynamic"]["evidence"].as_array().unwrap();
     assert_eq!(installed_remainder.len(), 1, "{overflowed:#}");
     assert_eq!(
         installed_remainder[0]["issue"]["kind"],
@@ -7994,9 +7990,7 @@ fn typed_value_order_setting_lists_keep_cap_projection_for_reversed_input() {
             .all(|case| case.get("known").is_some()),
         "{overflowed:#}"
     );
-    let template_remainder = templates[64]["dynamic"]["templates"]["evidence"]
-        .as_array()
-        .unwrap();
+    let template_remainder = templates[64]["dynamic"]["evidence"].as_array().unwrap();
     assert_eq!(template_remainder.len(), 1, "{overflowed:#}");
     assert_eq!(template_remainder[0]["issue"]["kind"], "dynamic_expression");
     assert_eq!(
@@ -8040,7 +8034,7 @@ fn capped_dynamic_remainder_merges_later_syntax_evidence() {
         panic!("expected one Malformed case: {settings:#}");
     };
     assert_eq!(
-        malformed["apps"]["evidence"],
+        malformed["evidence"],
         json!([
             {
                 "issue": {
@@ -8060,7 +8054,7 @@ fn capped_dynamic_remainder_merges_later_syntax_evidence() {
         panic!("expected one capped Dynamic remainder: {settings:#}");
     };
     assert_eq!(
-        remainder["apps"]["evidence"],
+        remainder["evidence"],
         json!([
             {
                 "issue": {
@@ -8086,7 +8080,7 @@ fn capped_dynamic_remainder_merges_later_syntax_evidence() {
 }
 
 #[test]
-fn two_backends_sharing_a_branch_path_keep_only_feasible_configurations() {
+fn two_backends_sharing_a_branch_path_keep_only_feasible_settings_cases() {
     let settings = extract_project(
         "if FLAG:\n    from one.values import ROOT\nelse:\n    from two.values import ROOT\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]},\n]",
         &[
@@ -8096,18 +8090,14 @@ fn two_backends_sharing_a_branch_path_keep_only_feasible_configurations() {
     )
     .2;
 
-    let configurations = cases(&settings, "/templates/cases");
-    assert_eq!(configurations.len(), 2, "{settings:#}");
-    let roots = configurations
+    let settings_cases = cases(&settings, "/templates/cases");
+    assert_eq!(settings_cases.len(), 2, "{settings:#}");
+    let roots = settings_cases
         .iter()
         .map(|case| {
             let backends = case["known"]["backends"].as_array().unwrap();
-            let first = backends[0]["dirs"][0]["value"]["resolved"]
-                .as_str()
-                .unwrap();
-            let second = backends[1]["dirs"][0]["value"]["resolved"]
-                .as_str()
-                .unwrap();
+            let first = backends[0]["dirs"][0]["value"].as_str().unwrap();
+            let second = backends[1]["dirs"][0]["value"].as_str().unwrap();
             assert_eq!(first, second, "both backends must select the same branch");
             first
         })
@@ -8146,7 +8136,7 @@ fn same_join_settings_reach_only_matching_template_winners() {
         .build(&db);
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("the two feasible settings branches have different winners");
@@ -8224,7 +8214,7 @@ fn template_backend_products_have_a_global_deterministic_64_plus_one_cap() {
             .as_array()
             .is_some_and(|backends| backends.len() == 2)
     }));
-    let remainder = &overflowed[64]["dynamic"]["templates"]["evidence"];
+    let remainder = &overflowed[64]["dynamic"]["evidence"];
     assert_eq!(remainder.as_array().unwrap().len(), 1);
     assert_eq!(remainder[0]["issue"]["kind"], "dynamic_expression");
     assert_eq!(remainder[0]["issue"]["spans"].as_array().unwrap().len(), 1);
@@ -8248,7 +8238,7 @@ fn imported_template_fields_remain_correlated_alternatives() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .map(|dir| dir["value"].as_str().unwrap())
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
@@ -8286,7 +8276,7 @@ fn imported_template_fields_remain_correlated_alternatives() {
 }
 
 #[test]
-fn equal_mixed_origin_path_lists_retain_each_original_configuration() {
+fn equal_mixed_origin_path_lists_retain_each_original_settings_case() {
     let settings = extract_project(
         "if FLAG:\n    from one.base import TEMPLATES\nelse:\n    from two.base import TEMPLATES",
         &[
@@ -8323,7 +8313,7 @@ fn equal_mixed_origin_path_lists_retain_each_original_configuration() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|dir| dir["value"]["resolved"].as_str().unwrap())
+                .map(|dir| dir["value"].as_str().unwrap())
                 .collect::<Vec<_>>()
         })
         .collect::<BTreeSet<_>>();
@@ -8337,10 +8327,7 @@ fn all_setting_families_distinguish_known_unset_dynamic_and_malformed() {
     let unset = extract("");
     let dynamic = extract("INSTALLED_APPS = unknown\nTEMPLATES = unknown");
     let malformed = extract("INSTALLED_APPS = False\nTEMPLATES = False");
-    for (pointer, payload_field) in [
-        ("/installed_apps/cases", "apps"),
-        ("/templates/cases", "templates"),
-    ] {
+    for pointer in ["/installed_apps/cases", "/templates/cases"] {
         assert!(
             cases(&known, pointer)[0].get("known").is_some(),
             "{pointer}"
@@ -8358,7 +8345,7 @@ fn all_setting_families_distinguish_known_unset_dynamic_and_malformed() {
                 .keys()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
-            [payload_field],
+            ["evidence"],
             "{pointer}"
         );
         assert_eq!(
@@ -8366,7 +8353,7 @@ fn all_setting_families_distinguish_known_unset_dynamic_and_malformed() {
                 .keys()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
-            [payload_field],
+            ["evidence"],
             "{pointer}"
         );
     }
@@ -8376,8 +8363,7 @@ fn all_setting_families_distinguish_known_unset_dynamic_and_malformed() {
 fn unknown_backend_key_weakens_prior_claim_and_later_exact_key_is_authoritative() {
     let weakened =
         extract("TEMPLATES = [{'BACKEND': 'before.backend', unknown_key: 'maybe.backend'}]");
-    let backend =
-        &cases(&weakened, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]["backend"];
+    let backend = &cases(&weakened, "/templates/cases")[0]["dynamic"]["evidence"][0]["backend"];
     assert_eq!(backend["backend"]["known"]["value"], "before.backend");
     assert_eq!(
         backend["backend"]["issues"][0]["kind"],
@@ -8387,8 +8373,7 @@ fn unknown_backend_key_weakens_prior_claim_and_later_exact_key_is_authoritative(
     let restored = extract(
         "TEMPLATES = [{'BACKEND': 'before.backend', unknown_key: 'maybe.backend', 'BACKEND': 'after.backend'}]",
     );
-    let backend =
-        &cases(&restored, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]["backend"];
+    let backend = &cases(&restored, "/templates/cases")[0]["dynamic"]["evidence"][0]["backend"];
     assert_eq!(backend["backend"]["known"]["value"], "after.backend");
     assert!(backend["backend"]["issues"].as_array().unwrap().is_empty());
 }
@@ -8398,16 +8383,16 @@ fn unknown_library_key_weakens_prior_alias_and_later_exact_key_is_authoritative(
     let weakened = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'alias': 'before.tags', unknown_key: 'maybe.tags'}}}]",
     );
-    let libraries = &cases(&weakened, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]
-        ["backend"]["libraries"];
+    let libraries =
+        &cases(&weakened, "/templates/cases")[0]["dynamic"]["evidence"][0]["backend"]["libraries"];
     assert!(libraries["known"].as_array().unwrap().is_empty());
     assert_eq!(libraries["issues"][0]["kind"], "dynamic_expression");
 
     let restored = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'alias': 'before.tags', unknown_key: 'maybe.tags', 'alias': 'after.tags'}}}]",
     );
-    let libraries = &cases(&restored, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]
-        ["backend"]["libraries"];
+    let libraries =
+        &cases(&restored, "/templates/cases")[0]["dynamic"]["evidence"][0]["backend"]["libraries"];
     assert_eq!(libraries["known"].as_array().unwrap().len(), 1);
     assert_eq!(libraries["known"][0][0], "alias");
     assert_eq!(libraries["known"][0][1]["value"], "after.tags");
@@ -8441,8 +8426,8 @@ fn canonical_unknown_origins_merge_top_level_branch_spans() {
 fn canonical_unknown_origins_project_mapping_unpack_spans() {
     let source = "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {**first()}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {**second()}}}]\n";
     let settings = extract(source);
-    let libraries = &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]
-        ["backend"]["libraries"];
+    let libraries =
+        &cases(&settings, "/templates/cases")[0]["dynamic"]["evidence"][0]["backend"]["libraries"];
     let issues = libraries["issues"]
         .as_array()
         .expect("unknown mapping unpack should produce issues");
@@ -8465,8 +8450,8 @@ fn unknown_library_unpack_removes_prior_authority_but_later_entry_wins() {
     let settings = extract(
         "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'before': 'before.tags', **unknown, 'after': 'after.tags'}}}]",
     );
-    let libraries = &cases(&settings, "/templates/cases")[0]["dynamic"]["templates"]["evidence"][0]
-        ["backend"]["libraries"];
+    let libraries =
+        &cases(&settings, "/templates/cases")[0]["dynamic"]["evidence"][0]["backend"]["libraries"];
 
     assert_eq!(libraries["known"].as_array().unwrap().len(), 1);
     assert_eq!(libraries["known"][0][0], "after");

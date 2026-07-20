@@ -14,19 +14,23 @@ use super::StructuralOrd;
 use crate::python::PythonModule;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PythonBindingCase {
+struct BindingCase {
     state: PythonBindingState,
     constraints: BranchConstraints,
 }
 
+/// Feasible bound and unbound states for one Python name.
+///
+/// Each case retains the branch constraints under which it is reachable; normalization merges
+/// equivalent values without flattening mutually exclusive worlds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonBinding {
-    cases: Vec<PythonBindingCase>,
+    cases: Vec<BindingCase>,
 }
 
 impl PythonBinding {
     pub(super) fn bound(value: PythonValue, binding_origin: Origin) -> Self {
-        Self::from_case(PythonBindingCase {
+        Self::from_case(BindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value,
                 binding_origins: [binding_origin].into_iter().collect(),
@@ -60,14 +64,14 @@ impl PythonBinding {
     }
 
     pub(super) fn unbound() -> Self {
-        Self::from_case(PythonBindingCase {
+        Self::from_case(BindingCase {
             state: PythonBindingState::Unbound,
             constraints: BranchConstraints::unconstrained(),
         })
     }
 
     pub(super) fn originless_cycle_unknown() -> Self {
-        Self::from_case(PythonBindingCase {
+        Self::from_case(BindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value: PythonValue::unknown(PythonUnknownCause::Cycle, None),
                 binding_origins: OriginSet::default(),
@@ -76,7 +80,7 @@ impl PythonBinding {
         })
     }
 
-    fn from_case(case: PythonBindingCase) -> Self {
+    fn from_case(case: BindingCase) -> Self {
         let mut binding = Self { cases: vec![case] };
         binding.normalize(None);
         binding
@@ -130,7 +134,7 @@ impl PythonBinding {
 
     pub(super) fn single_bound(&self) -> Option<&PythonBoundValue> {
         let [
-            PythonBindingCase {
+            BindingCase {
                 state: PythonBindingState::Bound(bound),
                 ..
             },
@@ -143,7 +147,7 @@ impl PythonBinding {
 
     pub(super) fn single_bound_mut(&mut self) -> Option<&mut PythonBoundValue> {
         let [
-            PythonBindingCase {
+            BindingCase {
                 state: PythonBindingState::Bound(bound),
                 ..
             },
@@ -445,9 +449,7 @@ impl PythonBinding {
                     retained.push(case);
                 }
             }
-            retained.push(PythonBindingCase::alternative_limit_remainder(
-                overflow_origins,
-            ));
+            retained.push(BindingCase::alternative_limit_remainder(overflow_origins));
             joined.cases = retained;
             joined.normalize(Some(overflow_origin));
         }
@@ -455,7 +457,7 @@ impl PythonBinding {
     }
 
     fn normalize(&mut self, operation_origin: Option<Origin>) {
-        let mut normalized = Vec::<PythonBindingCase>::new();
+        let mut normalized = Vec::<BindingCase>::new();
         for mut incoming_case in mem::take(&mut self.cases) {
             match incoming_case.state {
                 PythonBindingState::Unbound => {
@@ -488,12 +490,12 @@ impl PythonBinding {
                 }
             }
         }
-        normalized.sort_by(PythonBindingCase::structural_cmp);
+        normalized.sort_by(BindingCase::structural_cmp);
         self.cases = normalized;
     }
 }
 
-impl PythonBindingCase {
+impl BindingCase {
     fn alternative_limit_remainder(overflow_origins: OriginSet) -> Self {
         Self {
             state: PythonBindingState::Bound(PythonBoundValue {
@@ -520,7 +522,7 @@ impl PythonBindingCase {
     }
 }
 
-impl StructuralOrd for PythonBindingCase {
+impl StructuralOrd for BindingCase {
     /// Unbound precedes Bound so cap retention remains stable. Bound cases then
     /// compare complete value evidence, binding provenance, and constraints.
     fn structural_cmp(&self, other: &Self) -> Ordering {
@@ -601,10 +603,10 @@ mod tests {
     use super::super::OriginSet;
     use super::super::PythonSequenceItem;
     use super::super::PythonUnknown;
+    use super::BindingCase;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
     use super::PythonBinding;
-    use super::PythonBindingCase;
     use super::PythonBindingState;
     use super::PythonBoundValue;
     use super::PythonUnknownCause;
@@ -797,21 +799,21 @@ mod tests {
         let mut second_constraints = BranchConstraints::unconstrained();
         second_constraints.select(join, 1);
 
-        let first = PythonBindingCase {
+        let first = BindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value: PythonValue::string("same".to_string(), origin(0, 10)),
                 binding_origins: [origin(0, 10)].into_iter().collect(),
             }),
             constraints: first_constraints,
         };
-        let second = PythonBindingCase {
+        let second = BindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
                 value: PythonValue::string("same".to_string(), origin(0, 20)),
                 binding_origins: [origin(0, 20)].into_iter().collect(),
             }),
             constraints: second_constraints,
         };
-        let unbound = PythonBindingCase {
+        let unbound = BindingCase {
             state: PythonBindingState::Unbound,
             constraints: BranchConstraints::unconstrained(),
         };
@@ -914,12 +916,7 @@ mod tests {
 
         let at_limit = assert_join_laws(alternatives(64));
         assert_eq!(at_limit.alternatives().len(), 64);
-        assert!(
-            !at_limit
-                .cases
-                .iter()
-                .any(PythonBindingCase::is_limit_remainder)
-        );
+        assert!(!at_limit.cases.iter().any(BindingCase::is_limit_remainder));
         assert_eq!(MAX_EXACT_PYTHON_ALTERNATIVES, 64);
 
         let overflowed = assert_join_laws(alternatives(65));

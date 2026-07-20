@@ -11,8 +11,8 @@ use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use super::allocation::AllocationSites;
-use super::value::PythonIterable;
-use super::value::PythonIterableKnowledge;
+use super::value::Iterability;
+use super::value::Iterable;
 
 /// A concrete Python `list` value: shared sequence facts plus the constrained,
 /// non-empty allocation sites that give the list its mutable object identity.
@@ -327,25 +327,25 @@ impl SequenceFacts {
         source: &PythonValue,
         operation_origin: Origin,
     ) -> Option<()> {
-        match source.iterable_knowledge() {
-            PythonIterableKnowledge::Known(PythonIterable::Sequence(PythonSequence::List(
-                list,
-            ))) => self.extend(&list.sequence, operation_origin),
-            PythonIterableKnowledge::Known(PythonIterable::Sequence(PythonSequence::Tuple(
-                tuple,
-            ))) => self.extend(&tuple.sequence, operation_origin),
-            PythonIterableKnowledge::Known(PythonIterable::Sequence(PythonSequence::String(_))) => {
+        match source.iterability() {
+            Iterability::Known(Iterable::Sequence(PythonSequence::List(list))) => {
+                self.extend(&list.sequence, operation_origin);
+            }
+            Iterability::Known(Iterable::Sequence(PythonSequence::Tuple(tuple))) => {
+                self.extend(&tuple.sequence, operation_origin);
+            }
+            Iterability::Known(Iterable::Sequence(PythonSequence::String(_))) => {
                 self.append(&PythonSequenceItem::UnknownUnpack(
                     source.imprecise_iteration_unknown(),
                 ));
             }
-            PythonIterableKnowledge::Known(PythonIterable::MappingKeys(mapping)) => self.append(
+            Iterability::Known(Iterable::MappingKeys(mapping)) => self.append(
                 &PythonSequenceItem::UnknownUnpack(mapping.keys_iteration_unknown()),
             ),
-            PythonIterableKnowledge::Indeterminate(unknown) => {
+            Iterability::Indeterminate(unknown) => {
                 self.append(&PythonSequenceItem::UnknownUnpack(unknown));
             }
-            PythonIterableKnowledge::NotIterable => return None,
+            Iterability::NotIterable => return None,
         }
         Some(())
     }
@@ -434,7 +434,7 @@ impl SequenceFacts {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ConstrainedExactSequence {
+struct ExactSequenceAlternative {
     items: Vec<PythonSequenceItem>,
     constraints: BranchConstraints,
 }
@@ -445,7 +445,7 @@ struct SequenceAlternativeRemainder {
     constraints: BranchConstraints,
 }
 
-impl StructuralOrd for ConstrainedExactSequence {
+impl StructuralOrd for ExactSequenceAlternative {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.items
             .as_slice()
@@ -464,7 +464,7 @@ impl StructuralOrd for SequenceAlternativeRemainder {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SequenceAlternatives {
-    exact: Vec<ConstrainedExactSequence>,
+    exact: Vec<ExactSequenceAlternative>,
     remainder: Option<SequenceAlternativeRemainder>,
 }
 
@@ -492,7 +492,7 @@ impl StructuralOrd for SequenceAlternatives {
 impl SequenceAlternatives {
     fn one(items: Vec<PythonSequenceItem>) -> Self {
         Self {
-            exact: vec![ConstrainedExactSequence {
+            exact: vec![ExactSequenceAlternative {
                 items,
                 constraints: BranchConstraints::unconstrained(),
             }],
@@ -530,7 +530,7 @@ impl SequenceAlternatives {
                 }
                 let mut items = left.items.clone();
                 items.extend(right.items.clone());
-                exact.push(ConstrainedExactSequence { items, constraints });
+                exact.push(ExactSequenceAlternative { items, constraints });
             }
         }
 
@@ -650,7 +650,7 @@ impl SequenceAlternatives {
         {
             self.remainder = None;
         }
-        self.exact.sort_by(ConstrainedExactSequence::structural_cmp);
+        self.exact.sort_by(ExactSequenceAlternative::structural_cmp);
         self.exact.dedup();
 
         if self.exact.len() > MAX_EXACT_PYTHON_ALTERNATIVES {
@@ -856,7 +856,7 @@ mod tests {
 
     use super::super::PythonUnknownCause;
     use super::BranchConstraints;
-    use super::ConstrainedExactSequence;
+    use super::ExactSequenceAlternative;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
     use super::Origin;
     use super::OriginSet;
@@ -888,7 +888,7 @@ mod tests {
             alternatives: SequenceAlternatives {
                 exact: starts
                     .into_iter()
-                    .map(|start| ConstrainedExactSequence {
+                    .map(|start| ExactSequenceAlternative {
                         items: vec![str_item("same", start)],
                         constraints: BranchConstraints::unconstrained(),
                     })
@@ -911,7 +911,7 @@ mod tests {
             alternatives: SequenceAlternatives {
                 exact: starts
                     .into_iter()
-                    .map(|start| ConstrainedExactSequence {
+                    .map(|start| ExactSequenceAlternative {
                         items: vec![nested_item(start)],
                         constraints: BranchConstraints::unconstrained(),
                     })
@@ -926,7 +926,7 @@ mod tests {
         SequenceFacts {
             summary: items.clone(),
             alternatives: SequenceAlternatives {
-                exact: vec![ConstrainedExactSequence {
+                exact: vec![ExactSequenceAlternative {
                     items,
                     constraints: BranchConstraints::unconstrained(),
                 }],
@@ -1008,7 +1008,7 @@ mod tests {
         let constrained = |arm| {
             let mut constraints = BranchConstraints::unconstrained();
             constraints.select(join, arm);
-            ConstrainedExactSequence {
+            ExactSequenceAlternative {
                 items: vec![str_item("same", 1)],
                 constraints,
             }
@@ -1018,7 +1018,7 @@ mod tests {
         assert_ne!(first, second);
         assert_ne!(first.structural_cmp(&second), Ordering::Equal);
 
-        let different_evidence = ConstrainedExactSequence {
+        let different_evidence = ExactSequenceAlternative {
             items: vec![str_item("same", 2)],
             constraints: first.constraints.clone(),
         };
@@ -1287,7 +1287,7 @@ mod tests {
             SequenceFacts {
                 summary: vec![summary_item],
                 alternatives: SequenceAlternatives {
-                    exact: vec![ConstrainedExactSequence {
+                    exact: vec![ExactSequenceAlternative {
                         items: vec![exact_item],
                         constraints,
                     }],

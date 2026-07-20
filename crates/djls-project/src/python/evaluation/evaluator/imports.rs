@@ -5,16 +5,16 @@ use djls_source::File;
 use djls_source::FileReadError;
 
 use super::BranchConstraints;
-use super::EvaluationState;
-use super::Evaluator;
+use super::ChildImportFallback;
 use super::Origin;
 use super::PythonBinding;
 use super::PythonBindingState;
-use super::PythonImportFallback;
+use super::PythonEvaluationState;
 use super::PythonImportOutcome;
-use super::PythonModuleDependencies;
+use super::PythonImportTrace;
 use super::PythonModuleEffects;
-use super::PythonModuleValues;
+use super::PythonModuleEvaluator;
+use super::PythonModuleFacts;
 use super::PythonNamespaceCause;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
@@ -34,12 +34,12 @@ use crate::python::evaluation::result::CycleMembership;
 use crate::python::evaluation::result::PythonModuleEvaluation;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
+use crate::python::module::PythonImportChainFailure;
 use crate::python::module::PythonImportChainResolution;
 use crate::python::module::PythonImportRequest;
-use crate::python::module::PythonImportResolutionError;
 use crate::python::module::PythonSourceModule;
 
-impl Evaluator<'_> {
+impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_import_statement(&mut self, statement: &ast::Stmt) {
         match statement {
             ast::Stmt::Import(statement) => {
@@ -94,14 +94,14 @@ impl Evaluator<'_> {
         self.project_loaded_module_member(object, None, member, origin)
     }
 
-    /// Project a member of a module whose terminal source values may already be
-    /// available from the chain loader. Reusing those values avoids a recursive
+    /// Project a member of a module whose terminal source facts may already be
+    /// available from the chain loader. Reusing those facts avoids a recursive
     /// query while the same module is still being applied; expression reads pass
     /// `None` and use the canonical core query instead.
     fn project_loaded_module_member(
         &self,
         object: &PythonModule,
-        values: Option<&PythonModuleValues>,
+        facts: Option<&PythonModuleFacts>,
         member: &str,
         origin: Origin,
     ) -> PythonBinding {
@@ -113,9 +113,9 @@ impl Evaluator<'_> {
             .alternatives()
             .any(|state| *state == PythonBindingState::Unbound)
         {
-            let fallback = values.map_or_else(
+            let fallback = facts.map_or_else(
                 || self.project_intrinsic_source_member(object, member, origin),
-                |values| Self::project_source_member(values, member, origin),
+                |facts| Self::project_source_member(facts, member, origin),
             );
             binding = binding.replace_unbound_with(Some(fallback), origin);
         }
@@ -158,13 +158,13 @@ impl Evaluator<'_> {
                         PythonBinding::unknown(&PythonUnknownCause::Cycle, origin)
                     }
                     PythonModuleEvaluation::Evaluated(evaluated) => {
-                        let (values, _dependencies, _effects) = evaluated.into_parts();
-                        match values {
+                        let (facts, _dependencies, _effects) = evaluated.into_parts();
+                        match facts {
                             Err(error) => PythonBinding::unknown(
                                 &PythonUnknownCause::Unreadable(error),
                                 origin,
                             ),
-                            Ok(values) => Self::project_source_member(&values, member, origin),
+                            Ok(facts) => Self::project_source_member(&facts, member, origin),
                         }
                     }
                 }
@@ -174,17 +174,17 @@ impl Evaluator<'_> {
     }
 
     fn project_source_member(
-        values: &PythonModuleValues,
+        facts: &PythonModuleFacts,
         member: &str,
         origin: Origin,
     ) -> PythonBinding {
-        let mut binding = match values.bindings.get(member) {
+        let mut binding = match facts.bindings.get(member) {
             Some(imported) => imported.clone().rebase_binding_origin(origin),
             None => PythonBinding::unbound(),
         };
         binding.rebase_cycle_unknowns(origin);
 
-        if let Some(remainder) = &values.namespace_remainder {
+        if let Some(remainder) = &facts.namespace_remainder {
             let unbound_constraints = binding
                 .alternatives_with_constraints()
                 .filter_map(|(alternative, constraints)| {
@@ -205,7 +205,7 @@ impl Evaluator<'_> {
             }
         }
 
-        let syntax_errors = values
+        let syntax_errors = facts
             .syntax_impacts
             .iter()
             .filter(|impact| impact.affects(member))
@@ -238,7 +238,7 @@ impl Evaluator<'_> {
         match PythonSourceModule::resolve_import_chain(self.db, self.project, request) {
             Err(error) => {
                 self.state
-                    .dependencies
+                    .import_trace
                     .record_outcome(PythonImportOutcome::InvalidImport {
                         origin: clause_origin,
                         reason: error.clone(),
@@ -272,7 +272,7 @@ impl Evaluator<'_> {
         binding_origin: Origin,
     ) {
         if load.entirely_external
-            && matches!(&load.leaf, ChainOutcome::External { .. })
+            && matches!(&load.leaf, ImportChainTerminal::External { .. })
             && let Some(intrinsic) =
                 PythonPathIntrinsic::from_direct_import(clause.requested(), clause.binds_root())
         {
@@ -282,14 +282,14 @@ impl Evaluator<'_> {
         }
 
         if load.root.is_none()
-            && let ChainOutcome::NotFound { module } = &load.leaf
+            && let ImportChainTerminal::NotFound { module } = &load.leaf
             && let Some(intrinsic) =
                 PythonPathIntrinsic::from_direct_import(clause.requested(), clause.binds_root())
         {
             let external = PythonModuleName::parse(clause.requested())
                 .expect("a lowered direct import has a valid absolute module name");
             self.state
-                .dependencies
+                .import_trace
                 .recognize_external_intrinsic(module, external);
             self.state
                 .assign_path_intrinsic(clause.bound(), intrinsic, binding_origin);
@@ -332,7 +332,7 @@ impl Evaluator<'_> {
     /// Evaluate a `from ... import ...` statement through the shared chain, then
     /// apply named or star selection against the loaded terminal object.
     fn evaluate_from_import(&mut self, statement: &ast::StmtImportFrom) {
-        let import = FromImport::lower(self, statement);
+        let import = LoweredFromImport::lower(self, statement);
         let request = PythonImportRequest {
             level: import.level,
             module: import.module,
@@ -341,7 +341,7 @@ impl Evaluator<'_> {
         match PythonSourceModule::resolve_import_chain(self.db, self.project, request) {
             Err(error) => {
                 self.state
-                    .dependencies
+                    .import_trace
                     .record_outcome(PythonImportOutcome::InvalidImport {
                         origin: import.origin,
                         reason: error.clone(),
@@ -355,23 +355,24 @@ impl Evaluator<'_> {
                 let no_loaded_prefix = load.root.is_none();
                 let entirely_external = load.entirely_external;
                 match load.leaf {
-                    ChainOutcome::Source { object, values } => self.apply_from_selection(
+                    ImportChainTerminal::Source { object, facts } => self.apply_from_selection(
                         &import,
                         FromImportSource {
                             object: &object,
-                            values: Some(&values),
+                            facts: Some(&facts),
                         },
                     ),
-                    ChainOutcome::Namespace { object } | ChainOutcome::Cycle { object } => {
+                    ImportChainTerminal::Namespace { object }
+                    | ImportChainTerminal::Cycle { object } => {
                         self.apply_from_selection(
                             &import,
                             FromImportSource {
                                 object: &object,
-                                values: None,
+                                facts: None,
                             },
                         );
                     }
-                    ChainOutcome::External { object: _, module }
+                    ImportChainTerminal::External { object: _, module }
                         if entirely_external
                             && PythonPathIntrinsic::is_known_external_module(
                                 import.level,
@@ -380,14 +381,14 @@ impl Evaluator<'_> {
                     {
                         self.apply_known_external_selection(&import, &module);
                     }
-                    ChainOutcome::External { object, .. } => self.apply_from_selection(
+                    ImportChainTerminal::External { object, .. } => self.apply_from_selection(
                         &import,
                         FromImportSource {
                             object: &object,
-                            values: None,
+                            facts: None,
                         },
                     ),
-                    ChainOutcome::NotFound { module } => {
+                    ImportChainTerminal::NotFound { module } => {
                         let intrinsic = no_loaded_prefix
                             && self.apply_intrinsic_from_not_found(&import, &module, &name);
                         if !intrinsic {
@@ -397,7 +398,7 @@ impl Evaluator<'_> {
                             );
                         }
                     }
-                    ChainOutcome::Unreadable { error, .. } => self
+                    ImportChainTerminal::Unreadable { error, .. } => self
                         .state
                         .apply_from_failure(&import, &PythonUnknownCause::Unreadable(error)),
                 }
@@ -407,7 +408,7 @@ impl Evaluator<'_> {
 
     fn apply_intrinsic_from_not_found(
         &mut self,
-        import: &FromImport<'_>,
+        import: &LoweredFromImport<'_>,
         missing: &PythonModuleName,
         external: &PythonModuleName,
     ) -> bool {
@@ -416,7 +417,7 @@ impl Evaluator<'_> {
         }
 
         self.state
-            .dependencies
+            .import_trace
             .recognize_external_intrinsic(missing, external.clone());
         self.apply_known_external_selection(import, external);
         true
@@ -424,13 +425,13 @@ impl Evaluator<'_> {
 
     fn apply_known_external_selection(
         &mut self,
-        import: &FromImport<'_>,
+        import: &LoweredFromImport<'_>,
         external: &PythonModuleName,
     ) {
         let external_cause = PythonUnknownCause::SkippedExternal(external.clone());
         match &import.selection {
-            ImportSelection::Star => self.state.apply_from_failure(import, &external_cause),
-            ImportSelection::Named(bindings) => {
+            FromImportSelection::Star => self.state.apply_from_failure(import, &external_cause),
+            FromImportSelection::Named(bindings) => {
                 for imported in bindings {
                     match PythonPathIntrinsic::from_named_import(
                         import.level,
@@ -454,10 +455,14 @@ impl Evaluator<'_> {
         }
     }
 
-    fn apply_from_selection(&mut self, import: &FromImport<'_>, source: FromImportSource<'_>) {
+    fn apply_from_selection(
+        &mut self,
+        import: &LoweredFromImport<'_>,
+        source: FromImportSource<'_>,
+    ) {
         match &import.selection {
-            ImportSelection::Star => self.apply_star_from_selection(source, import.origin),
-            ImportSelection::Named(bindings) => {
+            FromImportSelection::Star => self.apply_star_from_selection(source, import.origin),
+            FromImportSelection::Named(bindings) => {
                 for imported in bindings {
                     let binding = self.project_import_member(
                         source,
@@ -468,9 +473,9 @@ impl Evaluator<'_> {
                     );
                     self.state
                         .assign_binding(imported.bound, binding, imported.origin);
-                    if let Some(values) = source.values {
+                    if let Some(facts) = source.facts {
                         self.state.copy_imported_mutations(
-                            values,
+                            facts,
                             imported.imported,
                             imported.bound,
                             None,
@@ -493,7 +498,7 @@ impl Evaluator<'_> {
         mode: ImportMemberMode<'_>,
     ) -> PythonBinding {
         let projected =
-            self.project_loaded_module_member(source.object, source.values, member, binding_origin);
+            self.project_loaded_module_member(source.object, source.facts, member, binding_origin);
         let (selected, preserved) = match mode {
             ImportMemberMode::Named => (None, None),
             ImportMemberMode::Star {
@@ -508,7 +513,7 @@ impl Evaluator<'_> {
             .unwrap_or_else(PythonBinding::unbound);
 
         if source.object.is_package()
-            && let Some(fallback_policy) = PythonImportFallback::new(&binding, preserved)
+            && let Some(fallback_policy) = ChildImportFallback::new(&binding, preserved)
             && let Some(child_name) = source.object.name().exact_child(member)
         {
             let request = PythonImportRequest {
@@ -529,10 +534,10 @@ impl Evaluator<'_> {
                 },
             );
             let fallback = match child.leaf {
-                ChainOutcome::Source { object, .. }
-                | ChainOutcome::Namespace { object }
-                | ChainOutcome::Cycle { object }
-                | ChainOutcome::External { object, .. }
+                ImportChainTerminal::Source { object, .. }
+                | ImportChainTerminal::Namespace { object }
+                | ImportChainTerminal::Cycle { object }
+                | ImportChainTerminal::External { object, .. }
                     if child.leaf_reached =>
                 {
                     Some(PythonBinding::bound(
@@ -540,15 +545,15 @@ impl Evaluator<'_> {
                         binding_origin,
                     ))
                 }
-                ChainOutcome::Unreadable { error } => Some(PythonBinding::unknown(
+                ImportChainTerminal::Unreadable { error } => Some(PythonBinding::unknown(
                     &PythonUnknownCause::Unreadable(error),
                     binding_origin,
                 )),
-                ChainOutcome::NotFound { .. }
-                | ChainOutcome::Source { .. }
-                | ChainOutcome::Namespace { .. }
-                | ChainOutcome::Cycle { .. }
-                | ChainOutcome::External { .. } => None,
+                ImportChainTerminal::NotFound { .. }
+                | ImportChainTerminal::Source { .. }
+                | ImportChainTerminal::Namespace { .. }
+                | ImportChainTerminal::Cycle { .. }
+                | ImportChainTerminal::External { .. } => None,
             };
             if let Some(fallback) = fallback {
                 binding = binding
@@ -574,16 +579,16 @@ impl Evaluator<'_> {
     fn apply_star_from_selection(&mut self, source: FromImportSource<'_>, import_origin: Origin) {
         let all = self.project_loaded_module_member(
             source.object,
-            source.values,
+            source.facts,
             "__all__",
             import_origin,
         );
         let alternatives = classify_star_all(&all);
         let caller_bindings = self.state.bindings.clone();
         let current_names = source
-            .values
+            .facts
             .into_iter()
-            .flat_map(|values| values.bindings.keys().map(String::as_str))
+            .flat_map(|facts| facts.bindings.keys().map(String::as_str))
             .chain(self.state.module_effects.child_names(source.object))
             .map(str::to_string)
             .collect::<BTreeSet<_>>();
@@ -680,7 +685,7 @@ impl Evaluator<'_> {
         }
         if let Some(constraints) = &paths.absent
             && let Some(projected) = self
-                .project_loaded_module_member(source.object, source.values, name, origin)
+                .project_loaded_module_member(source.object, source.facts, name, origin)
                 .intersect_constraints(constraints)
         {
             absent_preserves_prior = projected
@@ -692,7 +697,7 @@ impl Evaluator<'_> {
         }
         if let Some(constraints) = &paths.dynamic {
             if let Some(projected) = self
-                .project_loaded_module_member(source.object, source.values, name, origin)
+                .project_loaded_module_member(source.object, source.facts, name, origin)
                 .intersect_constraints(constraints)
             {
                 join_star_binding(&mut joined, projected, origin);
@@ -724,11 +729,11 @@ impl Evaluator<'_> {
                 .mutations
                 .retain(|mutation| mutation.binding != name);
         }
-        if let Some(values) = source.values
+        if let Some(facts) = source.facts
             && let Some(selected_imported) = selected_imported.as_ref()
         {
             self.state
-                .copy_imported_mutations(values, name, name, Some(selected_imported));
+                .copy_imported_mutations(facts, name, name, Some(selected_imported));
         }
     }
 
@@ -783,7 +788,7 @@ impl Evaluator<'_> {
                     progress.parent = Some(object.clone());
                     if is_last {
                         progress.leaf_reached = true;
-                        progress.terminal = Some(ChainOutcome::Namespace { object });
+                        progress.terminal = Some(ImportChainTerminal::Namespace { object });
                     }
                 }
                 PythonModule::Source(module) if !module.search_path().is_project_code() => {
@@ -801,7 +806,7 @@ impl Evaluator<'_> {
                     progress.parent = Some(object.clone());
                     if is_last {
                         progress.leaf_reached = true;
-                        progress.terminal = Some(ChainOutcome::External {
+                        progress.terminal = Some(ImportChainTerminal::External {
                             object,
                             module: name.clone(),
                         });
@@ -868,7 +873,7 @@ impl Evaluator<'_> {
         progress.parent = Some(object.clone());
         if is_last {
             progress.leaf_reached = true;
-            progress.terminal = Some(ChainOutcome::External {
+            progress.terminal = Some(ImportChainTerminal::External {
                 object,
                 module: name.clone(),
             });
@@ -883,7 +888,7 @@ impl Evaluator<'_> {
     ) {
         if !progress.external_outcome_recorded {
             self.state
-                .dependencies
+                .import_trace
                 .record_outcome(PythonImportOutcome::SkippedExternal {
                     origin,
                     module: name.clone(),
@@ -904,7 +909,7 @@ impl Evaluator<'_> {
         progress: &mut ChainLoadProgress,
     ) -> bool {
         match self.evaluate_source_component(module, origin) {
-            SourceComponent::Cycle => {
+            SourceComponentEvaluation::Cycle => {
                 self.state.attach_component(
                     progress.parent.as_ref(),
                     attribute,
@@ -919,15 +924,15 @@ impl Evaluator<'_> {
                 );
                 progress.root.get_or_insert_with(|| object.clone());
                 progress.leaf_reached = is_last;
-                progress.terminal = Some(ChainOutcome::Cycle { object });
+                progress.terminal = Some(ImportChainTerminal::Cycle { object });
                 true
             }
-            SourceComponent::Unreadable(error) => {
+            SourceComponentEvaluation::Unreadable(error) => {
                 progress.leaf_reached = is_last;
-                progress.terminal = Some(ChainOutcome::Unreadable { error });
+                progress.terminal = Some(ImportChainTerminal::Unreadable { error });
                 true
             }
-            SourceComponent::Evaluated(values, effects) => {
+            SourceComponentEvaluation::Evaluated(facts, effects) => {
                 self.state.module_effects_merge(
                     effects,
                     origin,
@@ -944,7 +949,7 @@ impl Evaluator<'_> {
                 progress.parent = Some(object.clone());
                 if is_last {
                     progress.leaf_reached = true;
-                    progress.terminal = Some(ChainOutcome::Source { object, values });
+                    progress.terminal = Some(ImportChainTerminal::Source { object, facts });
                 }
                 false
             }
@@ -955,21 +960,21 @@ impl Evaluator<'_> {
     /// terminal, returning the not-found classification.
     fn record_chain_not_found(
         &mut self,
-        failure: Option<PythonImportResolutionError>,
+        failure: Option<PythonImportChainFailure>,
         name: &PythonModuleName,
         origin: Origin,
-    ) -> ChainOutcome {
+    ) -> ImportChainTerminal {
         let module = match failure {
-            Some(PythonImportResolutionError::NotFound(module)) => module,
-            Some(PythonImportResolutionError::Invalid(_)) | None => name.clone(),
+            Some(PythonImportChainFailure::NotFound(module)) => module,
+            Some(PythonImportChainFailure::Invalid(_)) | None => name.clone(),
         };
         self.state
-            .dependencies
+            .import_trace
             .record_outcome(PythonImportOutcome::NotFound {
                 origin,
                 module: module.clone(),
             });
-        ChainOutcome::NotFound { module }
+        ImportChainTerminal::NotFound { module }
     }
 
     /// Whether `module` is exactly the importer's own file. Only the importer's
@@ -989,7 +994,7 @@ impl Evaluator<'_> {
         &mut self,
         module: &PythonSourceModule,
         origin: Origin,
-    ) -> SourceComponent {
+    ) -> SourceComponentEvaluation {
         let edge = PythonImportEdge {
             origin,
             importer: self.module.clone(),
@@ -1015,33 +1020,33 @@ impl Evaluator<'_> {
                         },
                     },
                 );
-                SourceComponent::Cycle
+                SourceComponentEvaluation::Cycle
             }
             PythonModuleEvaluation::Evaluated(evaluated) => {
-                let (values, dependencies, effects) = evaluated.into_parts();
-                match values {
-                    Ok(values) => {
+                let (facts, import_trace, effects) = evaluated.into_parts();
+                match facts {
+                    Ok(facts) => {
                         let status = PythonImportEvaluationStatus::from_syntax_errors(
-                            values.syntax_errors.clone(),
+                            facts.syntax_errors.clone(),
                             CycleMembership::Acyclic,
                         );
                         self.state.record_component_edge(
                             module.file(),
-                            Some(&dependencies),
+                            Some(&import_trace),
                             PythonImportOutcome::Evaluated { edge, status },
                         );
-                        SourceComponent::Evaluated(values, effects)
+                        SourceComponentEvaluation::Evaluated(facts, effects)
                     }
                     Err(error) => {
                         self.state.record_component_edge(
                             module.file(),
-                            Some(&dependencies),
+                            Some(&import_trace),
                             PythonImportOutcome::Unreadable {
                                 edge,
                                 error: error.clone(),
                             },
                         );
-                        SourceComponent::Unreadable(error)
+                        SourceComponentEvaluation::Unreadable(error)
                     }
                 }
             }
@@ -1306,18 +1311,18 @@ fn component_identity(component: &PythonModule) -> (String, PythonModule) {
 }
 
 /// One component's evaluation classification, returned to the chain walker.
-enum SourceComponent {
-    Evaluated(PythonModuleValues, PythonModuleEffects),
+enum SourceComponentEvaluation {
+    Evaluated(PythonModuleFacts, PythonModuleEffects),
     Cycle,
     Unreadable(FileReadError),
 }
 
 /// The terminal classification of a loaded chain, used for direct-import
 /// binding and from-import member selection.
-enum ChainOutcome {
+enum ImportChainTerminal {
     Source {
         object: PythonModule,
-        values: PythonModuleValues,
+        facts: PythonModuleFacts,
     },
     Namespace {
         object: PythonModule,
@@ -1337,7 +1342,7 @@ enum ChainOutcome {
     },
 }
 
-impl ChainOutcome {
+impl ImportChainTerminal {
     /// The bindable module object for a direct import, if the terminal resolved
     /// to a module identity. Hard failures have no object.
     fn object(&self) -> Option<PythonModule> {
@@ -1378,12 +1383,12 @@ enum ChainLoadMode<'a> {
     Full,
     ChildFallback {
         parent: &'a PythonModule,
-        fallback: &'a PythonImportFallback,
+        fallback: &'a ChildImportFallback,
     },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum ChainDomain {
+enum ImportChainDomain {
     #[default]
     Empty,
     Project,
@@ -1391,7 +1396,7 @@ enum ChainDomain {
     ProjectExternal,
 }
 
-impl ChainDomain {
+impl ImportChainDomain {
     fn note_project(&mut self) {
         *self = match self {
             Self::Empty => Self::Project,
@@ -1421,11 +1426,11 @@ impl ChainDomain {
 struct ChainLoadProgress {
     root: Option<PythonModule>,
     parent: Option<PythonModule>,
-    terminal: Option<ChainOutcome>,
-    terminal_fallback: Option<PythonImportFallback>,
+    terminal: Option<ImportChainTerminal>,
+    terminal_fallback: Option<ChildImportFallback>,
     leaf_reached: bool,
     external_outcome_recorded: bool,
-    domain: ChainDomain,
+    domain: ImportChainDomain,
 }
 
 impl ChainLoadProgress {
@@ -1447,15 +1452,15 @@ impl ChainLoadProgress {
                 parent,
                 PythonModule::Source(module) if !module.search_path().is_project_code()
             ) {
-                ChainDomain::ExternalOnly
+                ImportChainDomain::ExternalOnly
             } else {
-                ChainDomain::Project
+                ImportChainDomain::Project
             },
             ..Self::default()
         }
     }
 
-    fn terminal_fallback(&self, is_last: bool) -> Option<&PythonImportFallback> {
+    fn terminal_fallback(&self, is_last: bool) -> Option<&ChildImportFallback> {
         is_last.then_some(self.terminal_fallback.as_ref()).flatten()
     }
 }
@@ -1464,7 +1469,7 @@ impl ChainLoadProgress {
 /// direct imports) and the terminal classification.
 struct ChainLoad {
     root: Option<PythonModule>,
-    leaf: ChainOutcome,
+    leaf: ImportChainTerminal,
     /// Whether the full requested leaf component was actually reached. A chain
     /// broken by an intermediate cycle or failure reaches a terminal that is not
     /// the requested leaf, so an aliased import that targets the leaf must bind a
@@ -1476,7 +1481,7 @@ struct ChainLoad {
 #[derive(Clone, Copy)]
 struct FromImportSource<'a> {
     object: &'a PythonModule,
-    values: Option<&'a PythonModuleValues>,
+    facts: Option<&'a PythonModuleFacts>,
 }
 
 #[derive(Clone, Copy)]
@@ -1488,20 +1493,20 @@ enum ImportMemberMode<'a> {
     },
 }
 
-struct FromImport<'ast> {
+struct LoweredFromImport<'ast> {
     origin: Origin,
     level: u32,
     module: Option<&'ast str>,
-    selection: ImportSelection<'ast>,
+    selection: FromImportSelection<'ast>,
 }
 
-impl<'ast> FromImport<'ast> {
-    fn lower(evaluator: &Evaluator<'_>, statement: &'ast ast::StmtImportFrom) -> Self {
+impl<'ast> LoweredFromImport<'ast> {
+    fn lower(evaluator: &PythonModuleEvaluator<'_>, statement: &'ast ast::StmtImportFrom) -> Self {
         let syntax = FromImportSyntax::lower(statement);
         let selection = if syntax.has_star() {
-            ImportSelection::Star
+            FromImportSelection::Star
         } else {
-            ImportSelection::Named(
+            FromImportSelection::Named(
                 syntax
                     .named_members()
                     .iter()
@@ -1522,7 +1527,7 @@ impl<'ast> FromImport<'ast> {
     }
 }
 
-enum ImportSelection<'ast> {
+enum FromImportSelection<'ast> {
     Star,
     Named(Vec<ImportedBinding<'ast>>),
 }
@@ -1533,20 +1538,20 @@ struct ImportedBinding<'ast> {
     origin: Origin,
 }
 
-impl EvaluationState {
+impl PythonEvaluationState {
     /// Record one evaluated/unreadable source component: its dependency file,
-    /// absorbed transitive dependencies, and its import outcome.
+    /// absorbed transitive import trace, and its import outcome.
     fn record_component_edge(
         &mut self,
         file: File,
-        dependencies: Option<&PythonModuleDependencies>,
+        import_trace: Option<&PythonImportTrace>,
         outcome: PythonImportOutcome,
     ) {
         // Record the immediate component's file and outcome in first-seen
-        // root-to-leaf order *before* absorbing its transitive dependencies, so
+        // root-to-leaf order *before* absorbing its transitive import trace, so
         // the directly-imported edge precedes anything it pulls in.
-        self.dependencies
-            .record_component(file, outcome, dependencies);
+        self.import_trace
+            .record_component(file, outcome, import_trace);
     }
 
     /// Attach a successfully-loaded component under its parent object, if any.
@@ -1557,7 +1562,7 @@ impl EvaluationState {
         attribute: &str,
         object: &PythonModule,
         origin: Origin,
-        fallback: Option<&PythonImportFallback>,
+        fallback: Option<&ChildImportFallback>,
     ) {
         if let Some(parent) = parent {
             if let Some(fallback) = fallback {
@@ -1589,7 +1594,7 @@ impl EvaluationState {
         object: &PythonModule,
         module: &PythonModuleName,
         origin: Origin,
-        fallback: Option<&PythonImportFallback>,
+        fallback: Option<&ChildImportFallback>,
     ) {
         self.attach_component(parent, attribute, object, origin, fallback);
         let unknown = PythonUnknown::new(
@@ -1606,7 +1611,7 @@ impl EvaluationState {
         &mut self,
         object: &PythonModule,
         origin: Origin,
-        fallback: Option<&PythonImportFallback>,
+        fallback: Option<&ChildImportFallback>,
     ) {
         let unknown = PythonUnknown::new(PythonUnknownCause::Cycle, [origin]);
         let cause = Self::object_cause(unknown, fallback);
@@ -1615,7 +1620,7 @@ impl EvaluationState {
 
     fn object_cause(
         unknown: PythonUnknown,
-        fallback: Option<&PythonImportFallback>,
+        fallback: Option<&ChildImportFallback>,
     ) -> PythonNamespaceCause {
         match fallback {
             Some(fallback) => {
@@ -1632,7 +1637,7 @@ impl EvaluationState {
         &mut self,
         effects: PythonModuleEffects,
         origin: Origin,
-        fallback: Option<&PythonImportFallback>,
+        fallback: Option<&ChildImportFallback>,
     ) {
         if let Some(fallback) = fallback {
             self.module_effects
@@ -1645,9 +1650,9 @@ impl EvaluationState {
     /// Translate a source-chain failure through the existing named/star failure
     /// policy. The failure's import outcome was already recorded by the loader
     /// (or the invalid-import caller); this only rebinds selected members.
-    fn apply_from_failure(&mut self, import: &FromImport<'_>, cause: &PythonUnknownCause) {
+    fn apply_from_failure(&mut self, import: &LoweredFromImport<'_>, cause: &PythonUnknownCause) {
         match &import.selection {
-            ImportSelection::Star => {
+            FromImportSelection::Star => {
                 self.degrade_all_bindings(
                     cause,
                     import.origin,
@@ -1659,7 +1664,7 @@ impl EvaluationState {
                         [import.origin],
                     )));
             }
-            ImportSelection::Named(bindings) => {
+            FromImportSelection::Named(bindings) => {
                 for binding in bindings {
                     self.bind_unknown(binding.bound, cause, import.origin);
                 }
@@ -1669,13 +1674,13 @@ impl EvaluationState {
 
     fn copy_imported_mutations(
         &mut self,
-        values: &PythonModuleValues,
+        facts: &PythonModuleFacts,
         imported_name: &str,
         bound_name: &str,
         selected: Option<&PythonBinding>,
     ) {
         self.mutations.extend(
-            values
+            facts
                 .mutations
                 .iter()
                 .filter(|mutation| {

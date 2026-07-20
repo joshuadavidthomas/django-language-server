@@ -6,9 +6,9 @@
 //! 5. Rank candidates by relevance.
 //! 6. Convert candidates into an LSP completion response using client/session facts.
 
-use djls_project::EnvironmentSymbolLookup;
 use djls_project::LoadableLibraryLookup;
-use djls_project::TemplateEnvironment;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::ScopedTemplateSymbolLookup;
 use djls_project::TemplateLibrary;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
@@ -21,10 +21,10 @@ use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::effective_symbol_candidate_at;
+use djls_semantic::scoped_template_libraries_for_file;
 use djls_semantic::tag_spec_at;
 use djls_semantic::tag_specs_at;
 use djls_semantic::tag_specs_for_file;
-use djls_semantic::template_environment_for_file;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::Offset;
@@ -514,7 +514,7 @@ pub fn completion(
             needs_leading_space,
             close,
         }) => {
-            let environment = template_environment_for_file(db, file);
+            let scoped_libraries = scoped_template_libraries_for_file(db, file);
             let nodelist = parsed_nodelist(db, file);
             let tag_specs = nodelist.map_or_else(
                 || tag_specs_for_file(db, file),
@@ -525,7 +525,7 @@ pub fn completion(
                 file,
                 nodelist,
                 offset,
-                environment,
+                scoped_libraries,
                 TagNameCandidateInput {
                     prefix,
                     needs_leading_space: *needs_leading_space,
@@ -587,7 +587,7 @@ pub fn completion(
                 == Some(TagRole::TemplateLibraryLoader)
             {
                 generate_library_name_candidates(
-                    template_environment_for_file(db, file),
+                    scoped_template_libraries_for_file(db, file),
                     prefix,
                     suffix,
                     *close,
@@ -610,7 +610,7 @@ pub fn completion(
                     suffix,
                     *library,
                     *needs_trailing_space,
-                    template_environment_for_file(db, file),
+                    scoped_template_libraries_for_file(db, file),
                 )
             } else {
                 Vec::new()
@@ -622,7 +622,7 @@ pub fn completion(
                 file,
                 parsed_nodelist(db, file),
                 offset,
-                template_environment_for_file(db, file),
+                scoped_template_libraries_for_file(db, file),
                 prefix,
             )
         }
@@ -676,12 +676,12 @@ fn completion_symbol_candidates(
     file: File,
     nodelist: Option<NodeList<'_>>,
     offset: Offset,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     name: &str,
     kind: TemplateSymbolKind,
 ) -> Vec<TemplateSymbolCandidate> {
     nodelist.map_or_else(
-        || environment.contextual_symbol_candidates(name, kind),
+        || scoped_libraries.scoped_symbol_candidates(name, kind),
         |nodelist| {
             effective_symbol_candidate_at(db, file, nodelist, offset.get(), name, kind)
                 .into_iter()
@@ -690,14 +690,14 @@ fn completion_symbol_candidates(
     )
 }
 
-fn environment_has_definite_symbols(
-    environment: TemplateEnvironment<'_>,
+fn scope_has_definite_symbols(
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     kind: TemplateSymbolKind,
 ) -> bool {
-    environment.inventory_symbol_names(kind).any(|name| {
+    scoped_libraries.inventory_symbol_names(kind).any(|name| {
         matches!(
-            environment.symbol(name, kind),
-            EnvironmentSymbolLookup::Builtin | EnvironmentSymbolLookup::RequiresLoad(_)
+            scoped_libraries.symbol(name, kind),
+            ScopedTemplateSymbolLookup::Builtin | ScopedTemplateSymbolLookup::RequiresLoad(_)
         )
     })
 }
@@ -707,7 +707,7 @@ fn generate_tag_name_candidates(
     file: File,
     nodelist: Option<NodeList<'_>>,
     offset: Offset,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     input: TagNameCandidateInput<'_>,
 ) -> Vec<CompletionCandidate> {
     let TagNameCandidateInput {
@@ -738,7 +738,7 @@ fn generate_tag_name_candidates(
     }
 
     let contextual_candidate_start = candidates.len();
-    for name in environment
+    for name in scoped_libraries
         .inventory_symbol_names(TemplateSymbolKind::Tag)
         .filter(|name| name.starts_with(prefix.text))
     {
@@ -747,7 +747,7 @@ fn generate_tag_name_candidates(
             file,
             nodelist,
             offset,
-            environment,
+            scoped_libraries,
             name,
             TemplateSymbolKind::Tag,
         ) {
@@ -764,7 +764,7 @@ fn generate_tag_name_candidates(
     }
 
     if candidates.len() == contextual_candidate_start
-        && !environment_has_definite_symbols(environment, TemplateSymbolKind::Tag)
+        && !scope_has_definite_symbols(scoped_libraries, TemplateSymbolKind::Tag)
     {
         for (name, spec) in tag_specs {
             if name.starts_with(prefix.text) {
@@ -894,18 +894,18 @@ fn generate_template_name_candidates(
 }
 
 fn generate_library_name_candidates(
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     prefix: &OffsetPrefix<'_>,
     suffix: &OffsetSuffix<'_>,
     close: TagClose,
 ) -> Vec<CompletionCandidate> {
     let mut candidates = Vec::new();
-    for name in environment.completion_library_names() {
+    for name in scoped_libraries.completion_library_names() {
         if !name.as_str().starts_with(prefix.text) {
             continue;
         }
 
-        let detail = match environment.loadable_library(&name) {
+        let detail = match scoped_libraries.loadable_library(&name) {
             LoadableLibraryLookup::Found(library) => {
                 format!("Django template library ({})", library.module_name_str())
             }
@@ -930,12 +930,12 @@ fn generate_load_symbol_candidates(
     suffix: &OffsetSuffix<'_>,
     library: Option<&str>,
     needs_trailing_space: bool,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
 ) -> Vec<CompletionCandidate> {
     let Some(name) = library else {
         return Vec::new();
     };
-    let libraries = match environment.loadable_library_str(name) {
+    let libraries = match scoped_libraries.loadable_library_str(name) {
         LoadableLibraryLookup::Found(library) => vec![library],
         LoadableLibraryLookup::Ambiguous(libraries)
         | LoadableLibraryLookup::Inconclusive(libraries) => libraries,
@@ -965,11 +965,11 @@ fn generate_filter_candidates(
     file: File,
     nodelist: Option<NodeList<'_>>,
     offset: Offset,
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     prefix: &OffsetPrefix<'_>,
 ) -> Vec<CompletionCandidate> {
     let mut candidates = Vec::new();
-    for name in environment
+    for name in scoped_libraries
         .inventory_symbol_names(TemplateSymbolKind::Filter)
         .filter(|name| name.starts_with(prefix.text))
     {
@@ -978,7 +978,7 @@ fn generate_filter_candidates(
             file,
             nodelist,
             offset,
-            environment,
+            scoped_libraries,
             name,
             TemplateSymbolKind::Filter,
         ) {
@@ -1004,7 +1004,7 @@ mod tests {
     use camino::Utf8Path;
     use djls_project::PythonModuleName;
     use djls_project::SymbolDefinition;
-    use djls_project::TemplateLibraries;
+    use djls_project::TemplateLibraryCatalog;
     use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolName;
     use djls_semantic::EndTag;
@@ -1036,13 +1036,13 @@ mod tests {
             .collect()
     }
 
-    fn template_libraries(libraries: &[(&str, &str)]) -> TemplateLibraries {
+    fn template_library_catalog(libraries: &[(&str, &str)]) -> TemplateLibraryCatalog {
         let libraries = libraries
             .iter()
             .map(|(name, module)| ((*name).to_string(), (*module).to_string()))
             .collect::<HashMap<_, _>>();
         let db = TestDatabase::new();
-        djls_testing::make_template_libraries(&db, &[], &[], &libraries, &[])
+        djls_testing::make_template_library_catalog(&db, &[], &[], &libraries, &[])
     }
 
     fn template_symbol(
@@ -1059,17 +1059,17 @@ mod tests {
         }
     }
 
-    fn filter_libraries() -> TemplateLibraries {
+    fn filter_libraries() -> TemplateLibraryCatalog {
         let libraries =
             HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
         let mut filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
         filter["doc"] = "Translate text.".into();
 
         let db = TestDatabase::new();
-        djls_testing::make_template_libraries(&db, &[], &[filter], &libraries, &[])
+        djls_testing::make_template_library_catalog(&db, &[], &[filter], &libraries, &[])
     }
 
-    fn tag_libraries() -> TemplateLibraries {
+    fn tag_libraries() -> TemplateLibraryCatalog {
         let builtins = vec!["django.template.defaulttags".to_string()];
         let libraries =
             HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
@@ -1080,13 +1080,13 @@ mod tests {
         ];
 
         let db = TestDatabase::new();
-        djls_testing::make_template_libraries(&db, &tags, &[], &libraries, &builtins)
+        djls_testing::make_template_library_catalog(&db, &tags, &[], &libraries, &builtins)
     }
 
     fn builtin_availability() -> TemplateSymbolAvailability {
         let libraries = tag_libraries();
-        TemplateEnvironment::from_project_inventory(&libraries)
-            .contextual_symbol_candidates("if", TemplateSymbolKind::Tag)
+        ScopedTemplateLibraries::from_project_inventory(&libraries)
+            .scoped_symbol_candidates("if", TemplateSymbolKind::Tag)
             .into_iter()
             .next()
             .expect("builtin if candidate should exist")
@@ -1142,14 +1142,18 @@ mod tests {
 
     #[test]
     fn generates_library_name_candidates() {
-        let libraries = template_libraries(&[
+        let libraries = template_library_catalog(&[
             ("i18n", "django.templatetags.i18n"),
             ("static", "django.templatetags.static"),
         ]);
         let suffix = suffix("", 2);
-        let environment = TemplateEnvironment::from_project_inventory(&libraries);
-        let candidates =
-            generate_library_name_candidates(environment, &prefix("st"), &suffix, TagClose::None);
+        let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
+        let candidates = generate_library_name_candidates(
+            scoped_libraries,
+            &prefix("st"),
+            &suffix,
+            TagClose::None,
+        );
 
         assert_eq!(labels(&candidates), vec!["static"]);
         assert_eq!(candidates[0].kind, CompletionCandidateKind::LibraryName);
@@ -1167,11 +1171,11 @@ mod tests {
 
     #[test]
     fn library_name_candidate_replaces_source_suffix_without_consuming_full_close() {
-        let libraries = template_libraries(&[("static", "django.templatetags.static")]);
+        let libraries = template_library_catalog(&[("static", "django.templatetags.static")]);
         let suffix = suffix("i18n", 0);
-        let environment = TemplateEnvironment::from_project_inventory(&libraries);
+        let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_library_name_candidates(
-            environment,
+            scoped_libraries,
             &prefix(""),
             &suffix,
             TagClose::Full {
@@ -1188,13 +1192,13 @@ mod tests {
     fn generates_load_symbol_candidates() {
         let libraries = tag_libraries();
         let suffix = suffix("", 5);
-        let environment = TemplateEnvironment::from_project_inventory(&libraries);
+        let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_load_symbol_candidates(
             &prefix("trans"),
             &suffix,
             Some("i18n"),
             false,
-            environment,
+            scoped_libraries,
         );
 
         assert_eq!(labels(&candidates), vec!["trans"]);
@@ -1207,9 +1211,14 @@ mod tests {
     fn load_symbol_candidate_adds_space_before_from_keyword() {
         let libraries = tag_libraries();
         let suffix = suffix("", 0);
-        let environment = TemplateEnvironment::from_project_inventory(&libraries);
-        let candidates =
-            generate_load_symbol_candidates(&prefix(""), &suffix, Some("i18n"), true, environment);
+        let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
+        let candidates = generate_load_symbol_candidates(
+            &prefix(""),
+            &suffix,
+            Some("i18n"),
+            true,
+            scoped_libraries,
+        );
 
         assert!(
             candidates
@@ -1409,9 +1418,15 @@ mod tests {
         db.add_file("/test.html", "");
         let file = db.file(Utf8Path::new("/test.html"));
         let libraries = filter_libraries();
-        let environment = TemplateEnvironment::from_project_inventory(&libraries);
-        let candidates =
-            generate_filter_candidates(&db, file, None, Offset::new(0), environment, &prefix("tr"));
+        let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
+        let candidates = generate_filter_candidates(
+            &db,
+            file,
+            None,
+            Offset::new(0),
+            scoped_libraries,
+            &prefix("tr"),
+        );
 
         assert_eq!(labels(&candidates), vec!["trans"]);
         assert_eq!(candidates[0].detail.as_deref(), Some("{% load i18n %}"));
@@ -1437,15 +1452,15 @@ mod tests {
         let db = TestDatabase::new();
         db.add_file("/test.html", "");
         let file = db.file(Utf8Path::new("/test.html"));
-        let environment =
-            TemplateEnvironment::from_project_inventory(TemplateLibraries::empty_ref());
+        let scoped_libraries =
+            ScopedTemplateLibraries::from_project_inventory(TemplateLibraryCatalog::empty_ref());
         let prefix = prefix("sta");
         let candidates = generate_tag_name_candidates(
             &db,
             file,
             None,
             Offset::new(0),
-            environment,
+            scoped_libraries,
             TagNameCandidateInput {
                 prefix: &prefix,
                 needs_leading_space: false,

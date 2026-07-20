@@ -8,7 +8,7 @@ pub use python_evaluation::PythonBindingView;
 pub use python_evaluation::PythonBoundValueView;
 pub use python_evaluation::PythonDictItemView;
 pub use python_evaluation::PythonFileReadErrorView;
-pub use python_evaluation::PythonImportErrorView;
+pub use python_evaluation::PythonImportNameErrorView;
 pub use python_evaluation::PythonImportOutcomeView;
 pub use python_evaluation::PythonModuleEvaluationView;
 pub use python_evaluation::PythonModuleView;
@@ -41,9 +41,9 @@ use crate::python::python_syntax_errors as project_python_syntax_errors;
 use crate::settings::django_settings as project_django_settings;
 use crate::settings::settings_module_file as project_settings_module_file;
 use crate::templates::LibraryName;
-use crate::templates::TemplateLibraries;
 use crate::templates::TemplateLibrary;
-use crate::templates::TemplateLibraryKey;
+use crate::templates::TemplateLibraryCatalog;
+use crate::templates::TemplateLibraryId;
 use crate::templates::TemplateSymbol;
 
 pub fn python_syntax_errors(db: &dyn SourceDb, file: File) -> Option<Vec<PythonSyntaxError>> {
@@ -116,12 +116,12 @@ pub enum TemplateLibraryInput {
         module: PythonModuleName,
         symbols: Vec<TemplateSymbol>,
     },
-    Installed {
+    Loadable {
         load_name: LibraryName,
         module: PythonModuleName,
         symbols: Vec<TemplateSymbol>,
     },
-    Available {
+    AvailableInApp {
         load_name: LibraryName,
         app: PythonModuleName,
         module: PythonModuleName,
@@ -130,84 +130,87 @@ pub enum TemplateLibraryInput {
 }
 
 #[must_use]
-pub fn template_libraries(db: &dyn Db, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraries {
-    build_template_libraries(db, inputs, false)
+pub fn template_library_catalog(
+    db: &dyn Db,
+    inputs: Vec<TemplateLibraryInput>,
+) -> TemplateLibraryCatalog {
+    build_template_library_catalog(db, inputs, false)
 }
 
 #[must_use]
-pub fn template_libraries_with_omissions(
+pub fn template_library_catalog_with_omissions(
     db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
-) -> TemplateLibraries {
-    build_template_libraries(db, inputs, true)
+) -> TemplateLibraryCatalog {
+    build_template_library_catalog(db, inputs, true)
 }
 
-fn build_template_libraries(
+fn build_template_library_catalog(
     db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
     has_omissions: bool,
-) -> TemplateLibraries {
+) -> TemplateLibraryCatalog {
     let libraries = inputs
         .into_iter()
         .map(|input| match input {
             TemplateLibraryInput::Builtin { module, symbols } => {
-                let key = TemplateLibraryKey::new(db, None, module.clone());
+                let key = TemplateLibraryId::new(db, None, module.clone());
                 TemplateLibrary::configured_builtin(key, module, symbols)
             }
-            TemplateLibraryInput::Installed {
+            TemplateLibraryInput::Loadable {
                 load_name,
                 module,
                 symbols,
             } => {
-                let key = TemplateLibraryKey::new(db, None, module.clone());
-                TemplateLibrary::configured_installed(key, load_name, module, symbols)
+                let key = TemplateLibraryId::new(db, None, module.clone());
+                TemplateLibrary::configured_loadable(key, load_name, module, symbols)
             }
-            TemplateLibraryInput::Available {
+            TemplateLibraryInput::AvailableInApp {
                 load_name,
                 app,
                 module,
                 symbols,
             } => {
-                let key = TemplateLibraryKey::new(db, None, module.clone());
-                TemplateLibrary::configured_available(key, load_name, app, module, symbols)
+                let key = TemplateLibraryId::new(db, None, module.clone());
+                TemplateLibrary::configured_available_in_app(key, load_name, app, module, symbols)
             }
         })
         .collect();
 
     if has_omissions {
-        TemplateLibraries::from_libraries_with_omissions(libraries)
+        TemplateLibraryCatalog::from_libraries_with_omissions(libraries)
     } else {
-        TemplateLibraries::from_libraries(libraries)
+        TemplateLibraryCatalog::from_libraries(libraries)
     }
 }
 
 #[must_use]
-pub fn template_libraries_with_configurations(
+pub fn template_library_catalog_with_settings_cases(
     db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
-    configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TemplateLibraries {
-    configure_template_libraries(template_libraries(db, inputs), configurations)
+    settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
+) -> TemplateLibraryCatalog {
+    configure_template_library_catalog(template_library_catalog(db, inputs), settings_cases)
 }
 
 #[must_use]
-pub fn template_libraries_with_configuration_omissions(
+pub fn template_library_catalog_with_settings_case_omissions(
     db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
-    configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TemplateLibraries {
-    configure_template_libraries(
-        template_libraries_with_omissions(db, inputs),
-        configurations,
+    settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
+) -> TemplateLibraryCatalog {
+    configure_template_library_catalog(
+        template_library_catalog_with_omissions(db, inputs),
+        settings_cases,
     )
 }
 
-fn configure_template_libraries(
-    mut libraries: TemplateLibraries,
-    configurations: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TemplateLibraries {
-    libraries.set_testing_configurations(
-        configurations
+fn configure_template_library_catalog(
+    mut catalog: TemplateLibraryCatalog,
+    settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
+) -> TemplateLibraryCatalog {
+    catalog.set_testing_settings_cases(
+        settings_cases
             .into_iter()
             .map(|backends| {
                 backends
@@ -217,5 +220,5 @@ fn configure_template_libraries(
             })
             .collect(),
     );
-    libraries
+    catalog
 }

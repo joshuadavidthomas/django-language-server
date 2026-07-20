@@ -14,10 +14,16 @@ Django Language Server is an LSP server written in Rust that provides IDE featur
 
 The server depends on two distinct kinds of knowledge:
 
-1. What tags and filters exist — which Template Libraries are installed, which Tag Definitions and Filter Definitions they export, and what syntax those definitions accept. This comes from the Python side of the Django project.
+1. What tags and filters exist — which Template Libraries are loadable, which Tag Definitions and Filter Definitions they export, and what syntax those definitions accept. This comes from the Python side of the Django project.
 2. What the template says — its syntax, its structure, and whether it uses those tags and filters correctly. This comes from parsing the template source.
 
 Separate subsystems produce each kind of knowledge. Both feed into the same Salsa database, where they meet during semantic analysis.
+
+### Processing vocabulary
+
+The code uses stage names consistently. **Parsing** turns source into syntax and may retain recovered syntax alongside syntax errors. **Lowering** converts an external AST shape into evaluator-owned forms. **Evaluation** performs bounded abstract Python execution; the **interpreter** is the real Python executable described by `python/interpreter.rs`. **Extraction** derives Django-specific facts from syntax or evaluated Python facts. **Discovery** assembles project-level facts from configured and observed sources. **Resolution** connects names and references to modules, Templates, definitions, or Models; an internal **search** is the ordered traversal used to reach that result. Compilation is reserved for producing executable or lower-level programs and does not describe the Python evaluator.
+
+Across these stages, **facts** are stable derived subsystem outputs, **evidence** records provenance or uncertainty, **state** is mutable computation, a **case** or **alternative** is one feasible correlated world, and an **outcome** is a completed attempt. A **catalog** is an indexed project aggregate; a **scope** limits where its entries apply.
 
 ## Entry Points
 
@@ -63,13 +69,13 @@ This crate should stay boring. It wires traits to concrete state and handles loc
 
 The Project Facts layer. This crate owns mechanical facts about a Django project: the `Project` Salsa input, Python interpreter and search-path discovery, module resolution, Django settings extraction, template directories, Template Libraries, discovered template files, template origins/resolution, template tag/filter extraction, model graph extraction, and Django Discovery phases with their domain progress metadata. Its internals are organized by Django domain: `settings/` handles settings-source extraction and source resolution, `templates/` handles template origins, directories, Template Libraries, registrations, tag rules, filter arities, and tag/filter definitions, and `models/` handles Django model graph extraction.
 
-`djls-project` depends on `djls-source` for filesystem/source access, but it does not depend on `djls-semantic`. That one-way seam lets semantic analysis consume observed source facts without project discovery needing to know about template validation, scoping, or diagnostics. Each Template Library has an interned `(Option<File>, PythonModuleName)` identity and equality-bearing definition, Tag, and Filter facts. `TemplateLibraries` assembles backend-correlated catalog evidence and shared definition-name indexes; it does not hold one project-global semantic Tag or Filter result.
+`djls-project` depends on `djls-source` for filesystem/source access, but it does not depend on `djls-semantic`. That one-way seam lets semantic analysis consume observed source facts without project discovery needing to know about template validation, scoping, or diagnostics. Each Template Library has an interned `(Option<File>, PythonModuleName)` identity and equality-bearing definition, Tag, and Filter facts. `TemplateLibraryCatalog` assembles backend-correlated catalog evidence and shared definition-name indexes; it does not hold one project-global semantic Tag or Filter result.
 
 #### Static Python import evaluation
 
-One evaluator entrypoint handles both ordinary and `from` import statements. The resolver returns an ordered root-to-leaf chain of source modules and namespace packages; one loader evaluates project-code components through the cycle-enabled module query, records dependencies and typed outcomes, and attaches loaded children only after successful resolution. First-party and extra-root source is evaluated, while site-packages and editable-root modules retain identity but remain open external namespaces whose bodies are never executed.
+One evaluator entrypoint handles both ordinary and `from` import statements. The resolver returns an ordered root-to-leaf chain of source modules and namespace packages; one loader evaluates project-code components through the cycle-enabled module query, records an import trace with typed outcomes, and attaches loaded children only after successful resolution. First-party and extra-root source is evaluated, while site-packages and editable-root modules retain identity but remain open external namespaces whose bodies are never executed.
 
-A module value carries only stable source-or-namespace identity. Its intrinsic lexical namespace remains in `PythonModuleValues`; explicitly loaded child attachments and object-scoped cycle/external uncertainty live in a separate private module-object product. This split lets settings-facing value projections backdate independently from import topology while module attribute reads still compose intrinsic values, loaded children, and open causes.
+A module value carries only stable source-or-namespace identity. Its intrinsic lexical namespace remains in `PythonModuleFacts`; explicitly loaded child attachments and object-scoped cycle/external uncertainty live in private `PythonModuleEffects`. The separate `PythonImportTrace` records import topology and typed outcomes. This split lets settings-facing facts backdate independently from recursive import effects while module attribute reads still compose intrinsic values, loaded children, and open causes.
 
 Named `from` imports project an existing module member first, then try the exact package child through the same chain loader only where that member may be absent. Remaining absence becomes typed missing-member uncertainty. Star imports classify each feasible `__all__` alternative independently: exact static lists and tuples select their named members in order, closed absence selects current public intrinsic or attached names, and dynamic or malformed alternatives preserve possible imports while opening the namespace. Exact `__all__` may load listed children through the shared loader; absent or dynamic `__all__` never scans the filesystem.
 
@@ -112,7 +118,7 @@ This crate also owns Template-reference relationships: deciding which Tag occurr
 
 **Architecture Invariant:** extraction currently only captures constraints on *static template syntax* — argument counts and literal keyword positions knowable at parse time. Many templatetag functions also validate *runtime values* (type checks, truthiness checks on resolved variables), but those guards depend on what template variables resolve to during rendering, which the server cannot currently determine. If type inference is added in the future ([#424](https://github.com/joshuadavidthomas/django-language-server/issues/424)), some of these runtime guards may become statically evaluable — possibly as a separate analysis layer, or as an extension of the extraction pipeline itself.
 
-Project configuration, Python environment discovery, module resolution, and source-derived Django facts live in `crates/djls-project/`. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, resolver-owned `SearchPaths`, and manual tag-spec configuration. `djls-project` also owns the `TemplateLibraries` catalog derived from Django settings, source files, and installed packages. `TemplateEnvironment` is a borrowed view over that shared catalog plus compact feasible-backend selections for one Template; deriving an environment does not clone selected libraries or definitions. Files outside configured Template roots intentionally use project-inventory scope. Imperative Django Discovery functions synchronize external project state into Salsa inputs; tracked Project and Semantic queries derive equality-bearing products from those inputs.
+Project configuration, Python interpreter and search-path discovery, module resolution, and source-derived Django facts live in `crates/djls-project/`. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, resolver-owned `SearchPaths`, and manual tag-spec configuration. `djls-project` also owns the `TemplateLibraryCatalog` derived from Django settings, source files, and installed packages. `ScopedTemplateLibraries` is a borrowed view over that shared catalog plus compact feasible-backend selections for one Template; deriving a scoped view does not clone selected libraries or definitions. Files outside configured Template roots intentionally use project-inventory scope. Imperative Django Discovery functions synchronize external project state into Salsa inputs; tracked Project and Semantic queries derive equality-bearing products from those inputs.
 
 ### `crates/djls-ide`
 
@@ -149,7 +155,7 @@ salsa::Database
 
 Template parsing does not need its own database trait. `parse_template` depends directly on `SourceDb` because it only needs source text. Filesystem access also enters through `SourceDb`: Django Discovery walks source roots through the database filesystem, and `DjangoDatabase` observes LSP buffer state through the server's overlay filesystem adapter.
 
-`DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` implement the same traits with fixture-backed source and project state. Project-backed tests install a `Project` and derive each template's effective environment from its discovered backend, Template Libraries, and builtins; Template Library inventory is not global database state.
+`DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` implement the same traits with fixture-backed source and project state. Project-backed tests install a `Project` and derive each Template's effective Template Library scope from its discovered backend, Template Libraries, and builtins; Template Library inventory is not global database state.
 
 ### Salsa boundary rules
 
@@ -197,7 +203,7 @@ When a template file opens or changes, it flows through a series of stages. Each
 
 1. **Lexing** — tokenizes template text into tag, variable, comment, and text tokens.
 2. **Parsing** — produces a flat `NodeList`. Parse errors become `Node::Error` entries and are also emitted via `TemplateErrorAccumulator`.
-3. **Template analysis** — Project-backed analysis uses `TemplateAnalysisProjection` to run a sparse structural/load fixed point. It resolves source occurrences against the borrowed `TemplateEnvironment`, converges loader state, builds the `TemplateTree`, and records sparse Tag and Filter facts. Opening Branches capture their contracts, so later loads cannot rewrite existing structure. Structural errors accumulate once from the converged pass. Explicit projectless structure analysis is a direct one-pass query that builds only the sparse grammar and tree needed by its caller.
+3. **Template analysis** — Project-backed analysis uses `TemplateAnalysisProjection` to run a sparse structural/load fixed point. It resolves source occurrences against `ScopedTemplateLibraries`, converges loader state, builds the `TemplateTree`, and records sparse Tag and Filter facts. Opening Branches capture their contracts, so later loads cannot rewrite existing structure. Structural errors accumulate once from the converged pass. Explicit projectless structure analysis is a direct one-pass query that builds only the sparse grammar and tree needed by its caller.
 4. **Validation** — a single-pass validator consumes the correlated projection and checks load scoping, argument counts, Filter Arity, expression syntax, and `{% extends %}` rules. Opaque contents have already been excluded from active semantic occurrences. Errors accumulate as `ValidationError`s.
 5. **Diagnostics** — `collect_template_diagnostics` in `djls-semantic` collects syntax and validation errors without output policy. `collect_diagnostics` in `djls-ide` converts that result to LSP diagnostics and applies severity overrides; `djls::check` owns terminal filtering and rendering.
 
@@ -278,7 +284,7 @@ error[S114]: Not expecting 'and' in this position in if tag.
   = note: in tag: if
 ```
 
-**Architecture Invariant:** tests never require a Django installation or run a Python interpreter. Source-only tests may supply tag specs and filter arities directly. Project-scoped tests supply settings and Python modules through `ProjectFixture`, then exercise the same static Template Library and environment discovery used by production. JSON fixtures remain appropriate for isolated extraction projections.
+**Architecture Invariant:** tests never require a Django installation or run a Python interpreter. Source-only tests may supply tag specs and filter arities directly. Project-scoped tests supply settings and Python modules through `ProjectFixture`, then exercise the same Template Library catalog and scope derivation used by production. JSON fixtures remain appropriate for isolated extraction projections.
 
 ### Corpus Tests
 
@@ -295,7 +301,7 @@ The corpus is deliberately not checked into the repository (it's ~hundreds of MB
 
 `DjangoDatabase` and focused test databases capture Salsa events such as `WillExecute` and `DidValidateMemoizedValue`. Tests prime a concrete query graph, mutate source or Project inputs with normal setters, then assert exact query identities and execution counts alongside semantic output.
 
-Current coverage follows the production contract across crates. It proves that shared warm-up evaluates each per-library source, Tag, and Filter product exactly once and performs no per-Template work; CLI-style parallel validation starts only after priming; and LSP requests wait for current-generation readiness. Template-pipeline tests cover same-revision memoization, whitespace backdating, meaningful load/Block Tag/Filter edits, unrelated Template and Python edits, sparse projection locality, and unchanged environment backdating. Server tests cover covered-source invalidation, stale and cancelled generations, failure wakeups, race-free readiness watches, and full-reload dominance over queued re-primes.
+Current coverage follows the production contract across crates. It proves that shared warm-up evaluates each per-library source, Tag, and Filter product exactly once and performs no per-Template work; CLI-style parallel validation starts only after priming; and LSP requests wait for current-generation readiness. Template-pipeline tests cover same-revision memoization, whitespace backdating, meaningful load/Block Tag/Filter edits, unrelated Template and Python edits, sparse projection locality, and unchanged scoped-library backdating. Server tests cover covered-source invalidation, stale and cancelled generations, failure wakeups, race-free readiness watches, and full-reload dominance over queued re-primes.
 
 ### CLI Integration Tests
 

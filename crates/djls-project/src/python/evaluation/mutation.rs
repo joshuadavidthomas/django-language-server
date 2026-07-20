@@ -9,8 +9,8 @@ use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::StructuralOrd;
-use super::evaluator::EvaluationState;
-use super::evaluator::Evaluator;
+use super::evaluator::PythonEvaluationState;
+use super::evaluator::PythonModuleEvaluator;
 use super::name_analysis::expr_read_names;
 use crate::ast::ExprExt;
 
@@ -327,7 +327,7 @@ impl<'a> MutationTarget<'a> {
     }
 }
 
-impl EvaluationState {
+impl PythonEvaluationState {
     pub(super) fn apply_augmented_add(
         &mut self,
         target: MutationTarget<'_>,
@@ -376,7 +376,7 @@ impl EvaluationState {
     }
 }
 
-impl Evaluator<'_> {
+impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_expression_statement(&mut self, expression: &ast::Expr) {
         let ast::Expr::Call(call) = expression else {
             self.state.degrade_names(

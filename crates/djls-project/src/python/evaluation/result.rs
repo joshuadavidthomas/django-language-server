@@ -19,26 +19,30 @@ use super::UniqueVec;
 use crate::python::PythonModuleName;
 use crate::python::PythonSourceModule;
 use crate::python::PythonSyntaxError;
-use crate::python::module::PythonImportError;
+use crate::python::module::PythonImportNameError;
 
+/// Stable settings-facing facts derived from one Python source module.
+///
+/// Import topology and private loaded-child effects are deliberately excluded so unchanged
+/// bindings, syntax evidence, and mutations can backdate independently.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct PythonModuleValues {
+pub(crate) struct PythonModuleFacts {
     pub(crate) bindings: BTreeMap<String, PythonBinding>,
     pub(crate) namespace_remainder: Option<PythonNamespaceRemainder>,
     pub(crate) syntax_errors: Vec<PythonSyntaxError>,
-    pub(crate) syntax_impacts: Vec<PythonSyntaxImpact>,
+    pub(crate) syntax_impacts: Vec<PythonSyntaxErrorImpact>,
     pub(crate) mutations: UniqueVec<PythonMutation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PythonSyntaxImpact {
+pub(crate) struct PythonSyntaxErrorImpact {
     pub(crate) error: PythonSyntaxError,
     pub(crate) names: BTreeSet<String>,
     pub(crate) namespace_open: bool,
     pub(crate) excluded_names: BTreeSet<String>,
 }
 
-impl PythonSyntaxImpact {
+impl PythonSyntaxErrorImpact {
     pub(crate) fn affects(&self, name: &str) -> bool {
         self.names.contains(name) || (self.namespace_open && !self.excluded_names.contains(name))
     }
@@ -119,21 +123,25 @@ impl PythonModuleEvaluation {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct EvaluatedPythonModule {
-    values: Result<PythonModuleValues, FileReadError>,
-    dependencies: PythonModuleDependencies,
+    facts: Result<PythonModuleFacts, FileReadError>,
+    import_trace: PythonImportTrace,
     /// Private recursive-import effect data. It is intentionally part of this
     /// internal result's equality (so imported effects can trigger the core
-    /// query) but is never projected into settings-facing `PythonModuleValues`.
+    /// query) but is never projected into settings-facing `PythonModuleFacts`.
     module_effects: PythonModuleEffects,
 }
 
+/// Ordered import evidence produced while evaluating one Python source module.
+///
+/// Files retain root-to-leaf first-seen order, outcomes retain attempted-import order, and cycle
+/// recovery canonicalizes only the participating strongly connected component.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct PythonModuleDependencies {
+pub(crate) struct PythonImportTrace {
     files: UniqueVec<File>,
     imports: UniqueVec<PythonImportOutcome>,
 }
 
-impl PythonModuleDependencies {
+impl PythonImportTrace {
     pub(super) fn rooted(file: File) -> Self {
         Self {
             files: [file].into_iter().collect(),
@@ -201,7 +209,7 @@ impl PythonModuleDependencies {
         self.imports.extend(other.imports.iter().cloned());
     }
 
-    /// Record a directly loaded component before its transitive dependencies so
+    /// Record a directly loaded component before its transitive import trace so
     /// first-seen dependency order remains root-to-leaf.
     pub(super) fn record_component(
         &mut self,
@@ -355,7 +363,7 @@ pub(crate) enum PythonImportOutcome {
     },
     InvalidImport {
         origin: Origin,
-        reason: PythonImportError,
+        reason: PythonImportNameError,
     },
     NotFound {
         origin: Origin,
@@ -478,17 +486,17 @@ impl PythonImportOutcome {
 
 impl EvaluatedPythonModule {
     pub(super) fn new(
-        mut values: Result<PythonModuleValues, FileReadError>,
-        mut dependencies: PythonModuleDependencies,
+        mut facts: Result<PythonModuleFacts, FileReadError>,
+        mut import_trace: PythonImportTrace,
         module_effects: PythonModuleEffects,
         root: &PythonSourceModule,
     ) -> Self {
-        let import_graph = PythonImportGraph::new(mem::take(&mut dependencies.imports));
+        let import_graph = ImportGraph::new(mem::take(&mut import_trace.imports));
         let root_is_in_cycle = import_graph.root_participates_in_cycle(root);
         let root_file = root.file();
-        if let Ok(values) = &mut values {
-            values.mutations.sort_by(PythonMutation::structural_cmp);
-            if root_is_in_cycle && let Some(remainder) = &mut values.namespace_remainder {
+        if let Ok(facts) = &mut facts {
+            facts.mutations.sort_by(PythonMutation::structural_cmp);
+            if root_is_in_cycle && let Some(remainder) = &mut facts.namespace_remainder {
                 for cause in &mut remainder.0 {
                     if cause.unknown.cause == PythonUnknownCause::Cycle {
                         cause.unknown.replace_origins(None);
@@ -497,40 +505,40 @@ impl EvaluatedPythonModule {
                 *remainder = PythonNamespaceRemainder::new(remainder.0.clone());
             }
         }
-        dependencies.imports = import_graph.canonicalized_outcomes();
+        import_trace.imports = import_graph.canonicalized_outcomes();
         // Files/outcomes keep first-seen root-to-leaf insertion order for the
         // acyclic case. Only a cycle needs entry-order-independent
         // canonicalization, so only then is the structural file order imposed.
-        if dependencies.has_cycle_outcome() {
-            dependencies.sort_files(root_file);
+        if import_trace.has_cycle_outcome() {
+            import_trace.sort_files(root_file);
         }
         Self {
-            values,
-            dependencies,
+            facts,
+            import_trace,
             module_effects,
         }
     }
 
-    pub(super) fn values(&self) -> &Result<PythonModuleValues, FileReadError> {
-        &self.values
+    pub(super) fn facts(&self) -> &Result<PythonModuleFacts, FileReadError> {
+        &self.facts
     }
 
-    pub(super) fn dependencies(&self) -> &PythonModuleDependencies {
-        &self.dependencies
+    pub(super) fn import_trace(&self) -> &PythonImportTrace {
+        &self.import_trace
     }
 
     pub(super) fn into_parts(
         self,
     ) -> (
-        Result<PythonModuleValues, FileReadError>,
-        PythonModuleDependencies,
+        Result<PythonModuleFacts, FileReadError>,
+        PythonImportTrace,
         PythonModuleEffects,
     ) {
-        (self.values, self.dependencies, self.module_effects)
+        (self.facts, self.import_trace, self.module_effects)
     }
 
     pub(super) fn widened(mut self, previous: &Self, root: &PythonSourceModule) -> Self {
-        match (&previous.values, &mut self.values) {
+        match (&previous.facts, &mut self.facts) {
             (Ok(previous_values), Ok(computed_values)) => {
                 let names = previous_values
                     .bindings
@@ -564,21 +572,21 @@ impl EvaluatedPythonModule {
             (Ok(_) | Err(_), Err(_)) | (Err(_), Ok(_)) => {}
         }
 
-        if previous.dependencies != self.dependencies {
-            self.dependencies = self.dependencies.widened(&previous.dependencies, root);
+        if previous.import_trace != self.import_trace {
+            self.import_trace = self.import_trace.widened(&previous.import_trace, root);
         }
         if previous.module_effects != self.module_effects {
             self.module_effects = self.module_effects.widen(&previous.module_effects);
         }
-        Self::new(self.values, self.dependencies, self.module_effects, root)
+        Self::new(self.facts, self.import_trace, self.module_effects, root)
     }
 }
 
-impl PythonModuleDependencies {
+impl PythonImportTrace {
     fn widened(self, previous: &Self, root: &PythonSourceModule) -> Self {
         let mut candidates = previous.imports.clone();
         candidates.extend(self.imports.iter().cloned());
-        let candidates = PythonImportGraph::new(candidates).canonicalized_outcomes();
+        let candidates = ImportGraph::new(candidates).canonicalized_outcomes();
         let cycle = candidates.iter().find_map(|outcome| match outcome {
             PythonImportOutcome::Evaluated {
                 edge,
@@ -598,20 +606,20 @@ impl PythonModuleDependencies {
         if let Some(edge) = cycle {
             files.extend([edge.importer.file(), edge.imported.file()]);
         }
-        let mut dependencies = Self {
+        let mut import_trace = Self {
             files,
             imports: candidates,
         };
-        dependencies.sort_files(root_file);
-        dependencies
+        import_trace.sort_files(root_file);
+        import_trace
     }
 }
 
-struct PythonImportGraph {
+struct ImportGraph {
     outcomes: UniqueVec<PythonImportOutcome>,
 }
 
-impl PythonImportGraph {
+impl ImportGraph {
     fn new(outcomes: UniqueVec<PythonImportOutcome>) -> Self {
         Self { outcomes }
     }
@@ -858,7 +866,7 @@ mod tests {
         let previous_origin = Origin::new(root.file(), Span::new(10, 1));
         let computed_origin = Origin::new(root.file(), Span::new(20, 1));
 
-        let mut previous_values = PythonModuleValues::default();
+        let mut previous_values = PythonModuleFacts::default();
         previous_values.bindings.insert(
             "VALUE".to_string(),
             PythonBinding::bound(
@@ -866,7 +874,7 @@ mod tests {
                 previous_origin,
             ),
         );
-        let mut computed_values = PythonModuleValues::default();
+        let mut computed_values = PythonModuleFacts::default();
         computed_values.bindings.insert(
             "VALUE".to_string(),
             PythonBinding::bound(PythonValue::bool(true, computed_origin), computed_origin),
@@ -879,22 +887,22 @@ mod tests {
         ]));
 
         let previous = EvaluatedPythonModule {
-            values: Ok(previous_values),
-            dependencies: PythonModuleDependencies::rooted(root.file()),
+            facts: Ok(previous_values),
+            import_trace: PythonImportTrace::rooted(root.file()),
             module_effects: PythonModuleEffects::default(),
         };
         let computed = EvaluatedPythonModule {
-            values: Ok(computed_values),
-            dependencies: PythonModuleDependencies::rooted(root.file()),
+            facts: Ok(computed_values),
+            import_trace: PythonImportTrace::rooted(root.file()),
             module_effects: PythonModuleEffects::default(),
         };
         let widened = computed.widened(&previous, &root);
-        let values = widened
-            .values()
+        let facts = widened
+            .facts()
             .as_ref()
             .expect("widening should remain readable");
 
-        let bound = values
+        let bound = facts
             .bindings
             .get("VALUE")
             .and_then(PythonBinding::single_bound)
@@ -908,7 +916,7 @@ mod tests {
         assert!(bound.value.origins().next().is_none());
         assert!(bound.binding_origins().next().is_none());
 
-        let [cause] = values
+        let [cause] = facts
             .namespace_remainder
             .as_ref()
             .expect("changed namespace should widen")
@@ -1004,8 +1012,8 @@ mod tests {
         let numerically_last = File::from_id(Id::from_bits(17));
         let evaluate = |files: [File; 3]| {
             EvaluatedPythonModule::new(
-                Ok(PythonModuleValues::default()),
-                PythonModuleDependencies {
+                Ok(PythonModuleFacts::default()),
+                PythonImportTrace {
                     files: files.into_iter().collect(),
                     imports: UniqueVec::new(),
                 },
@@ -1019,7 +1027,7 @@ mod tests {
         let forward = evaluate([root.file(), numerically_last, numerically_first]);
         assert_eq!(
             forward
-                .dependencies
+                .import_trace
                 .files
                 .iter()
                 .copied()
@@ -1029,7 +1037,7 @@ mod tests {
         let reversed = evaluate([root.file(), numerically_first, numerically_last]);
         assert_eq!(
             reversed
-                .dependencies
+                .import_trace
                 .files
                 .iter()
                 .copied()
@@ -1088,7 +1096,7 @@ mod tests {
             },
             PythonImportOutcome::InvalidImport {
                 origin: edge.origin,
-                reason: PythonImportError::TooManyDots,
+                reason: PythonImportNameError::TooManyDots,
             },
             PythonImportOutcome::NotFound {
                 origin: edge.origin,
@@ -1119,13 +1127,13 @@ mod tests {
         // Acyclic outcome sets keep first-seen insertion order; only a cycle
         // imposes the input-independent canonical order (covered by the cycle
         // tests below).
-        let forward = PythonImportGraph::new(outcomes.clone().into_iter().collect())
+        let forward = ImportGraph::new(outcomes.clone().into_iter().collect())
             .canonicalized_outcomes()
             .iter()
             .cloned()
             .collect::<Vec<_>>();
         assert_eq!(forward, outcomes.to_vec());
-        let reversed = PythonImportGraph::new(outcomes.iter().rev().cloned().collect())
+        let reversed = ImportGraph::new(outcomes.iter().rev().cloned().collect())
             .canonicalized_outcomes()
             .iter()
             .cloned()
@@ -1156,11 +1164,11 @@ mod tests {
             (
                 PythonImportOutcome::InvalidImport {
                     origin: edge.origin,
-                    reason: PythonImportError::EmptyAbsoluteImport,
+                    reason: PythonImportNameError::EmptyAbsoluteImport,
                 },
                 PythonImportOutcome::InvalidImport {
                     origin: edge.origin,
-                    reason: PythonImportError::InvalidModuleName(
+                    reason: PythonImportNameError::InvalidModuleName(
                         InvalidModuleName::InvalidSegment("!".to_string()),
                     ),
                 },
@@ -1216,7 +1224,7 @@ mod tests {
     fn acyclic_graph_has_no_cycle_participant_or_canonical_edge() {
         let root = module("root", 1);
         let imported = module("imported", 2);
-        let graph = PythonImportGraph::new(
+        let graph = ImportGraph::new(
             [evaluated_edge(
                 &root,
                 &imported,
@@ -1234,7 +1242,7 @@ mod tests {
     fn direct_cycle_has_one_canonical_edge() {
         let root = module("root", 1);
         let imported = module("imported", 2);
-        let graph = PythonImportGraph::new(
+        let graph = ImportGraph::new(
             [
                 evaluated_edge(&root, &imported, cycle_status()),
                 evaluated_edge(&imported, &root, cycle_status()),
@@ -1253,7 +1261,7 @@ mod tests {
         let second = module("second", 2);
         let third = module("third", 3);
         let fourth = module("fourth", 4);
-        let graph = PythonImportGraph::new(
+        let graph = ImportGraph::new(
             [
                 evaluated_edge(&first, &second, cycle_status()),
                 evaluated_edge(&second, &first, cycle_status()),
@@ -1274,11 +1282,10 @@ mod tests {
         let forward = evaluated_edge(&root, &imported, cycle_status());
         let reverse = evaluated_edge(&imported, &root, cycle_status());
 
-        let first =
-            PythonImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())
-                .canonicalized_outcomes();
-        let second = PythonImportGraph::new([reverse, forward].into_iter().collect())
+        let first = ImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())
             .canonicalized_outcomes();
+        let second =
+            ImportGraph::new([reverse, forward].into_iter().collect()).canonicalized_outcomes();
 
         assert_eq!(first, second);
     }
@@ -1300,19 +1307,19 @@ mod tests {
         };
 
         let first_order =
-            PythonImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())
+            ImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())
                 .canonical_cycle_edges();
         let reversed_order =
-            PythonImportGraph::new([reverse.clone(), forward.clone()].into_iter().collect())
+            ImportGraph::new([reverse.clone(), forward.clone()].into_iter().collect())
                 .canonical_cycle_edges();
         assert_eq!(first_order.as_slice(), slice::from_ref(expected_edge));
         assert_eq!(first_order, reversed_order);
 
         let first_outcomes =
-            PythonImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())
+            ImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())
                 .canonicalized_outcomes();
-        let reversed_outcomes = PythonImportGraph::new([reverse, forward].into_iter().collect())
-            .canonicalized_outcomes();
+        let reversed_outcomes =
+            ImportGraph::new([reverse, forward].into_iter().collect()).canonicalized_outcomes();
         assert_eq!(first_outcomes, reversed_outcomes);
     }
 
@@ -1329,9 +1336,9 @@ mod tests {
         ];
 
         let forward =
-            PythonImportGraph::new(outcomes.clone().into_iter().collect()).canonical_cycle_edges();
+            ImportGraph::new(outcomes.clone().into_iter().collect()).canonical_cycle_edges();
         let reversed =
-            PythonImportGraph::new(outcomes.into_iter().rev().collect()).canonical_cycle_edges();
+            ImportGraph::new(outcomes.into_iter().rev().collect()).canonical_cycle_edges();
 
         assert_eq!(forward.len(), 1);
         assert_eq!(forward, reversed);
@@ -1346,7 +1353,7 @@ mod tests {
             importer: imported.clone(),
             imported: root.clone(),
         };
-        let graph = PythonImportGraph::new(
+        let graph = ImportGraph::new(
             [
                 PythonImportOutcome::Unreadable {
                     edge: PythonImportEdge {
@@ -1376,7 +1383,7 @@ mod tests {
     fn existing_cycle_edge_is_retained_when_reachability_has_not_converged() {
         let root = module("root", 1);
         let imported = module("imported", 2);
-        let graph = PythonImportGraph::new(
+        let graph = ImportGraph::new(
             [evaluated_edge(&root, &imported, cycle_status())]
                 .into_iter()
                 .collect(),

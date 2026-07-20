@@ -199,20 +199,20 @@ pub(crate) enum PythonImportChainResolution {
     Resolved(ResolvedImportChain),
     Failed {
         prefix: ResolvedImportChain,
-        failure: PythonImportResolutionError,
+        failure: PythonImportChainFailure,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(crate) enum PythonImportResolutionError {
+pub(crate) enum PythonImportChainFailure {
     #[error(transparent)]
-    Invalid(#[from] PythonImportError),
+    Invalid(#[from] PythonImportNameError),
     #[error("Python module `{0}` was not found")]
     NotFound(PythonModuleName),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(crate) enum PythonImportError {
+pub(crate) enum PythonImportNameError {
     #[error(transparent)]
     InvalidModuleName(#[from] InvalidModuleName),
     #[error("absolute import must name a module")]
@@ -388,7 +388,7 @@ fn resolve_chain_from_name(
                             prefix: ResolvedImportChain {
                                 components: resolved,
                             },
-                            failure: PythonImportResolutionError::NotFound(name.clone()),
+                            failure: PythonImportChainFailure::NotFound(name.clone()),
                         };
                     }
                     None => {}
@@ -399,7 +399,7 @@ fn resolve_chain_from_name(
                     prefix: ResolvedImportChain {
                         components: resolved,
                     },
-                    failure: PythonImportResolutionError::NotFound(name.clone()),
+                    failure: PythonImportChainFailure::NotFound(name.clone()),
                 };
             }
             None => {
@@ -426,20 +426,20 @@ fn resolve_chain_from_name(
 /// owner of import name construction shared by chain resolution.
 fn import_module_name(
     import: PythonImportRequest<'_>,
-) -> Result<PythonModuleName, PythonImportError> {
+) -> Result<PythonModuleName, PythonImportNameError> {
     if import.level == 0 {
         let module = import
             .module
-            .ok_or(PythonImportError::EmptyAbsoluteImport)?;
-        PythonModuleName::parse(module).map_err(PythonImportError::from)
+            .ok_or(PythonImportNameError::EmptyAbsoluteImport)?;
+        PythonModuleName::parse(module).map_err(PythonImportNameError::from)
     } else {
         let source = relative_import_source(
             import.importer.package.as_ref(),
             import.level,
             import.module,
         )
-        .ok_or(PythonImportError::TooManyDots)?;
-        PythonModuleName::parse(&source).map_err(PythonImportError::from)
+        .ok_or(PythonImportNameError::TooManyDots)?;
+        PythonModuleName::parse(&source).map_err(PythonImportNameError::from)
     }
 }
 
@@ -655,14 +655,14 @@ impl PythonSourceModule {
 
     /// Resolve an import operation into a contiguous root-to-leaf component
     /// chain. Name-construction failures (empty absolute import, too many
-    /// relative dots, invalid module name) are typed [`PythonImportError`]s that
+    /// relative dots, invalid module name) are typed [`PythonImportNameError`]s that
     /// yield no chain; an unresolvable component is a
     /// [`PythonImportChainResolution::Failed`] carrying the resolved prefix.
     pub(crate) fn resolve_import_chain(
         db: &dyn ProjectDb,
         project: Project,
         import: PythonImportRequest<'_>,
-    ) -> Result<(PythonModuleName, PythonImportChainResolution), PythonImportError> {
+    ) -> Result<(PythonModuleName, PythonImportChainResolution), PythonImportNameError> {
         let name = import_module_name(import)?;
         let resolution = resolve_chain_from_name(db, project, &name);
         Ok((name, resolution))
@@ -720,7 +720,7 @@ impl PythonSourceModule {
     }
 }
 
-impl StructuralOrd for PythonImportError {
+impl StructuralOrd for PythonImportNameError {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::EmptyAbsoluteImport, Self::EmptyAbsoluteImport)
@@ -781,7 +781,7 @@ mod tests {
         // A root failure carries an empty resolved prefix.
         let root_failure = PythonImportChainResolution::Failed {
             prefix: ResolvedImportChain::default(),
-            failure: PythonImportResolutionError::NotFound(
+            failure: PythonImportChainFailure::NotFound(
                 PythonModuleName::parse("missing").unwrap(),
             ),
         };

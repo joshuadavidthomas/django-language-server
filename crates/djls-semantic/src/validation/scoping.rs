@@ -1,4 +1,4 @@
-use djls_project::MissingLibraryLookup;
+use djls_project::MissingTemplateLibraryLookup;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::TagDelimiter;
@@ -107,8 +107,8 @@ pub(crate) fn check_load_libraries_rule(db: &dyn Db, arguments: &[LoaderArgument
     for fact in arguments {
         let lib = &fact.argument;
         match &fact.availability {
-            MissingLibraryLookup::Inconclusive => {}
-            MissingLibraryLookup::FoundInApps(apps) => {
+            MissingTemplateLibraryLookup::Inconclusive => {}
+            MissingTemplateLibraryLookup::FoundInApps(apps) => {
                 let candidates = apps
                     .as_slice()
                     .iter()
@@ -122,7 +122,7 @@ pub(crate) fn check_load_libraries_rule(db: &dyn Db, arguments: &[LoaderArgument
                 })
                 .accumulate(db);
             }
-            MissingLibraryLookup::Absent => {
+            MissingTemplateLibraryLookup::Absent => {
                 ValidationErrorAccumulator(ValidationError::UnknownLibrary {
                     name: lib.as_str().to_string(),
                     span: lib.span(),

@@ -1,7 +1,7 @@
-use djls_project::EnvironmentSymbolLookup;
-use djls_project::TemplateEnvironment;
+use djls_project::AppTemplateSymbolLookup;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::ScopedTemplateSymbolLookup;
 use djls_project::TemplateSymbolKind;
-use djls_project::TemplateSymbolLookup;
 
 use crate::scoping::LoadState;
 
@@ -24,18 +24,18 @@ pub(crate) enum SymbolAvailability {
     Unknown,
 }
 
-/// Resolve only the requested name. This deliberately does not enumerate a
-/// Template Environment or construct a complete per-Template symbol index.
+/// Resolve only the requested name. This deliberately does not enumerate the
+/// Template Library catalog or construct a complete per-Template symbol index.
 #[must_use]
 pub(crate) fn resolve_occurrence_availability(
-    environment: TemplateEnvironment<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
     load_state: &LoadState<'_>,
     name: &str,
     kind: TemplateSymbolKind,
 ) -> SymbolAvailability {
-    match environment.symbol(name, kind) {
-        EnvironmentSymbolLookup::Builtin => SymbolAvailability::Available,
-        EnvironmentSymbolLookup::RequiresLoad(required) => {
+    match scoped_libraries.symbol(name, kind) {
+        ScopedTemplateSymbolLookup::Builtin => SymbolAvailability::Available,
+        ScopedTemplateSymbolLookup::RequiresLoad(required) => {
             if required
                 .iter()
                 .any(|library| load_state.is_symbol_available(library.as_str(), name))
@@ -56,17 +56,19 @@ pub(crate) fn resolve_occurrence_availability(
                 _ => SymbolAvailability::AmbiguousUnloaded { libraries },
             }
         }
-        EnvironmentSymbolLookup::Inconclusive => SymbolAvailability::Inconclusive,
-        EnvironmentSymbolLookup::Absent => match environment.available_app_symbol(name, kind) {
-            TemplateSymbolLookup::FoundInApp { app, load_name } => {
-                SymbolAvailability::NotInInstalledApps {
-                    app: app.as_str().to_string(),
-                    load_name: load_name.as_str().to_string(),
+        ScopedTemplateSymbolLookup::Inconclusive => SymbolAvailability::Inconclusive,
+        ScopedTemplateSymbolLookup::Absent => {
+            match scoped_libraries.available_in_app_symbol(name, kind) {
+                AppTemplateSymbolLookup::FoundInApp { app, load_name } => {
+                    SymbolAvailability::NotInInstalledApps {
+                        app: app.as_str().to_string(),
+                        load_name: load_name.as_str().to_string(),
+                    }
                 }
+                AppTemplateSymbolLookup::Inconclusive => SymbolAvailability::Inconclusive,
+                AppTemplateSymbolLookup::Absent => SymbolAvailability::Unknown,
             }
-            TemplateSymbolLookup::Inconclusive => SymbolAvailability::Inconclusive,
-            TemplateSymbolLookup::Absent => SymbolAvailability::Unknown,
-        },
+        }
     }
 }
 
@@ -74,11 +76,11 @@ pub(crate) fn resolve_occurrence_availability(
 mod tests {
     use std::collections::HashMap;
 
-    use djls_project::TemplateEnvironment;
-    use djls_project::TemplateLibraries;
+    use djls_project::ScopedTemplateLibraries;
+    use djls_project::TemplateLibraryCatalog;
     use djls_project::TemplateSymbolKind;
     use djls_source::Span;
-    use djls_testing::make_template_libraries;
+    use djls_testing::make_template_library_catalog;
     use serde_json::json;
 
     use super::*;
@@ -87,14 +89,14 @@ mod tests {
     use crate::scoping::LoadedLibraries;
     use crate::scoping::loads::LoadArgument;
 
-    fn environment() -> TemplateLibraries {
+    fn catalog() -> TemplateLibraryCatalog {
         let db = djls_testing::TestDatabase::new();
-        make_template_libraries(
+        make_template_library_catalog(
             &db,
             &[json!({
                 "kind": "tag",
                 "name": "custom",
-                "library_kind": "installed",
+                "library_kind": "loadable",
                 "load_name": "extras",
                 "library_module": "example.extras",
                 "module": "example.extras",
@@ -108,8 +110,8 @@ mod tests {
 
     #[test]
     fn occurrence_lookup_respects_positioned_loads() {
-        let libraries = environment();
-        let environment = TemplateEnvironment::from_project_inventory(&libraries);
+        let catalog = catalog();
+        let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&catalog);
         let loaded = LoadedLibraries::new(vec![LoadStatement::new(
             Span::new(10, 10),
             LoadKind::FullLoad {
@@ -119,7 +121,7 @@ mod tests {
 
         assert_eq!(
             resolve_occurrence_availability(
-                environment,
+                scoped_libraries,
                 &loaded.available_at(0),
                 "custom",
                 TemplateSymbolKind::Tag,
@@ -130,7 +132,7 @@ mod tests {
         );
         assert_eq!(
             resolve_occurrence_availability(
-                environment,
+                scoped_libraries,
                 &loaded.available_at(30),
                 "custom",
                 TemplateSymbolKind::Tag,

@@ -2,9 +2,9 @@ use djls_source::FileReadError;
 use salsa::Cycle;
 use salsa::Id;
 
-use super::PythonModuleDependencies;
+use super::PythonImportTrace;
 use super::PythonModuleEffects;
-use super::PythonModuleValues;
+use super::PythonModuleFacts;
 use super::evaluator::evaluate_body;
 use super::module_object::PathIntrinsicContamination;
 use super::result::EvaluatedPythonModule;
@@ -33,15 +33,15 @@ pub(super) fn evaluate_python_module(
         Err(error) => {
             return PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
                 Err(error),
-                PythonModuleDependencies::rooted(file),
+                PythonImportTrace::rooted(file),
                 PythonModuleEffects::default(),
                 &module,
             ));
         }
         Ok(None) => {
             return PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
-                Ok(PythonModuleValues::default()),
-                PythonModuleDependencies::rooted(file),
+                Ok(PythonModuleFacts::default()),
+                PythonImportTrace::rooted(file),
                 PythonModuleEffects::default(),
                 &module,
             ));
@@ -50,7 +50,7 @@ pub(super) fn evaluate_python_module(
     let body = parsed.body(db);
     let syntax_errors = parsed.syntax_errors(db).to_vec();
     let syntax_impacts = collect_syntax_impacts(body, &syntax_errors);
-    let (module_values, dependencies, module_effects) = evaluate_body(
+    let (module_facts, import_trace, module_effects) = evaluate_body(
         db,
         project,
         module.clone(),
@@ -60,42 +60,42 @@ pub(super) fn evaluate_python_module(
         path_intrinsic_contamination,
     );
     PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
-        Ok(module_values),
-        dependencies,
+        Ok(module_facts),
+        import_trace,
         module_effects,
         &module,
     ))
 }
 
-// This projection gives value consumers an independent red-green cutoff when only dependencies
+// This projection gives value consumers an independent red-green cutoff when only import_trace
 // change.
 #[salsa::tracked(returns(ref))]
-pub(crate) fn python_module_values(
+pub(crate) fn python_module_facts(
     db: &dyn ProjectDb,
     project: Project,
     module: PythonSourceModule,
-) -> Result<PythonModuleValues, FileReadError> {
+) -> Result<PythonModuleFacts, FileReadError> {
     match evaluate_python_module(db, project, module, PathIntrinsicContamination::default()) {
         PythonModuleEvaluation::CycleSeed => {
             unreachable!("cycle seed escaped Python module evaluation")
         }
-        PythonModuleEvaluation::Evaluated(evaluated) => evaluated.values().clone(),
+        PythonModuleEvaluation::Evaluated(evaluated) => evaluated.facts().clone(),
     }
 }
 
-// This projection gives dependency consumers an independent red-green cutoff when only values
+// This projection gives dependency consumers an independent red-green cutoff when only facts
 // change.
 #[salsa::tracked(returns(ref))]
-pub(crate) fn python_module_dependencies(
+pub(crate) fn python_import_trace(
     db: &dyn ProjectDb,
     project: Project,
     module: PythonSourceModule,
-) -> PythonModuleDependencies {
+) -> PythonImportTrace {
     match evaluate_python_module(db, project, module, PathIntrinsicContamination::default()) {
         PythonModuleEvaluation::CycleSeed => {
             unreachable!("cycle seed escaped Python module evaluation")
         }
-        PythonModuleEvaluation::Evaluated(evaluated) => evaluated.dependencies().clone(),
+        PythonModuleEvaluation::Evaluated(evaluated) => evaluated.import_trace().clone(),
     }
 }
 

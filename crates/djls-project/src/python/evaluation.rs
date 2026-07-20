@@ -26,27 +26,27 @@ pub(crate) use self::binding::PythonBinding;
 pub(crate) use self::binding::PythonBindingState;
 pub(crate) use self::binding::PythonBoundValue;
 pub(crate) use self::constraints::BranchConstraints;
+pub(crate) use self::mapping::MappingEntryEvidence;
+pub(crate) use self::mapping::MappingLogItem;
 pub(crate) use self::mapping::MappingOverride;
-pub(crate) use self::mapping::MappingProjection;
-pub(crate) use self::mapping::MappingStringEntry;
 pub(crate) use self::mapping::PythonDict;
 pub(crate) use self::mapping::PythonMapping;
-pub(crate) use self::module_object::PythonImportFallback;
+pub(crate) use self::module_object::ChildImportFallback;
 pub(crate) use self::module_object::PythonModuleEffects;
 pub(crate) use self::mutation::PythonMutation;
 pub(crate) use self::mutation::PythonMutationOperation;
 pub(crate) use self::mutation::PythonMutationPath;
 pub(crate) use self::mutation::PythonMutationPathSegment;
-pub(crate) use self::query::python_module_dependencies;
-pub(crate) use self::query::python_module_values;
+pub(crate) use self::query::python_import_trace;
+pub(crate) use self::query::python_module_facts;
 pub(crate) use self::result::PythonImportEdge;
 pub(crate) use self::result::PythonImportEvaluationStatus;
 pub(crate) use self::result::PythonImportOutcome;
-pub(crate) use self::result::PythonModuleDependencies;
-pub(crate) use self::result::PythonModuleValues;
+pub(crate) use self::result::PythonImportTrace;
+pub(crate) use self::result::PythonModuleFacts;
 pub(crate) use self::result::PythonNamespaceCause;
 pub(crate) use self::result::PythonNamespaceRemainder;
-pub(crate) use self::result::PythonSyntaxImpact;
+pub(crate) use self::result::PythonSyntaxErrorImpact;
 pub(crate) use self::sequence::PythonList;
 pub(crate) use self::sequence::PythonMaterializedSequence;
 pub(crate) use self::sequence::PythonSequence;
@@ -121,7 +121,7 @@ impl FromIterator<Origin> for OriginSet {
     }
 }
 
-/// Evaluator-owned total ordering for deterministic normalization and retention.
+/// PythonModuleEvaluator-owned total ordering for deterministic normalization and retention.
 ///
 /// Implementations compare every field participating in structural equality.
 /// Context-dependent policies, such as root-first dependency order, stay with

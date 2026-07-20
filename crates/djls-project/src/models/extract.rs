@@ -19,8 +19,8 @@ use crate::models::graph::ModelName;
 use crate::models::graph::Relation;
 use crate::models::graph::RelationTarget;
 use crate::models::graph::RelationType;
-use crate::models::imports::ModelImportAliases;
 use crate::models::imports::ModelImportPathResolutionError;
+use crate::models::imports::ModelImportState;
 use crate::python::PythonModuleName;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
@@ -62,13 +62,13 @@ struct DeferredCandidate {
 }
 
 #[derive(Clone, Copy)]
-struct ScanContext<'a> {
+struct ModelExtractionContext<'a> {
     module_name: &'a PythonModuleName,
     file: File,
     module_kind: ModuleKind,
 }
 
-enum OccurrenceTarget<'out> {
+enum ModelExtractionTarget<'out> {
     Module {
         graph: &'out mut ModelGraph,
         deferred: &'out mut Vec<DeferredCandidate>,
@@ -78,7 +78,7 @@ enum OccurrenceTarget<'out> {
     },
 }
 
-fn invalidate_names(state: &mut ModelImportAliases, names: &BTreeSet<String>) {
+fn invalidate_names(state: &mut ModelImportState, names: &BTreeSet<String>) {
     for name in names {
         state.invalidate_root(name);
     }
@@ -86,11 +86,11 @@ fn invalidate_names(state: &mut ModelImportAliases, names: &BTreeSet<String>) {
 
 fn scan_class(
     class: &StmtClassDef,
-    aliases: &ModelImportAliases,
-    target: &mut OccurrenceTarget<'_>,
-    context: ScanContext<'_>,
+    aliases: &ModelImportState,
+    target: &mut ModelExtractionTarget<'_>,
+    context: ModelExtractionContext<'_>,
 ) {
-    let OccurrenceTarget::Module { graph, deferred } = target else {
+    let ModelExtractionTarget::Module { graph, deferred } = target else {
         return;
     };
     let Some(args) = class.arguments.as_ref() else {
@@ -104,7 +104,7 @@ fn scan_class(
         class.name.span(),
     );
     let mut class_state = aliases.clone();
-    let mut class_target = OccurrenceTarget::Class { model: &mut model };
+    let mut class_target = ModelExtractionTarget::Class { model: &mut model };
     scan_statements(&class.body, &mut class_state, &mut class_target, context);
 
     if is_django_model(args.args.iter(), aliases) {
@@ -130,9 +130,9 @@ fn scan_class(
 /// no branch-local alias leaks into the following statement.
 fn scan_statements(
     stmts: &[Stmt],
-    state: &mut ModelImportAliases,
-    target: &mut OccurrenceTarget<'_>,
-    context: ScanContext<'_>,
+    state: &mut ModelImportState,
+    target: &mut ModelExtractionTarget<'_>,
+    context: ModelExtractionContext<'_>,
 ) {
     for stmt in stmts {
         match stmt {
@@ -143,11 +143,11 @@ fn scan_statements(
                 context.module_kind,
             ),
             Stmt::ClassDef(class) => match target {
-                OccurrenceTarget::Module { .. } => {
+                ModelExtractionTarget::Module { .. } => {
                     scan_class(class, state, target, context);
                     state.bind_local_class(class.name.as_str());
                 }
-                OccurrenceTarget::Class { model } => {
+                ModelExtractionTarget::Class { model } => {
                     process_class_body(stmt, context.file, model, state);
                     state.invalidate_root(class.name.as_str());
                 }
@@ -165,7 +165,7 @@ fn scan_statements(
                 invalidate_names(state, &roots);
             }
             _ => {
-                if let OccurrenceTarget::Class { model } = target {
+                if let ModelExtractionTarget::Class { model } = target {
                     process_class_body(stmt, context.file, model, state);
                 }
                 let mut roots = BTreeSet::new();
@@ -178,9 +178,9 @@ fn scan_statements(
 
 fn scan_compound(
     stmt: &Stmt,
-    entry: &ModelImportAliases,
-    target: &mut OccurrenceTarget<'_>,
-    context: ScanContext<'_>,
+    entry: &ModelImportState,
+    target: &mut ModelExtractionTarget<'_>,
+    context: ModelExtractionContext<'_>,
 ) {
     let mut scan = |body: &[Stmt], invalidated: &BTreeSet<String>| {
         let mut state = entry.clone();
@@ -324,13 +324,13 @@ pub(super) fn extract_models_impl(
 ) -> ModelExtraction {
     let mut graph = ModelGraph::new();
     let mut deferred = Vec::new();
-    let mut state = ModelImportAliases::default();
-    let context = ScanContext {
+    let mut state = ModelImportState::default();
+    let context = ModelExtractionContext {
         module_name,
         file,
         module_kind,
     };
-    let mut target = OccurrenceTarget::Module {
+    let mut target = ModelExtractionTarget::Module {
         graph: &mut graph,
         deferred: &mut deferred,
     };
@@ -402,7 +402,7 @@ impl DeferredModel {
 }
 
 impl DeferredBaseRef {
-    fn from_expr(expr: &Expr, aliases: &ModelImportAliases) -> Option<Self> {
+    fn from_expr(expr: &Expr, aliases: &ModelImportState) -> Option<Self> {
         let path = expr.path_segments()?;
         let (root, tail) = path.split_first()?;
         match aliases.resolve_qualified_path(root, tail) {
@@ -419,10 +419,7 @@ impl DeferredBaseRef {
     }
 }
 
-fn is_django_model<'a>(
-    bases: impl Iterator<Item = &'a Expr>,
-    aliases: &ModelImportAliases,
-) -> bool {
+fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ModelImportState) -> bool {
     bases
         .filter_map(ExprExt::path_segments)
         .filter_map(|path| {
@@ -437,7 +434,7 @@ fn is_django_model<'a>(
         })
 }
 
-fn process_class_body(stmt: &Stmt, file: File, model: &mut ModelDef, aliases: &ModelImportAliases) {
+fn process_class_body(stmt: &Stmt, file: File, model: &mut ModelDef, aliases: &ModelImportState) {
     // Check for Meta.abstract
     if let Stmt::ClassDef(meta) = stmt
         && meta.name.as_str() == "Meta"
@@ -475,7 +472,7 @@ fn is_abstract_assignment(stmt: &Stmt) -> bool {
     matches!(assign.value.as_ref(), Expr::BooleanLiteral(b) if b.value)
 }
 
-fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportAliases) -> Option<Relation> {
+fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportState) -> Option<Relation> {
     let Stmt::Assign(assign) = stmt else {
         return None;
     };
