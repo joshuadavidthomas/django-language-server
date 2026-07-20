@@ -71,6 +71,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed static Django settings evaluation through ordinary Python imports, dotted module chains, and module attributes.
 - Fixed Python settings evaluation to distinguish list and tuple concatenation while preserving known collection facts through supported iterable extensions.
 - Fixed relative imports in Django settings modules, including package aliases and overlapping Python search roots.
 - Fixed project reloads so an analysis task panic no longer prevents later reloads.

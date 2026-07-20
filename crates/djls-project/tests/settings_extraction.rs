@@ -4090,6 +4090,375 @@ fn python_module_long_cycle_stays_within_the_internal_iteration_guard() {
     );
 }
 
+// Phase 4.1 branch/loop/cycle coverage.
+//
+// Several Phase 4.1 bullets are already covered by Phase 3 tests and are reused
+// here rather than duplicated:
+//   * two-file direct cycle -> `ordinary_import_two_file_cycle_binds_handle_and_records_cycle_edge`
+//   * dotted self direct import -> `ordinary_dotted_import_self_cycle_binds_root_and_records_leaf_cycle`
+//     and `ordinary_dotted_import_self_cycle_attaches_open_child`
+//   * post-cycle exact locals -> `python_module_cycle_widens_cyclic_values_but_keeps_post_cycle_assignments`
+//   * stable side dependencies -> `python_module_cycle_preserves_stable_side_dependencies`
+//   * long-cycle guard -> `python_module_long_cycle_stays_within_the_internal_iteration_guard`
+//   * from-import opposite entry order -> `python_module_cycle_products_are_entry_order_independent`
+// The tests below add the genuinely missing cases: child-coordinate branch
+// correlation, zero-iteration loop uncertainty, non-dotted self import, mixed
+// direct/from cycle, parent-package component cycle, dotted-chain cycle,
+// ordinary-import opposite entry order, and unrelated child-coordinate survival.
+
+fn child_attribute_alternative_causes(
+    binding: &djls_project::testing::PythonBindingView,
+) -> Vec<PythonUnknownCauseView> {
+    binding
+        .alternatives
+        .iter()
+        .filter_map(|alternative| match alternative {
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value:
+                    PythonValueView {
+                        kind: PythonValueKindView::Unknown(unknown),
+                        ..
+                    },
+                ..
+            }) => Some(unknown.cause.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn binding_has_module(
+    binding: &djls_project::testing::PythonBindingView,
+    module_name: &str,
+) -> bool {
+    binding.alternatives.iter().any(|alternative| {
+        matches!(alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                    ..
+                },
+                ..
+            }) if module.as_str() == module_name)
+    })
+}
+
+#[test]
+fn ordinary_dotted_import_branch_attachment_correlates_present_and_absent_child() {
+    // The parent `pkg` is always imported; the child `pkg.sub` is attached only
+    // on the taken branch. Reading `pkg.sub` afterward correlates the present
+    // module handle with the absent-branch module-attribute unknown.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg\nif condition:\n    import pkg.sub\nCHILD = pkg.sub\n",
+    );
+
+    let child = evaluation
+        .binding("CHILD")
+        .expect("CHILD should be tracked");
+    assert!(
+        binding_has_module(child, "pkg.sub"),
+        "the taken branch attaches the child handle: {:?}",
+        child.alternatives,
+    );
+    assert!(
+        child_attribute_alternative_causes(child).iter().any(
+            |cause| matches!(cause, PythonUnknownCauseView::ModuleAttribute { module, member }
+                if module.as_str() == "pkg" && member == "sub")
+        ),
+        "the skipped branch leaves the child absent as a module-attribute unknown: {:?}",
+        child.alternatives,
+    );
+}
+
+#[test]
+fn ordinary_dotted_import_zero_iteration_loop_leaves_child_uncertain() {
+    // A dotted child imported only inside a loop body has a zero-iteration
+    // baseline where the child is never attached, so reading it afterward retains
+    // an uncertain (absent) module-attribute alternative alongside the attached
+    // handle from the iterating path.
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+        ],
+        "import pkg\nfor item in ITEMS:\n    import pkg.sub\nCHILD = pkg.sub\n",
+    );
+
+    let child = evaluation
+        .binding("CHILD")
+        .expect("CHILD should be tracked");
+    let causes = child_attribute_alternative_causes(child);
+    // The coordinate the loop body attaches degrades to `UnsupportedExpression`
+    // because the loop may run zero times, so no stable module handle survives.
+    assert!(
+        !binding_has_module(child, "pkg.sub"),
+        "the zero-iteration loop must not present a certain child handle: {:?}",
+        child.alternatives,
+    );
+    assert!(
+        causes
+            .iter()
+            .any(|cause| matches!(cause, PythonUnknownCauseView::UnsupportedExpression)),
+        "the loop-changed child coordinate degrades to UnsupportedExpression: {:?}",
+        child.alternatives,
+    );
+    assert!(
+        causes.iter().any(
+            |cause| matches!(cause, PythonUnknownCauseView::ModuleAttribute { module, member }
+                if module.as_str() == "pkg" && member == "sub")
+        ),
+        "the zero-iteration baseline keeps the child absent as a module-attribute unknown: {:?}",
+        child.alternatives,
+    );
+}
+
+#[test]
+fn ordinary_import_non_dotted_self_cycle_binds_handle_and_records_cycle_edge() {
+    // A module that imports itself with a bare `import a` records a self cycle
+    // edge and still retains its post-import local value.
+    let db = TestDatabase::new();
+    db.add_file("/project/a.py", "import a\nVALUE = 'a'\n");
+    let project = python_project(&db);
+    let module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap()).unwrap();
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Cycle { imported_module, .. }
+                if imported_module.as_str() == "a"
+        )),
+        "a bare self import records a self cycle edge: {:?}",
+        evaluation.imports,
+    );
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "a"));
+}
+
+#[test]
+fn mixed_direct_and_from_cycle_records_cycle_on_both_forms() {
+    // `a` reaches `b` through a bare `import b`; `b` reaches back through
+    // `from a import ...`. Both source forms enter the shared chain lifecycle and
+    // record cycle edges regardless of which module is evaluated first.
+    let evaluate = |root: &str| {
+        let db = TestDatabase::new();
+        db.add_file("/project/a.py", "import b\nVALUE_A = 'a'\n");
+        db.add_file(
+            "/project/b.py",
+            "from a import VALUE_A\nVALUE_B = VALUE_A\n",
+        );
+        let project = python_project(&db);
+        let module =
+            PythonModule::resolve(&db, project, PythonModuleName::parse(root).unwrap()).unwrap();
+        python_module_evaluation_for_module(&db, project, module)
+    };
+
+    let from_a = evaluate("a");
+    let from_b = evaluate("b");
+
+    let edges = |evaluation: &PythonModuleEvaluationView| {
+        evaluation
+            .imports
+            .iter()
+            .filter_map(|outcome| match outcome {
+                PythonImportOutcomeView::Cycle {
+                    importer_module,
+                    imported_module,
+                    ..
+                }
+                | PythonImportOutcomeView::Resolved {
+                    importer_module,
+                    imported_module,
+                    ..
+                } => Some((
+                    importer_module.as_str().to_string(),
+                    imported_module.as_str().to_string(),
+                )),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>()
+    };
+
+    // Both cycle participants record the same canonical mixed-form edge set with
+    // exactly one cycle edge, independent of which module is evaluated.
+    for evaluation in [&from_a, &from_b] {
+        assert_eq!(
+            evaluation
+                .imports
+                .iter()
+                .filter(|outcome| matches!(outcome, PythonImportOutcomeView::Cycle { .. }))
+                .count(),
+            1,
+        );
+    }
+    assert_eq!(edges(&from_a), edges(&from_b));
+    let recorded = edges(&from_a);
+    assert!(
+        recorded.contains(&("a".to_string(), "b".to_string())),
+        "the direct import edge a->b is recorded: {recorded:?}",
+    );
+    assert!(
+        recorded.contains(&("b".to_string(), "a".to_string())),
+        "the from-import edge b->a is recorded: {recorded:?}",
+    );
+    // The direct import still binds the module handle across the cycle.
+    assert!(
+        binding_has_module(from_a.binding("b").expect("b should be bound"), "b"),
+        "the direct import binds the module handle across the cycle: {:?}",
+        from_a.binding("b"),
+    );
+}
+
+#[test]
+fn parent_package_component_cycle_records_the_parent_edge() {
+    // Evaluating `pkg.sub` imports the parent package `pkg`, whose `__init__`
+    // reads back into `pkg.sub`, closing a cycle through the parent component.
+    // The recorded edges must include the parent `pkg` component.
+    let db = TestDatabase::new();
+    db.add_file("/project/pkg/__init__.py", "from pkg.sub import X\n");
+    db.add_file("/project/pkg/sub.py", "import pkg\nX = 'x'\n");
+    let project = python_project(&db);
+    let module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap()).unwrap();
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Cycle { imported_module, .. } | PythonImportOutcomeView::Resolved { imported_module, .. }
+                if imported_module.as_str() == "pkg"
+        )),
+        "the parent package component appears in the recorded edges: {:?}",
+        evaluation.imports,
+    );
+    assert!(
+        evaluation
+            .imports
+            .iter()
+            .any(|outcome| matches!(outcome, PythonImportOutcomeView::Cycle { .. })),
+        "the parent-package cycle records a cycle edge: {:?}",
+        evaluation.imports,
+    );
+    let value = bound_value(&evaluation, "X");
+    assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "x"));
+}
+
+#[test]
+fn dotted_chain_cycle_records_leaf_cycle_and_resolves_prefix() {
+    // A three-deep dotted chain `a.b.c` importing itself resolves the `a` and
+    // `a.b` prefix components and records the leaf `a.b.c` as a cycle edge.
+    let db = TestDatabase::new();
+    db.add_file("/project/a/__init__.py", "");
+    db.add_file("/project/a/b/__init__.py", "");
+    db.add_file("/project/a/b/c.py", "import a.b.c\nVALUE = 'c'\n");
+    let project = python_project(&db);
+    let module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("a.b.c").unwrap()).unwrap();
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+    for prefix in ["a", "a.b"] {
+        assert!(
+            evaluation.imports.iter().any(|outcome| matches!(
+                outcome,
+                PythonImportOutcomeView::Resolved { imported_module, .. }
+                    if imported_module.as_str() == prefix
+            )),
+            "the prefix component {prefix} resolves: {:?}",
+            evaluation.imports,
+        );
+    }
+    assert!(
+        evaluation.imports.iter().any(|outcome| matches!(
+            outcome,
+            PythonImportOutcomeView::Cycle { imported_module, .. }
+                if imported_module.as_str() == "a.b.c"
+        )),
+        "the dotted leaf is a cycle edge: {:?}",
+        evaluation.imports,
+    );
+    let value = bound_value(&evaluation, "VALUE");
+    assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "c"));
+}
+
+fn direct_cycle_products(
+    query_a_first: bool,
+) -> (PythonModuleEvaluationView, PythonModuleEvaluationView) {
+    let db = TestDatabase::new();
+    db.add_file("/project/a.py", "import b\nVALUE_A = 'a'\n");
+    db.add_file("/project/b.py", "import a\nVALUE_B = 'b'\n");
+    let project = python_project(&db);
+    let a = db.file(Utf8Path::new("/project/a.py"));
+    let b = db.file(Utf8Path::new("/project/b.py"));
+
+    if query_a_first {
+        let _ = python_module_evaluation(&db, project, a);
+    } else {
+        let _ = python_module_evaluation(&db, project, b);
+    }
+    (
+        python_module_evaluation(&db, project, a),
+        python_module_evaluation(&db, project, b),
+    )
+}
+
+#[test]
+fn ordinary_import_cycle_products_are_entry_order_independent() {
+    let a_first = direct_cycle_products(true);
+    let b_first = direct_cycle_products(false);
+
+    assert_eq!(a_first, b_first);
+    for evaluation in [&a_first.0, &a_first.1] {
+        assert_eq!(
+            evaluation
+                .imports
+                .iter()
+                .filter(|outcome| matches!(outcome, PythonImportOutcomeView::Cycle { .. }))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn ordinary_import_cycle_widening_preserves_unrelated_child_coordinate() {
+    // `root` attaches two children under `pkg`: the stable `pkg.stable` and the
+    // cyclic `pkg.cyc` (which imports `root`). Cycle widening degrades only the
+    // cyclic coordinate; the unrelated stable coordinate survives as a handle.
+    let db = TestDatabase::new();
+    db.add_file("/project/pkg/__init__.py", "");
+    db.add_file("/project/pkg/stable.py", "LEAF = 'stable'\n");
+    db.add_file("/project/pkg/cyc.py", "import root\nLEAF = 'cyc'\n");
+    db.add_file(
+        "/project/root.py",
+        "import pkg.stable\nimport pkg.cyc\nSTABLE = pkg.stable\nCYC = pkg.cyc\n",
+    );
+    let project = python_project(&db);
+    let module =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("root").unwrap()).unwrap();
+    let evaluation = python_module_evaluation_for_module(&db, project, module);
+
+    let stable = evaluation
+        .binding("STABLE")
+        .expect("STABLE should be bound");
+    assert!(
+        binding_has_module(stable, "pkg.stable"),
+        "the unrelated stable child coordinate survives widening: {:?}",
+        stable.alternatives,
+    );
+    assert!(
+        evaluation
+            .imports
+            .iter()
+            .any(|outcome| matches!(outcome, PythonImportOutcomeView::Cycle { .. })),
+        "the cyclic child records a cycle edge: {:?}",
+        evaluation.imports,
+    );
+}
+
 #[test]
 fn multiline_setting_syntax_errors_are_structurally_associated() {
     for (source, pointer) in [

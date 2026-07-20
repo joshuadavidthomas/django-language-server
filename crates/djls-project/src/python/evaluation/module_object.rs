@@ -191,11 +191,7 @@ impl PythonModuleObjects {
             .position(|child| &child.object == object && child.attribute == attribute)
     }
 
-    pub(crate) fn read_child(
-        &self,
-        object: &PythonModuleObjectId,
-        attribute: &str,
-    ) -> Option<&PythonBinding> {
+    fn read_child(&self, object: &PythonModuleObjectId, attribute: &str) -> Option<&PythonBinding> {
         self.child_index(object, attribute)
             .map(|index| &self.children[index].binding)
     }
@@ -212,8 +208,9 @@ impl PythonModuleObjects {
     ) -> PythonBinding {
         self.read_child(object, attribute)
             .cloned()
-            .map(|child| child.rebase_binding_origin(origin))
-            .unwrap_or_else(PythonBinding::unbound)
+            .map_or_else(PythonBinding::unbound, |child| {
+                child.rebase_binding_origin(origin)
+            })
     }
 
     /// Join object-scoped open causes onto a binding's residual `Unbound`
@@ -227,9 +224,8 @@ impl PythonModuleObjects {
     ) -> PythonBinding {
         let unbound_constraints = binding
             .alternatives_with_constraints()
-            .filter_map(|(state, constraints)| {
-                (*state == PythonBindingState::Unbound).then(|| constraints.clone())
-            })
+            .filter(|&(state, _constraints)| *state == PythonBindingState::Unbound)
+            .map(|(_state, constraints)| constraints.clone())
             .collect::<Vec<BranchConstraints>>();
         if unbound_constraints.is_empty() {
             return binding;
@@ -284,7 +280,7 @@ impl PythonModuleObjects {
         self.normalize();
     }
 
-    pub(crate) fn causes_for<'a>(
+    fn causes_for<'a>(
         &'a self,
         object: &'a PythonModuleObjectId,
     ) -> impl Iterator<Item = &'a PythonNamespaceCause> {

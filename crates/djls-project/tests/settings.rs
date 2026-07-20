@@ -645,6 +645,189 @@ fn two_file_settings_cycle_is_bounded_and_retains_local_values() {
     );
 }
 
+#[test]
+fn child_topology_change_backdates_values_projection() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/child.py", "X = 'v1'\n")
+        .file("/proj/myproject/other.py", "Y = 'y'\n")
+        .file(
+            "/proj/myproject/settings.py",
+            "import myproject.child\nINSTALLED_APPS = ['a']\n",
+        )
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    // Adding an import to the loaded child changes the recursive object/topology
+    // effect (a new attached coordinate and a new source edge) without touching
+    // any lexical settings the root module exposes.
+    update_project_file(
+        &mut db,
+        "/proj/myproject/child.py",
+        "X = 'v1'\nimport myproject.other\n",
+    );
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    // The root module's exposed settings never change, so `django_settings`
+    // backdates even though the recursive core and its dependency projection
+    // both recompute against the new child topology.
+    assert_eq!(after, before);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 3);
+    assert_eq!(
+        execution_count(&db, &events, "python_module_dependencies"),
+        1
+    );
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
+    // `python_module_values` recomputes but produces an equal projection, so it
+    // backdates and `django_settings` never re-runs.
+    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+}
+
+#[test]
+fn parent_package_init_edit_invalidates_dotted_consumer() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/pkg/__init__.py", "APPS = ['blog']\n")
+        .file("/proj/myproject/pkg/sub.py", "X = 1\n")
+        .file(
+            "/proj/myproject/settings.py",
+            "import myproject.pkg.sub\nINSTALLED_APPS = myproject.pkg.APPS\n",
+        )
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_project_file(
+        &mut db,
+        "/proj/myproject/pkg/__init__.py",
+        "APPS = ['news']\n",
+    );
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    // Editing the dotted parent package `myproject/pkg/__init__.py` invalidates
+    // the settings consumer that reads `myproject.pkg.APPS`: the parent and the
+    // consumer recompute and the changed lexical value flows to settings.
+    assert_ne!(after, before);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
+    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
+    assert_eq!(
+        execution_count(&db, &events, "python_module_dependencies"),
+        1
+    );
+    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+}
+
+#[test]
+fn external_module_body_edit_never_reaches_the_consumer() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/.venv/lib/python3.12/site-packages/ext/__init__.py",
+            "VALUE = 'old'\n",
+        )
+        .file(
+            "/proj/myproject/settings.py",
+            "import ext\nINSTALLED_APPS = ['a']\n",
+        )
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_project_file(
+        &mut db,
+        "/proj/.venv/lib/python3.12/site-packages/ext/__init__.py",
+        "VALUE = 'new'\n",
+    );
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    // The external body is never parsed, evaluated, or recorded as a dependency,
+    // so editing it leaves every projection cold and the settings unchanged.
+    assert_eq!(after, before);
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 0);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
+    assert_eq!(execution_count(&db, &events, "python_module_values"), 0);
+    assert_eq!(
+        execution_count(&db, &events, "python_module_dependencies"),
+        0
+    );
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+}
+
+#[test]
+fn search_path_winner_change_recomputes_module_reads() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    // `/extra` is a separate project-code root registered alongside `/proj`; the
+    // first-party `/proj` root outranks it, so a later `/proj/mod.py` becomes the
+    // resolution winner and changes the imported module's object identity.
+    db.add_file("/extra/keep.py", "");
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/proj"),
+        &Interpreter::Auto,
+        &[Utf8PathBuf::from("/extra")],
+    );
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .search_paths(search_paths)
+        .file("/proj/myproject/__init__.py", "")
+        .file("/extra/mod.py", "APPS = ['extra']\n")
+        .file(
+            "/proj/myproject/settings.py",
+            "import mod\nINSTALLED_APPS = mod.APPS\n",
+        )
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    db.add_file("/proj/mod.py", "APPS = ['root']\n");
+    SourceChanges::new([ChangeEvent::BecameVisible("/proj/mod.py".into())]).apply(&mut db);
+
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let events = event_log.take();
+
+    // The new first-party `/proj/mod.py` outranks `/extra/mod.py`, so the
+    // imported module's object identity changes and the module-attribute read
+    // recomputes from `extra` to `root`.
+    assert_eq!(
+        before["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "extra"
+    );
+    assert_eq!(
+        after["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "root"
+    );
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
+    assert_eq!(execution_count(&db, &events, "python_module_values"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+}
+
 struct ToggleReadFileSystem {
     inner: InMemoryFileSystem,
     toggled_path: Utf8PathBuf,

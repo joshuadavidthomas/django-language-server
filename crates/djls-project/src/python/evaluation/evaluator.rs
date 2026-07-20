@@ -102,7 +102,7 @@ pub(super) struct EvaluationState {
     /// Private recursive-import effect state. It is never projected into
     /// `PythonModuleValues` equality; only the complete internal result carries
     /// it out through `evaluate_python_module`.
-    pub(super) module_objects: PythonModuleObjects,
+    module_objects: PythonModuleObjects,
 }
 
 impl EvaluationState {
@@ -253,7 +253,7 @@ impl EvaluationState {
     /// The definite truthiness of a name, if any: a uniformly boolean binding
     /// yields its constant value, and a uniformly module-valued binding is
     /// always truthy (Python module objects are never falsy).
-    pub(super) fn known_truthiness(&self, name: &str) -> Option<bool> {
+    fn known_truthiness(&self, name: &str) -> Option<bool> {
         if let Some(value) = self.bool_value(name) {
             return Some(value);
         }

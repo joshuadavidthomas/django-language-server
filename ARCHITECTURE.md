@@ -65,6 +65,14 @@ The Project Facts layer. This crate owns mechanical facts about a Django project
 
 `djls-project` depends on `djls-source` for filesystem/source access, but it does not depend on `djls-semantic`. That one-way seam lets semantic analysis consume observed source facts without project discovery needing to know about template validation, scoping, or diagnostics. Each Template Library has an interned `(Option<File>, PythonModuleName)` identity and equality-bearing definition, Tag, and Filter facts. `TemplateLibraries` assembles backend-correlated catalog evidence and shared definition-name indexes; it does not hold one project-global semantic Tag or Filter result.
 
+#### Static Python import evaluation
+
+One evaluator entrypoint handles both ordinary and `from` import statements. The resolver returns an ordered root-to-leaf chain of source modules and namespace packages; one loader evaluates project-code components through the cycle-enabled module query, records dependencies and typed outcomes, and attaches loaded children only after successful resolution. First-party and extra-root source is evaluated, while site-packages and editable-root modules retain identity but remain open external namespaces whose bodies are never executed.
+
+A module value carries only stable source-or-namespace identity. Its intrinsic lexical namespace remains in `PythonModuleValues`; explicitly loaded child attachments and object-scoped cycle/external uncertainty live in a separate private module-object product. This split lets settings-facing value projections backdate independently from import topology while module attribute reads still compose intrinsic values, loaded children, and open causes.
+
+The supported boundary is static `import a`, `import a as x`, `import a.b`, `import a.b as x`, and existing named/star `from` imports. Module attribute reads are supported; module attribute writes and mutations, dynamic import hooks, `importlib`, runtime `sys.modules`/`sys.path` changes, and external module execution remain deliberately unsupported and conservative.
+
 ### `crates/djls-templates`
 
 The template parser — a hand-written recursive descent parser for Django's template syntax. It's inspired by Django's own parser but designed around IDE needs: error recovery, partial results, and position tracking rather than template rendering.

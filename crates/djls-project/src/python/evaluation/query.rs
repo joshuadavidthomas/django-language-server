@@ -29,7 +29,7 @@ pub(super) fn evaluate_python_module(
     let parsed = match RecoveredPythonModule::from_file(db, file) {
         Ok(Some(parsed)) => parsed,
         Err(error) => {
-            return PythonModuleEvaluation::Evaluated(EvaluatedPythonModule::new(
+            return PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
                 Err(error),
                 PythonModuleDependencies::rooted(file),
                 PythonModuleObjects::default(),
@@ -37,7 +37,7 @@ pub(super) fn evaluate_python_module(
             ));
         }
         Ok(None) => {
-            return PythonModuleEvaluation::Evaluated(EvaluatedPythonModule::new(
+            return PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
                 Ok(PythonModuleValues::default()),
                 PythonModuleDependencies::rooted(file),
                 PythonModuleObjects::default(),
@@ -50,7 +50,7 @@ pub(super) fn evaluate_python_module(
         evaluate_body(db, project, module.clone(), body);
     module_values.syntax_errors = parsed.syntax_errors(db).to_vec();
     module_values.syntax_impacts = collect_syntax_impacts(body, &module_values.syntax_errors);
-    PythonModuleEvaluation::Evaluated(EvaluatedPythonModule::new(
+    PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
         Ok(module_values),
         dependencies,
         module_objects,
@@ -117,10 +117,11 @@ fn evaluate_python_module_cycle_recover(
     let PythonModuleEvaluation::Evaluated(computed) = computed else {
         unreachable!("cycle seed cannot be a computed evaluation")
     };
+    let computed = *computed;
     let evaluated = match previous {
         PythonModuleEvaluation::CycleSeed => computed,
         PythonModuleEvaluation::Evaluated(_) if unchanged => computed,
         PythonModuleEvaluation::Evaluated(previous) => computed.widened(previous, &module),
     };
-    PythonModuleEvaluation::Evaluated(evaluated)
+    PythonModuleEvaluation::evaluated(evaluated)
 }

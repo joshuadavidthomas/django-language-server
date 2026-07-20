@@ -135,7 +135,7 @@ impl Evaluator<'_> {
                                 &PythonUnknownCause::Unreadable(error),
                                 origin,
                             ),
-                            Ok(values) => self.project_source_member(&values, member, origin),
+                            Ok(values) => Self::project_source_member(&values, member, origin),
                         }
                     }
                 }
@@ -145,7 +145,6 @@ impl Evaluator<'_> {
     }
 
     fn project_source_member(
-        &self,
         values: &PythonModuleValues,
         member: &str,
         origin: Origin,
@@ -357,71 +356,60 @@ impl Evaluator<'_> {
         };
         let resolved_len = components.len();
 
-        let mut root: Option<PythonModuleObjectId> = None;
-        let mut parent: Option<PythonModuleObjectId> = None;
-        let mut terminal: Option<ChainOutcome> = None;
-        let mut leaf_reached = false;
-        let mut external = false;
+        let mut progress = ChainLoadProgress::default();
 
         for (index, component) in components.into_iter().enumerate() {
             let is_last = failure.is_none() && index + 1 == resolved_len;
             let (attribute, object) = component_identity(&component);
 
-            if external {
-                self.state.attach_external_component(
-                    parent.as_ref(),
-                    &attribute,
-                    &object,
+            if progress.external {
+                self.load_external_suffix_component(
                     name,
+                    &attribute,
+                    object,
+                    is_last,
                     origin,
+                    &mut progress,
                 );
-                root.get_or_insert_with(|| object.clone());
-                parent = Some(object.clone());
-                if is_last {
-                    leaf_reached = true;
-                    terminal = Some(ChainOutcome::External {
-                        object,
-                        module: name.clone(),
-                    });
-                }
                 continue;
             }
 
             match component {
                 ResolvedChainComponent::Namespace(_) => {
-                    self.state
-                        .attach_component(parent.as_ref(), &attribute, &object, origin);
-                    root.get_or_insert_with(|| object.clone());
-                    parent = Some(object.clone());
+                    self.state.attach_component(
+                        progress.parent.as_ref(),
+                        &attribute,
+                        &object,
+                        origin,
+                    );
+                    progress.root.get_or_insert_with(|| object.clone());
+                    progress.parent = Some(object.clone());
                     if is_last {
-                        leaf_reached = true;
-                        terminal = Some(ChainOutcome::Namespace { object });
+                        progress.leaf_reached = true;
+                        progress.terminal = Some(ChainOutcome::Namespace { object });
                     }
                 }
                 ResolvedChainComponent::Source(module)
                     if !module.search_path().is_project_code() =>
                 {
-                    // First external component: one skipped outcome for the full
-                    // requested leaf, then the resolved suffix is constructed
-                    // without evaluation.
-                    external = true;
+                    progress.external = true;
                     self.state
                         .record_import(PythonImportOutcome::SkippedExternal {
                             origin,
                             module: name.clone(),
                         });
                     self.state.attach_external_component(
-                        parent.as_ref(),
+                        progress.parent.as_ref(),
                         &attribute,
                         &object,
                         name,
                         origin,
                     );
-                    root.get_or_insert_with(|| object.clone());
-                    parent = Some(object.clone());
+                    progress.root.get_or_insert_with(|| object.clone());
+                    progress.parent = Some(object.clone());
                     if is_last {
-                        leaf_reached = true;
-                        terminal = Some(ChainOutcome::External {
+                        progress.leaf_reached = true;
+                        progress.terminal = Some(ChainOutcome::External {
                             object,
                             module: name.clone(),
                         });
@@ -430,68 +418,105 @@ impl Evaluator<'_> {
                 ResolvedChainComponent::Source(module)
                     if !is_last && self.is_importer_self(&module) =>
                 {
-                    // The importer's own module is already being initialized on
-                    // the import stack; re-evaluating exactly itself would be a
-                    // spurious self-cycle. Create its handle and continue so
-                    // descendant components still resolve and attach. Parent
-                    // packages (which are distinct modules) are evaluated
-                    // normally so their `__init__.py` effects load.
-                    self.state
-                        .attach_component(parent.as_ref(), &attribute, &object, origin);
-                    root.get_or_insert_with(|| object.clone());
-                    parent = Some(object.clone());
+                    self.state.attach_component(
+                        progress.parent.as_ref(),
+                        &attribute,
+                        &object,
+                        origin,
+                    );
+                    progress.root.get_or_insert_with(|| object.clone());
+                    progress.parent = Some(object);
                 }
                 ResolvedChainComponent::Source(module) => {
-                    match self.evaluate_source_component(&module, origin) {
-                        SourceComponent::Cycle => {
-                            self.state.attach_component(
-                                parent.as_ref(),
-                                &attribute,
-                                &object,
-                                origin,
-                            );
-                            self.state.open_component_cycle(&object, origin);
-                            root.get_or_insert_with(|| object.clone());
-                            // A cycle at the last requested component still
-                            // reaches the requested leaf as a partial handle;
-                            // an intermediate cycle does not.
-                            leaf_reached = is_last;
-                            terminal = Some(ChainOutcome::Cycle { object });
-                            break;
-                        }
-                        SourceComponent::Unreadable(error) => {
-                            leaf_reached = is_last;
-                            terminal = Some(ChainOutcome::Unreadable { error });
-                            break;
-                        }
-                        SourceComponent::Evaluated(values, objects) => {
-                            self.state.module_objects_merge(objects, origin);
-                            self.state.attach_component(
-                                parent.as_ref(),
-                                &attribute,
-                                &object,
-                                origin,
-                            );
-                            root.get_or_insert_with(|| object.clone());
-                            parent = Some(object.clone());
-                            if is_last {
-                                leaf_reached = true;
-                                terminal = Some(ChainOutcome::Source { object, values });
-                            }
-                        }
+                    if self.load_project_source_component(
+                        &module,
+                        &attribute,
+                        object,
+                        is_last,
+                        origin,
+                        &mut progress,
+                    ) {
+                        break;
                     }
                 }
             }
         }
 
-        let leaf = match terminal {
-            Some(terminal) => terminal,
-            None => self.record_chain_not_found(failure, name, origin),
-        };
+        let leaf = progress
+            .terminal
+            .unwrap_or_else(|| self.record_chain_not_found(failure, name, origin));
         ChainLoad {
-            root,
+            root: progress.root,
             leaf,
-            leaf_reached,
+            leaf_reached: progress.leaf_reached,
+        }
+    }
+
+    fn load_external_suffix_component(
+        &mut self,
+        name: &PythonModuleName,
+        attribute: &str,
+        object: PythonModuleObjectId,
+        is_last: bool,
+        origin: Origin,
+        progress: &mut ChainLoadProgress,
+    ) {
+        self.state.attach_external_component(
+            progress.parent.as_ref(),
+            attribute,
+            &object,
+            name,
+            origin,
+        );
+        progress.root.get_or_insert_with(|| object.clone());
+        progress.parent = Some(object.clone());
+        if is_last {
+            progress.leaf_reached = true;
+            progress.terminal = Some(ChainOutcome::External {
+                object,
+                module: name.clone(),
+            });
+        }
+    }
+
+    /// Apply one project-source component to the chain cursor. Returns `true`
+    /// when the component terminates traversal.
+    fn load_project_source_component(
+        &mut self,
+        module: &PythonModule,
+        attribute: &str,
+        object: PythonModuleObjectId,
+        is_last: bool,
+        origin: Origin,
+        progress: &mut ChainLoadProgress,
+    ) -> bool {
+        match self.evaluate_source_component(module, origin) {
+            SourceComponent::Cycle => {
+                self.state
+                    .attach_component(progress.parent.as_ref(), attribute, &object, origin);
+                self.state.open_component_cycle(&object, origin);
+                progress.root.get_or_insert_with(|| object.clone());
+                progress.leaf_reached = is_last;
+                progress.terminal = Some(ChainOutcome::Cycle { object });
+                true
+            }
+            SourceComponent::Unreadable(error) => {
+                progress.leaf_reached = is_last;
+                progress.terminal = Some(ChainOutcome::Unreadable { error });
+                true
+            }
+            SourceComponent::Evaluated(values, objects) => {
+                self.state.module_objects_merge(objects, origin);
+                self.state
+                    .attach_component(progress.parent.as_ref(), attribute, &object, origin);
+                progress.root.get_or_insert_with(|| object.clone());
+                progress.parent = Some(object.clone());
+                if is_last {
+                    progress.leaf_reached = true;
+                    progress.terminal = Some(ChainOutcome::Source { object, values });
+                }
+                false
+            }
         }
     }
 
@@ -667,6 +692,15 @@ impl ChainOutcome {
             }
         }
     }
+}
+
+#[derive(Default)]
+struct ChainLoadProgress {
+    root: Option<PythonModuleObjectId>,
+    parent: Option<PythonModuleObjectId>,
+    terminal: Option<ChainOutcome>,
+    leaf_reached: bool,
+    external: bool,
 }
 
 /// The result of loading a chain: the root component object (for unaliased

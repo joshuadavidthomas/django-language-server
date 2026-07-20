@@ -42,17 +42,16 @@ impl<'ast> DirectImportClause<'ast> {
 
     fn from_alias(alias: &'ast ast::Alias) -> Self {
         let requested = alias.name.as_str();
-        let (binding, binding_span) = match alias.asname.as_ref() {
+        let (binding, binding_span) = if let Some(alias) = alias.asname.as_ref() {
             // An aliased clause binds the leaf at the exact alias identifier.
-            Some(alias) => (DirectImportBinding::Alias(alias.as_str()), alias.span()),
+            (DirectImportBinding::Alias(alias.as_str()), alias.span())
+        } else {
             // An unaliased dotted clause binds only the root segment, so the
             // binding target is the first segment of the dotted name, not the
             // whole clause.
-            None => {
-                let root = first_import_segment(requested);
-                let root_span = alias.name.span().with_length_usize_saturating(root.len());
-                (DirectImportBinding::Root, root_span)
-            }
+            let root = first_import_segment(requested);
+            let root_span = alias.name.span().with_length_usize_saturating(root.len());
+            (DirectImportBinding::Root, root_span)
         };
         Self {
             requested,

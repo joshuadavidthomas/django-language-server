@@ -104,7 +104,13 @@ impl PythonNamespaceRemainder {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PythonModuleEvaluation {
     CycleSeed,
-    Evaluated(EvaluatedPythonModule),
+    Evaluated(Box<EvaluatedPythonModule>),
+}
+
+impl PythonModuleEvaluation {
+    pub(super) fn evaluated(module: EvaluatedPythonModule) -> Self {
+        Self::Evaluated(Box::new(module))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
