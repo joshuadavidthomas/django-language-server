@@ -70,7 +70,8 @@ impl PythonDict {
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
             | PythonValueKind::List(_)
-            | PythonValueKind::Tuple(_) => {
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Module(_) => {
                 self.items
                     .push(PythonDictItem::UnknownUnpack(PythonUnknown::new(
                         PythonUnknownCause::UnsupportedExpression,
@@ -122,6 +123,7 @@ impl PythonDict {
                     | PythonValueKind::Path(_)
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
+                    | PythonValueKind::Module(_)
                     | PythonValueKind::Dict(_) => return false,
                 },
                 PythonDictItem::UnknownUnpack(_) => return false,
@@ -231,6 +233,7 @@ impl<'a> PythonMapping<'a> {
                     | PythonValueKind::Path(_)
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
+                    | PythonValueKind::Module(_)
                     | PythonValueKind::Dict(_) => {}
                 },
                 PythonDictItem::UnknownUnpack(unknown) => {
@@ -272,6 +275,7 @@ impl<'a> PythonMapping<'a> {
                     | PythonValueKind::Path(_)
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
+                    | PythonValueKind::Module(_)
                     | PythonValueKind::Dict(_) => {
                         reversed.push(MappingStringEntry::InvalidKey(&entry.key));
                     }
@@ -307,6 +311,7 @@ impl<'a> PythonMapping<'a> {
                 | PythonValueKind::Path(_)
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)
+                | PythonValueKind::Module(_)
                 | PythonValueKind::Dict(_) => values.push(&entry.value),
             }
         }

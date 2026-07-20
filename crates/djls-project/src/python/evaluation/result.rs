@@ -10,6 +10,7 @@ use rustc_hash::FxHashSet;
 
 use super::BranchConstraints;
 use super::PythonBinding;
+use super::PythonModuleObjects;
 use super::PythonMutation;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
@@ -110,6 +111,10 @@ pub(super) enum PythonModuleEvaluation {
 pub(super) struct EvaluatedPythonModule {
     values: Result<PythonModuleValues, FileReadError>,
     dependencies: PythonModuleDependencies,
+    /// Private recursive-import effect data. It is intentionally part of this
+    /// internal result's equality (so imported effects can trigger the core
+    /// query) but is never projected into settings-facing `PythonModuleValues`.
+    module_objects: PythonModuleObjects,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -375,6 +380,7 @@ impl EvaluatedPythonModule {
     pub(super) fn new(
         mut values: Result<PythonModuleValues, FileReadError>,
         mut dependencies: PythonModuleDependencies,
+        module_objects: PythonModuleObjects,
         root: &PythonModule,
     ) -> Self {
         let import_graph = PythonImportGraph::new(mem::take(&mut dependencies.imports));
@@ -396,6 +402,7 @@ impl EvaluatedPythonModule {
         Self {
             values,
             dependencies,
+            module_objects,
         }
     }
 
@@ -407,13 +414,18 @@ impl EvaluatedPythonModule {
         &self.dependencies
     }
 
+    pub(super) fn module_objects(&self) -> &PythonModuleObjects {
+        &self.module_objects
+    }
+
     pub(super) fn into_parts(
         self,
     ) -> (
         Result<PythonModuleValues, FileReadError>,
         PythonModuleDependencies,
+        PythonModuleObjects,
     ) {
-        (self.values, self.dependencies)
+        (self.values, self.dependencies, self.module_objects)
     }
 
     pub(super) fn widened(mut self, previous: &Self, root: &PythonModule) -> Self {
@@ -454,7 +466,10 @@ impl EvaluatedPythonModule {
         if previous.dependencies != self.dependencies {
             self.dependencies = self.dependencies.widened(&previous.dependencies, root);
         }
-        Self::new(self.values, self.dependencies, root)
+        if previous.module_objects != self.module_objects {
+            self.module_objects = self.module_objects.widen(&previous.module_objects);
+        }
+        Self::new(self.values, self.dependencies, self.module_objects, root)
     }
 }
 
@@ -760,10 +775,12 @@ mod tests {
         let previous = EvaluatedPythonModule {
             values: Ok(previous_values),
             dependencies: PythonModuleDependencies::rooted(root.file()),
+            module_objects: PythonModuleObjects::default(),
         };
         let computed = EvaluatedPythonModule {
             values: Ok(computed_values),
             dependencies: PythonModuleDependencies::rooted(root.file()),
+            module_objects: PythonModuleObjects::default(),
         };
         let widened = computed.widened(&previous, &root);
         let values = widened
@@ -886,6 +903,7 @@ mod tests {
                     files: files.into_iter().collect(),
                     imports: UniqueVec::new(),
                 },
+                PythonModuleObjects::default(),
                 &root,
             )
         };

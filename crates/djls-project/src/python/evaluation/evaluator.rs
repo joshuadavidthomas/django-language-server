@@ -15,6 +15,7 @@ use super::PythonBinding;
 use super::PythonBindingState;
 use super::PythonImportOutcome;
 use super::PythonModuleDependencies;
+use super::PythonModuleObjects;
 use super::PythonModuleValues;
 use super::PythonMutation;
 use super::PythonMutationOperation;
@@ -40,7 +41,7 @@ pub(super) fn evaluate_body(
     project: Project,
     module: PythonModule,
     body: &[ast::Stmt],
-) -> (PythonModuleValues, PythonModuleDependencies) {
+) -> (PythonModuleValues, PythonModuleDependencies, PythonModuleObjects) {
     let state = EvaluationState::new(module.file());
     let mut evaluator = Evaluator {
         db,
@@ -94,6 +95,10 @@ pub(super) struct EvaluationState {
     namespace_causes: Vec<PythonNamespaceCause>,
     pub(super) mutations: UniqueVec<PythonMutation>,
     dependencies: PythonModuleDependencies,
+    /// Private recursive-import effect state. It is never projected into
+    /// `PythonModuleValues` equality; only the complete internal result carries
+    /// it out through `evaluate_python_module`.
+    pub(super) module_objects: PythonModuleObjects,
 }
 
 impl EvaluationState {
@@ -103,10 +108,11 @@ impl EvaluationState {
             namespace_causes: Vec::new(),
             mutations: UniqueVec::new(),
             dependencies: PythonModuleDependencies::rooted(file),
+            module_objects: PythonModuleObjects::default(),
         }
     }
 
-    fn finish(self) -> (PythonModuleValues, PythonModuleDependencies) {
+    fn finish(self) -> (PythonModuleValues, PythonModuleDependencies, PythonModuleObjects) {
         (
             PythonModuleValues {
                 bindings: self.bindings,
@@ -117,6 +123,7 @@ impl EvaluationState {
                 mutations: self.mutations,
             },
             self.dependencies,
+            self.module_objects,
         )
     }
 
@@ -233,6 +240,23 @@ impl EvaluationState {
             .then_some(value)
     }
 
+    /// The definite truthiness of a name, if any: a uniformly boolean binding
+    /// yields its constant value, and a uniformly module-valued binding is
+    /// always truthy (Python module objects are never falsy).
+    pub(super) fn known_truthiness(&self, name: &str) -> Option<bool> {
+        if let Some(value) = self.bool_value(name) {
+            return Some(value);
+        }
+        let binding = self.binding(name)?;
+        let is_module = |state: &PythonBindingState| {
+            matches!(state, PythonBindingState::Bound(bound)
+                if matches!(bound.value.kind, PythonValueKind::Module(_)))
+        };
+        let mut alternatives = binding.alternatives();
+        let first = alternatives.next()?;
+        (is_module(first) && alternatives.all(is_module)).then_some(true)
+    }
+
     fn path_bindings(&self) -> PythonPathBindings {
         let mut paths = PythonPathBindings::default();
         for (name, binding) in &self.bindings {
@@ -298,18 +322,22 @@ impl EvaluationState {
             .flat_map(|body| body.changed_names_from(&self))
             .collect::<BTreeSet<_>>();
 
+        let mut body_objects = Vec::with_capacity(evaluated_bodies.len());
         for body in evaluated_bodies {
             let Self {
                 bindings: _,
                 namespace_causes,
                 mutations,
                 dependencies,
+                module_objects,
             } = body;
             self.namespace_causes.extend(namespace_causes);
             self.mutations.extend(mutations);
             self.dependencies.files.extend(dependencies.files);
             self.dependencies.imports.extend(dependencies.imports);
+            body_objects.push(module_objects);
         }
+        self.module_objects.degrade_loop(body_objects, origin);
 
         self.degrade_names(
             changed_names,
@@ -358,6 +386,11 @@ impl EvaluationState {
                 .imports
                 .extend(branch.dependencies.imports.iter().cloned());
         }
+        let branch_objects = branches
+            .iter()
+            .map(|branch| branch.module_objects.clone())
+            .collect::<Vec<_>>();
+        base.module_objects = PythonModuleObjects::join_branches(&branch_objects, origin);
         base
     }
 
@@ -429,6 +462,8 @@ mod tests {
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
+    use super::super::PythonModuleObjectId;
+    use super::super::PythonNamespacePackage;
     use super::EvaluationState;
     use super::Origin;
     use super::PythonBinding;
@@ -470,6 +505,47 @@ mod tests {
             operation,
             origin: origin(start),
         }
+    }
+
+    fn namespace_module(name: &str) -> PythonModuleObjectId {
+        PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
+            PythonModuleName::parse(name).unwrap(),
+        ))
+    }
+
+    #[test]
+    fn module_valued_bindings_are_uniformly_truthy() {
+        let mut state = EvaluationState::new(test_file(0));
+        state.bindings.insert(
+            "MOD".to_string(),
+            PythonBinding::bound(PythonValue::module(namespace_module("pkg"), origin(1)), origin(1)),
+        );
+        assert_eq!(
+            state.known_truthiness("MOD"),
+            Some(true),
+            "a uniformly module-valued binding is always truthy",
+        );
+
+        let mixed = PythonBinding::bound(
+            PythonValue::module(namespace_module("pkg"), origin(1)),
+            origin(1),
+        )
+        .join(
+            PythonBinding::unknown(&PythonUnknownCause::Cycle, origin(2)),
+            origin(3),
+        );
+        state.bindings.insert("MIXED".to_string(), mixed);
+        assert_eq!(
+            state.known_truthiness("MIXED"),
+            None,
+            "a module mixed with a non-module alternative is not uniformly truthy",
+        );
+
+        state.bindings.insert(
+            "FLAG".to_string(),
+            PythonBinding::bound(PythonValue::bool(true, origin(1)), origin(1)),
+        );
+        assert_eq!(state.known_truthiness("FLAG"), Some(true));
     }
 
     #[test]

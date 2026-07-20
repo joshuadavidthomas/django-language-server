@@ -331,6 +331,7 @@ impl Evaluator<'_> {
             PythonValueKind::Dict(_)
             | PythonValueKind::Path(_)
             | PythonValueKind::Bool(_)
+            | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {
                 let stale_aliases = self
                     .state
@@ -400,7 +401,7 @@ impl Evaluator<'_> {
     }
 
     fn test_truthiness(&self, expression: &ast::Expr) -> Truthiness {
-        Truthiness::of_expr(expression, &|name| self.state.bool_value(name))
+        Truthiness::of_expr(expression, &|name| self.state.known_truthiness(name))
     }
 }
 

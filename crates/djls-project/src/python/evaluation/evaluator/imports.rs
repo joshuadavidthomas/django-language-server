@@ -17,6 +17,7 @@ use crate::python::PythonImportError;
 use crate::python::PythonModuleName;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
+use crate::python::evaluation::PythonModuleObjectId;
 use crate::python::evaluation::query::evaluate_python_module;
 use crate::python::evaluation::result::CycleMembership;
 use crate::python::evaluation::result::PythonModuleEvaluation;
@@ -73,6 +74,119 @@ impl Evaluator<'_> {
         }
     }
 
+    /// Policy-neutral projection of a module object's member. It reads an
+    /// attached loaded child first, then falls back to the module's intrinsic
+    /// source binding through the cycle-enabled core query, applying namespace
+    /// remainder and syntax impacts. Residual absence is preserved as `Unbound`
+    /// so each caller applies its own failure policy: expression reads translate
+    /// it to a typed module-attribute unknown, while Plan 006's named import
+    /// caller will instead attempt submodule fallback.
+    pub(super) fn project_module_member(
+        &self,
+        object: &PythonModuleObjectId,
+        member: &str,
+        origin: Origin,
+    ) -> PythonBinding {
+        // Compose the loaded-child alternatives with the intrinsic source
+        // fallback and object-scoped open causes. The recursive source query is
+        // only issued when a residual `Unbound` remains, preserving direct
+        // recursive-query legality when a child already covers the read.
+        let mut binding = self.state.module_objects.child_binding(object, member, origin);
+        if binding
+            .alternatives()
+            .any(|state| *state == PythonBindingState::Unbound)
+        {
+            let fallback = self.project_intrinsic_source_member(object, member, origin);
+            binding = binding.replace_unbound_with(Some(fallback), origin);
+        }
+        binding = self
+            .state
+            .module_objects
+            .apply_open_causes(object, binding, origin);
+        binding.rebase_cycle_unknowns(origin);
+        binding
+    }
+
+    /// The module's intrinsic source binding for `member`, via the cycle-enabled
+    /// core query, with namespace remainder and syntax impacts applied. A
+    /// namespace package has no intrinsic body, so its members are always a
+    /// residual `Unbound`.
+    fn project_intrinsic_source_member(
+        &self,
+        object: &PythonModuleObjectId,
+        member: &str,
+        origin: Origin,
+    ) -> PythonBinding {
+        match object {
+            PythonModuleObjectId::Source(module) => {
+                match evaluate_python_module(self.db, self.project, module.clone()) {
+                    PythonModuleEvaluation::CycleSeed => {
+                        PythonBinding::unknown(&PythonUnknownCause::Cycle, origin)
+                    }
+                    PythonModuleEvaluation::Evaluated(evaluated) => {
+                        let (values, _dependencies, _objects) = evaluated.into_parts();
+                        match values {
+                            Err(error) => {
+                                PythonBinding::unknown(&PythonUnknownCause::Unreadable(error), origin)
+                            }
+                            Ok(values) => self.project_source_member(&values, member, origin),
+                        }
+                    }
+                }
+            }
+            PythonModuleObjectId::Namespace(_) => PythonBinding::unbound(),
+        }
+    }
+
+    fn project_source_member(
+        &self,
+        values: &PythonModuleValues,
+        member: &str,
+        origin: Origin,
+    ) -> PythonBinding {
+        let mut binding = match values.bindings.get(member) {
+            Some(imported) => imported.clone().rebase_binding_origin(origin),
+            None => PythonBinding::unbound(),
+        };
+        binding.rebase_cycle_unknowns(origin);
+
+        if let Some(remainder) = &values.namespace_remainder {
+            let unbound_constraints = binding
+                .alternatives_with_constraints()
+                .filter_map(|(alternative, constraints)| {
+                    (*alternative == PythonBindingState::Unbound).then_some(constraints.clone())
+                })
+                .collect::<Vec<_>>();
+            for unbound in &unbound_constraints {
+                for cause in remainder.as_slice() {
+                    let constraints = unbound.intersection(&cause.constraints);
+                    if let Some(unknown) = PythonBinding::constrained_unknown(
+                        &cause.unknown.cause,
+                        origin,
+                        &constraints,
+                    ) {
+                        binding = binding.join(unknown, origin);
+                    }
+                }
+            }
+        }
+
+        let syntax_errors = values
+            .syntax_impacts
+            .iter()
+            .filter(|impact| impact.affects(member))
+            .map(|impact| impact.error.clone())
+            .collect::<Vec<_>>();
+        if !syntax_errors.is_empty() {
+            binding = binding.join(
+                PythonBinding::unknown(&PythonUnknownCause::SyntaxErrors(syntax_errors), origin),
+                origin,
+            );
+        }
+
+        binding
+    }
+
     fn resolve_import(&self, import: &FromImport<'_>) -> Result<PythonModule, ImportFailure> {
         let request = PythonImportRequest {
             level: import.level,
@@ -101,7 +215,7 @@ impl Evaluator<'_> {
         match evaluate_python_module(self.db, self.project, module.clone()) {
             PythonModuleEvaluation::CycleSeed => Err(ImportFailure::Cycle { module }),
             PythonModuleEvaluation::Evaluated(evaluated) => {
-                let (values, dependencies) = evaluated.into_parts();
+                let (values, dependencies, _module_objects) = evaluated.into_parts();
                 match values {
                     Ok(values) => Ok(LoadedImport {
                         module,

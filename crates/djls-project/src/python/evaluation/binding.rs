@@ -6,6 +6,7 @@ use djls_source::Origin;
 use super::BranchConstraints;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 use super::OriginSet;
+use super::PythonModuleObjectId;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
@@ -208,6 +209,76 @@ impl PythonBinding {
         }
     }
 
+    /// Distribute each constrained receiver alternative: a module value is
+    /// projected through `project` and intersected back onto its own
+    /// constraints; every non-module or unbound alternative is preserved as the
+    /// `unsupported` unknown on its own constraints. The contributions are then
+    /// joined so mixed receivers keep per-branch fidelity.
+    pub(super) fn project_module_alternatives(
+        &self,
+        origin: Origin,
+        mut project: impl FnMut(&PythonModuleObjectId, &BranchConstraints) -> Self,
+        unsupported: &PythonUnknownCause,
+    ) -> Self {
+        let mut contributions: Vec<Self> = Vec::new();
+        for case in &self.cases {
+            let contribution = match &case.state {
+                PythonBindingState::Bound(bound) => match &bound.value.kind {
+                    PythonValueKind::Module(id) => {
+                        project(id, &case.constraints).intersect_constraints(&case.constraints)
+                    }
+                    _ => Self::constrained_unknown(unsupported, origin, &case.constraints),
+                },
+                PythonBindingState::Unbound => {
+                    Self::constrained_unknown(unsupported, origin, &case.constraints)
+                }
+            };
+            if let Some(contribution) = contribution {
+                contributions.push(contribution);
+            }
+        }
+        contributions
+            .into_iter()
+            .reduce(|left, right| left.join(right, origin))
+            .unwrap_or_else(|| Self::unknown(unsupported, origin))
+    }
+
+    /// Merge an incoming imported coordinate onto `prior`, distributing per
+    /// incoming constrained case: an `Unbound` case preserves `prior` on its
+    /// constraints, an exact module attachment assigns (dropping `prior` there),
+    /// and an unknown case joins `prior` conservatively on its constraints.
+    pub(super) fn merge_imported_onto(&self, prior: &Self, origin: Origin) -> Self {
+        let mut contributions: Vec<Self> = Vec::new();
+        for case in &self.cases {
+            let contribution = match &case.state {
+                PythonBindingState::Unbound => prior.clone().intersect_constraints(&case.constraints),
+                PythonBindingState::Bound(bound)
+                    if matches!(bound.value.kind, PythonValueKind::Module(_)) =>
+                {
+                    Some(Self {
+                        cases: vec![case.clone()],
+                    })
+                }
+                PythonBindingState::Bound(_) => {
+                    let incoming = Self {
+                        cases: vec![case.clone()],
+                    };
+                    Some(match prior.clone().intersect_constraints(&case.constraints) {
+                        Some(kept) => kept.join(incoming, origin),
+                        None => incoming,
+                    })
+                }
+            };
+            if let Some(contribution) = contribution {
+                contributions.push(contribution);
+            }
+        }
+        contributions
+            .into_iter()
+            .reduce(|left, right| left.join(right, origin))
+            .unwrap_or_else(Self::unbound)
+    }
+
     fn intersect_constraints(mut self, constraints: &BranchConstraints) -> Option<Self> {
         self.cases = self
             .cases
@@ -395,6 +466,8 @@ mod tests {
 
     use super::super::BranchConstraints;
     use super::super::OriginSet;
+    use super::super::PythonModuleObjectId;
+    use super::super::PythonNamespacePackage;
     use super::super::PythonSequenceItem;
     use super::super::PythonUnknown;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
@@ -482,6 +555,141 @@ mod tests {
         duplicated.extend(bindings);
         assert_eq!(left, joined(duplicated, false), "join must be idempotent");
         left
+    }
+
+    fn namespace_module(name: &str) -> PythonModuleObjectId {
+        PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
+            crate::python::PythonModuleName::parse(name).unwrap(),
+        ))
+    }
+
+    fn module_binding(name: &str, start: u32) -> PythonBinding {
+        let origin = origin(0, start);
+        PythonBinding::bound(PythonValue::module(namespace_module(name), origin), origin)
+    }
+
+    fn contains_str(binding: &PythonBinding, wanted: &str) -> bool {
+        binding.alternatives().any(|state| {
+            let PythonBindingState::Bound(bound) = state else {
+                return false;
+            };
+            matches!(&bound.value.kind, PythonValueKind::Str(text) if text.as_str() == wanted)
+        })
+    }
+
+    fn contains_unsupported(binding: &PythonBinding) -> bool {
+        binding.alternatives().any(|state| {
+            let PythonBindingState::Bound(bound) = state else {
+                return false;
+            };
+            bound
+                .value
+                .unknown_value()
+                .is_some_and(|unknown| unknown.cause == PythonUnknownCause::UnsupportedExpression)
+        })
+    }
+
+    #[test]
+    fn project_module_alternatives_projects_modules_and_preserves_others() {
+        let join = origin(0, 100);
+        let mut module_case = module_binding("pkg", 1);
+        module_case.select_branch(join, 0);
+        let mut string_case =
+            PythonBinding::bound(PythonValue::string("x".to_string(), origin(0, 2)), origin(0, 2));
+        string_case.select_branch(join, 1);
+        let receiver = module_case.join(string_case, origin(0, 3));
+
+        let result = receiver.project_module_alternatives(
+            origin(0, 50),
+            |id, _constraints| {
+                assert_eq!(*id, namespace_module("pkg"));
+                PythonBinding::bound(
+                    PythonValue::string("member".to_string(), origin(0, 5)),
+                    origin(0, 5),
+                )
+            },
+            &PythonUnknownCause::UnsupportedExpression,
+        );
+
+        assert!(
+            contains_str(&result, "member"),
+            "the module alternative is projected",
+        );
+        assert!(
+            contains_unsupported(&result),
+            "the non-module alternative is preserved as unsupported on its constraints",
+        );
+    }
+
+    #[test]
+    fn replace_unbound_with_composes_conditional_child_and_source_fallback() {
+        let join = origin(0, 100);
+        let mut child = module_binding("pkg", 1);
+        child.select_branch(join, 0);
+        let mut missing = PythonBinding::unbound();
+        missing.select_branch(join, 1);
+        let base = child.join(missing, origin(0, 3));
+        assert!(
+            base.alternatives()
+                .any(|state| *state == PythonBindingState::Unbound),
+            "the branch without a child contributes residual Unbound",
+        );
+
+        let fallback =
+            PythonBinding::bound(PythonValue::string("src".to_string(), origin(0, 4)), origin(0, 4));
+        let composed = base.replace_unbound_with(Some(fallback), origin(0, 5));
+
+        assert!(
+            !composed
+                .alternatives()
+                .any(|state| *state == PythonBindingState::Unbound),
+            "the source fallback covers the residual Unbound",
+        );
+        assert!(contains_str(&composed, "src"), "intrinsic source fallback applies");
+        assert_eq!(
+            composed
+                .alternatives()
+                .filter(|state| matches!(
+                    state,
+                    PythonBindingState::Bound(bound)
+                        if matches!(bound.value.kind, PythonValueKind::Module(_))
+                ))
+                .count(),
+            1,
+            "the loaded child survives on its own branch",
+        );
+    }
+
+    #[test]
+    fn merge_imported_onto_distributes_per_incoming_case() {
+        let prior = module_binding("pkg.a", 1);
+        let incoming = module_binding("pkg.b", 2).join(
+            PythonBinding::unknown(&PythonUnknownCause::Cycle, origin(0, 3)),
+            origin(0, 3),
+        );
+
+        let merged = incoming.merge_imported_onto(&prior, origin(0, 10));
+
+        let module_count = merged
+            .alternatives()
+            .filter(|state| matches!(
+                state,
+                PythonBindingState::Bound(bound)
+                    if matches!(bound.value.kind, PythonValueKind::Module(_))
+            ))
+            .count();
+        assert_eq!(
+            module_count, 2,
+            "exact attachment assigns pkg.b while the unknown case keeps prior pkg.a",
+        );
+        assert!(
+            merged.alternatives().any(|state| matches!(
+                state,
+                PythonBindingState::Bound(bound)
+                    if bound.value.unknown_value().is_some_and(|u| u.cause == PythonUnknownCause::Cycle)
+            )),
+            "the unknown case is retained",
+        );
     }
 
     #[test]

@@ -178,6 +178,7 @@ impl PythonMutationPath {
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
                         | PythonValueKind::Dict(_)
+                        | PythonValueKind::Module(_)
                         | PythonValueKind::Unknown(_) => return,
                     };
                     if let Some(PythonSequenceItem::Value(value)) = items.get(*index) {
@@ -238,6 +239,7 @@ impl PythonMutationPath {
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
                         | PythonValueKind::Dict(_)
+                        | PythonValueKind::Module(_)
                         | PythonValueKind::Unknown(_) => return false,
                     }
                 }

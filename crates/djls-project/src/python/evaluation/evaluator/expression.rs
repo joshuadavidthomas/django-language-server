@@ -47,8 +47,41 @@ impl Evaluator<'_> {
                 |left, right| left.add(&right, origin),
             ),
             ast::Expr::Dict(dict) => self.evaluate_dict_binding(dict, origin),
+            ast::Expr::Attribute(attribute) => self.evaluate_attribute_binding(attribute, origin),
             _ => PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
         }
+    }
+
+    /// Read `receiver.member`. Only a module receiver resolves through the
+    /// policy-neutral member projection; every other receiver keeps the existing
+    /// unsupported-expression behavior. Module writes remain unsupported and
+    /// never create object state here.
+    fn evaluate_attribute_binding(
+        &self,
+        attribute: &ast::ExprAttribute,
+        origin: Origin,
+    ) -> PythonBinding {
+        let receiver = self.evaluate_binding(&attribute.value);
+        receiver.project_module_alternatives(
+            origin,
+            |id, _constraints| {
+                let member = self.project_module_member(id, attribute.attr.as_str(), origin);
+                // An expression read translates residual absence to a typed
+                // module-attribute unknown (distinct from the import caller's
+                // `MissingImportMember`).
+                member.replace_unbound_with(
+                    Some(PythonBinding::unknown(
+                        &PythonUnknownCause::ModuleAttribute {
+                            module: id.name().clone(),
+                            member: attribute.attr.to_string(),
+                        },
+                        origin,
+                    )),
+                    origin,
+                )
+            },
+            &PythonUnknownCause::UnsupportedExpression,
+        )
     }
 
     pub(in crate::python::evaluation) fn evaluate_value(

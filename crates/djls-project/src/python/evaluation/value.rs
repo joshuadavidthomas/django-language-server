@@ -11,6 +11,7 @@ use super::OriginSet;
 use super::PythonDict;
 use super::PythonList;
 use super::PythonMapping;
+use super::PythonModuleObjectId;
 use super::PythonSequence;
 use super::PythonSequenceItem;
 use super::PythonTuple;
@@ -234,6 +235,15 @@ impl PythonValue {
         }
     }
 
+    /// A nominal module value. Identity only: it never embeds the module's
+    /// intrinsic values or its loaded-child table.
+    pub(super) fn module(id: PythonModuleObjectId, origin: Origin) -> Self {
+        Self {
+            kind: PythonValueKind::Module(id),
+            evidence: PythonValueEvidenceSet::one(origin),
+        }
+    }
+
     pub(super) fn empty_dict(origin: Origin) -> Self {
         Self {
             kind: PythonValueKind::Dict(PythonDict::empty(origin)),
@@ -281,6 +291,7 @@ impl PythonValue {
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => return None,
         };
         let (first_evidence, additional_evidence) = self.evidence.0.split_first()?;
@@ -327,6 +338,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => None,
         }
     }
@@ -343,6 +355,7 @@ impl PythonValue {
             PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
             | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => None,
         }
     }
@@ -365,7 +378,11 @@ impl PythonValue {
             PythonValueKind::Dict(dict) => {
                 PythonIterableKnowledge::Known(PythonIterable::MappingKeys(dict.mapping()))
             }
-            PythonValueKind::Bool(_) => PythonIterableKnowledge::NotIterable,
+            // A module object is a nominal value, never a Python sequence,
+            // mapping, or iterable.
+            PythonValueKind::Bool(_) | PythonValueKind::Module(_) => {
+                PythonIterableKnowledge::NotIterable
+            }
             // A path fact erases whether the runtime source was a string or a
             // `pathlib.Path`, so its iterability is indeterminate rather than a
             // synthesized nominal kind.
@@ -413,7 +430,8 @@ impl PythonValue {
                 }
             }
             PythonValueKind::Dict(dict) => dict.mapping().collect_reachable_sites(sites),
-            PythonValueKind::Unknown(_)
+            PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_)
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_) => {}
@@ -429,7 +447,8 @@ impl PythonValue {
             PythonValueKind::List(list) => list.allocation_site_occurrences(wanted),
             PythonValueKind::Tuple(tuple) => tuple.allocation_site_occurrences(wanted),
             PythonValueKind::Dict(dict) => dict.mapping().allocation_site_occurrences(wanted),
-            PythonValueKind::Unknown(_)
+            PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_)
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_) => 0,
@@ -449,7 +468,10 @@ impl PythonValue {
             PythonValueKind::Tuple(tuple) => tuple.contains_origin(wanted),
             PythonValueKind::Dict(dict) => dict.mapping().contains_origin(wanted),
             PythonValueKind::Unknown(unknown) => unknown.contains_origin(wanted),
-            PythonValueKind::Str(_) | PythonValueKind::Bool(_) | PythonValueKind::Path(_) => false,
+            PythonValueKind::Module(_)
+            | PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_) => false,
         }
     }
 
@@ -488,6 +510,7 @@ impl PythonValue {
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)
                 | PythonValueKind::Dict(_)
+                | PythonValueKind::Module(_)
                 | PythonValueKind::Unknown(_),
                 _,
             ) => false,
@@ -511,7 +534,8 @@ impl PythonValue {
             | PythonValueKind::Path(_)
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
-            | PythonValueKind::Dict(_) => PythonSequenceItem::Value(value),
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_) => PythonSequenceItem::Value(value),
         };
         match &mut self.kind {
             PythonValueKind::List(list) => list.append(&item),
@@ -520,6 +544,7 @@ impl PythonValue {
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
             | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {
                 unreachable!("sequence construction appends into a list or tuple")
             }
@@ -542,6 +567,7 @@ impl PythonValue {
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
             | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {
                 unreachable!("sequence construction extends a list or tuple")
             }
@@ -559,11 +585,14 @@ impl PythonValue {
         match &mut self.kind {
             PythonValueKind::List(list) => list.rebase_allocation_site(origin),
             PythonValueKind::Unknown(unknown) => unknown.replace_origins([origin]),
+            // Module identity is separate from allocation provenance, so only
+            // the value evidence rebases.
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
             | PythonValueKind::Tuple(_)
-            | PythonValueKind::Dict(_) => {}
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_) => {}
         }
         self.debug_assert_unknown_evidence_aligned();
     }
@@ -597,6 +626,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {}
         }
     }
@@ -626,21 +656,23 @@ pub(crate) enum PythonValueKind {
     List(PythonList),
     Tuple(PythonTuple),
     Dict(PythonDict),
+    Module(PythonModuleObjectId),
     Unknown(PythonUnknown),
 }
 
 impl PythonValueKind {
     /// Typed precedence matching the evaluator's previously observed retained
-    /// subsets: Bool < Dict < List < Path < Str < Tuple < Unknown.
+    /// subsets: Bool < Dict < List < Module < Path < Str < Tuple < Unknown.
     fn structural_rank(&self) -> u8 {
         match self {
             Self::Bool(_) => 0,
             Self::Dict(_) => 1,
             Self::List(_) => 2,
-            Self::Path(_) => 3,
-            Self::Str(_) => 4,
-            Self::Tuple(_) => 5,
-            Self::Unknown(_) => 6,
+            Self::Module(_) => 3,
+            Self::Path(_) => 4,
+            Self::Str(_) => 5,
+            Self::Tuple(_) => 6,
+            Self::Unknown(_) => 7,
         }
     }
 }
@@ -688,6 +720,12 @@ impl StructuralOrd for PythonValueKind {
                 };
                 left.structural_cmp(right)
             }
+            Self::Module(left) => {
+                let Self::Module(right) = other else {
+                    unreachable!("equal value-kind ranks identify the same variant")
+                };
+                left.structural_cmp(right)
+            }
             Self::Unknown(left) => {
                 let Self::Unknown(right) = other else {
                     unreachable!("equal value-kind ranks identify the same variant")
@@ -704,7 +742,11 @@ impl PythonValueKind {
             Self::List(list) => list.normalize(),
             Self::Tuple(tuple) => tuple.normalize(),
             Self::Dict(dict) => dict.normalize(),
-            Self::Str(_) | Self::Bool(_) | Self::Path(_) | Self::Unknown(_) => {}
+            Self::Str(_)
+            | Self::Bool(_)
+            | Self::Path(_)
+            | Self::Module(_)
+            | Self::Unknown(_) => {}
         }
     }
 
@@ -716,6 +758,8 @@ impl PythonValueKind {
             (Self::List(left), Self::List(right)) => left.same_semantic_value(right),
             (Self::Tuple(left), Self::Tuple(right)) => left.same_semantic_value(right),
             (Self::Dict(left), Self::Dict(right)) => left.same_semantic_value(right),
+            // Module identity: same nominal object is the same semantic value.
+            (Self::Module(left), Self::Module(right)) => left == right,
             (Self::Unknown(left), Self::Unknown(right)) => left.cause == right.cause,
             (
                 Self::Str(_)
@@ -724,6 +768,7 @@ impl PythonValueKind {
                 | Self::List(_)
                 | Self::Tuple(_)
                 | Self::Dict(_)
+                | Self::Module(_)
                 | Self::Unknown(_),
                 _,
             ) => false,
@@ -745,9 +790,12 @@ impl PythonValueKind {
             (Self::Unknown(existing), Self::Unknown(incoming)) => {
                 existing.merge_origins(&incoming);
             }
+            // Module identity carries no mergeable payload; equal objects stay
+            // equal.
             (Self::Str(_), Self::Str(_))
             | (Self::Bool(_), Self::Bool(_))
-            | (Self::Path(_), Self::Path(_)) => {}
+            | (Self::Path(_), Self::Path(_))
+            | (Self::Module(_), Self::Module(_)) => {}
             (
                 Self::Str(_)
                 | Self::Bool(_)
@@ -755,6 +803,7 @@ impl PythonValueKind {
                 | Self::List(_)
                 | Self::Tuple(_)
                 | Self::Dict(_)
+                | Self::Module(_)
                 | Self::Unknown(_),
                 _,
             ) => unreachable!("semantic equality requires matching value variants"),
@@ -835,6 +884,14 @@ pub(crate) enum PythonUnknownCause {
         module: PythonModuleName,
         member: String,
     },
+    /// A module attribute read that resolved to no attached child and no
+    /// intrinsic source binding. This is the caller-neutral expression-read
+    /// residual, distinct from `MissingImportMember` (the import caller's
+    /// failure policy).
+    ModuleAttribute {
+        module: PythonModuleName,
+        member: String,
+    },
     SkippedExternal(PythonModuleName),
     Unreadable(FileReadError),
     SyntaxErrors(Vec<PythonSyntaxError>),
@@ -846,7 +903,8 @@ impl PythonUnknownCause {
     /// Typed precedence matching the evaluator's previously observed retained
     /// subsets: `AlternativeLimitExceeded`, Cycle, `ImportNotFound`, `InvalidImport`,
     /// `MissingImportMember`, `SkippedExternal`, `SyntaxErrors`, Unreadable,
-    /// `UnsupportedExpression`, `UnsupportedMutation`.
+    /// `UnsupportedExpression`, `UnsupportedMutation`, then `ModuleAttribute`
+    /// appended last to keep existing precedence stable.
     fn structural_rank(&self) -> u8 {
         match self {
             Self::AlternativeLimitExceeded => 0,
@@ -859,6 +917,7 @@ impl PythonUnknownCause {
             Self::Unreadable(_) => 7,
             Self::UnsupportedExpression => 8,
             Self::UnsupportedMutation => 9,
+            Self::ModuleAttribute { .. } => 10,
         }
     }
 }
@@ -899,6 +958,21 @@ impl StructuralOrd for PythonUnknownCause {
                 member: left_member,
             } => {
                 let Self::MissingImportMember {
+                    module: right_module,
+                    member: right_member,
+                } = other
+                else {
+                    unreachable!("equal unknown-cause ranks identify the same variant")
+                };
+                left_module
+                    .cmp(right_module)
+                    .then_with(|| left_member.cmp(right_member))
+            }
+            Self::ModuleAttribute {
+                module: left_module,
+                member: left_member,
+            } => {
+                let Self::ModuleAttribute {
                     module: right_module,
                     member: right_member,
                 } = other
@@ -1007,6 +1081,15 @@ mod tests {
         PythonValue::known(PythonValueKind::Path(Utf8PathBuf::from(text)), site)
     }
 
+    fn module_value(site: Origin, name: &str) -> PythonValue {
+        let id = super::super::PythonModuleObjectId::Namespace(
+            super::super::PythonNamespacePackage::new(
+                PythonModuleName::parse(name).expect("valid module name"),
+            ),
+        );
+        PythonValue::known(PythonValueKind::Module(id), site)
+    }
+
     fn unknown_value(site: Origin) -> PythonValue {
         PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(site))
     }
@@ -1059,6 +1142,7 @@ mod tests {
             bool_value(origin(1), false),
             dict_value(origin(1)),
             list_value(origin(1), Vec::new()),
+            module_value(origin(1), "pkg"),
             path_value(origin(1), "path"),
             str_value(origin(1), "text"),
             tuple_value(origin(1), Vec::new()),
@@ -1095,6 +1179,10 @@ mod tests {
             )),
             PythonUnknownCause::UnsupportedExpression,
             PythonUnknownCause::UnsupportedMutation,
+            PythonUnknownCause::ModuleAttribute {
+                module: module("a"),
+                member: "member".to_string(),
+            },
         ];
         for (index, left) in causes.iter().enumerate() {
             for (other_index, right) in causes.iter().enumerate() {
@@ -1600,6 +1688,22 @@ mod tests {
             unknown_value(origin(1)).iterable_knowledge(),
             PythonIterableKnowledge::Indeterminate(_)
         ));
+    }
+
+    #[test]
+    fn module_value_is_never_a_sequence_mapping_or_iterable() {
+        let module = module_value(origin(1), "pkg");
+        assert!(module.sequence().is_none(), "a module is not a sequence");
+        assert!(module.mapping().is_none(), "a module is not a mapping");
+        assert!(
+            matches!(
+                module.iterable_knowledge(),
+                PythonIterableKnowledge::NotIterable
+            ),
+            "a module object is a nominal value and never iterable",
+        );
+        assert!(module.known_scalar().is_none(), "a module is not a scalar");
+        assert!(module.path_value().is_none());
     }
 
     #[test]

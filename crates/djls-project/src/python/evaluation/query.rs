@@ -3,6 +3,7 @@ use salsa::Cycle;
 use salsa::Id;
 
 use super::PythonModuleDependencies;
+use super::PythonModuleObjects;
 use super::PythonModuleValues;
 use super::evaluator::evaluate_body;
 use super::result::EvaluatedPythonModule;
@@ -31,6 +32,7 @@ pub(super) fn evaluate_python_module(
             return PythonModuleEvaluation::Evaluated(EvaluatedPythonModule::new(
                 Err(error),
                 PythonModuleDependencies::rooted(file),
+                PythonModuleObjects::default(),
                 &module,
             ));
         }
@@ -38,17 +40,20 @@ pub(super) fn evaluate_python_module(
             return PythonModuleEvaluation::Evaluated(EvaluatedPythonModule::new(
                 Ok(PythonModuleValues::default()),
                 PythonModuleDependencies::rooted(file),
+                PythonModuleObjects::default(),
                 &module,
             ));
         }
     };
     let body = parsed.body(db);
-    let (mut module_values, dependencies) = evaluate_body(db, project, module.clone(), body);
+    let (mut module_values, dependencies, module_objects) =
+        evaluate_body(db, project, module.clone(), body);
     module_values.syntax_errors = parsed.syntax_errors(db).to_vec();
     module_values.syntax_impacts = collect_syntax_impacts(body, &module_values.syntax_errors);
     PythonModuleEvaluation::Evaluated(EvaluatedPythonModule::new(
         Ok(module_values),
         dependencies,
+        module_objects,
         &module,
     ))
 }

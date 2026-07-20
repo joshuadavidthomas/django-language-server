@@ -70,7 +70,14 @@ pub enum PythonValueKindView {
     List(Vec<PythonSequenceItemView>),
     Tuple(Vec<PythonSequenceItemView>),
     Dict(Vec<PythonDictItemView>),
+    Module(PythonModuleObjectIdView),
     Unknown(PythonUnknownView),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PythonModuleObjectIdView {
+    Source(PythonModuleName),
+    Namespace(PythonModuleName),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,6 +109,10 @@ pub enum PythonUnknownCauseView {
     InvalidImport(PythonImportErrorView),
     ImportNotFound(PythonModuleName),
     MissingImportMember {
+        module: PythonModuleName,
+        member: String,
+    },
+    ModuleAttribute {
         module: PythonModuleName,
         member: String,
     },
@@ -333,11 +344,25 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
                     })
                     .collect(),
             ),
+            evaluation::PythonValueKind::Module(id) => {
+                PythonValueKindView::Module(module_object_id_view(&id))
+            }
             evaluation::PythonValueKind::Unknown(unknown) => {
                 PythonValueKindView::Unknown(unknown_view(unknown))
             }
         },
         origins,
+    }
+}
+
+fn module_object_id_view(id: &evaluation::PythonModuleObjectId) -> PythonModuleObjectIdView {
+    match id {
+        evaluation::PythonModuleObjectId::Source(module) => {
+            PythonModuleObjectIdView::Source(module.name().clone())
+        }
+        evaluation::PythonModuleObjectId::Namespace(package) => {
+            PythonModuleObjectIdView::Namespace(package.name().clone())
+        }
     }
 }
 
@@ -359,6 +384,9 @@ fn unknown_view(unknown: evaluation::PythonUnknown) -> PythonUnknownView {
             }
             evaluation::PythonUnknownCause::MissingImportMember { module, member } => {
                 PythonUnknownCauseView::MissingImportMember { module, member }
+            }
+            evaluation::PythonUnknownCause::ModuleAttribute { module, member } => {
+                PythonUnknownCauseView::ModuleAttribute { module, member }
             }
             evaluation::PythonUnknownCause::SkippedExternal(module) => {
                 PythonUnknownCauseView::SkippedExternal(module)
