@@ -1072,6 +1072,34 @@ fn bound_value<'a>(
     bound
 }
 
+#[test]
+fn ordinary_import_control_binds_unknowns_in_source_order_without_import_effects() {
+    let source = concat!(
+        "stale = 'old'\n",
+        "import package.child\n",
+        "import other as stale, third as alias\n",
+    );
+    let (file, evaluation) = evaluate_module(source);
+
+    for (name, clause) in [
+        ("package", "package.child"),
+        ("stale", "other as stale"),
+        ("alias", "third as alias"),
+    ] {
+        let bound = bound_value(&evaluation, name);
+        let PythonValueKindView::Unknown(unknown) = &bound.value.kind else {
+            panic!("{name} should remain the current ordinary-import unknown");
+        };
+        assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression);
+        assert_eq!(
+            bound.binding_origins,
+            [Origin::new(file, expected_span(source, clause))]
+        );
+    }
+    assert_eq!(evaluation.dependency_files, [file]);
+    assert!(evaluation.imports.is_empty());
+}
+
 fn has_unknown_alternative(evaluation: &PythonModuleEvaluationView, name: &str) -> bool {
     evaluation.binding(name).is_some_and(|binding| {
         binding.alternatives.iter().any(|alternative| {

@@ -20,18 +20,57 @@ use crate::python::evaluation::PythonImportEvaluationStatus;
 use crate::python::evaluation::query::evaluate_python_module;
 use crate::python::evaluation::result::CycleMembership;
 use crate::python::evaluation::result::PythonModuleEvaluation;
+use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
 use crate::python::module::PythonImportRequest;
 use crate::python::module::PythonImportResolutionError;
 use crate::python::module::PythonModule;
 
 impl Evaluator<'_> {
-    pub(super) fn evaluate_import_from(&mut self, statement: &ast::StmtImportFrom) {
-        let import = FromImport::lower(self, statement);
-        let result = self
-            .resolve_import(&import)
-            .and_then(|module| self.evaluate_imported_module(module));
-        self.state.apply_import(&import, result);
+    pub(super) fn evaluate_import_statement(&mut self, statement: &ast::Stmt) {
+        match statement {
+            ast::Stmt::Import(statement) => {
+                for clause in DirectImportClause::lower(statement) {
+                    self.state.bind_unknown(
+                        clause.bound(),
+                        &PythonUnknownCause::UnsupportedExpression,
+                        self.origin_at(clause.binding_span()),
+                    );
+                }
+            }
+            ast::Stmt::ImportFrom(statement) => {
+                let import = FromImport::lower(self, statement);
+                let result = self
+                    .resolve_import(&import)
+                    .and_then(|module| self.evaluate_imported_module(module));
+                self.state.apply_import(&import, result);
+            }
+            ast::Stmt::Assign(_)
+            | ast::Stmt::AnnAssign(_)
+            | ast::Stmt::AugAssign(_)
+            | ast::Stmt::Delete(_)
+            | ast::Stmt::TypeAlias(_)
+            | ast::Stmt::Expr(_)
+            | ast::Stmt::FunctionDef(_)
+            | ast::Stmt::ClassDef(_)
+            | ast::Stmt::For(_)
+            | ast::Stmt::While(_)
+            | ast::Stmt::If(_)
+            | ast::Stmt::With(_)
+            | ast::Stmt::Try(_)
+            | ast::Stmt::Match(_)
+            | ast::Stmt::Return(_)
+            | ast::Stmt::Raise(_)
+            | ast::Stmt::Assert(_)
+            | ast::Stmt::Global(_)
+            | ast::Stmt::Nonlocal(_)
+            | ast::Stmt::Pass(_)
+            | ast::Stmt::Break(_)
+            | ast::Stmt::Continue(_)
+            | ast::Stmt::IpyEscapeCommand(_) => {
+                unreachable!("statement dispatcher passes only imports")
+            }
+        }
     }
 
     fn resolve_import(&self, import: &FromImport<'_>) -> Result<PythonModule, ImportFailure> {

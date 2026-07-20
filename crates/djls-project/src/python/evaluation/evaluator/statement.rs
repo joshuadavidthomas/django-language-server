@@ -15,7 +15,6 @@ use super::super::truthiness::Truthiness;
 use super::Evaluator;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
-use crate::python::import::DirectImportClause;
 
 impl Evaluator<'_> {
     pub(super) fn evaluate_body(&mut self, body: &[ast::Stmt]) {
@@ -35,8 +34,9 @@ impl Evaluator<'_> {
             }
             ast::Stmt::AugAssign(assign) => self.walk_aug_assign(assign),
             ast::Stmt::Expr(expr) => self.evaluate_expression_statement(&expr.value),
-            ast::Stmt::Import(import) => self.walk_import(import),
-            ast::Stmt::ImportFrom(import) => self.evaluate_import_from(import),
+            ast::Stmt::Import(_) | ast::Stmt::ImportFrom(_) => {
+                self.evaluate_import_statement(stmt);
+            }
             ast::Stmt::If(stmt_if) => self.walk_if(stmt_if),
             ast::Stmt::For(stmt_for) => {
                 self.bind_for_target(&stmt_for.target);
@@ -347,16 +347,6 @@ impl Evaluator<'_> {
                 );
                 self.state.mutations.insert(extend_fact());
             }
-        }
-    }
-
-    fn walk_import(&mut self, import: &ast::StmtImport) {
-        for clause in DirectImportClause::lower(import) {
-            self.state.bind_unknown(
-                clause.bound(),
-                &PythonUnknownCause::UnsupportedExpression,
-                self.origin_at(clause.binding_span()),
-            );
         }
     }
 
