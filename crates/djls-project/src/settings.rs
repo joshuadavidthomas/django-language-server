@@ -10,11 +10,11 @@ pub(crate) use types::EvaluatedPath;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonModule;
+use crate::python::PythonSourceModule;
 
-fn settings_module(db: &dyn ProjectDb, project: Project) -> Option<PythonModule> {
+fn settings_module(db: &dyn ProjectDb, project: Project) -> Option<PythonSourceModule> {
     let django_settings_module = project.django_settings_module(db).as_ref()?.clone();
-    PythonModule::resolve(db, project, django_settings_module)
+    PythonSourceModule::resolve(db, project, django_settings_module)
 }
 
 #[salsa::tracked]

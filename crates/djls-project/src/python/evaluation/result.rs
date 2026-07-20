@@ -10,14 +10,14 @@ use rustc_hash::FxHashSet;
 
 use super::BranchConstraints;
 use super::PythonBinding;
-use super::PythonModuleObjects;
+use super::PythonModuleEffects;
 use super::PythonMutation;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::StructuralOrd;
 use super::UniqueVec;
-use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::PythonSourceModule;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportError;
 
@@ -124,7 +124,7 @@ pub(super) struct EvaluatedPythonModule {
     /// Private recursive-import effect data. It is intentionally part of this
     /// internal result's equality (so imported effects can trigger the core
     /// query) but is never projected into settings-facing `PythonModuleValues`.
-    module_objects: PythonModuleObjects,
+    module_effects: PythonModuleEffects,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -243,8 +243,8 @@ impl PythonModuleDependencies {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonImportEdge {
     pub(crate) origin: Origin,
-    pub(crate) importer: PythonModule,
-    pub(crate) imported: PythonModule,
+    pub(crate) importer: PythonSourceModule,
+    pub(crate) imported: PythonSourceModule,
 }
 
 impl StructuralOrd for PythonImportEdge {
@@ -480,8 +480,8 @@ impl EvaluatedPythonModule {
     pub(super) fn new(
         mut values: Result<PythonModuleValues, FileReadError>,
         mut dependencies: PythonModuleDependencies,
-        module_objects: PythonModuleObjects,
-        root: &PythonModule,
+        module_effects: PythonModuleEffects,
+        root: &PythonSourceModule,
     ) -> Self {
         let import_graph = PythonImportGraph::new(mem::take(&mut dependencies.imports));
         let root_is_in_cycle = import_graph.root_participates_in_cycle(root);
@@ -507,7 +507,7 @@ impl EvaluatedPythonModule {
         Self {
             values,
             dependencies,
-            module_objects,
+            module_effects,
         }
     }
 
@@ -524,12 +524,12 @@ impl EvaluatedPythonModule {
     ) -> (
         Result<PythonModuleValues, FileReadError>,
         PythonModuleDependencies,
-        PythonModuleObjects,
+        PythonModuleEffects,
     ) {
-        (self.values, self.dependencies, self.module_objects)
+        (self.values, self.dependencies, self.module_effects)
     }
 
-    pub(super) fn widened(mut self, previous: &Self, root: &PythonModule) -> Self {
+    pub(super) fn widened(mut self, previous: &Self, root: &PythonSourceModule) -> Self {
         match (&previous.values, &mut self.values) {
             (Ok(previous_values), Ok(computed_values)) => {
                 let names = previous_values
@@ -567,15 +567,15 @@ impl EvaluatedPythonModule {
         if previous.dependencies != self.dependencies {
             self.dependencies = self.dependencies.widened(&previous.dependencies, root);
         }
-        if previous.module_objects != self.module_objects {
-            self.module_objects = self.module_objects.widen(&previous.module_objects);
+        if previous.module_effects != self.module_effects {
+            self.module_effects = self.module_effects.widen(&previous.module_effects);
         }
-        Self::new(self.values, self.dependencies, self.module_objects, root)
+        Self::new(self.values, self.dependencies, self.module_effects, root)
     }
 }
 
 impl PythonModuleDependencies {
-    fn widened(self, previous: &Self, root: &PythonModule) -> Self {
+    fn widened(self, previous: &Self, root: &PythonSourceModule) -> Self {
         let mut candidates = previous.imports.clone();
         candidates.extend(self.imports.iter().cloned());
         let candidates = PythonImportGraph::new(candidates).canonicalized_outcomes();
@@ -616,14 +616,14 @@ impl PythonImportGraph {
         Self { outcomes }
     }
 
-    fn root_participates_in_cycle(&self, root: &PythonModule) -> bool {
+    fn root_participates_in_cycle(&self, root: &PythonSourceModule) -> bool {
         self.outcomes
             .iter()
             .filter_map(PythonImportOutcome::edge)
             .any(|edge| edge.importer == *root && self.path_exists(&edge.imported, root))
     }
 
-    fn path_exists(&self, start: &PythonModule, destination: &PythonModule) -> bool {
+    fn path_exists(&self, start: &PythonSourceModule, destination: &PythonSourceModule) -> bool {
         let mut pending = vec![start.clone()];
         let mut visited = FxHashSet::default();
         while let Some(module) = pending.pop() {
@@ -881,12 +881,12 @@ mod tests {
         let previous = EvaluatedPythonModule {
             values: Ok(previous_values),
             dependencies: PythonModuleDependencies::rooted(root.file()),
-            module_objects: PythonModuleObjects::default(),
+            module_effects: PythonModuleEffects::default(),
         };
         let computed = EvaluatedPythonModule {
             values: Ok(computed_values),
             dependencies: PythonModuleDependencies::rooted(root.file()),
-            module_objects: PythonModuleObjects::default(),
+            module_effects: PythonModuleEffects::default(),
         };
         let widened = computed.widened(&previous, &root);
         let values = widened
@@ -966,9 +966,9 @@ mod tests {
         );
     }
 
-    fn module(name: &str, id: u64) -> PythonModule {
+    fn module(name: &str, id: u64) -> PythonSourceModule {
         let path = format!("/project/{name}.py");
-        PythonModule::file_module(
+        PythonSourceModule::file_module(
             PythonModuleName::parse(name).unwrap(),
             Utf8PathBuf::from(&path),
             File::from_id(Id::from_bits(id)),
@@ -977,8 +977,8 @@ mod tests {
     }
 
     fn evaluated_edge(
-        source: &PythonModule,
-        destination: &PythonModule,
+        source: &PythonSourceModule,
+        destination: &PythonSourceModule,
         status: PythonImportEvaluationStatus,
     ) -> PythonImportOutcome {
         PythonImportOutcome::Evaluated {
@@ -1009,7 +1009,7 @@ mod tests {
                     files: files.into_iter().collect(),
                     imports: UniqueVec::new(),
                 },
-                PythonModuleObjects::default(),
+                PythonModuleEffects::default(),
                 &root,
             )
         };

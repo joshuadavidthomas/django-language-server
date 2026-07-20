@@ -11,8 +11,8 @@ use djls_project::Db;
 use djls_project::FindTemplateResult;
 use djls_project::Interpreter;
 use djls_project::Project;
-use djls_project::PythonModule;
 use djls_project::PythonModuleName;
+use djls_project::PythonSourceModule;
 use djls_project::SearchPaths;
 use djls_project::TemplateName;
 use djls_project::template_resolution;
@@ -21,10 +21,11 @@ use djls_project::testing::PythonBoundValueView;
 use djls_project::testing::PythonImportErrorView;
 use djls_project::testing::PythonImportOutcomeView;
 use djls_project::testing::PythonModuleEvaluationView;
-use djls_project::testing::PythonModuleObjectIdView;
+use djls_project::testing::PythonModuleView;
 use djls_project::testing::PythonMutationOperationView;
 use djls_project::testing::PythonMutationPathSegmentView;
-use djls_project::testing::PythonPathSymbolView;
+use djls_project::testing::PythonPathIntrinsicView;
+use djls_project::testing::PythonPathView;
 use djls_project::testing::PythonSequenceItemView;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::PythonUnknownCauseView;
@@ -336,11 +337,11 @@ fn python_evaluator_produces_unbound_for_a_path_without_assignment() {
 }
 
 #[test]
-fn python_path_symbols_follow_import_and_assignment_aliases() {
+fn python_path_intrinsics_follow_import_and_assignment_aliases() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
-        "from pathlib import Path as P\nimport os as operating_system\nfrom os.path import join as path_join, dirname as path_dirname\nstringify = str\nROOT = P(__file__).parent\nRESOLVED = P(__file__).resolve()\nNORMALIZED = P(__file__).parent.joinpath('..').resolve()\nTEMPLATES_DIR = operating_system.path.join(ROOT, 'templates')\nSTATIC_DIR = path_join(ROOT, 'static')\nPARENT = path_dirname(TEMPLATES_DIR)\nEMPTY_PARENT = path_dirname('')\nTRAILING_PARENT = path_dirname('/project/')\nROOT_PARENT = path_dirname('/')\nSTATIC_TEXT = stringify(STATIC_DIR)\nRELATIVE_PATH = P('relative')\nINVALID_METHOD = TEMPLATES_DIR.parent\nINVALID_DIVISION = TEMPLATES_DIR / 'nested'\n",
+        "from pathlib import Path as P\nimport os as operating_system\nfrom os.path import join as path_join, dirname as path_dirname\nstringify = str\nMODULE_FILE = __file__\nROOT = P(__file__).parent\nRESOLVED = P(__file__).resolve()\nNORMALIZED = P(__file__).parent.joinpath('..').resolve()\nTEMPLATES_DIR = operating_system.path.join(ROOT, 'templates')\nSTATIC_DIR = path_join(ROOT, 'static')\nPARENT = path_dirname(TEMPLATES_DIR)\nEMPTY_PARENT = path_dirname('')\nTRAILING_PARENT = path_dirname('/project/')\nROOT_PARENT = path_dirname('/')\nSTATIC_TEXT = stringify(STATIC_DIR)\nRELATIVE_PATH = P('relative')\nINVALID_METHOD = TEMPLATES_DIR.parent\nINVALID_DIVISION = TEMPLATES_DIR / 'nested'\n",
     );
     let project = python_project(&db);
     let settings = db.file(Utf8Path::new("/project/settings.py"));
@@ -356,30 +357,48 @@ fn python_path_symbols_follow_import_and_assignment_aliases() {
 
     assert_kind(
         "P",
-        PythonValueKindView::PathSymbol(PythonPathSymbolView::PathlibPath),
+        PythonValueKindView::Path(PythonPathView::Intrinsic(
+            PythonPathIntrinsicView::PathlibPathType,
+        )),
     );
     assert_kind(
         "operating_system",
-        PythonValueKindView::PathSymbol(PythonPathSymbolView::OsModule),
+        PythonValueKindView::Path(PythonPathView::Intrinsic(PythonPathIntrinsicView::OsModule)),
     );
     assert_kind(
         "path_join",
-        PythonValueKindView::PathSymbol(PythonPathSymbolView::OsPathJoin),
+        PythonValueKindView::Path(PythonPathView::Intrinsic(
+            PythonPathIntrinsicView::OsPathJoinFunction,
+        )),
     );
     assert_kind(
         "path_dirname",
-        PythonValueKindView::PathSymbol(PythonPathSymbolView::OsPathDirname),
+        PythonValueKindView::Path(PythonPathView::Intrinsic(
+            PythonPathIntrinsicView::OsPathDirnameFunction,
+        )),
     );
     assert_kind(
         "stringify",
-        PythonValueKindView::PathSymbol(PythonPathSymbolView::BuiltinStr),
+        PythonValueKindView::Path(PythonPathView::Intrinsic(
+            PythonPathIntrinsicView::BuiltinStrType,
+        )),
     );
-    assert_kind("ROOT", PythonValueKindView::Path("/project".into()));
+    assert_kind(
+        "MODULE_FILE",
+        PythonValueKindView::Str("/project/settings.py".to_string()),
+    );
+    assert_kind(
+        "ROOT",
+        PythonValueKindView::Path(PythonPathView::Object("/project".into())),
+    );
     assert_kind(
         "RESOLVED",
-        PythonValueKindView::Path("/project/settings.py".into()),
+        PythonValueKindView::Path(PythonPathView::Object("/project/settings.py".into())),
     );
-    assert_kind("NORMALIZED", PythonValueKindView::Path("/".into()));
+    assert_kind(
+        "NORMALIZED",
+        PythonValueKindView::Path(PythonPathView::Object("/".into())),
+    );
     assert_kind(
         "TEMPLATES_DIR",
         PythonValueKindView::Str("/project/templates".to_string()),
@@ -421,7 +440,7 @@ fn python_path_symbols_follow_import_and_assignment_aliases() {
 }
 
 #[test]
-fn python_path_symbols_respect_shadowing_and_branch_constraints() {
+fn python_path_intrinsics_respect_shadowing_and_branch_constraints() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -508,7 +527,9 @@ fn unsupported_outer_calls_do_not_contaminate_nested_path_constructors() {
         evaluation.binding("Path").unwrap().alternatives.as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
             value: PythonValueView {
-                kind: PythonValueKindView::PathSymbol(PythonPathSymbolView::PathlibPath),
+                kind: PythonValueKindView::Path(PythonPathView::Intrinsic(
+                    PythonPathIntrinsicView::PathlibPathType
+                )),
                 ..
             },
             ..
@@ -557,7 +578,89 @@ fn open_star_imports_can_shadow_implicit_path_names() {
 }
 
 #[test]
-fn path_symbol_attribute_writes_invalidate_aliasing_owners() {
+fn exact_file_assignment_after_open_star_import_shadows_namespace_uncertainty() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from dynamic import *\nOPEN = __file__\n__file__ = '/override.py'\nAFTER = __file__\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+
+    let open = &evaluation.binding("OPEN").unwrap().alternatives;
+    assert!(open.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Str(path),
+                ..
+            },
+            ..
+        }) if path == "/project/settings.py"
+    )));
+    assert!(open.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(_),
+                ..
+            },
+            ..
+        })
+    )));
+
+    let after = &evaluation.binding("AFTER").unwrap().alternatives;
+    assert!(matches!(
+        after.as_slice(),
+        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Str(path),
+                ..
+            },
+            ..
+        })] if path == "/override.py"
+    ));
+}
+
+#[test]
+fn conditional_file_assignment_replaces_only_its_feasible_unbound_case() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from dynamic import *\nif FLAG:\n    __file__ = '/override.py'\nVALUE = __file__\n",
+    );
+    let project = python_project(&db);
+    let settings = db.file(Utf8Path::new("/project/settings.py"));
+    let evaluation = python_module_evaluation(&db, project, settings);
+    let alternatives = &evaluation.binding("VALUE").unwrap().alternatives;
+
+    for expected in ["/override.py", "/project/settings.py"] {
+        assert!(alternatives.iter().any(|alternative| matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::Str(path),
+                    ..
+                },
+                ..
+            }) if path == expected
+        )));
+    }
+    assert!(alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(_),
+                ..
+            },
+            ..
+        })
+    )));
+}
+
+#[test]
+fn path_intrinsic_attribute_writes_invalidate_aliasing_owners() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -823,7 +926,7 @@ fn partial_project_path_helper_chains_do_not_become_stdlib_intrinsics() {
                 alternative,
                 PythonBindingAlternativeView::Bound(PythonBoundValueView {
                     value: PythonValueView {
-                        kind: PythonValueKindView::PathSymbol(_) | PythonValueKindView::Path(_),
+                        kind: PythonValueKindView::Path(_),
                         ..
                     },
                     ..
@@ -883,7 +986,7 @@ fn path_operations_preserve_conditionally_unbound_alternatives() {
 }
 
 #[test]
-fn closed_unsupported_literals_are_concrete_other_values() {
+fn closed_unsupported_literals_are_concrete_unsupported_values() {
     let source = "NONE = None\nNUMBER = 1\nNEGATIVE = -1\nBYTES = b'x'\nELLIPSIS = ...\nSET = {1}\nVALUES = [None, 1, b'x', ..., {1}]\n";
     let (db, project, _) = extract_project(source, &[]);
     let file = settings_module_file(&db, project).unwrap();
@@ -895,7 +998,7 @@ fn closed_unsupported_literals_are_concrete_other_values() {
         else {
             panic!("{name} should have one alternative");
         };
-        assert_eq!(bound.value.kind, PythonValueKindView::OtherLiteral);
+        assert_eq!(bound.value.kind, PythonValueKindView::UnsupportedLiteral);
     }
 
     let [PythonBindingAlternativeView::Bound(values)] = evaluation
@@ -913,7 +1016,7 @@ fn closed_unsupported_literals_are_concrete_other_values() {
     assert!(items.iter().all(|item| matches!(
         item,
         PythonSequenceItemView::Value(PythonValueView {
-            kind: PythonValueKindView::OtherLiteral,
+            kind: PythonValueKindView::UnsupportedLiteral,
             ..
         })
     )));
@@ -1074,7 +1177,7 @@ fn relative_import_uses_the_inbound_module_identity() {
         "VALUE = 'canonical file identity'\n",
     );
     let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/project/lib")]);
-    let module = PythonModule::resolve(
+    let module = PythonSourceModule::resolve(
         &db,
         project,
         PythonModuleName::parse("pkg.settings").unwrap(),
@@ -1124,7 +1227,7 @@ fn python_module_package_identity_relative_import_from_init_alias_uses_parent_pa
     db.add_file("/project/pkg/__init__.py", "from .base import VALUE\n");
     db.add_file("/project/pkg/base.py", "VALUE = 'package value'\n");
     let project = python_project(&db);
-    let module = PythonModule::resolve(
+    let module = PythonSourceModule::resolve(
         &db,
         project,
         PythonModuleName::parse("pkg.__init__").unwrap(),
@@ -1716,7 +1819,7 @@ fn evaluate_module_with(
 fn bound_module<'a>(
     evaluation: &'a PythonModuleEvaluationView,
     name: &str,
-) -> &'a PythonModuleObjectIdView {
+) -> &'a PythonModuleView {
     let PythonValueKindView::Module(id) = &bound_value(evaluation, name).value.kind else {
         panic!("{name} should bind a module value");
     };
@@ -1830,7 +1933,7 @@ fn ordinary_import_binds_source_module_and_records_edge() {
 
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
     assert!(
@@ -1852,7 +1955,7 @@ fn ordinary_import_alias_binds_leaf_and_evaluates_parent() {
 
     assert_eq!(
         bound_module(&evaluation, "s"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.sub").unwrap())
     );
     assert!(
         evaluation.binding("pkg").is_none(),
@@ -1877,13 +1980,13 @@ fn ordinary_dotted_import_binds_root_and_attaches_loaded_child() {
 
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     // The loaded child `sub` is attached under `pkg` and readable through the
     // module-member projection.
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.sub").unwrap())
     );
     assert_eq!(
         import_module_names(&evaluation),
@@ -1902,11 +2005,11 @@ fn ordinary_import_of_namespace_parent_binds_namespace_and_loads_child() {
 
     assert_eq!(
         bound_module(&evaluation, "nspkg"),
-        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("nspkg").unwrap())
+        &PythonModuleView::Namespace(PythonModuleName::parse("nspkg").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("nspkg.mod").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("nspkg.mod").unwrap())
     );
     // A namespace parent produces no file/edge; only the source child does.
     assert_eq!(import_module_names(&evaluation), ["resolved:nspkg.mod"]);
@@ -1924,7 +2027,7 @@ fn ordinary_import_of_external_module_binds_handle_and_skips_body() {
 
     assert_eq!(
         bound_module(&evaluation, "ext"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("ext").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("ext").unwrap())
     );
     // Exactly one skipped-external outcome for the requested leaf and no
     // external dependency file.
@@ -1971,7 +2074,7 @@ fn ordinary_import_preserves_prior_clause_effects_on_later_failure() {
 
     assert_eq!(
         bound_module(&evaluation, "good"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("good").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("good").unwrap())
     );
     let bad = bound_value(&evaluation, "bad");
     assert!(matches!(
@@ -2003,14 +2106,14 @@ fn ordinary_import_two_file_cycle_binds_handle_and_records_cycle_edge() {
     db.add_file("/project/b.py", "import a\nVALUE = 'b'\n");
     let project = python_project(&db);
     let module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a").unwrap()).unwrap();
     let evaluation = python_module_evaluation_for_module(&db, project, module);
 
     // The direct import binds the loaded module handle even across the cycle,
     // and the local value survives.
     assert_eq!(
         bound_module(&evaluation, "b"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("b").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("b").unwrap())
     );
     let value = bound_value(&evaluation, "VALUE");
     assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "a"));
@@ -2038,11 +2141,11 @@ fn ordinary_dotted_import_of_package_leaf_attaches_package_child() {
 
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.sub").unwrap())
     );
     assert_eq!(
         import_module_names(&evaluation),
@@ -2059,7 +2162,7 @@ fn ordinary_import_of_namespace_terminal_binds_namespace_without_edges() {
 
     assert_eq!(
         bound_module(&evaluation, "ns"),
-        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("ns").unwrap())
+        &PythonModuleView::Namespace(PythonModuleName::parse("ns").unwrap())
     );
     assert!(
         evaluation.imports.is_empty(),
@@ -2137,11 +2240,11 @@ fn ordinary_dotted_import_recovers_parent_syntax_and_continues() {
     );
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.sub").unwrap())
     );
 }
 
@@ -2160,7 +2263,7 @@ fn member_read_of_unimported_child_is_module_attribute_unknown() {
 
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     let child = bound_value(&evaluation, "CHILD");
     assert!(
@@ -2224,7 +2327,7 @@ fn ambiguous_dotted_import_preserves_module_and_unbound_alternatives() {
             alternative,
             PythonBindingAlternativeView::Bound(PythonBoundValueView {
                 value: PythonValueView {
-                    kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                    kind: PythonValueKindView::Module(PythonModuleView::Source(module)),
                     ..
                 },
                 ..
@@ -2252,7 +2355,7 @@ fn deterministically_true_dotted_import_binds_module_unconditionally() {
 
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
 }
@@ -2269,7 +2372,7 @@ fn named_from_import_loads_exact_package_child_with_alias_origins() {
     );
     assert_eq!(
         bound_module(&evaluation, "alias"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.child").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.child").unwrap())
     );
     assert_eq!(
         import_module_names(&evaluation),
@@ -2328,14 +2431,14 @@ fn named_from_import_conditional_member_attaches_child_only_when_absent() {
     for name in ["child", "ATTR"] {
         let binding = evaluation.binding(name).unwrap();
         assert!(binding.alternatives.iter().any(|alternative| matches!(alternative, PythonBindingAlternativeView::Bound(PythonBoundValueView { value: PythonValueView { kind: PythonValueKindView::Str(value), .. }, .. }) if value == "member")));
-        assert!(binding.alternatives.iter().any(|alternative| matches!(alternative, PythonBindingAlternativeView::Bound(PythonBoundValueView { value: PythonValueView { kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)), .. }, .. }) if module.as_str() == "pkg.child")));
+        assert!(binding.alternatives.iter().any(|alternative| matches!(alternative, PythonBindingAlternativeView::Bound(PythonBoundValueView { value: PythonValueView { kind: PythonValueKindView::Module(PythonModuleView::Source(module)), .. }, .. }) if module.as_str() == "pkg.child")));
     }
     let side = evaluation.binding("SIDE").expect("SIDE should be bound");
     assert!(side.alternatives.iter().any(|alternative| matches!(
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
             value: PythonValueView {
-                kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                kind: PythonValueKindView::Module(PythonModuleView::Source(module)),
                 ..
             },
             ..
@@ -2383,7 +2486,7 @@ fn named_child_fallback_preserves_member_mutation_namespace_and_syntax_evidence(
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
             value: PythonValueView {
-                kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                kind: PythonValueKindView::Module(PythonModuleView::Source(module)),
                 ..
             },
             ..
@@ -2450,13 +2553,13 @@ fn named_from_import_loads_namespace_child_and_types_missing_child() {
     );
     assert_eq!(
         bound_module(&success, "child"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("ns.child").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("ns.child").unwrap())
     );
     assert_eq!(import_module_names(&success), ["resolved:ns.child"]);
     assert_eq!(success.dependency_files.len(), 2);
     assert_eq!(
         bound_module(&success, "ATTR"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("ns.child").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("ns.child").unwrap())
     );
 
     let (_file, missing) = evaluate_module_with(
@@ -2509,7 +2612,7 @@ fn named_from_import_external_package_child_keeps_identity_open_without_dependen
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
             value: PythonValueView {
-                kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                kind: PythonValueKindView::Module(PythonModuleView::Source(module)),
                 ..
             },
             ..
@@ -2522,7 +2625,7 @@ fn named_from_import_external_package_child_keeps_identity_open_without_dependen
         alternative,
         PythonBindingAlternativeView::Bound(PythonBoundValueView {
             value: PythonValueView {
-                kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                kind: PythonValueKindView::Module(PythonModuleView::Source(module)),
                 ..
             },
             ..
@@ -2613,7 +2716,7 @@ fn named_from_import_child_cycle_records_recovery_and_binds_handle() {
     assert_eq!(evaluation.dependency_files.len(), 3);
     assert_eq!(
         bound_module(&evaluation, "child"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.child").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.child").unwrap())
     );
     assert!(matches!(
         &bound_value(&evaluation, "ATTR").value.kind,
@@ -2631,7 +2734,7 @@ fn named_from_import_cycle_seed_parent_still_loads_exact_child() {
     db.add_file("/project/pkg/child.py", "VALUE = 'child'\n");
     let project = python_project(&db);
     let package =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg").unwrap()).unwrap();
     let package_file = package.file();
     let child_file = db.file(Utf8Path::new("/project/pkg/child.py"));
     let evaluation = python_module_evaluation_for_module(&db, project, package);
@@ -2752,11 +2855,11 @@ fn exact_all_selects_private_names_in_order_dedupes_and_loads_listed_children() 
     );
     assert_eq!(
         bound_module(&evaluation, "second"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.second").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.second").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "first"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.first").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.first").unwrap())
     );
     assert!(evaluation.binding("UNLISTED").is_none());
     assert!(evaluation.binding("unlisted").is_none());
@@ -3037,7 +3140,7 @@ fn exact_all_attaches_selected_child_and_its_effects_only_on_selected_paths() {
                 alternative,
                 PythonBindingAlternativeView::Bound(PythonBoundValueView {
                     value: PythonValueView {
-                        kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(found)),
+                        kind: PythonValueKindView::Module(PythonModuleView::Source(found)),
                         ..
                     },
                     ..
@@ -3088,7 +3191,7 @@ fn selected_and_dynamic_star_paths_preserve_an_existing_child_coordinate() {
                 alternative,
                 PythonBindingAlternativeView::Bound(PythonBoundValueView {
                     value: PythonValueView {
-                        kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                        kind: PythonValueKindView::Module(PythonModuleView::Source(module)),
                         ..
                     },
                     ..
@@ -3400,7 +3503,7 @@ fn ordinary_import_of_project_namespace_prefix_to_external_suffix() {
     assert_eq!(import_module_names(&evaluation), ["external:ns.sub"]);
     assert_eq!(
         bound_module(&evaluation, "ns"),
-        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("ns").unwrap())
+        &PythonModuleView::Namespace(PythonModuleName::parse("ns").unwrap())
     );
 }
 
@@ -3414,7 +3517,8 @@ fn ordinary_dotted_import_self_cycle_binds_root_and_records_leaf_cycle() {
     db.add_file("/project/pkg/sub.py", "import pkg.sub\nLEAF = 'sub'\n");
     let project = python_project(&db);
     let module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap())
+            .unwrap();
     let evaluation = python_module_evaluation_for_module(&db, project, module);
 
     assert!(
@@ -3439,7 +3543,7 @@ fn ordinary_dotted_import_self_cycle_binds_root_and_records_leaf_cycle() {
     // was reached, so the root handle is bound.
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     let value = bound_value(&evaluation, "LEAF");
     assert!(matches!(&value.value.kind, PythonValueKindView::Str(text) if text == "sub"));
@@ -3455,7 +3559,8 @@ fn from_dotted_import_self_cycle_records_leaf_cycle_and_retains_local_value() {
     );
     let project = python_project(&db);
     let module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap())
+            .unwrap();
     let evaluation = python_module_evaluation_for_module(&db, project, module);
 
     assert!(
@@ -3592,7 +3697,7 @@ fn ordinary_dotted_import_unreadable_leaf_leaves_failed_child_unattached() {
 
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     let alias = bound_value(&evaluation, "s");
     assert!(matches!(
@@ -3812,7 +3917,7 @@ fn ordinary_import_single_alias_binds_module_and_omits_source_name() {
 
     assert_eq!(
         bound_module(&evaluation, "x"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("a").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("a").unwrap())
     );
     assert!(
         evaluation.binding("a").is_none(),
@@ -3854,11 +3959,11 @@ fn ordinary_dotted_import_recovers_leaf_syntax_and_attaches_child() {
     );
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.sub").unwrap())
     );
 }
 
@@ -3950,7 +4055,7 @@ fn member_read_of_intrinsic_binding_after_bare_import_selects_value() {
 
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     let attr = bound_value(&evaluation, "ATTR");
     assert!(matches!(&attr.value.kind, PythonValueKindView::Str(text) if text == "pkg"));
@@ -3970,7 +4075,7 @@ fn member_read_of_parent_init_binding_after_dotted_root_import_selects_value() {
 
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     let attr = bound_value(&evaluation, "ATTR");
     assert!(matches!(&attr.value.kind, PythonValueKindView::Str(text) if text == "parent"));
@@ -3990,7 +4095,7 @@ fn member_read_of_leaf_binding_through_dotted_alias_selects_value() {
 
     assert_eq!(
         bound_module(&evaluation, "s"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.sub").unwrap())
     );
     let attr = bound_value(&evaluation, "ATTR");
     assert!(matches!(&attr.value.kind, PythonValueKindView::Str(text) if text == "leaf"));
@@ -4012,11 +4117,11 @@ fn ordinary_dotted_import_source_parent_binds_namespace_leaf_child() {
     assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("pkg.ns").unwrap())
+        &PythonModuleView::Namespace(PythonModuleName::parse("pkg.ns").unwrap())
     );
 }
 
@@ -4039,11 +4144,11 @@ fn ordinary_dotted_import_namespace_intermediate_reaches_source_leaf() {
     );
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.ns.leaf").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.ns.leaf").unwrap())
     );
 }
 
@@ -4062,7 +4167,7 @@ fn ordinary_import_binds_module_from_extra_root() {
 
     assert_eq!(
         bound_module(&evaluation, "shared"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("shared").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("shared").unwrap())
     );
     assert!(matches!(
         evaluation.imports.as_slice(),
@@ -4097,7 +4202,7 @@ fn ordinary_dotted_import_records_exact_prefix_dependencies_and_surviving_child_
     assert_eq!(evaluation.dependency_files, [settings, pkg_init, pkg_sub]);
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.sub").unwrap())
     );
     let via = bound_value(&evaluation, "VIA");
     assert!(matches!(&via.value.kind, PythonValueKindView::Str(text) if text == "leaf"));
@@ -4199,11 +4304,11 @@ fn ordinary_import_binds_multiple_clauses_in_source_order() {
     );
     assert_eq!(
         bound_module(&evaluation, "alpha"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("alpha").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("alpha").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "beta"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("beta").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("beta").unwrap())
     );
 }
 
@@ -4229,7 +4334,7 @@ fn ordinary_import_mixed_clauses_preserve_source_order_after_failure() {
     ));
     assert_eq!(
         bound_module(&evaluation, "alpha"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("alpha").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("alpha").unwrap())
     );
 }
 
@@ -4252,11 +4357,11 @@ fn ordinary_dotted_import_external_suffix_attaches_open_child() {
     assert_eq!(import_module_names(&evaluation), ["external:ns.sub"]);
     assert_eq!(
         bound_module(&evaluation, "ns"),
-        &PythonModuleObjectIdView::Namespace(PythonModuleName::parse("ns").unwrap())
+        &PythonModuleView::Namespace(PythonModuleName::parse("ns").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "CHILD"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("ns.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("ns.sub").unwrap())
     );
     let attr = evaluation.binding("ATTR").expect("ATTR should be bound");
     assert!(
@@ -4290,7 +4395,8 @@ fn ordinary_dotted_import_self_cycle_attaches_open_child() {
     );
     let project = python_project(&db);
     let module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap())
+            .unwrap();
     let evaluation = python_module_evaluation_for_module(&db, project, module);
 
     assert!(evaluation.imports.iter().any(|outcome| matches!(
@@ -4305,11 +4411,11 @@ fn ordinary_dotted_import_self_cycle_attaches_open_child() {
     )));
     assert_eq!(
         bound_module(&evaluation, "pkg"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg").unwrap())
     );
     assert_eq!(
         bound_module(&evaluation, "SELF"),
-        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.sub").unwrap())
+        &PythonModuleView::Source(PythonModuleName::parse("pkg.sub").unwrap())
     );
     let cyc = bound_value(&evaluation, "CYC");
     assert!(
@@ -5449,8 +5555,9 @@ fn relative_import_cycle_uses_module_identities_in_overlapping_roots() {
     db.add_file("/project/lib/pkg/a.py", "from .b import B\nA = B\n");
     db.add_file("/project/lib/pkg/b.py", "from lib.pkg.a import A\nB = A\n");
     let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/project/lib")]);
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.a").unwrap())
-        .expect("pkg.a should resolve through the nested search path");
+    let module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.a").unwrap())
+            .expect("pkg.a should resolve through the nested search path");
 
     let evaluation = python_module_evaluation_for_module(&db, project, module);
     let cycles = evaluation
@@ -5886,7 +5993,7 @@ fn binding_has_module(
         matches!(alternative,
             PythonBindingAlternativeView::Bound(PythonBoundValueView {
                 value: PythonValueView {
-                    kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                    kind: PythonValueKindView::Module(PythonModuleView::Source(module)),
                     ..
                 },
                 ..
@@ -5975,7 +6082,7 @@ fn ordinary_import_non_dotted_self_cycle_binds_handle_and_records_cycle_edge() {
     db.add_file("/project/a.py", "import a\nVALUE = 'a'\n");
     let project = python_project(&db);
     let module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a").unwrap()).unwrap();
     let evaluation = python_module_evaluation_for_module(&db, project, module);
 
     assert!(
@@ -6005,7 +6112,8 @@ fn mixed_direct_and_from_cycle_records_cycle_on_both_forms() {
         );
         let project = python_project(&db);
         let module =
-            PythonModule::resolve(&db, project, PythonModuleName::parse(root).unwrap()).unwrap();
+            PythonSourceModule::resolve(&db, project, PythonModuleName::parse(root).unwrap())
+                .unwrap();
         python_module_evaluation_for_module(&db, project, module)
     };
 
@@ -6075,7 +6183,8 @@ fn parent_package_component_cycle_records_the_parent_edge() {
     db.add_file("/project/pkg/sub.py", "import pkg\nX = 'x'\n");
     let project = python_project(&db);
     let module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.sub").unwrap())
+            .unwrap();
     let evaluation = python_module_evaluation_for_module(&db, project, module);
 
     assert!(
@@ -6109,7 +6218,8 @@ fn dotted_chain_cycle_records_leaf_cycle_and_resolves_prefix() {
     db.add_file("/project/a/b/c.py", "import a.b.c\nVALUE = 'c'\n");
     let project = python_project(&db);
     let module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("a.b.c").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a.b.c").unwrap())
+            .unwrap();
     let evaluation = python_module_evaluation_for_module(&db, project, module);
 
     for prefix in ["a", "a.b"] {
@@ -6190,7 +6300,8 @@ fn ordinary_import_cycle_widening_preserves_unrelated_child_coordinate() {
     );
     let project = python_project(&db);
     let module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("root").unwrap()).unwrap();
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("root").unwrap())
+            .unwrap();
     let evaluation = python_module_evaluation_for_module(&db, project, module);
 
     let stable = evaluation

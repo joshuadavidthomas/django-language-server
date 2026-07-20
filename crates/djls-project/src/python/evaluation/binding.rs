@@ -6,12 +6,12 @@ use djls_source::Origin;
 use super::BranchConstraints;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 use super::OriginSet;
-use super::PythonModuleObjectId;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::StructuralOrd;
+use crate::python::PythonModule;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PythonBindingCase {
@@ -264,7 +264,7 @@ impl PythonBinding {
     pub(super) fn attach_module_for_import_fallback(
         &self,
         prior: &Self,
-        child: &PythonModuleObjectId,
+        child: &PythonModule,
         origin: Origin,
         preserved: Option<&BranchConstraints>,
     ) -> Self {
@@ -599,8 +599,6 @@ mod tests {
 
     use super::super::BranchConstraints;
     use super::super::OriginSet;
-    use super::super::PythonModuleObjectId;
-    use super::super::PythonNamespacePackage;
     use super::super::PythonSequenceItem;
     use super::super::PythonUnknown;
     use super::MAX_EXACT_PYTHON_ALTERNATIVES;
@@ -613,6 +611,8 @@ mod tests {
     use super::PythonValue;
     use super::PythonValueKind;
     use super::StructuralOrd;
+    use crate::python::PythonModule;
+    use crate::python::PythonNamespacePackage;
 
     fn origin(file: u32, start: u32) -> Origin {
         // SAFETY: Test indexes are below `salsa::Id::MAX_U32`; these synthetic
@@ -690,8 +690,8 @@ mod tests {
         left
     }
 
-    fn namespace_module(name: &str) -> PythonModuleObjectId {
-        PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
+    fn namespace_module(name: &str) -> PythonModule {
+        PythonModule::Namespace(PythonNamespacePackage::new(
             crate::python::PythonModuleName::parse(name).unwrap(),
             Vec::new(),
         ))

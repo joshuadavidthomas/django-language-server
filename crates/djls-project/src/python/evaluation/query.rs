@@ -3,16 +3,16 @@ use salsa::Cycle;
 use salsa::Id;
 
 use super::PythonModuleDependencies;
-use super::PythonModuleObjects;
+use super::PythonModuleEffects;
 use super::PythonModuleValues;
 use super::evaluator::evaluate_body;
-use super::module_object::PathSymbolContamination;
+use super::module_object::PathIntrinsicContamination;
 use super::result::EvaluatedPythonModule;
 use super::result::PythonModuleEvaluation;
 use super::touched_names::collect_syntax_impacts;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonModule;
+use crate::python::PythonSourceModule;
 use crate::python::RecoveredPythonModule;
 
 // Salsa tracked-query keys are by-value; `module` is a key, not a borrow.
@@ -24,8 +24,8 @@ use crate::python::RecoveredPythonModule;
 pub(super) fn evaluate_python_module(
     db: &dyn ProjectDb,
     project: Project,
-    module: PythonModule,
-    path_symbol_contamination: PathSymbolContamination,
+    module: PythonSourceModule,
+    path_intrinsic_contamination: PathIntrinsicContamination,
 ) -> PythonModuleEvaluation {
     let file = module.file();
     let parsed = match RecoveredPythonModule::from_file(db, file) {
@@ -34,7 +34,7 @@ pub(super) fn evaluate_python_module(
             return PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
                 Err(error),
                 PythonModuleDependencies::rooted(file),
-                PythonModuleObjects::default(),
+                PythonModuleEffects::default(),
                 &module,
             ));
         }
@@ -42,7 +42,7 @@ pub(super) fn evaluate_python_module(
             return PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
                 Ok(PythonModuleValues::default()),
                 PythonModuleDependencies::rooted(file),
-                PythonModuleObjects::default(),
+                PythonModuleEffects::default(),
                 &module,
             ));
         }
@@ -50,19 +50,19 @@ pub(super) fn evaluate_python_module(
     let body = parsed.body(db);
     let syntax_errors = parsed.syntax_errors(db).to_vec();
     let syntax_impacts = collect_syntax_impacts(body, &syntax_errors);
-    let (module_values, dependencies, module_objects) = evaluate_body(
+    let (module_values, dependencies, module_effects) = evaluate_body(
         db,
         project,
         module.clone(),
         body,
         syntax_errors,
         syntax_impacts,
-        path_symbol_contamination,
+        path_intrinsic_contamination,
     );
     PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
         Ok(module_values),
         dependencies,
-        module_objects,
+        module_effects,
         &module,
     ))
 }
@@ -73,9 +73,9 @@ pub(super) fn evaluate_python_module(
 pub(crate) fn python_module_values(
     db: &dyn ProjectDb,
     project: Project,
-    module: PythonModule,
+    module: PythonSourceModule,
 ) -> Result<PythonModuleValues, FileReadError> {
-    match evaluate_python_module(db, project, module, PathSymbolContamination::default()) {
+    match evaluate_python_module(db, project, module, PathIntrinsicContamination::default()) {
         PythonModuleEvaluation::CycleSeed => {
             unreachable!("cycle seed escaped Python module evaluation")
         }
@@ -89,9 +89,9 @@ pub(crate) fn python_module_values(
 pub(crate) fn python_module_dependencies(
     db: &dyn ProjectDb,
     project: Project,
-    module: PythonModule,
+    module: PythonSourceModule,
 ) -> PythonModuleDependencies {
-    match evaluate_python_module(db, project, module, PathSymbolContamination::default()) {
+    match evaluate_python_module(db, project, module, PathIntrinsicContamination::default()) {
         PythonModuleEvaluation::CycleSeed => {
             unreachable!("cycle seed escaped Python module evaluation")
         }
@@ -103,8 +103,8 @@ fn evaluate_python_module_cycle_initial(
     _db: &dyn ProjectDb,
     _id: Id,
     _project: Project,
-    _module: PythonModule,
-    _path_symbol_contamination: PathSymbolContamination,
+    _module: PythonSourceModule,
+    _path_intrinsic_contamination: PathIntrinsicContamination,
 ) -> PythonModuleEvaluation {
     PythonModuleEvaluation::CycleSeed
 }
@@ -117,8 +117,8 @@ fn evaluate_python_module_cycle_recover(
     previous: &PythonModuleEvaluation,
     computed: PythonModuleEvaluation,
     _project: Project,
-    module: PythonModule,
-    _path_symbol_contamination: PathSymbolContamination,
+    module: PythonSourceModule,
+    _path_intrinsic_contamination: PathIntrinsicContamination,
 ) -> PythonModuleEvaluation {
     assert!(
         cycle.iteration() < 12,

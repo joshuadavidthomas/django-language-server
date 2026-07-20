@@ -1,7 +1,3 @@
-use camino::Utf8Component;
-use camino::Utf8Path;
-use camino::Utf8PathBuf;
-
 use super::Evaluator;
 use super::ExprExt;
 use super::Origin;
@@ -11,7 +7,8 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ast;
-use crate::python::PythonPathSymbol;
+use crate::python::PythonPath;
+use crate::python::PythonPathIntrinsic;
 
 impl Evaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
@@ -23,15 +20,22 @@ impl Evaluator<'_> {
             return PythonBinding::bound(PythonValue::bool(value, origin), origin);
         }
         if let Some(name) = expression.name_target() {
-            if let Some(symbol) = PythonPathSymbol::unbound_intrinsic(name) {
-                return self.state.binding_with_intrinsic(name, symbol, origin);
+            if name == "__file__" {
+                return self.state.binding_with_implicit_value(
+                    name,
+                    PythonValue::string(self.module.path().to_string(), origin),
+                    origin,
+                );
+            }
+            if let Some(intrinsic) = PythonPathIntrinsic::unbound_intrinsic(name) {
+                return self.state.binding_with_intrinsic(name, intrinsic, origin);
             }
             return self.state.binding(name).cloned().unwrap_or_else(|| {
                 PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
             });
         }
-        if is_other_literal(expression) {
-            return PythonBinding::bound(PythonValue::other_literal(origin), origin);
+        if is_unsupported_literal(expression) {
+            return PythonBinding::bound(PythonValue::unsupported_literal(origin), origin);
         }
         match expression {
             ast::Expr::List(list) => self.evaluate_sequence_binding(
@@ -65,7 +69,7 @@ impl Evaluator<'_> {
 
     /// Read `receiver.member` through the receiver's nominal abstract value.
     /// Module values use the import member projection; exact path values and
-    /// path-library symbols expose only their supported static members.
+    /// path-library intrinsics expose only their supported static members.
     fn evaluate_attribute_binding(
         &self,
         attribute: &ast::ExprAttribute,
@@ -87,18 +91,20 @@ impl Evaluator<'_> {
                 )
             }
             PythonValueKind::Path(path) if attribute.attr.as_str() == "parent" => {
-                let parent = path.parent().unwrap_or_else(|| Utf8Path::new("/"));
-                PythonBinding::bound(PythonValue::path(parent.to_path_buf(), origin), origin)
+                path.parent().map_or_else(
+                    || PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
+                    |parent| PythonBinding::bound(PythonValue::python_path(parent, origin), origin),
+                )
             }
-            PythonValueKind::PathSymbol(symbol) => {
+            PythonValueKind::Path(PythonPath::Intrinsic(intrinsic)) => {
                 if self
                     .state
-                    .module_objects
-                    .path_symbol_is_contaminated(*symbol)
+                    .module_effects
+                    .path_intrinsic_is_contaminated(*intrinsic)
                 {
                     PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin)
                 } else {
-                    symbol.member(attribute.attr.as_str()).map_or_else(
+                    intrinsic.member(attribute.attr.as_str()).map_or_else(
                         || {
                             PythonBinding::unknown(
                                 &PythonUnknownCause::UnsupportedExpression,
@@ -106,7 +112,10 @@ impl Evaluator<'_> {
                             )
                         },
                         |member| {
-                            PythonBinding::bound(PythonValue::path_symbol(member, origin), origin)
+                            PythonBinding::bound(
+                                PythonValue::path_intrinsic(member, origin),
+                                origin,
+                            )
                         },
                     )
                 }
@@ -114,7 +123,7 @@ impl Evaluator<'_> {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::OtherLiteral
+            | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -153,28 +162,32 @@ impl Evaluator<'_> {
 
         let callable = self.evaluate_binding(&call.func);
         project_bound_alternatives(&callable, origin, |value| {
-            self.evaluate_path_symbol_call(value, call, origin)
+            self.evaluate_path_intrinsic_call(value, call, origin)
         })
     }
 
-    fn evaluate_path_symbol_call(
+    fn evaluate_path_intrinsic_call(
         &self,
         value: &PythonValue,
         call: &ast::ExprCall,
         origin: Origin,
     ) -> PythonBinding {
-        let PythonValueKind::PathSymbol(symbol) = value.kind else {
+        let PythonValueKind::Path(path) = &value.kind else {
             return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
         };
+        let PythonPath::Intrinsic(intrinsic) = path else {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        };
+        let intrinsic = *intrinsic;
         if self
             .state
-            .module_objects
-            .path_symbol_is_contaminated(symbol)
+            .module_effects
+            .path_intrinsic_is_contaminated(intrinsic)
         {
             return PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin);
         }
-        match symbol {
-            PythonPathSymbol::PathlibPath | PythonPathSymbol::BuiltinStr => {
+        match intrinsic {
+            PythonPathIntrinsic::PathlibPathType | PythonPathIntrinsic::BuiltinStrType => {
                 let Some(argument) = single_positional_argument(&call.arguments) else {
                     return PythonBinding::unknown(
                         &PythonUnknownCause::UnsupportedExpression,
@@ -182,20 +195,19 @@ impl Evaluator<'_> {
                     );
                 };
                 let argument = self.evaluate_binding(argument);
-                project_bound_alternatives(&argument, origin, |argument| match symbol {
-                    PythonPathSymbol::PathlibPath => {
-                        path_from_value(argument, self.module.path(), origin)
-                    }
-                    PythonPathSymbol::BuiltinStr => {
-                        str_from_value(argument, self.module.path(), origin)
-                    }
-                    _ => unreachable!("the outer match selects callable symbols"),
+                project_bound_alternatives(&argument, origin, |argument| match intrinsic {
+                    PythonPathIntrinsic::PathlibPathType => path_from_value(argument, origin),
+                    PythonPathIntrinsic::BuiltinStrType => string_path_from_value(argument, origin),
+                    _ => unreachable!("the outer match selects callable intrinsics"),
                 })
             }
-            PythonPathSymbol::OsPathJoin | PythonPathSymbol::OsPathDirname if cfg!(windows) => {
+            PythonPathIntrinsic::OsPathJoinFunction
+            | PythonPathIntrinsic::OsPathDirnameFunction
+                if cfg!(windows) =>
+            {
                 PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
             }
-            PythonPathSymbol::OsPathJoin => {
+            PythonPathIntrinsic::OsPathJoinFunction => {
                 if call.arguments.keywords.is_empty() && !call.arguments.args.is_empty() {
                     let first = self.evaluate_binding(&call.arguments.args[0]);
                     let base = project_bound_alternatives(&first, origin, |value| {
@@ -206,7 +218,7 @@ impl Evaluator<'_> {
                     PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
                 }
             }
-            PythonPathSymbol::OsPathDirname => {
+            PythonPathIntrinsic::OsPathDirnameFunction => {
                 let Some(argument) = single_positional_argument(&call.arguments) else {
                     return PythonBinding::unknown(
                         &PythonUnknownCause::UnsupportedExpression,
@@ -221,11 +233,10 @@ impl Evaluator<'_> {
                     })
                 })
             }
-            PythonPathSymbol::BuiltinsModule
-            | PythonPathSymbol::ModuleFile
-            | PythonPathSymbol::PathlibModule
-            | PythonPathSymbol::OsModule
-            | PythonPathSymbol::OsPathModule => {
+            PythonPathIntrinsic::BuiltinsModule
+            | PythonPathIntrinsic::PathlibModule
+            | PythonPathIntrinsic::OsModule
+            | PythonPathIntrinsic::OsPathModule => {
                 PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
             }
         }
@@ -360,7 +371,7 @@ impl Evaluator<'_> {
     }
 }
 
-fn is_other_literal(expression: &ast::Expr) -> bool {
+fn is_unsupported_literal(expression: &ast::Expr) -> bool {
     match expression {
         ast::Expr::NoneLiteral(_)
         | ast::Expr::NumberLiteral(_)
@@ -438,14 +449,18 @@ fn project_bound_alternatives(
     })
 }
 
-fn path_from_value(value: &PythonValue, file_path: &Utf8Path, origin: Origin) -> PythonBinding {
+fn path_from_value(value: &PythonValue, origin: Origin) -> PythonBinding {
     let path = match &value.kind {
-        PythonValueKind::Path(path) => path.clone(),
-        PythonValueKind::PathSymbol(PythonPathSymbol::ModuleFile) => file_path.to_path_buf(),
-        PythonValueKind::Str(_)
-        | PythonValueKind::Bool(_)
-        | PythonValueKind::PathSymbol(_)
-        | PythonValueKind::OtherLiteral
+        PythonValueKind::Path(PythonPath::Object(path)) => PythonPath::object(path.clone()),
+        PythonValueKind::Str(text) => {
+            let Some(path) = PythonPath::from_absolute_string(text) else {
+                return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+            };
+            path
+        }
+        PythonValueKind::Bool(_)
+        | PythonValueKind::Path(PythonPath::Intrinsic(_))
+        | PythonValueKind::UnsupportedLiteral
         | PythonValueKind::List(_)
         | PythonValueKind::Tuple(_)
         | PythonValueKind::Dict(_)
@@ -454,35 +469,16 @@ fn path_from_value(value: &PythonValue, file_path: &Utf8Path, origin: Origin) ->
             return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
         }
     };
-    PythonBinding::bound(PythonValue::path(path, origin), origin)
+    PythonBinding::bound(PythonValue::python_path(path, origin), origin)
 }
 
 fn string_path_from_value(value: &PythonValue, origin: Origin) -> PythonBinding {
     let text = match &value.kind {
         PythonValueKind::Str(text) => text.clone(),
-        PythonValueKind::Path(path) => path.to_string(),
+        PythonValueKind::Path(PythonPath::Object(path)) => path.to_string(),
         PythonValueKind::Bool(_)
-        | PythonValueKind::PathSymbol(_)
-        | PythonValueKind::OtherLiteral
-        | PythonValueKind::List(_)
-        | PythonValueKind::Tuple(_)
-        | PythonValueKind::Dict(_)
-        | PythonValueKind::Module(_)
-        | PythonValueKind::Unknown(_) => {
-            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
-        }
-    };
-    PythonBinding::bound(PythonValue::string(text, origin), origin)
-}
-
-fn str_from_value(value: &PythonValue, file_path: &Utf8Path, origin: Origin) -> PythonBinding {
-    let text = match &value.kind {
-        PythonValueKind::Str(text) => text.clone(),
-        PythonValueKind::Path(path) => path.to_string(),
-        PythonValueKind::PathSymbol(PythonPathSymbol::ModuleFile) => file_path.to_string(),
-        PythonValueKind::Bool(_)
-        | PythonValueKind::PathSymbol(_)
-        | PythonValueKind::OtherLiteral
+        | PythonValueKind::Path(PythonPath::Intrinsic(_))
+        | PythonValueKind::UnsupportedLiteral
         | PythonValueKind::List(_)
         | PythonValueKind::Tuple(_)
         | PythonValueKind::Dict(_)
@@ -495,7 +491,7 @@ fn str_from_value(value: &PythonValue, file_path: &Utf8Path, origin: Origin) -> 
 }
 
 fn rebase_exact_path(value: &PythonValue, origin: Origin) -> PythonBinding {
-    let PythonValueKind::Path(path) = &value.kind else {
+    let PythonValueKind::Path(PythonPath::Object(path)) = &value.kind else {
         return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
     };
     PythonBinding::bound(PythonValue::path(path.clone(), origin), origin)
@@ -505,23 +501,10 @@ fn resolve_path(value: &PythonValue, origin: Origin) -> PythonBinding {
     let PythonValueKind::Path(path) = &value.kind else {
         return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
     };
-    if !path.is_absolute() {
+    let Some(resolved) = path.resolve() else {
         return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
-    }
-
-    let mut resolved = Utf8PathBuf::new();
-    for component in path.components() {
-        match component {
-            Utf8Component::Prefix(prefix) => resolved.push(prefix.as_str()),
-            Utf8Component::RootDir => resolved.push(Utf8Path::new("/")),
-            Utf8Component::CurDir => {}
-            Utf8Component::ParentDir => {
-                resolved.pop();
-            }
-            Utf8Component::Normal(component) => resolved.push(component),
-        }
-    }
-    PythonBinding::bound(PythonValue::path(resolved, origin), origin)
+    };
+    PythonBinding::bound(PythonValue::python_path(resolved, origin), origin)
 }
 
 fn parent_string_path(value: &PythonValue, origin: Origin) -> PythonBinding {
@@ -587,7 +570,10 @@ fn join_path_value(left: PythonValue, right: PythonValue, origin: Origin) -> Pyt
     else {
         return PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin));
     };
-    PythonValue::path(path.join(segment), origin)
+    path.join(&segment).map_or_else(
+        || PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin)),
+        |joined| PythonValue::python_path(joined, origin),
+    )
 }
 
 fn join_string_path_value(left: PythonValue, right: PythonValue, origin: Origin) -> PythonValue {
@@ -596,10 +582,10 @@ fn join_string_path_value(left: PythonValue, right: PythonValue, origin: Origin)
     };
     let segment = match right.kind {
         PythonValueKind::Str(segment) => segment,
-        PythonValueKind::Path(segment) => segment.to_string(),
+        PythonValueKind::Path(PythonPath::Object(segment)) => segment.to_string(),
         PythonValueKind::Bool(_)
-        | PythonValueKind::PathSymbol(_)
-        | PythonValueKind::OtherLiteral
+        | PythonValueKind::Path(PythonPath::Intrinsic(_))
+        | PythonValueKind::UnsupportedLiteral
         | PythonValueKind::List(_)
         | PythonValueKind::Tuple(_)
         | PythonValueKind::Dict(_)

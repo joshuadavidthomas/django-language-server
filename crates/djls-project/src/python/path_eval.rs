@@ -1,3 +1,70 @@
+use camino::Utf8Component;
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+
+/// A path value is either an exact path object or a nominal intrinsic used to
+/// construct and transform paths. Keeping both under one owner makes callers
+/// distinguish concrete path data from the small supported standard-library
+/// surface explicitly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PythonPath {
+    Object(Utf8PathBuf),
+    Intrinsic(PythonPathIntrinsic),
+}
+
+impl PythonPath {
+    pub(crate) fn object(path: Utf8PathBuf) -> Self {
+        Self::Object(path)
+    }
+
+    pub(crate) fn from_absolute_string(value: &str) -> Option<Self> {
+        let path = Utf8Path::new(value);
+        path.is_absolute().then(|| Self::Object(path.to_path_buf()))
+    }
+
+    pub(crate) fn intrinsic(intrinsic: PythonPathIntrinsic) -> Self {
+        Self::Intrinsic(intrinsic)
+    }
+
+    pub(crate) fn object_path(&self) -> Option<&Utf8Path> {
+        match self {
+            Self::Object(path) => Some(path),
+            Self::Intrinsic(_) => None,
+        }
+    }
+
+    pub(crate) fn parent(&self) -> Option<Self> {
+        let path = self.object_path()?;
+        let parent = path.parent().unwrap_or_else(|| Utf8Path::new("/"));
+        Some(Self::Object(parent.to_path_buf()))
+    }
+
+    pub(crate) fn join(&self, segment: &str) -> Option<Self> {
+        Some(Self::Object(self.object_path()?.join(segment)))
+    }
+
+    pub(crate) fn resolve(&self) -> Option<Self> {
+        let path = self.object_path()?;
+        if !path.is_absolute() {
+            return None;
+        }
+
+        let mut resolved = Utf8PathBuf::new();
+        for component in path.components() {
+            match component {
+                Utf8Component::Prefix(prefix) => resolved.push(prefix.as_str()),
+                Utf8Component::RootDir => resolved.push(Utf8Path::new("/")),
+                Utf8Component::CurDir => {}
+                Utf8Component::ParentDir => {
+                    resolved.pop();
+                }
+                Utf8Component::Normal(component) => resolved.push(component),
+            }
+        }
+        Some(Self::Object(resolved))
+    }
+}
+
 /// Nominal identities for the small standard-library surface used by static
 /// path evaluation. They travel through ordinary Python bindings so aliases,
 /// branches, and shadowing follow the same rules as every other value.
@@ -9,23 +76,21 @@ pub(crate) enum PythonPathNamespace {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum PythonPathSymbol {
+pub(crate) enum PythonPathIntrinsic {
     BuiltinsModule,
-    BuiltinStr,
-    ModuleFile,
+    BuiltinStrType,
     PathlibModule,
-    PathlibPath,
+    PathlibPathType,
     OsModule,
     OsPathModule,
-    OsPathJoin,
-    OsPathDirname,
+    OsPathJoinFunction,
+    OsPathDirnameFunction,
 }
 
-impl PythonPathSymbol {
+impl PythonPathIntrinsic {
     pub(crate) fn unbound_intrinsic(name: &str) -> Option<Self> {
         match name {
-            "str" => Some(Self::BuiltinStr),
-            "__file__" => Some(Self::ModuleFile),
+            "str" => Some(Self::BuiltinStrType),
             _ => None,
         }
     }
@@ -53,45 +118,37 @@ impl PythonPathSymbol {
             return None;
         }
         match (module, member) {
-            (Some("builtins"), "str") => Some(Self::BuiltinStr),
-            (Some("pathlib"), "Path") => Some(Self::PathlibPath),
+            (Some("builtins"), "str") => Some(Self::BuiltinStrType),
+            (Some("pathlib"), "Path") => Some(Self::PathlibPathType),
             (Some("os"), "path") => Some(Self::OsPathModule),
-            (Some("os.path"), "join") => Some(Self::OsPathJoin),
-            (Some("os.path"), "dirname") => Some(Self::OsPathDirname),
+            (Some("os.path"), "join") => Some(Self::OsPathJoinFunction),
+            (Some("os.path"), "dirname") => Some(Self::OsPathDirnameFunction),
             _ => None,
         }
     }
 
-    pub(crate) fn mutable_namespace(self) -> Option<PythonPathNamespace> {
+    pub(crate) fn mutable_namespace(self) -> PythonPathNamespace {
         match self {
-            Self::BuiltinsModule | Self::BuiltinStr => Some(PythonPathNamespace::Builtins),
-            Self::PathlibModule | Self::PathlibPath => Some(PythonPathNamespace::Pathlib),
-            Self::OsModule | Self::OsPathModule | Self::OsPathJoin | Self::OsPathDirname => {
-                Some(PythonPathNamespace::Os)
-            }
-            Self::ModuleFile => None,
+            Self::BuiltinsModule | Self::BuiltinStrType => PythonPathNamespace::Builtins,
+            Self::PathlibModule | Self::PathlibPathType => PythonPathNamespace::Pathlib,
+            Self::OsModule
+            | Self::OsPathModule
+            | Self::OsPathJoinFunction
+            | Self::OsPathDirnameFunction => PythonPathNamespace::Os,
         }
     }
 
-    pub(crate) fn has_mutable_namespace(self) -> bool {
-        self.mutable_namespace().is_some()
-    }
-
     pub(crate) fn shares_mutable_namespace(self, other: Self) -> bool {
-        self == other
-            || self
-                .mutable_namespace()
-                .zip(other.mutable_namespace())
-                .is_some_and(|(left, right)| left == right)
+        self.mutable_namespace() == other.mutable_namespace()
     }
 
     pub(crate) fn member(self, name: &str) -> Option<Self> {
         match (self, name) {
-            (Self::BuiltinsModule, "str") => Some(Self::BuiltinStr),
-            (Self::PathlibModule, "Path") => Some(Self::PathlibPath),
+            (Self::BuiltinsModule, "str") => Some(Self::BuiltinStrType),
+            (Self::PathlibModule, "Path") => Some(Self::PathlibPathType),
             (Self::OsModule, "path") => Some(Self::OsPathModule),
-            (Self::OsPathModule, "join") => Some(Self::OsPathJoin),
-            (Self::OsPathModule, "dirname") => Some(Self::OsPathDirname),
+            (Self::OsPathModule, "join") => Some(Self::OsPathJoinFunction),
+            (Self::OsPathModule, "dirname") => Some(Self::OsPathDirnameFunction),
             _ => None,
         }
     }
@@ -99,14 +156,13 @@ impl PythonPathSymbol {
     pub(crate) const fn structural_rank(self) -> u8 {
         match self {
             Self::BuiltinsModule => 0,
-            Self::BuiltinStr => 1,
-            Self::ModuleFile => 2,
-            Self::PathlibModule => 3,
-            Self::PathlibPath => 4,
-            Self::OsModule => 5,
-            Self::OsPathModule => 6,
-            Self::OsPathJoin => 7,
-            Self::OsPathDirname => 8,
+            Self::BuiltinStrType => 1,
+            Self::PathlibModule => 2,
+            Self::PathlibPathType => 3,
+            Self::OsModule => 4,
+            Self::OsPathModule => 5,
+            Self::OsPathJoinFunction => 6,
+            Self::OsPathDirnameFunction => 7,
         }
     }
 }

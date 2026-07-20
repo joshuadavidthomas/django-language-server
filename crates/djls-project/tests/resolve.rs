@@ -1093,8 +1093,9 @@ fn ty_first_party_module() {
         .file("/src/foo.py", "print('Hello, world!')")
         .build(&db);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
 
     assert_eq!(foo_module.name().as_str(), "foo");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
@@ -1112,8 +1113,9 @@ fn ty_resolve_package() {
         .file("/src/foo/__init__.py", "print('Hello, world!')")
         .build(&db);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
 
     assert_eq!(foo_module.name().as_str(), "foo");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
@@ -1136,8 +1138,9 @@ fn ty_package_priority_over_module() {
         .file("/src/foo.py", "print('Hello, world!')")
         .build(&db);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
     assert_eq!(
@@ -1160,7 +1163,7 @@ fn ty_sub_packages() {
         .file("/src/foo/bar/baz.py", "print('Hello, world!')")
         .build(&db);
 
-    let baz_module = PythonModule::resolve(
+    let baz_module = PythonSourceModule::resolve(
         &db,
         project,
         PythonModuleName::parse("foo.bar.baz").unwrap(),
@@ -1191,8 +1194,9 @@ fn ty_module_search_path_priority() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/src", search_paths);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
     assert_eq!(
@@ -1240,10 +1244,12 @@ fn ty_symlink() {
     );
     db.set_project(project);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
-    let bar_module = PythonModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
-        .expect("bar should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
+    let bar_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
+            .expect("bar should resolve");
 
     assert_ne!(foo_module, bar_module);
     assert_eq!(foo_module.path(), foo.as_path());
@@ -1267,14 +1273,15 @@ fn ty_deleting_an_unrelated_file_doesnt_change_module_resolution() {
     let foo_name = PythonModuleName::parse("foo").unwrap();
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+        PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     let foo_path = foo_module.path().to_path_buf();
     let _ = event_log.take();
 
     db.remove_file("/src/bar.py");
     File::sync_path(&mut db, Utf8Path::new("/src/bar.py"));
 
-    let foo_module = PythonModule::resolve(&db, project, foo_name).expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, foo_name).expect("foo should resolve");
     let events = event_log.take();
     assert_no_will_execute_events(&events);
     assert_eq!(foo_module.path(), foo_path.as_path());
@@ -1289,14 +1296,14 @@ fn ty_adding_file_on_which_module_resolution_depends_invalidates_previously_fail
     let foo_bar_name = PythonModuleName::parse("foo.bar").unwrap();
 
     assert_eq!(
-        PythonModule::resolve(&db, project, foo_bar_name.clone()),
+        PythonSourceModule::resolve(&db, project, foo_bar_name.clone()),
         None
     );
 
     db.add_file("/src/foo/bar.py", "x = 1");
     File::sync_path(&mut db, Utf8Path::new("/src/foo/bar.py"));
 
-    let foo_bar_module = PythonModule::resolve(&db, project, foo_bar_name)
+    let foo_bar_module = PythonSourceModule::resolve(&db, project, foo_bar_name)
         .expect("foo.bar should resolve after its file is created");
     assert_eq!(foo_bar_module.path(), Utf8Path::new("/src/foo/bar.py"));
 }
@@ -1319,7 +1326,7 @@ fn ty_removing_file_on_which_module_resolution_depends_invalidates_previously_su
     let foo_name = PythonModuleName::parse("foo").unwrap();
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+        PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
 
     db.remove_file("/src/foo/__init__.py");
@@ -1327,7 +1334,7 @@ fn ty_removing_file_on_which_module_resolution_depends_invalidates_previously_su
     File::sync_path(&mut db, Utf8Path::new("/src/foo"));
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name).expect("foo should still resolve");
+        PythonSourceModule::resolve(&db, project, foo_name).expect("foo should still resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
 }
 
@@ -1349,7 +1356,7 @@ fn ty_adding_file_to_search_path_with_lower_priority_does_not_invalidate_query()
     let foo_name = PythonModuleName::parse("foo").unwrap();
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+        PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
     let _ = event_log.take();
 
@@ -1357,7 +1364,7 @@ fn ty_adding_file_to_search_path_with_lower_priority_does_not_invalidate_query()
     File::sync_path(&mut db, Utf8Path::new("/site-packages/foo.py"));
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name).expect("foo should remain resolved");
+        PythonSourceModule::resolve(&db, project, foo_name).expect("foo should remain resolved");
     let events = event_log.take();
     assert_no_will_execute_events(&events);
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
@@ -1380,14 +1387,14 @@ fn ty_adding_file_to_search_path_with_higher_priority_invalidates_the_query() {
     let foo_name = PythonModuleName::parse("foo").unwrap();
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+        PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/site-packages/foo.py"));
 
     db.add_file("/src/foo.py", "x = 1");
     File::sync_path(&mut db, Utf8Path::new("/src/foo.py"));
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name).expect("foo should resolve from /src");
+        PythonSourceModule::resolve(&db, project, foo_name).expect("foo should resolve from /src");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
 }
 
@@ -1409,13 +1416,13 @@ fn ty_deleting_file_from_higher_priority_search_path_invalidates_the_query() {
     let foo_name = PythonModuleName::parse("foo").unwrap();
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+        PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
 
     db.remove_file("/src/foo.py");
     File::sync_path(&mut db, Utf8Path::new("/src/foo.py"));
 
-    let foo_module = PythonModule::resolve(&db, project, foo_name)
+    let foo_module = PythonSourceModule::resolve(&db, project, foo_name)
         .expect("foo should resolve from lower-priority path");
     assert_eq!(foo_module.path(), Utf8Path::new("/site-packages/foo.py"));
 }
@@ -1436,19 +1443,21 @@ fn ty_module_resolution_paths_cached_between_different_module_resolutions_reexpr
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/src", search_paths);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
     let _ = event_log.take();
 
-    let bar_module = PythonModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
-        .expect("bar should resolve");
+    let bar_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
+            .expect("bar should resolve");
     let events = event_log.take();
     assert_eq!(bar_module.path(), Utf8Path::new("/src/bar.py"));
     assert_eq!(
-        will_execute_count(&db, &events, "PythonModule::resolve_"),
+        will_execute_count(&db, &events, "PythonSourceModule::resolve_"),
         1,
-        "expected resolving bar after foo to execute PythonModule::resolve_ exactly once; events: {events:#?}"
+        "expected resolving bar after foo to execute PythonSourceModule::resolve_ exactly once; events: {events:#?}"
     );
 }
 
@@ -1470,7 +1479,7 @@ fn ty_deleting_pth_file_on_which_module_resolution_depends_invalidates_cache_ree
     let foo_name = PythonModuleName::parse("foo").unwrap();
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+        PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo.py"));
 
     db.remove_file("/site-packages/_foo.pth");
@@ -1483,7 +1492,7 @@ fn ty_deleting_pth_file_on_which_module_resolution_depends_invalidates_cache_ree
     set_project_search_paths(&mut db, project, search_paths);
     File::sync_path(&mut db, Utf8Path::new("/site-packages/_foo.pth"));
 
-    assert_eq!(PythonModule::resolve(&db, project, foo_name), None);
+    assert_eq!(PythonSourceModule::resolve(&db, project, foo_name), None);
 }
 
 // ty:resolve.rs::deleting_editable_install_on_which_module_resolution_depends_invalidates_cache (re-expressed: editable roots are search-path input, not a tracked dynamic-resolution query)
@@ -1504,7 +1513,7 @@ fn ty_deleting_editable_install_on_which_module_resolution_depends_invalidates_c
     let foo_name = PythonModuleName::parse("foo").unwrap();
 
     let foo_module =
-        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+        PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo.py"));
 
     db.remove_file("/x/src/foo.py");
@@ -1518,7 +1527,7 @@ fn ty_deleting_editable_install_on_which_module_resolution_depends_invalidates_c
     File::sync_path(&mut db, Utf8Path::new("/x/src/foo.py"));
     File::sync_path(&mut db, Utf8Path::new("/x/src"));
 
-    assert_eq!(PythonModule::resolve(&db, project, foo_name), None);
+    assert_eq!(PythonSourceModule::resolve(&db, project, foo_name), None);
 }
 
 // ty:resolve.rs::editable_install_absolute_path
@@ -1539,10 +1548,11 @@ fn ty_editable_install_absolute_path() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
     let foo_bar_module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap())
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap())
             .expect("foo.bar should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo/__init__.py"));
@@ -1569,11 +1579,12 @@ fn ty_editable_install_pth_file_with_whitespace() {
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
         None
     );
-    let bar_module = PythonModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
-        .expect("bar should resolve");
+    let bar_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
+            .expect("bar should resolve");
     assert_eq!(bar_module.path(), Utf8Path::new("/y/src/bar.py"));
 }
 
@@ -1594,8 +1605,9 @@ fn ty_editable_install_relative_path() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/x/y/src/foo.py"));
 }
@@ -1634,14 +1646,16 @@ not_a_directory
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
-    let a_module = PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
+    let a_module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
         .expect("a should resolve");
-    let b_module = PythonModule::resolve(&db, project, PythonModuleName::parse("b").unwrap())
+    let b_module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("b").unwrap())
         .expect("b should resolve");
-    let spam_module = PythonModule::resolve(&db, project, PythonModuleName::parse("spam").unwrap())
-        .expect("spam should resolve");
+    let spam_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("spam").unwrap())
+            .expect("spam should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/x/y/src/foo.py"));
     assert_eq!(a_module.path(), Utf8Path::new("/a.py"));
@@ -1693,7 +1707,7 @@ fn ty_multiple_site_packages_with_editables() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let a_module = PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
+    let a_module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
         .expect("a should resolve");
 
     assert_eq!(a_module.path(), Utf8Path::new("/x/y/a.py"));
@@ -1708,8 +1722,9 @@ fn ty_stubs_over_module_source_runtime_uses_py() {
         .file("/src/foo.pyi", "")
         .build(&db);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
 
     assert_eq!(foo_module.name().as_str(), "foo");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
@@ -1724,8 +1739,9 @@ fn ty_stubs_over_package_source_runtime_uses_package() {
         .file("/src/foo.pyi", "")
         .build(&db);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
 
     assert_eq!(foo_module.name().as_str(), "foo");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
@@ -1740,8 +1756,9 @@ fn ty_typing_stub_over_module_runtime_uses_py() {
         .file("/src/foo.pyi", "x: int")
         .build(&db);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
     assert_eq!(
@@ -1759,7 +1776,7 @@ fn ty_namespace_package_reexpressed() {
         .build(&db);
 
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
         None
     );
     let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap());
@@ -1783,8 +1800,9 @@ fn ty_namespace_package_precedence_reexpressed() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/src", search_paths);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve from site-packages");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve from site-packages");
     assert_eq!(foo_module.path(), Utf8Path::new("/site-packages/foo.py"));
     assert!(
         resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap())
@@ -1806,8 +1824,9 @@ fn ty_namespace_package_precedence_reexpressed() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/src", search_paths);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve from first party");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve from first party");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
     assert!(
         resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap())
@@ -1921,10 +1940,10 @@ fn python_module_resolve_rejects_wrong_cased_file_module_on_case_insensitive_fs(
         .build(&db);
 
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("Foo").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("Foo").unwrap()),
         None
     );
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
         .expect("foo should resolve");
     assert_eq!(module.path(), Utf8Path::new("/project/foo.py"));
 }
@@ -1937,11 +1956,12 @@ fn python_module_resolve_rejects_wrong_cased_dotted_file_module_on_case_insensit
         .build(&db);
 
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.Bar").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.Bar").unwrap()),
         None
     );
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
-        .expect("pkg.bar should resolve");
+    let module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
+            .expect("pkg.bar should resolve");
     assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
 }
 
@@ -1954,11 +1974,12 @@ fn python_module_resolve_rejects_wrong_cased_package_component_on_case_insensiti
         .build(&db);
 
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("Pkg.bar").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("Pkg.bar").unwrap()),
         None
     );
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
-        .expect("pkg.bar should resolve");
+    let module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
+            .expect("pkg.bar should resolve");
     assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
 }
 
@@ -1970,14 +1991,17 @@ fn case_only_rename_invalidates_resolution_on_case_insensitive_fs() {
         .build(&db);
     let name = PythonModuleName::parse("foo").unwrap();
 
-    assert_eq!(PythonModule::resolve(&db, project, name.clone()), None);
+    assert_eq!(
+        PythonSourceModule::resolve(&db, project, name.clone()),
+        None
+    );
 
     db.remove_file("/project/Foo.py");
     db.add_file("/project/foo.py", "");
     File::sync_path(&mut db, Utf8Path::new("/project/foo.py"));
 
     let module =
-        PythonModule::resolve(&db, project, name).expect("foo should resolve after rename");
+        PythonSourceModule::resolve(&db, project, name).expect("foo should resolve after rename");
     assert_eq!(module.path(), Utf8Path::new("/project/foo.py"));
 }
 
@@ -2026,10 +2050,10 @@ fn ty_case_sensitive_resolution_with_symlinked_directory() {
     db.set_project(project);
 
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("A").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("A").unwrap()),
         None
     );
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
+    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
         .expect("a should resolve");
     assert!(module.path().ends_with("src/a/__init__.py"));
 }
@@ -2050,11 +2074,12 @@ fn python_module_resolve_applies_regular_package_terminality_across_roots() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let foo_module = PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let foo_module =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
+            .expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/root_a/foo/__init__.py"));
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap()),
         None
     );
 }
@@ -2076,11 +2101,11 @@ fn python_module_resolve_traverses_namespace_portions_across_roots() {
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
         None
     );
     let foo_bar_module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap())
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap())
             .expect("foo.bar should resolve through the namespace package");
     assert_eq!(foo_bar_module.path(), Utf8Path::new("/root_b/foo/bar.py"));
 
@@ -2102,7 +2127,7 @@ fn python_module_resolve_prefers_regular_package_over_sibling_file() {
         .file("/project/app/__init__.py", "")
         .build(&db);
 
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
+    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
         .expect("app should resolve");
 
     assert_eq!(module.path(), Utf8Path::new("/project/app/__init__.py"));
@@ -2124,7 +2149,7 @@ fn python_module_resolve_uses_first_regular_hit_across_roots() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
+    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
         .expect("app should resolve");
 
     assert_eq!(module.path(), Utf8Path::new("/project/app.py"));
@@ -2137,7 +2162,7 @@ fn python_module_resolve_returns_none_for_namespace_only_directory() {
         .file("/project/app/views.py", "")
         .build(&db);
 
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap());
+    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap());
 
     assert!(module.is_none());
 }
@@ -2158,7 +2183,7 @@ fn python_module_resolve_records_selected_search_path() {
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let module = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
+    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
         .expect("app should resolve");
 
     assert_eq!(module.path(), Utf8Path::new("/project/app.py"));
@@ -2341,7 +2366,7 @@ fn python_module_package_identity_resolves_relative_imports_by_semantic_kind() {
     // The package importer `pkg` reaches `.sibling` relative to itself; its own
     // `__init__.py` file is already being initialized, so the parent package is
     // not re-evaluated and the only edge is `pkg -> pkg.sibling`.
-    let pkg = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg").unwrap())
+    let pkg = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg").unwrap())
         .expect("pkg should resolve");
     assert_eq!(
         resolved_edges(&python_module_evaluation_for_module(&db, project, pkg)),
@@ -2352,7 +2377,7 @@ fn python_module_package_identity_resolves_relative_imports_by_semantic_kind() {
     // parent package `pkg/__init__.py` (a distinct file), whose own
     // `from .sibling` edge is absorbed. The immediate parent edge precedes the
     // absorbed transitive edge, which precedes the module's own source edge.
-    let settings = PythonModule::resolve(
+    let settings = PythonSourceModule::resolve(
         &db,
         project,
         PythonModuleName::parse("pkg.settings").unwrap(),
@@ -2391,7 +2416,7 @@ fn python_module_resolution_classifies_each_search_path_kind() {
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
     let classify = |name: &str| {
-        PythonModule::resolve(&db, project, PythonModuleName::parse(name).unwrap())
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse(name).unwrap())
             .unwrap_or_else(|| panic!("{name} should resolve"))
             .search_path()
             .clone()
@@ -2431,13 +2456,14 @@ fn python_module_chain_resolves_namespace_parent_before_source_child() {
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
     // The namespace parent has no source body, so it does not resolve to a
-    // `PythonModule`, while the source child underneath it does.
+    // `PythonSourceModule`, while the source child underneath it does.
     assert_eq!(
-        PythonModule::resolve(&db, project, PythonModuleName::parse("nspkg").unwrap()),
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("nspkg").unwrap()),
         None
     );
-    let child = PythonModule::resolve(&db, project, PythonModuleName::parse("nspkg.mod").unwrap())
-        .expect("the source child should resolve");
+    let child =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("nspkg.mod").unwrap())
+            .expect("the source child should resolve");
     assert_eq!(child.path(), Utf8Path::new("/project/nspkg/mod.py"));
 }
 
@@ -2457,7 +2483,7 @@ fn python_module_search_path_winner_replacement_changes_resolved_identity() {
     let foo_name = PythonModuleName::parse("foo").unwrap();
 
     let external =
-        PythonModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
+        PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(
         external.search_path(),
         &SearchPath::SitePackages(Utf8PathBuf::from("/site-packages"))
@@ -2468,8 +2494,8 @@ fn python_module_search_path_winner_replacement_changes_resolved_identity() {
     db.add_file("/project/foo.py", "x = 2");
     File::sync_path(&mut db, Utf8Path::new("/project/foo.py"));
 
-    let first_party =
-        PythonModule::resolve(&db, project, foo_name).expect("foo should resolve from /project");
+    let first_party = PythonSourceModule::resolve(&db, project, foo_name)
+        .expect("foo should resolve from /project");
     assert_ne!(external, first_party);
     assert_eq!(first_party.path(), Utf8Path::new("/project/foo.py"));
     assert_eq!(
@@ -2502,7 +2528,7 @@ fn file_to_module_uses_first_containing_root_for_nested_first_party_paths() {
     assert_eq!(module.path(), Utf8Path::new("/project/lib/pkg/mod.py"));
 
     let later_module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
             .expect("later root should also derive a round-tripping module");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
@@ -2533,7 +2559,7 @@ fn file_to_module_does_not_rescue_not_found_first_candidate() {
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
     let later_module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
             .expect("later candidate should resolve");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
@@ -2566,14 +2592,14 @@ fn file_to_module_does_not_rescue_shadowed_first_candidate() {
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let winner = PythonModule::resolve(
+    let winner = PythonSourceModule::resolve(
         &db,
         project,
         PythonModuleName::parse("lib.pkg.mod").unwrap(),
     )
     .expect("first candidate should resolve to the shadowing module");
     let later_module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
             .expect("later candidate should resolve to the source");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
@@ -2608,7 +2634,7 @@ fn file_to_module_identity_ignores_later_candidate_changes() {
     let module =
         file_to_module(&db, project, source_path.clone()).expect("first candidate should resolve");
     let later_module =
-        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
             .expect("later candidate should initially resolve to the source");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path.clone()),
@@ -2622,8 +2648,9 @@ fn file_to_module_identity_ignores_later_candidate_changes() {
     db.add_file("/project/pkg/mod.py", "");
     File::sync_path(&mut db, Utf8Path::new("/project/pkg/mod.py"));
 
-    let winner = PythonModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
-        .expect("new higher-priority module should shadow the later candidate");
+    let winner =
+        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
+            .expect("new higher-priority module should shadow the later candidate");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path.clone()),
         &FileModuleResolution::Candidates {
@@ -2675,7 +2702,7 @@ fn file_to_module_uses_src_layout_root_first() {
     assert_eq!(module.name().as_str(), "blog.models");
     assert_eq!(module.path(), Utf8Path::new("/project/src/blog/models.py"));
 
-    let project_relative_module = PythonModule::resolve(
+    let project_relative_module = PythonSourceModule::resolve(
         &db,
         project,
         PythonModuleName::parse("src.blog.models").unwrap(),
@@ -2709,7 +2736,7 @@ fn file_to_module_reports_shadowed_cross_root_file() {
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let winner = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
+    let winner = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
         .expect("project app should shadow the vendor file");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
@@ -2735,7 +2762,7 @@ fn file_to_module_reports_shadowed_sibling_precedence_file() {
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let winner = PythonModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
+    let winner = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
         .expect("package should win sibling precedence");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),

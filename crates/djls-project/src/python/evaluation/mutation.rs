@@ -177,8 +177,7 @@ impl PythonMutationPath {
                         PythonValueKind::Str(_)
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
-                        | PythonValueKind::PathSymbol(_)
-                        | PythonValueKind::OtherLiteral
+                        | PythonValueKind::UnsupportedLiteral
                         | PythonValueKind::Dict(_)
                         | PythonValueKind::Module(_)
                         | PythonValueKind::Unknown(_) => return,
@@ -240,8 +239,7 @@ impl PythonMutationPath {
                         PythonValueKind::Str(_)
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
-                        | PythonValueKind::PathSymbol(_)
-                        | PythonValueKind::OtherLiteral
+                        | PythonValueKind::UnsupportedLiteral
                         | PythonValueKind::Dict(_)
                         | PythonValueKind::Module(_)
                         | PythonValueKind::Unknown(_) => return false,

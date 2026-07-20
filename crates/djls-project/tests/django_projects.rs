@@ -5,8 +5,8 @@ use camino::Utf8PathBuf;
 use djls_project::FileModuleCandidate;
 use djls_project::FileModuleResolution;
 use djls_project::Project;
-use djls_project::PythonModule;
 use djls_project::PythonModuleName;
+use djls_project::PythonSourceModule;
 use djls_project::SearchPath;
 use djls_project::TemplateEnvironment;
 use djls_project::compute_model_graph;
@@ -132,7 +132,7 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
     );
 
     let dupe_name = PythonModuleName::parse("dupe").unwrap();
-    let dupe = PythonModule::resolve(&db, project, dupe_name.clone())
+    let dupe = PythonSourceModule::resolve(&db, project, dupe_name.clone())
         .expect("dupe should resolve to the first root");
     assert_eq!(dupe.path(), root.join("dupe.py").as_path());
 
@@ -189,5 +189,5 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     let package_dirs = resolve_package_dirs(&db, project, nsapp_name.clone());
     assert_eq!(package_dirs.dirs, vec![root.join("nsapp")]);
 
-    assert_eq!(PythonModule::resolve(&db, project, nsapp_name), None);
+    assert_eq!(PythonSourceModule::resolve(&db, project, nsapp_name), None);
 }

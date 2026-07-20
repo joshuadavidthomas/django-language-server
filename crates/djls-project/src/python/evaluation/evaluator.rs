@@ -16,7 +16,7 @@ use super::PythonBindingState;
 use super::PythonImportFallback;
 use super::PythonImportOutcome;
 use super::PythonModuleDependencies;
-use super::PythonModuleObjects;
+use super::PythonModuleEffects;
 use super::PythonModuleValues;
 use super::PythonMutation;
 use super::PythonMutationOperation;
@@ -31,31 +31,34 @@ use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::UniqueVec;
-use super::module_object::PathSymbolContamination;
+use super::module_object::PathIntrinsicContamination;
 use super::name_analysis::expr_calls;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonModule;
-use crate::python::PythonPathSymbol;
+use crate::python::PythonPath;
+use crate::python::PythonPathIntrinsic;
+use crate::python::PythonSourceModule;
 use crate::python::PythonSyntaxError;
 
 pub(super) fn evaluate_body(
     db: &dyn ProjectDb,
     project: Project,
-    module: PythonModule,
+    module: PythonSourceModule,
     body: &[ast::Stmt],
     syntax_errors: Vec<PythonSyntaxError>,
     syntax_impacts: Vec<PythonSyntaxImpact>,
-    path_symbol_contamination: PathSymbolContamination,
+    path_intrinsic_contamination: PathIntrinsicContamination,
 ) -> (
     PythonModuleValues,
     PythonModuleDependencies,
-    PythonModuleObjects,
+    PythonModuleEffects,
 ) {
-    let state =
-        EvaluationState::with_path_symbol_contamination(module.file(), path_symbol_contamination);
+    let state = EvaluationState::with_path_intrinsic_contamination(
+        module.file(),
+        path_intrinsic_contamination,
+    );
     let mut evaluator = Evaluator {
         db,
         project,
@@ -70,7 +73,7 @@ pub(super) fn evaluate_body(
 pub(super) struct Evaluator<'db> {
     db: &'db dyn ProjectDb,
     project: Project,
-    module: PythonModule,
+    module: PythonSourceModule,
     pub(super) state: EvaluationState,
 }
 
@@ -131,7 +134,7 @@ impl Evaluator<'_> {
                     .map(|keyword| self.evaluate_binding(&keyword.value)),
             );
             self.state
-                .degrade_path_symbol_values(&mutation_candidates, self.origin(&call));
+                .degrade_path_intrinsic_values(&mutation_candidates, self.origin(&call));
         }
     }
 
@@ -153,23 +156,27 @@ impl Evaluator<'_> {
         for alternative in binding.alternatives() {
             let known = match alternative {
                 PythonBindingState::Bound(bound) if is_path_method => {
-                    matches!(&bound.value.kind, PythonValueKind::Path(_))
+                    matches!(
+                        &bound.value.kind,
+                        PythonValueKind::Path(PythonPath::Object(_))
+                    )
                 }
                 PythonBindingState::Bound(bound) => {
-                    let PythonValueKind::PathSymbol(symbol) = &bound.value.kind else {
+                    let PythonValueKind::Path(PythonPath::Intrinsic(intrinsic)) = &bound.value.kind
+                    else {
                         has_unsupported = true;
                         continue;
                     };
                     matches!(
-                        symbol,
-                        PythonPathSymbol::BuiltinStr
-                            | PythonPathSymbol::PathlibPath
-                            | PythonPathSymbol::OsPathJoin
-                            | PythonPathSymbol::OsPathDirname
+                        intrinsic,
+                        PythonPathIntrinsic::BuiltinStrType
+                            | PythonPathIntrinsic::PathlibPathType
+                            | PythonPathIntrinsic::OsPathJoinFunction
+                            | PythonPathIntrinsic::OsPathDirnameFunction
                     ) && !self
                         .state
-                        .module_objects
-                        .path_symbol_is_contaminated(*symbol)
+                        .module_effects
+                        .path_intrinsic_is_contaminated(*intrinsic)
                 }
                 PythonBindingState::Unbound => false,
             };
@@ -194,26 +201,26 @@ pub(super) struct EvaluationState {
     /// Private recursive-import effect state. It is never projected into
     /// `PythonModuleValues` equality; only the complete internal result carries
     /// it out through `evaluate_python_module`.
-    module_objects: PythonModuleObjects,
+    module_effects: PythonModuleEffects,
 }
 
 impl EvaluationState {
     #[cfg(test)]
     fn new(file: File) -> Self {
-        Self::with_path_symbol_contamination(file, PathSymbolContamination::default())
+        Self::with_path_intrinsic_contamination(file, PathIntrinsicContamination::default())
     }
 
-    fn with_path_symbol_contamination(
+    fn with_path_intrinsic_contamination(
         file: File,
-        path_symbol_contamination: PathSymbolContamination,
+        path_intrinsic_contamination: PathIntrinsicContamination,
     ) -> Self {
         Self {
             bindings: BTreeMap::new(),
             namespace_causes: Vec::new(),
             mutations: UniqueVec::new(),
             dependencies: PythonModuleDependencies::rooted(file),
-            module_objects: PythonModuleObjects::with_path_symbol_contamination(
-                path_symbol_contamination,
+            module_effects: PythonModuleEffects::with_path_intrinsic_contamination(
+                path_intrinsic_contamination,
             ),
         }
     }
@@ -225,7 +232,7 @@ impl EvaluationState {
     ) -> (
         PythonModuleValues,
         PythonModuleDependencies,
-        PythonModuleObjects,
+        PythonModuleEffects,
     ) {
         (
             PythonModuleValues {
@@ -237,7 +244,7 @@ impl EvaluationState {
                 mutations: self.mutations,
             },
             self.dependencies,
-            self.module_objects,
+            self.module_effects,
         )
     }
 
@@ -248,39 +255,57 @@ impl EvaluationState {
     fn binding_with_intrinsic(
         &self,
         name: &str,
-        symbol: PythonPathSymbol,
+        intrinsic: PythonPathIntrinsic,
         origin: Origin,
     ) -> PythonBinding {
-        let intrinsic = if self.module_objects.path_symbol_is_contaminated(symbol) {
-            PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin)
+        let value = if self
+            .module_effects
+            .path_intrinsic_is_contaminated(intrinsic)
+        {
+            PythonValue::unknown(PythonUnknownCause::UnsupportedMutation, Some(origin))
         } else {
-            PythonBinding::bound(PythonValue::path_symbol(symbol, origin), origin)
+            PythonValue::path_intrinsic(intrinsic, origin)
         };
-        let mut binding = self
-            .binding(name)
-            .cloned()
-            .map_or(intrinsic.clone(), |binding| {
-                binding.replace_unbound_with(Some(intrinsic), origin)
-            });
+        self.binding_with_implicit_value(name, value, origin)
+    }
+
+    fn binding_with_implicit_value(
+        &self,
+        name: &str,
+        value: PythonValue,
+        origin: Origin,
+    ) -> PythonBinding {
+        let mut fallback = PythonBinding::bound(value, origin);
         for cause in &self.namespace_causes {
             if let Some(unknown) =
                 PythonBinding::constrained_unknown(&cause.unknown.cause, origin, &cause.constraints)
             {
-                binding = binding.join(unknown, origin);
+                fallback = fallback.join(unknown, origin);
             }
         }
-        binding
+        match self.binding(name).cloned() {
+            Some(binding) => binding.replace_unbound_with(Some(fallback), origin),
+            None => fallback,
+        }
     }
 
     fn assign_value(&mut self, name: &str, value: PythonValue, origin: Origin) {
         self.assign_binding(name, PythonBinding::bound(value, origin), origin);
     }
 
-    fn assign_path_symbol(&mut self, name: &str, symbol: PythonPathSymbol, origin: Origin) {
-        if self.module_objects.path_symbol_is_contaminated(symbol) {
+    fn assign_path_intrinsic(
+        &mut self,
+        name: &str,
+        intrinsic: PythonPathIntrinsic,
+        origin: Origin,
+    ) {
+        if self
+            .module_effects
+            .path_intrinsic_is_contaminated(intrinsic)
+        {
             self.bind_unknown(name, &PythonUnknownCause::UnsupportedMutation, origin);
         } else {
-            self.assign_value(name, PythonValue::path_symbol(symbol, origin), origin);
+            self.assign_value(name, PythonValue::path_intrinsic(intrinsic, origin), origin);
         }
     }
 
@@ -329,38 +354,28 @@ impl EvaluationState {
         self.assign_binding(name, PythonBinding::unknown(cause, origin), origin);
     }
 
-    fn path_symbol_write_names(&mut self, name: &str) -> Vec<String> {
+    fn path_intrinsic_write_names(&mut self, name: &str) -> Vec<String> {
         let Some(binding) = self.binding(name) else {
             return vec![name.to_string()];
         };
-        let has_path_symbol = binding.alternatives().any(|alternative| {
-            matches!(
-                alternative,
-                PythonBindingState::Bound(bound)
-                    if matches!(bound.value.kind, PythonValueKind::PathSymbol(_))
-            )
-        });
-        let symbols = binding
+        let intrinsics = binding
             .alternatives()
             .filter_map(|alternative| {
                 let PythonBindingState::Bound(bound) = alternative else {
                     return None;
                 };
-                let PythonValueKind::PathSymbol(symbol) = bound.value.kind else {
+                let PythonValueKind::Path(PythonPath::Intrinsic(intrinsic)) = bound.value.kind
+                else {
                     return None;
                 };
-                symbol.has_mutable_namespace().then_some(symbol)
+                Some(intrinsic)
             })
             .collect::<Vec<_>>();
-        if symbols.is_empty() {
-            return if has_path_symbol {
-                Vec::new()
-            } else {
-                vec![name.to_string()]
-            };
+        if intrinsics.is_empty() {
+            return vec![name.to_string()];
         }
-        for symbol in &symbols {
-            self.module_objects.contaminate_path_symbol(*symbol);
+        for intrinsic in &intrinsics {
+            self.module_effects.contaminate_path_intrinsic(*intrinsic);
         }
         self.bindings
             .iter()
@@ -369,19 +384,21 @@ impl EvaluationState {
                     let PythonBindingState::Bound(bound) = alternative else {
                         return false;
                     };
-                    let PythonValueKind::PathSymbol(candidate_symbol) = bound.value.kind else {
+                    let PythonValueKind::Path(PythonPath::Intrinsic(candidate_symbol)) =
+                        bound.value.kind
+                    else {
                         return false;
                     };
-                    symbols
+                    intrinsics
                         .iter()
-                        .any(|symbol| symbol.shares_mutable_namespace(candidate_symbol))
+                        .any(|intrinsic| intrinsic.shares_mutable_namespace(candidate_symbol))
                 })
             })
             .map(|(candidate, _binding)| candidate.clone())
             .collect()
     }
 
-    fn all_path_symbol_write_names(&mut self) -> Vec<String> {
+    fn all_path_intrinsic_write_names(&mut self) -> Vec<String> {
         let names = self
             .bindings
             .iter()
@@ -390,18 +407,18 @@ impl EvaluationState {
                     matches!(
                         alternative,
                         PythonBindingState::Bound(bound)
-                            if matches!(bound.value.kind, PythonValueKind::PathSymbol(_))
+                            if matches!(bound.value.kind, PythonValueKind::Path(PythonPath::Intrinsic(_)))
                     )
                 })
             })
             .map(|(name, _binding)| name.clone())
             .collect::<Vec<_>>();
-        for symbol in [
-            PythonPathSymbol::BuiltinsModule,
-            PythonPathSymbol::PathlibModule,
-            PythonPathSymbol::OsModule,
+        for intrinsic in [
+            PythonPathIntrinsic::BuiltinsModule,
+            PythonPathIntrinsic::PathlibModule,
+            PythonPathIntrinsic::OsModule,
         ] {
-            self.module_objects.contaminate_path_symbol(symbol);
+            self.module_effects.contaminate_path_intrinsic(intrinsic);
         }
         names
     }
@@ -509,22 +526,23 @@ impl EvaluationState {
         }
     }
 
-    fn degrade_path_symbol_values(&mut self, values: &[PythonBinding], origin: Origin) {
-        let symbols = values
+    fn degrade_path_intrinsic_values(&mut self, values: &[PythonBinding], origin: Origin) {
+        let intrinsics = values
             .iter()
             .flat_map(PythonBinding::alternatives)
             .filter_map(|alternative| {
                 let PythonBindingState::Bound(bound) = alternative else {
                     return None;
                 };
-                let PythonValueKind::PathSymbol(symbol) = bound.value.kind else {
+                let PythonValueKind::Path(PythonPath::Intrinsic(intrinsic)) = bound.value.kind
+                else {
                     return None;
                 };
-                symbol.has_mutable_namespace().then_some(symbol)
+                Some(intrinsic)
             })
             .collect::<Vec<_>>();
-        for symbol in &symbols {
-            self.module_objects.contaminate_path_symbol(*symbol);
+        for intrinsic in &intrinsics {
+            self.module_effects.contaminate_path_intrinsic(*intrinsic);
         }
         let aliases = self
             .bindings
@@ -534,12 +552,14 @@ impl EvaluationState {
                     let PythonBindingState::Bound(bound) = alternative else {
                         return false;
                     };
-                    let PythonValueKind::PathSymbol(candidate_symbol) = bound.value.kind else {
+                    let PythonValueKind::Path(PythonPath::Intrinsic(candidate_symbol)) =
+                        bound.value.kind
+                    else {
                         return false;
                     };
-                    symbols
+                    intrinsics
                         .iter()
-                        .any(|symbol| symbol.shares_mutable_namespace(candidate_symbol))
+                        .any(|intrinsic| intrinsic.shares_mutable_namespace(candidate_symbol))
                 })
             })
             .map(|(candidate, _binding)| candidate.clone())
@@ -556,7 +576,7 @@ impl EvaluationState {
     ) {
         let mut names = names.into_iter().collect::<BTreeSet<_>>();
         for name in names.clone() {
-            names.extend(self.path_symbol_write_names(&name));
+            names.extend(self.path_intrinsic_write_names(&name));
         }
         self.degrade_names(names, &PythonUnknownCause::UnsupportedMutation, origin);
     }
@@ -596,14 +616,14 @@ impl EvaluationState {
                 namespace_causes,
                 mutations,
                 dependencies,
-                module_objects,
+                module_effects,
             } = body;
             self.namespace_causes.extend(namespace_causes);
             self.mutations.extend(mutations);
             self.dependencies.absorb(&dependencies);
-            body_objects.push(module_objects);
+            body_objects.push(module_effects);
         }
-        self.module_objects.degrade_loop(body_objects, origin);
+        self.module_effects.degrade_loop(body_objects, origin);
 
         self.degrade_names(
             changed_names,
@@ -647,11 +667,11 @@ impl EvaluationState {
             base.mutations.extend(branch.mutations.iter().cloned());
             base.dependencies.absorb(&branch.dependencies);
         }
-        let branch_objects = branches
+        let branch_effects = branches
             .iter()
-            .map(|branch| branch.module_objects.clone())
+            .map(|branch| branch.module_effects.clone())
             .collect::<Vec<_>>();
-        base.module_objects = PythonModuleObjects::join_branches(&branch_objects, origin);
+        base.module_effects = PythonModuleEffects::join_branches(&branch_effects, origin);
         base
     }
 
@@ -710,8 +730,6 @@ mod tests {
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
-    use super::super::PythonModuleObjectId;
-    use super::super::PythonNamespacePackage;
     use super::EvaluationState;
     use super::Origin;
     use super::PythonBinding;
@@ -723,7 +741,9 @@ mod tests {
     use super::PythonUnknown;
     use super::PythonUnknownCause;
     use super::PythonValue;
+    use crate::python::PythonModule;
     use crate::python::PythonModuleName;
+    use crate::python::PythonNamespacePackage;
 
     fn test_file(index: u64) -> File {
         File::from_id(Id::from_bits(index + 1))
@@ -755,8 +775,8 @@ mod tests {
         }
     }
 
-    fn namespace_module(name: &str) -> PythonModuleObjectId {
-        PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
+    fn namespace_module(name: &str) -> PythonModule {
+        PythonModule::Namespace(PythonNamespacePackage::new(
             PythonModuleName::parse(name).unwrap(),
             Vec::new(),
         ))

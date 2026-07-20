@@ -12,18 +12,81 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
-use crate::python::evaluation::NamespacePortion;
-use crate::python::evaluation::PythonNamespacePackage;
 use crate::python::evaluation::StructuralOrd;
 use crate::python::search_paths::SearchPath;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct PythonModule {
+pub struct PythonSourceModule {
     name: PythonModuleName,
     package: Option<PythonModuleName>,
     path: Utf8PathBuf,
     file: File,
     search_path: SearchPath,
+}
+
+/// One search-path portion that contributes to a namespace package.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct NamespacePortion {
+    root: SearchPath,
+    dir: Utf8PathBuf,
+}
+
+impl NamespacePortion {
+    pub(crate) fn new(root: SearchPath, dir: Utf8PathBuf) -> Self {
+        Self { root, dir }
+    }
+
+    pub(crate) fn root(&self) -> &SearchPath {
+        &self.root
+    }
+
+    pub(crate) fn dir(&self) -> &Utf8PathBuf {
+        &self.dir
+    }
+}
+
+/// The identity of a namespace package with no source body of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct PythonNamespacePackage {
+    name: PythonModuleName,
+    portions: Vec<NamespacePortion>,
+}
+
+impl PythonNamespacePackage {
+    pub(crate) fn new(name: PythonModuleName, portions: Vec<NamespacePortion>) -> Self {
+        Self { name, portions }
+    }
+
+    pub(crate) fn name(&self) -> &PythonModuleName {
+        &self.name
+    }
+
+    pub(crate) fn portions(&self) -> &[NamespacePortion] {
+        &self.portions
+    }
+}
+
+/// The source-or-namespace identity carried by a Python module value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PythonModule {
+    Source(PythonSourceModule),
+    Namespace(PythonNamespacePackage),
+}
+
+impl PythonModule {
+    pub(crate) fn name(&self) -> &PythonModuleName {
+        match self {
+            Self::Source(module) => module.name(),
+            Self::Namespace(package) => package.name(),
+        }
+    }
+
+    pub(crate) fn is_package(&self) -> bool {
+        match self {
+            Self::Source(module) => module.is_package(),
+            Self::Namespace(_) => true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,11 +101,11 @@ pub enum FileModuleResolution {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileModuleCandidate {
-    Resolved(PythonModule),
+    Resolved(PythonSourceModule),
     Shadowed {
         root: SearchPath,
         name: PythonModuleName,
-        winner: PythonModule,
+        winner: PythonSourceModule,
     },
     NotFound {
         root: SearchPath,
@@ -57,7 +120,7 @@ pub struct PackageDirs {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedPrefix {
-    pub module: Option<PythonModule>,
+    pub module: Option<PythonSourceModule>,
     pub unresolved_tail: Vec<String>,
 }
 
@@ -106,28 +169,7 @@ enum ResolvedComponent {
 pub(crate) struct PythonImportRequest<'a> {
     pub(crate) level: u32,
     pub(crate) module: Option<&'a str>,
-    pub(crate) importer: &'a PythonModule,
-}
-
-/// One contiguous root-to-leaf component of a resolved import chain.
-///
-/// A component is either a source-backed module identity (a regular package
-/// `__init__.py` or a leaf file module) or a namespace-package portion that has
-/// no source body of its own.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ResolvedChainComponent {
-    Source(PythonModule),
-    Namespace(PythonNamespacePackage),
-}
-
-impl ResolvedChainComponent {
-    /// The dotted name of this component.
-    pub(crate) fn name(&self) -> &PythonModuleName {
-        match self {
-            Self::Source(module) => module.name(),
-            Self::Namespace(package) => package.name(),
-        }
-    }
+    pub(crate) importer: &'a PythonSourceModule,
 }
 
 /// A contiguous, ordered root-to-leaf prefix of source/namespace components.
@@ -137,11 +179,11 @@ impl ResolvedChainComponent {
 /// one, so a chain never skips a package boundary.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedImportChain {
-    components: Vec<ResolvedChainComponent>,
+    components: Vec<PythonModule>,
 }
 
 impl ResolvedImportChain {
-    pub(crate) fn into_components(self) -> Vec<ResolvedChainComponent> {
+    pub(crate) fn into_components(self) -> Vec<PythonModule> {
         self.components
     }
 }
@@ -219,7 +261,7 @@ impl CandidateDirectory {
 ///
 /// This is a thin projection of the single chain traversal in
 /// [`resolve_chain_from_name`]: it keeps only the leaf component that non-import
-/// callers ([`PythonModule::resolve`], [`resolve_package_dirs`]) need. There is
+/// callers ([`PythonSourceModule::resolve`], [`resolve_package_dirs`]) need. There is
 /// no second component walker; leaf and chain resolution share one traversal.
 fn resolve_name(
     db: &dyn ProjectDb,
@@ -231,7 +273,7 @@ fn resolve_name(
         PythonImportChainResolution::Failed { .. } => return ModuleLookupResult::NotFound,
     };
     match chain.into_components().pop() {
-        Some(ResolvedChainComponent::Source(module)) => {
+        Some(PythonModule::Source(module)) => {
             // A regular package's derived package identity is its own name; a
             // file module's is its parent. This distinguishes a genuine
             // `pkg/__init__.py` package from an explicit `pkg.__init__` file
@@ -254,7 +296,7 @@ fn resolve_name(
                 ModuleLookupResult::FileModule { root, path, file }
             }
         }
-        Some(ResolvedChainComponent::Namespace(package)) => ModuleLookupResult::NamespaceOnly {
+        Some(PythonModule::Namespace(package)) => ModuleLookupResult::NamespaceOnly {
             portions: package
                 .portions()
                 .iter()
@@ -290,7 +332,7 @@ fn resolve_chain_from_name(
         })
         .collect::<Vec<_>>();
     let components = name.as_str().split('.').collect::<Vec<_>>();
-    let mut resolved: Vec<ResolvedChainComponent> = Vec::new();
+    let mut resolved: Vec<PythonModule> = Vec::new();
 
     for (index, component) in components.iter().enumerate() {
         let is_last = index + 1 == components.len();
@@ -298,7 +340,7 @@ fn resolve_chain_from_name(
             .expect("a prefix of a valid dotted module name is valid");
 
         let mut portions = Vec::new();
-        let mut resolved_source: Option<(PythonModule, Option<CandidateDirectory>)> = None;
+        let mut resolved_source: Option<(PythonSourceModule, Option<CandidateDirectory>)> = None;
 
         for candidate in &candidate_dirs {
             match candidate.resolve_component(db, component) {
@@ -308,7 +350,7 @@ fn resolve_chain_from_name(
                     init_file,
                     file,
                 }) => {
-                    let module = PythonModule::regular_package(
+                    let module = PythonSourceModule::regular_package(
                         component_name.clone(),
                         init_file,
                         file,
@@ -323,7 +365,7 @@ fn resolve_chain_from_name(
                     // even when the requested name extends past it); the
                     // childless-tail failure is applied after it is pushed.
                     let module =
-                        PythonModule::file_module(component_name.clone(), path, file, root);
+                        PythonSourceModule::file_module(component_name.clone(), path, file, root);
                     resolved_source = Some((module, None));
                     break;
                 }
@@ -334,7 +376,7 @@ fn resolve_chain_from_name(
 
         match resolved_source {
             Some((module, next_dir)) => {
-                resolved.push(ResolvedChainComponent::Source(module));
+                resolved.push(PythonModule::Source(module));
                 match next_dir {
                     // A regular package narrows the search to its own directory.
                     Some(dir) => candidate_dirs = vec![dir],
@@ -365,9 +407,10 @@ fn resolve_chain_from_name(
                     .iter()
                     .map(|portion| NamespacePortion::new(portion.root.clone(), portion.dir.clone()))
                     .collect();
-                resolved.push(ResolvedChainComponent::Namespace(
-                    PythonNamespacePackage::new(component_name, namespace_portions),
-                ));
+                resolved.push(PythonModule::Namespace(PythonNamespacePackage::new(
+                    component_name,
+                    namespace_portions,
+                )));
                 candidate_dirs = portions;
             }
         }
@@ -422,7 +465,7 @@ fn file_module_candidate(
     search_path: &SearchPath,
     name: PythonModuleName,
 ) -> FileModuleCandidate {
-    match PythonModule::resolve(db, project, name.clone()) {
+    match PythonSourceModule::resolve(db, project, name.clone()) {
         Some(module) if module.path() == source_path => FileModuleCandidate::Resolved(module),
         Some(winner) => FileModuleCandidate::Shadowed {
             root: search_path.clone(),
@@ -440,7 +483,7 @@ fn file_module_candidate(
 /// clause targets, given the importing file's containing `package`.
 ///
 /// This is the single owner of relative-import name construction, shared by
-/// import evaluation ([`PythonModule::resolve_import_chain`]) and Model alias
+/// import evaluation ([`PythonSourceModule::resolve_import_chain`]) and Model alias
 /// resolution. It never infers package semantics from a dotted name alone: the
 /// caller supplies the package identity explicitly. Returns `None` when a
 /// relative level climbs past the package root or nothing remains.
@@ -482,7 +525,7 @@ pub fn resolve_prefix(db: &dyn ProjectDb, project: Project, dotted_path: &str) -
         let Ok(name) = PythonModuleName::parse(&prefix) else {
             continue;
         };
-        let Some(module) = PythonModule::resolve(db, project, name) else {
+        let Some(module) = PythonSourceModule::resolve(db, project, name) else {
             continue;
         };
 
@@ -530,7 +573,7 @@ pub fn file_to_module(
     db: &dyn ProjectDb,
     project: Project,
     source_path: Utf8PathBuf,
-) -> Option<PythonModule> {
+) -> Option<PythonSourceModule> {
     let candidate = file_module_names(db, project, source_path.as_path())
         .next()
         .map(|(root, name)| file_module_candidate(db, project, source_path.as_path(), root, name));
@@ -579,18 +622,7 @@ pub fn file_to_module_resolution(
     }
 }
 
-impl StructuralOrd for PythonModule {
-    fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.name
-            .cmp(&other.name)
-            .then_with(|| self.package.cmp(&other.package))
-            .then_with(|| self.path.cmp(&other.path))
-            .then_with(|| self.file.structural_cmp(&other.file))
-            .then_with(|| self.search_path.structural_cmp(&other.search_path))
-    }
-}
-
-impl PythonModule {
+impl PythonSourceModule {
     fn regular_package(
         name: PythonModuleName,
         path: Utf8PathBuf,
@@ -645,8 +677,12 @@ impl PythonModule {
     /// Package policy belongs to the resolved identity; callers must not infer
     /// it from `__init__.py` path spelling.
     #[must_use]
-    pub(crate) fn is_package(&self) -> bool {
+    fn is_package(&self) -> bool {
         self.package.as_ref() == Some(&self.name)
+    }
+
+    pub(crate) fn package(&self) -> Option<&PythonModuleName> {
+        self.package.as_ref()
     }
 
     #[must_use]
@@ -666,7 +702,7 @@ impl PythonModule {
 }
 
 #[salsa::tracked]
-impl PythonModule {
+impl PythonSourceModule {
     #[salsa::tracked]
     pub fn resolve(db: &dyn ProjectDb, project: Project, name: PythonModuleName) -> Option<Self> {
         match resolve_name(db, project, &name) {
@@ -700,9 +736,9 @@ impl StructuralOrd for PythonImportError {
     }
 }
 
-impl fmt::Debug for PythonModule {
+impl fmt::Debug for PythonSourceModule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PythonModule")
+        f.debug_struct("PythonSourceModule")
             .field("name", &self.name)
             .field("package", &self.package)
             .field("path", &self.path)
@@ -720,18 +756,18 @@ mod tests {
     #[test]
     fn resolved_import_chain_exposes_ordered_components_and_empty_prefix() {
         let (name, path, file, search_path) = module_parts("pkg");
-        let package = PythonModule::regular_package(name, path, file, search_path);
+        let package = PythonSourceModule::regular_package(name, path, file, search_path);
         let (leaf_name, leaf_path, leaf_file, leaf_search) = module_parts("pkg.sub");
-        let leaf = PythonModule::file_module(leaf_name, leaf_path, leaf_file, leaf_search);
+        let leaf = PythonSourceModule::file_module(leaf_name, leaf_path, leaf_file, leaf_search);
 
         let chain = ResolvedImportChain {
             components: vec![
-                ResolvedChainComponent::Namespace(PythonNamespacePackage::new(
+                PythonModule::Namespace(PythonNamespacePackage::new(
                     PythonModuleName::parse("pkg").unwrap(),
                     Vec::new(),
                 )),
-                ResolvedChainComponent::Source(package),
-                ResolvedChainComponent::Source(leaf),
+                PythonModule::Source(package),
+                PythonModule::Source(leaf),
             ],
         };
         assert!(!chain.components.is_empty());
@@ -766,7 +802,7 @@ mod tests {
 
     #[test]
     fn typed_module_order_compares_every_equality_bearing_field() {
-        let base = PythonModule {
+        let base = PythonSourceModule {
             name: PythonModuleName::parse("pkg.module").unwrap(),
             package: Some(PythonModuleName::parse("pkg").unwrap()),
             path: Utf8PathBuf::from("/project/pkg/module.py"),
@@ -774,23 +810,23 @@ mod tests {
             search_path: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
         };
         let unequal = [
-            PythonModule {
+            PythonSourceModule {
                 name: PythonModuleName::parse("pkg.other").unwrap(),
                 ..base.clone()
             },
-            PythonModule {
+            PythonSourceModule {
                 package: None,
                 ..base.clone()
             },
-            PythonModule {
+            PythonSourceModule {
                 path: Utf8PathBuf::from("/project/pkg/other.py"),
                 ..base.clone()
             },
-            PythonModule {
+            PythonSourceModule {
                 file: File::from_id(Id::from_bits(16)),
                 ..base.clone()
             },
-            PythonModule {
+            PythonSourceModule {
                 search_path: SearchPath::Extra(Utf8PathBuf::from("/project")),
                 ..base.clone()
             },
@@ -809,7 +845,7 @@ mod tests {
     #[test]
     fn python_module_package_identity_is_derived_by_semantic_kind() {
         let (name, path, file, search_path) = module_parts("pkg");
-        let package = PythonModule::regular_package(name, path, file, search_path);
+        let package = PythonSourceModule::regular_package(name, path, file, search_path);
         assert_eq!(
             package.package.as_ref().map(PythonModuleName::as_str),
             Some("pkg")
@@ -823,7 +859,7 @@ mod tests {
             ("app.templatetags.tags", Some("app.templatetags")),
         ] {
             let (name, path, file, search_path) = module_parts(name);
-            let module = PythonModule::file_module(name, path, file, search_path);
+            let module = PythonSourceModule::file_module(name, path, file, search_path);
             assert_eq!(
                 module.package.as_ref().map(PythonModuleName::as_str),
                 expected_package

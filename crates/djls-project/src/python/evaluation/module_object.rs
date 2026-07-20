@@ -1,18 +1,12 @@
-//! Object-scoped module identity and the finite loaded-child coordinate state.
+//! Finite object-scoped effects produced while evaluating module imports.
 //!
-//! This module owns the *nominal* identity of module objects and the finite,
-//! deterministic table of `(object, attribute)` child coordinates produced by
-//! recursive imports, object-scoped open causes, and contamination of the
-//! recognized standard-library path namespaces. It never embeds
-//! `PythonModuleValues`: intrinsic source bindings stay in the source module's
-//! value product, and only loaded-child attachments and open causes live here.
-//!
-//! State/evaluator callers request semantic operations (attach, read, merge,
-//! join, degrade, widen) rather than editing the private maps directly.
+//! Module identity belongs to the Python domain. This evaluator-owned state
+//! records loaded-child coordinates, open causes, and contamination of the
+//! recognized standard-library path namespaces without embedding intrinsic
+//! `PythonModuleValues`.
 
 use std::cmp::Ordering;
 
-use camino::Utf8PathBuf;
 use djls_source::Origin;
 
 use super::BranchConstraints;
@@ -23,81 +17,41 @@ use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::StructuralOrd;
+use crate::python::NamespacePortion;
 use crate::python::PythonModule;
-use crate::python::PythonModuleName;
+use crate::python::PythonNamespacePackage;
+use crate::python::PythonPathIntrinsic;
 use crate::python::PythonPathNamespace;
-use crate::python::PythonPathSymbol;
-use crate::python::search_paths::SearchPath;
+use crate::python::PythonSourceModule;
 
-/// One search-path portion that contributes to a namespace package: the search
-/// root it was found under and the concrete directory under that root. A
-/// namespace package is the ordered union of these portions.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct NamespacePortion {
-    root: SearchPath,
-    dir: Utf8PathBuf,
-}
-
-impl NamespacePortion {
-    pub(crate) fn new(root: SearchPath, dir: Utf8PathBuf) -> Self {
-        Self { root, dir }
-    }
-
-    pub(crate) fn root(&self) -> &SearchPath {
-        &self.root
-    }
-
-    pub(crate) fn dir(&self) -> &Utf8PathBuf {
-        &self.dir
+impl StructuralOrd for PythonSourceModule {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.name()
+            .cmp(other.name())
+            .then_with(|| self.package().cmp(&other.package()))
+            .then_with(|| self.path().cmp(other.path()))
+            .then_with(|| self.file().structural_cmp(&other.file()))
+            .then_with(|| self.search_path().structural_cmp(other.search_path()))
     }
 }
 
 impl StructuralOrd for NamespacePortion {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.root
-            .structural_cmp(&other.root)
-            .then_with(|| self.dir.cmp(&other.dir))
-    }
-}
-
-/// The nominal identity of a namespace package object.
-///
-/// A namespace package has no `__init__.py` body to evaluate, so its identity is
-/// its dotted name together with the ordered search-path portions that form it.
-/// Including the winning portions in identity means a change to the search-path
-/// winner (a portion appearing, disappearing, or reordering) produces a
-/// different object identity, so reads through the namespace recompute rather
-/// than reuse a stale winner. Intrinsic values never come from a namespace
-/// object; only loaded children attach under it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct PythonNamespacePackage {
-    name: PythonModuleName,
-    portions: Vec<NamespacePortion>,
-}
-
-impl PythonNamespacePackage {
-    pub(crate) fn new(name: PythonModuleName, portions: Vec<NamespacePortion>) -> Self {
-        Self { name, portions }
-    }
-
-    pub(crate) fn name(&self) -> &PythonModuleName {
-        &self.name
-    }
-
-    pub(crate) fn portions(&self) -> &[NamespacePortion] {
-        &self.portions
+        self.root()
+            .structural_cmp(other.root())
+            .then_with(|| self.dir().cmp(other.dir()))
     }
 }
 
 impl StructuralOrd for PythonNamespacePackage {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.name
-            .cmp(&other.name)
-            .then_with(|| self.portions.len().cmp(&other.portions.len()))
+        self.name()
+            .cmp(other.name())
+            .then_with(|| self.portions().len().cmp(&other.portions().len()))
             .then_with(|| {
-                self.portions
+                self.portions()
                     .iter()
-                    .zip(&other.portions)
+                    .zip(other.portions())
                     .map(|(left, right)| left.structural_cmp(right))
                     .find(|ordering| *ordering != Ordering::Equal)
                     .unwrap_or(Ordering::Equal)
@@ -105,62 +59,20 @@ impl StructuralOrd for PythonNamespacePackage {
     }
 }
 
-/// The nominal identity carried by a module value.
-///
-/// This is identity-only: it names the object without embedding its intrinsic
-/// values or its loaded-child table.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PythonModuleObjectId {
-    Source(PythonModule),
-    Namespace(PythonNamespacePackage),
-}
-
-impl PythonModuleObjectId {
-    fn structural_rank(&self) -> u8 {
-        match self {
-            Self::Source(_) => 0,
-            Self::Namespace(_) => 1,
-        }
-    }
-
-    /// The dotted name of the identified object, used by member projection to
-    /// build a caller-neutral typed absence.
-    pub(crate) fn name(&self) -> &PythonModuleName {
-        match self {
-            Self::Source(module) => module.name(),
-            Self::Namespace(package) => package.name(),
-        }
-    }
-
-    /// Whether this object can own importable children. Source identity owns
-    /// regular-package policy; namespace objects are packages by construction.
-    pub(crate) fn is_package(&self) -> bool {
-        match self {
-            Self::Source(module) => module.is_package(),
-            Self::Namespace(_) => true,
-        }
-    }
-}
-
-impl StructuralOrd for PythonModuleObjectId {
+impl StructuralOrd for PythonModule {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        let ordering = self.structural_rank().cmp(&other.structural_rank());
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
         match (self, other) {
             (Self::Source(left), Self::Source(right)) => left.structural_cmp(right),
             (Self::Namespace(left), Self::Namespace(right)) => left.structural_cmp(right),
-            (Self::Source(_) | Self::Namespace(_), _) => {
-                unreachable!("equal object-id ranks identify the same variant")
-            }
+            (Self::Source(_), Self::Namespace(_)) => Ordering::Less,
+            (Self::Namespace(_), Self::Source(_)) => Ordering::Greater,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ModuleChildCoordinate {
-    object: PythonModuleObjectId,
+    object: PythonModule,
     attribute: String,
     binding: PythonBinding,
 }
@@ -174,12 +86,12 @@ impl StructuralOrd for ModuleChildCoordinate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ModuleObjectCause {
-    object: PythonModuleObjectId,
+struct ModuleEffectCause {
+    object: PythonModule,
     cause: PythonNamespaceCause,
 }
 
-impl StructuralOrd for ModuleObjectCause {
+impl StructuralOrd for ModuleEffectCause {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.object
             .structural_cmp(&other.object)
@@ -211,7 +123,7 @@ impl PythonImportFallback {
     fn attach_child_binding(
         &self,
         prior: &PythonBinding,
-        child: &PythonModuleObjectId,
+        child: &PythonModule,
         origin: Origin,
     ) -> PythonBinding {
         self.member
@@ -242,23 +154,19 @@ impl PythonImportFallback {
 /// product; it is never added
 /// to settings-facing `PythonModuleValues` equality or projection.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub(super) struct PathSymbolContamination(Vec<PythonPathNamespace>);
+pub(super) struct PathIntrinsicContamination(Vec<PythonPathNamespace>);
 
-impl PathSymbolContamination {
-    fn insert(&mut self, symbol: PythonPathSymbol) {
-        let Some(namespace) = symbol.mutable_namespace() else {
-            return;
-        };
+impl PathIntrinsicContamination {
+    fn insert(&mut self, intrinsic: PythonPathIntrinsic) {
+        let namespace = intrinsic.mutable_namespace();
         if !self.0.contains(&namespace) {
             self.0.push(namespace);
             self.0.sort_unstable();
         }
     }
 
-    fn contains(&self, symbol: PythonPathSymbol) -> bool {
-        symbol
-            .mutable_namespace()
-            .is_some_and(|namespace| self.0.contains(&namespace))
+    fn contains(&self, intrinsic: PythonPathIntrinsic) -> bool {
+        self.0.contains(&intrinsic.mutable_namespace())
     }
 
     fn absorb(&mut self, incoming: impl IntoIterator<Item = PythonPathNamespace>) {
@@ -272,48 +180,48 @@ impl PathSymbolContamination {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct PythonModuleObjects {
+pub(crate) struct PythonModuleEffects {
     children: Vec<ModuleChildCoordinate>,
-    causes: Vec<ModuleObjectCause>,
-    path_symbol_contamination: PathSymbolContamination,
+    causes: Vec<ModuleEffectCause>,
+    path_intrinsic_contamination: PathIntrinsicContamination,
 }
 
-impl PythonModuleObjects {
-    pub(super) fn with_path_symbol_contamination(
-        path_symbol_contamination: PathSymbolContamination,
+impl PythonModuleEffects {
+    pub(super) fn with_path_intrinsic_contamination(
+        path_intrinsic_contamination: PathIntrinsicContamination,
     ) -> Self {
         Self {
-            path_symbol_contamination,
+            path_intrinsic_contamination,
             ..Self::default()
         }
     }
 
-    pub(super) fn path_symbol_contamination(&self) -> &PathSymbolContamination {
-        &self.path_symbol_contamination
+    pub(super) fn path_intrinsic_contamination(&self) -> &PathIntrinsicContamination {
+        &self.path_intrinsic_contamination
     }
 
-    pub(crate) fn contaminate_path_symbol(&mut self, symbol: PythonPathSymbol) {
-        self.path_symbol_contamination.insert(symbol);
+    pub(crate) fn contaminate_path_intrinsic(&mut self, intrinsic: PythonPathIntrinsic) {
+        self.path_intrinsic_contamination.insert(intrinsic);
     }
 
-    pub(crate) fn path_symbol_is_contaminated(&self, symbol: PythonPathSymbol) -> bool {
-        self.path_symbol_contamination.contains(symbol)
+    pub(crate) fn path_intrinsic_is_contaminated(&self, intrinsic: PythonPathIntrinsic) -> bool {
+        self.path_intrinsic_contamination.contains(intrinsic)
     }
 
-    fn absorb_path_symbol_contamination(
+    fn absorb_path_intrinsic_contamination(
         &mut self,
         incoming: impl IntoIterator<Item = PythonPathNamespace>,
     ) {
-        self.path_symbol_contamination.absorb(incoming);
+        self.path_intrinsic_contamination.absorb(incoming);
     }
 
-    fn child_index(&self, object: &PythonModuleObjectId, attribute: &str) -> Option<usize> {
+    fn child_index(&self, object: &PythonModule, attribute: &str) -> Option<usize> {
         self.children
             .iter()
             .position(|child| &child.object == object && child.attribute == attribute)
     }
 
-    fn read_child(&self, object: &PythonModuleObjectId, attribute: &str) -> Option<&PythonBinding> {
+    fn read_child(&self, object: &PythonModule, attribute: &str) -> Option<&PythonBinding> {
         self.child_index(object, attribute)
             .map(|index| &self.children[index].binding)
     }
@@ -322,7 +230,7 @@ impl PythonModuleObjects {
     /// This is a projection of current object state, never filesystem discovery.
     pub(crate) fn child_names<'a>(
         &'a self,
-        object: &'a PythonModuleObjectId,
+        object: &'a PythonModule,
     ) -> impl Iterator<Item = &'a str> {
         self.children
             .iter()
@@ -336,7 +244,7 @@ impl PythonModuleObjects {
     /// keeps the residual `Unbound` so the caller applies its own policy.
     pub(crate) fn child_binding(
         &self,
-        object: &PythonModuleObjectId,
+        object: &PythonModule,
         attribute: &str,
         origin: Origin,
     ) -> PythonBinding {
@@ -352,7 +260,7 @@ impl PythonModuleObjects {
     /// intersection. Residual `Unbound` is retained.
     pub(crate) fn apply_open_causes(
         &self,
-        object: &PythonModuleObjectId,
+        object: &PythonModule,
         mut binding: PythonBinding,
         origin: Origin,
     ) -> PythonBinding {
@@ -377,12 +285,7 @@ impl PythonModuleObjects {
         binding
     }
 
-    fn set_child(
-        &mut self,
-        object: PythonModuleObjectId,
-        attribute: String,
-        binding: PythonBinding,
-    ) {
+    fn set_child(&mut self, object: PythonModule, attribute: String, binding: PythonBinding) {
         match self.child_index(&object, &attribute) {
             Some(index) => self.children[index].binding = binding,
             None => self.children.push(ModuleChildCoordinate {
@@ -398,9 +301,9 @@ impl PythonModuleObjects {
     /// the coordinate with a `Bound(Module(child))` value.
     pub(crate) fn attach_child(
         &mut self,
-        object: PythonModuleObjectId,
+        object: PythonModule,
         attribute: String,
-        child: PythonModuleObjectId,
+        child: PythonModule,
         origin: Origin,
     ) {
         let value = PythonValue::module(child, origin);
@@ -412,9 +315,9 @@ impl PythonModuleObjects {
     /// both possibilities, so fallback never becomes unconditional.
     pub(crate) fn attach_child_for_import_fallback(
         &mut self,
-        object: PythonModuleObjectId,
+        object: PythonModule,
         attribute: String,
-        child: &PythonModuleObjectId,
+        child: &PythonModule,
         fallback: &PythonImportFallback,
         origin: Origin,
     ) {
@@ -428,14 +331,14 @@ impl PythonModuleObjects {
 
     /// Extend object-scoped open causes in first-seen order with exact
     /// deduplication.
-    pub(crate) fn open_cause(&mut self, object: PythonModuleObjectId, cause: PythonNamespaceCause) {
-        self.causes.push(ModuleObjectCause { object, cause });
+    pub(crate) fn open_cause(&mut self, object: PythonModule, cause: PythonNamespaceCause) {
+        self.causes.push(ModuleEffectCause { object, cause });
         self.normalize();
     }
 
     fn causes_for<'a>(
         &'a self,
-        object: &'a PythonModuleObjectId,
+        object: &'a PythonModule,
     ) -> impl Iterator<Item = &'a PythonNamespaceCause> {
         self.causes
             .iter()
@@ -465,7 +368,7 @@ impl PythonModuleObjects {
             self.set_child(object, attribute, merged);
         }
         self.causes.extend(incoming.causes);
-        self.absorb_path_symbol_contamination(incoming.path_symbol_contamination.0);
+        self.absorb_path_intrinsic_contamination(incoming.path_intrinsic_contamination.0);
         self.normalize();
     }
 
@@ -499,7 +402,7 @@ impl PythonModuleObjects {
                     entry.cause.constraints.intersection(fallback_constraints);
                 (!entry.cause.constraints.is_impossible()).then_some(entry)
             }));
-        self.absorb_path_symbol_contamination(incoming.path_symbol_contamination.0);
+        self.absorb_path_intrinsic_contamination(incoming.path_intrinsic_contamination.0);
         self.normalize();
     }
 
@@ -507,7 +410,7 @@ impl PythonModuleObjects {
     /// coordinate, then normalize with `PythonBinding::join`. Each open cause is
     /// retained under its branch constraints.
     pub(crate) fn join_branches(branches: &[Self], origin: Origin) -> Self {
-        let mut keys: Vec<(PythonModuleObjectId, String)> = Vec::new();
+        let mut keys: Vec<(PythonModule, String)> = Vec::new();
         for branch in branches {
             for child in &branch.children {
                 let key = (child.object.clone(), child.attribute.clone());
@@ -544,13 +447,13 @@ impl PythonModuleObjects {
             for entry in &branch.causes {
                 let mut cause = entry.cause.clone();
                 cause.select_branch(origin, arm);
-                joined.causes.push(ModuleObjectCause {
+                joined.causes.push(ModuleEffectCause {
                     object: entry.object.clone(),
                     cause,
                 });
             }
-            joined.absorb_path_symbol_contamination(
-                branch.path_symbol_contamination.0.iter().copied(),
+            joined.absorb_path_intrinsic_contamination(
+                branch.path_intrinsic_contamination.0.iter().copied(),
             );
         }
 
@@ -562,14 +465,13 @@ impl PythonModuleObjects {
     /// and any coordinate a body changed relative to the baseline degrades to an
     /// `UnsupportedExpression` unknown joined onto the baseline alternative.
     pub(crate) fn degrade_loop(&mut self, bodies: Vec<Self>, origin: Origin) {
-        let mut changed: Vec<(PythonModuleObjectId, String)> = Vec::new();
-        let note_changed =
-            |object: &PythonModuleObjectId, attribute: &str, changed: &mut Vec<_>| {
-                let key = (object.clone(), attribute.to_string());
-                if !changed.contains(&key) {
-                    changed.push(key);
-                }
-            };
+        let mut changed: Vec<(PythonModule, String)> = Vec::new();
+        let note_changed = |object: &PythonModule, attribute: &str, changed: &mut Vec<_>| {
+            let key = (object.clone(), attribute.to_string());
+            if !changed.contains(&key) {
+                changed.push(key);
+            }
+        };
         for body in &bodies {
             for child in &body.children {
                 if self.read_child(&child.object, &child.attribute) != Some(&child.binding) {
@@ -585,7 +487,7 @@ impl PythonModuleObjects {
 
         for body in bodies {
             self.causes.extend(body.causes);
-            self.absorb_path_symbol_contamination(body.path_symbol_contamination.0);
+            self.absorb_path_intrinsic_contamination(body.path_intrinsic_contamination.0);
         }
 
         for (object, attribute) in changed {
@@ -608,8 +510,10 @@ impl PythonModuleObjects {
     /// with an equal normalized set survive; a changed set is replaced with one
     /// absorbing originless `Cycle` cause.
     pub(crate) fn widen(mut self, previous: &Self) -> Self {
-        self.absorb_path_symbol_contamination(previous.path_symbol_contamination.0.iter().copied());
-        let mut keys: Vec<(PythonModuleObjectId, String)> = Vec::new();
+        self.absorb_path_intrinsic_contamination(
+            previous.path_intrinsic_contamination.0.iter().copied(),
+        );
+        let mut keys: Vec<(PythonModule, String)> = Vec::new();
         for child in previous.children.iter().chain(&self.children) {
             let key = (child.object.clone(), child.attribute.clone());
             if !keys.contains(&key) {
@@ -624,7 +528,7 @@ impl PythonModuleObjects {
             }
         }
 
-        let mut objects: Vec<PythonModuleObjectId> = Vec::new();
+        let mut objects: Vec<PythonModule> = Vec::new();
         for entry in previous.causes.iter().chain(&self.causes) {
             if !objects.contains(&entry.object) {
                 objects.push(entry.object.clone());
@@ -635,7 +539,7 @@ impl PythonModuleObjects {
             let computed = normalized_causes_for(&self.causes, &object);
             if prior != computed {
                 self.causes.retain(|entry| entry.object != object);
-                self.causes.push(ModuleObjectCause {
+                self.causes.push(ModuleEffectCause {
                     object,
                     cause: PythonNamespaceCause::unconstrained(PythonUnknown::new(
                         PythonUnknownCause::Cycle,
@@ -655,7 +559,7 @@ impl PythonModuleObjects {
         // Open causes preserve first-seen order with exact full-value dedup: no
         // structural sort and no cause-kind coalescing, so distinct origins or
         // constraints stay as distinct open causes.
-        let mut deduped: Vec<ModuleObjectCause> = Vec::new();
+        let mut deduped: Vec<ModuleEffectCause> = Vec::new();
         for entry in std::mem::take(&mut self.causes) {
             if !deduped.contains(&entry) {
                 deduped.push(entry);
@@ -666,8 +570,8 @@ impl PythonModuleObjects {
 }
 
 fn normalized_causes_for(
-    causes: &[ModuleObjectCause],
-    object: &PythonModuleObjectId,
+    causes: &[ModuleEffectCause],
+    object: &PythonModule,
 ) -> Vec<PythonNamespaceCause> {
     let mut selected: Vec<PythonNamespaceCause> = causes
         .iter()
@@ -689,24 +593,26 @@ mod tests {
     use super::super::PythonBindingState;
     use super::super::PythonValueKind;
     use super::*;
+    use crate::python::PythonModuleName;
+    use crate::python::PythonSourceModule;
     use crate::python::SearchPath;
 
     fn origin(start: u32) -> Origin {
         Origin::new(File::from_id(Id::from_bits(1)), Span::new(start, 1))
     }
 
-    fn source(name: &str, id: u64) -> PythonModuleObjectId {
-        let module = PythonModule::file_module(
+    fn source(name: &str, id: u64) -> PythonModule {
+        let module = PythonSourceModule::file_module(
             PythonModuleName::parse(name).unwrap(),
             Utf8PathBuf::from(format!("/project/{name}.py")),
             File::from_id(Id::from_bits(id)),
             SearchPath::FirstParty(Utf8PathBuf::from("/project")),
         );
-        PythonModuleObjectId::Source(module)
+        PythonModule::Source(module)
     }
 
-    fn namespace(name: &str) -> PythonModuleObjectId {
-        PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
+    fn namespace(name: &str) -> PythonModule {
+        PythonModule::Namespace(PythonNamespacePackage::new(
             PythonModuleName::parse(name).unwrap(),
             Vec::new(),
         ))
@@ -719,7 +625,7 @@ mod tests {
         ))
     }
 
-    fn attached_child(binding: &PythonBinding) -> Option<PythonModuleObjectId> {
+    fn attached_child(binding: &PythonBinding) -> Option<PythonModule> {
         binding.alternatives().find_map(|state| {
             let PythonBindingState::Bound(bound) = state else {
                 return None;
@@ -763,14 +669,14 @@ mod tests {
 
     #[test]
     fn path_contamination_canonicalizes_equivalent_namespace_members() {
-        let mut module = PythonModuleObjects::default();
-        module.contaminate_path_symbol(PythonPathSymbol::OsModule);
-        let mut member = PythonModuleObjects::default();
-        member.contaminate_path_symbol(PythonPathSymbol::OsPathJoin);
+        let mut module = PythonModuleEffects::default();
+        module.contaminate_path_intrinsic(PythonPathIntrinsic::OsModule);
+        let mut member = PythonModuleEffects::default();
+        member.contaminate_path_intrinsic(PythonPathIntrinsic::OsPathJoinFunction);
 
         assert_eq!(
-            module.path_symbol_contamination(),
-            member.path_symbol_contamination()
+            module.path_intrinsic_contamination(),
+            member.path_intrinsic_contamination()
         );
     }
 
@@ -796,7 +702,7 @@ mod tests {
         uncertain.select_branch(join, 1);
         let member = present.join(absent, join).join(uncertain, join);
 
-        let mut objects = PythonModuleObjects::default();
+        let mut objects = PythonModuleEffects::default();
         let fallback = PythonImportFallback::new(&member, None)
             .expect("the conditional member has a feasible fallback path");
         objects.attach_child_for_import_fallback(
@@ -837,7 +743,7 @@ mod tests {
         let parent = source("pkg", 1);
         let first = source("pkg.a", 2);
         let second = source("pkg.b", 3);
-        let mut objects = PythonModuleObjects::default();
+        let mut objects = PythonModuleEffects::default();
 
         objects.attach_child(parent.clone(), "child".to_string(), first, origin(1));
         objects.attach_child(
@@ -858,11 +764,11 @@ mod tests {
     fn branch_without_attachment_contributes_unbound_and_join_normalizes() {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
-        let mut attached = PythonModuleObjects::default();
+        let mut attached = PythonModuleEffects::default();
         attached.attach_child(parent.clone(), "child".to_string(), child, origin(1));
-        let missing = PythonModuleObjects::default();
+        let missing = PythonModuleEffects::default();
 
-        let joined = PythonModuleObjects::join_branches(&[attached, missing], origin(10));
+        let joined = PythonModuleEffects::join_branches(&[attached, missing], origin(10));
 
         let binding = joined
             .read_child(&parent, "child")
@@ -879,12 +785,12 @@ mod tests {
         let parent = source("pkg", 1);
         let first = source("pkg.a", 2);
         let second = source("pkg.b", 3);
-        let mut left = PythonModuleObjects::default();
+        let mut left = PythonModuleEffects::default();
         left.attach_child(parent.clone(), "child".to_string(), first, origin(1));
-        let mut right = PythonModuleObjects::default();
+        let mut right = PythonModuleEffects::default();
         right.attach_child(parent.clone(), "child".to_string(), second, origin(2));
 
-        let joined = PythonModuleObjects::join_branches(&[left, right], origin(10));
+        let joined = PythonModuleEffects::join_branches(&[left, right], origin(10));
 
         let binding = joined
             .read_child(&parent, "child")
@@ -896,7 +802,7 @@ mod tests {
     fn zero_iteration_loop_degrades_changed_coordinate_and_keeps_baseline() {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
-        let mut baseline = PythonModuleObjects::default();
+        let mut baseline = PythonModuleEffects::default();
         baseline.attach_child(
             parent.clone(),
             "child".to_string(),
@@ -927,7 +833,7 @@ mod tests {
     fn loop_preserves_unrelated_coordinate() {
         let parent = source("pkg", 1);
         let stable = source("pkg.a", 2);
-        let mut baseline = PythonModuleObjects::default();
+        let mut baseline = PythonModuleEffects::default();
         baseline.attach_child(
             parent.clone(),
             "stable".to_string(),
@@ -949,7 +855,7 @@ mod tests {
     fn cycle_widening_keeps_equal_coordinate_and_absorbs_changed() {
         let parent = source("pkg", 1);
         let stable = source("pkg.a", 2);
-        let mut previous = PythonModuleObjects::default();
+        let mut previous = PythonModuleEffects::default();
         previous.attach_child(
             parent.clone(),
             "stable".to_string(),
@@ -963,7 +869,7 @@ mod tests {
             origin(1),
         );
 
-        let mut computed = PythonModuleObjects::default();
+        let mut computed = PythonModuleEffects::default();
         computed.attach_child(
             parent.clone(),
             "stable".to_string(),
@@ -996,7 +902,7 @@ mod tests {
     fn merge_absent_incoming_key_is_a_no_op() {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
-        let mut prior = PythonModuleObjects::default();
+        let mut prior = PythonModuleEffects::default();
         prior.attach_child(
             parent.clone(),
             "child".to_string(),
@@ -1004,7 +910,7 @@ mod tests {
             origin(1),
         );
 
-        prior.merge(PythonModuleObjects::default(), origin(10));
+        prior.merge(PythonModuleEffects::default(), origin(10));
 
         let binding = prior.read_child(&parent, "child").expect("preserved");
         assert_eq!(attached_child(binding), Some(child));
@@ -1014,7 +920,7 @@ mod tests {
     fn merge_incoming_unbound_preserves_prior() {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
-        let mut prior = PythonModuleObjects::default();
+        let mut prior = PythonModuleEffects::default();
         prior.attach_child(
             parent.clone(),
             "child".to_string(),
@@ -1022,7 +928,7 @@ mod tests {
             origin(1),
         );
 
-        let mut incoming = PythonModuleObjects::default();
+        let mut incoming = PythonModuleEffects::default();
         incoming.children.push(ModuleChildCoordinate {
             object: parent.clone(),
             attribute: "child".to_string(),
@@ -1040,10 +946,10 @@ mod tests {
         let parent = source("pkg", 1);
         let first = source("pkg.a", 2);
         let second = source("pkg.b", 3);
-        let mut prior = PythonModuleObjects::default();
+        let mut prior = PythonModuleEffects::default();
         prior.attach_child(parent.clone(), "child".to_string(), first, origin(1));
 
-        let mut incoming = PythonModuleObjects::default();
+        let mut incoming = PythonModuleEffects::default();
         incoming.attach_child(
             parent.clone(),
             "child".to_string(),
@@ -1062,10 +968,10 @@ mod tests {
     fn merge_unknown_incoming_joins_prior_conservatively() {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
-        let mut prior = PythonModuleObjects::default();
+        let mut prior = PythonModuleEffects::default();
         prior.attach_child(parent.clone(), "child".to_string(), child, origin(1));
 
-        let mut incoming = PythonModuleObjects::default();
+        let mut incoming = PythonModuleEffects::default();
         incoming.children.push(ModuleChildCoordinate {
             object: parent.clone(),
             attribute: "child".to_string(),
@@ -1084,7 +990,7 @@ mod tests {
     fn open_causes_dedupe_and_stay_object_scoped() {
         let first = source("pkg", 1);
         let second = source("other", 2);
-        let mut objects = PythonModuleObjects::default();
+        let mut objects = PythonModuleEffects::default();
         objects.open_cause(first.clone(), cause(1));
         objects.open_cause(first.clone(), cause(1));
         objects.open_cause(second.clone(), cause(3));
@@ -1096,9 +1002,9 @@ mod tests {
     #[test]
     fn cycle_widening_replaces_changed_cause_set_with_one_cycle_cause() {
         let object = source("pkg", 1);
-        let mut previous = PythonModuleObjects::default();
+        let mut previous = PythonModuleEffects::default();
         previous.open_cause(object.clone(), cause(1));
-        let mut computed = PythonModuleObjects::default();
+        let mut computed = PythonModuleEffects::default();
         computed.open_cause(object.clone(), cause(2));
 
         let widened = computed.widen(&previous);
@@ -1109,7 +1015,7 @@ mod tests {
         assert!(causes[0].unknown.origins().next().is_none());
     }
 
-    fn module_ids(binding: &PythonBinding) -> Vec<PythonModuleObjectId> {
+    fn module_ids(binding: &PythonBinding) -> Vec<PythonModule> {
         binding
             .alternatives()
             .filter_map(|state| {
@@ -1129,7 +1035,7 @@ mod tests {
         let parent = source("pkg", 1);
         let prior_child = source("pkg.a", 2);
         let assigned = source("pkg.b", 3);
-        let mut prior = PythonModuleObjects::default();
+        let mut prior = PythonModuleEffects::default();
         prior.attach_child(
             parent.clone(),
             "child".to_string(),
@@ -1143,7 +1049,7 @@ mod tests {
                 PythonBinding::unknown(&PythonUnknownCause::Cycle, origin(3)),
                 origin(3),
             );
-        let mut incoming = PythonModuleObjects::default();
+        let mut incoming = PythonModuleEffects::default();
         incoming.children.push(ModuleChildCoordinate {
             object: parent.clone(),
             attribute: "child".to_string(),
@@ -1173,7 +1079,7 @@ mod tests {
     #[test]
     fn apply_open_causes_joins_unknown_onto_residual_unbound() {
         let object = source("pkg", 1);
-        let mut objects = PythonModuleObjects::default();
+        let mut objects = PythonModuleEffects::default();
         objects.open_cause(object.clone(), cause(1));
 
         let binding = objects.apply_open_causes(&object, PythonBinding::unbound(), origin(10));
@@ -1189,7 +1095,7 @@ mod tests {
     fn apply_open_causes_leaves_fully_bound_binding_untouched() {
         let object = source("pkg", 1);
         let member = source("pkg.a", 2);
-        let mut objects = PythonModuleObjects::default();
+        let mut objects = PythonModuleEffects::default();
         objects.open_cause(object.clone(), cause(1));
 
         let bound = PythonBinding::bound(PythonValue::module(member, origin(1)), origin(1));
@@ -1204,7 +1110,7 @@ mod tests {
     #[test]
     fn open_causes_preserve_first_seen_order_without_coalescing() {
         let object = source("pkg", 1);
-        let mut objects = PythonModuleObjects::default();
+        let mut objects = PythonModuleEffects::default();
         objects.open_cause(object.clone(), cause(5));
         objects.open_cause(object.clone(), cause(1));
         // An exact duplicate of the first cause is deduped.
@@ -1224,7 +1130,7 @@ mod tests {
     #[test]
     fn child_binding_rebases_cycle_evidence_to_the_read_origin() {
         let parent = source("pkg", 1);
-        let mut objects = PythonModuleObjects::default();
+        let mut objects = PythonModuleEffects::default();
         objects.children.push(ModuleChildCoordinate {
             object: parent.clone(),
             attribute: "child".to_string(),
@@ -1266,7 +1172,7 @@ mod tests {
             )
         };
         let package = |portions: Vec<NamespacePortion>| {
-            PythonModuleObjectId::Namespace(PythonNamespacePackage::new(
+            PythonModule::Namespace(PythonNamespacePackage::new(
                 PythonModuleName::parse("ns").unwrap(),
                 portions,
             ))

@@ -2,7 +2,7 @@ use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonModule;
+use crate::python::PythonSourceModule;
 use crate::python::evaluation::python_module_dependencies;
 use crate::python::evaluation::python_module_values;
 use crate::settings::DjangoSettings;
@@ -12,7 +12,7 @@ use crate::settings::settings_module;
 pub(super) fn django_settings_from_module(
     db: &dyn ProjectDb,
     project: Project,
-    module: PythonModule,
+    module: PythonSourceModule,
 ) -> DjangoSettings {
     let file = module.file();
     match python_module_values(db, project, module) {

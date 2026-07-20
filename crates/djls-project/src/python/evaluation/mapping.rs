@@ -11,6 +11,7 @@ use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use super::allocation::AllocationSites;
+use crate::python::PythonPath;
 
 /// A concrete Python `dict` value stored as an ordered write/unpack log rather
 /// than a flattened map: unknown unpacks and later exact entries affect lookup
@@ -69,8 +70,7 @@ impl PythonDict {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::PathSymbol(_)
-            | PythonValueKind::OtherLiteral
+            | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Module(_) => {
@@ -120,11 +120,11 @@ impl PythonDict {
                         break;
                     }
                     PythonValueKind::Str(_)
-                    | PythonValueKind::PathSymbol(_)
-                    | PythonValueKind::OtherLiteral => {}
+                    | PythonValueKind::Path(PythonPath::Intrinsic(_))
+                    | PythonValueKind::UnsupportedLiteral => {}
                     PythonValueKind::Unknown(_)
                     | PythonValueKind::Bool(_)
-                    | PythonValueKind::Path(_)
+                    | PythonValueKind::Path(PythonPath::Object(_))
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
                     | PythonValueKind::Module(_)
@@ -235,8 +235,7 @@ impl<'a> PythonMapping<'a> {
                     PythonValueKind::Str(_)
                     | PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
-                    | PythonValueKind::PathSymbol(_)
-                    | PythonValueKind::OtherLiteral
+                    | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
                     | PythonValueKind::Module(_)
@@ -279,8 +278,7 @@ impl<'a> PythonMapping<'a> {
                     }
                     PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
-                    | PythonValueKind::PathSymbol(_)
-                    | PythonValueKind::OtherLiteral
+                    | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
                     | PythonValueKind::Module(_)
@@ -314,11 +312,11 @@ impl<'a> PythonMapping<'a> {
                     return values;
                 }
                 PythonValueKind::Str(_)
-                | PythonValueKind::PathSymbol(_)
-                | PythonValueKind::OtherLiteral => {}
+                | PythonValueKind::Path(PythonPath::Intrinsic(_))
+                | PythonValueKind::UnsupportedLiteral => {}
                 PythonValueKind::Unknown(_)
                 | PythonValueKind::Bool(_)
-                | PythonValueKind::Path(_)
+                | PythonValueKind::Path(PythonPath::Object(_))
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)
                 | PythonValueKind::Module(_)
@@ -486,6 +484,7 @@ mod tests {
     use super::PythonValue;
     use super::PythonValueKind;
     use super::StructuralOrd;
+    use crate::python::PythonPathIntrinsic;
 
     fn origin(offset: usize) -> Origin {
         let file = File::from_id(Id::from_bits(1));
@@ -509,6 +508,10 @@ mod tests {
             PythonUnknownCause::UnsupportedExpression,
             Some(origin(offset)),
         )
+    }
+
+    fn path_intrinsic(offset: usize) -> PythonValue {
+        PythonValue::path_intrinsic(PythonPathIntrinsic::PathlibPathType, origin(offset))
     }
 
     #[test]
@@ -680,6 +683,30 @@ mod tests {
         assert!(clean.try_exact_string_value_mut("k", |value| {
             matches!(&value.kind, PythonValueKind::Str(text) if text == "v")
         }));
+    }
+
+    #[test]
+    fn path_intrinsic_keys_do_not_block_exact_string_key_mutation() {
+        let mut dict = dict_with(vec![
+            (str_value("target", 1), str_value("before", 2)),
+            (path_intrinsic(3), str_value("intrinsic", 4)),
+        ]);
+
+        let possible = dict.mapping().possible_string_values("target");
+        assert_eq!(possible.len(), 1);
+        assert!(matches!(
+            &possible[0].kind,
+            PythonValueKind::Str(text) if text == "before"
+        ));
+        assert!(dict.try_exact_string_value_mut("target", |value| {
+            *value = str_value("after", 5);
+            true
+        }));
+        let lookup = dict.mapping().lookup_string_key("target");
+        assert!(matches!(
+            lookup.value().map(|value| &value.kind),
+            Some(PythonValueKind::Str(text)) if text == "after"
+        ));
     }
 
     #[test]

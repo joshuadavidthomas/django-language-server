@@ -1116,7 +1116,7 @@ fn evaluated_paths(db: &dyn ProjectDb, value: &PythonValue) -> Vec<EvaluatedPath
         return value
             .origins_with_constraints()
             .map(|(origin, constraints)| EvaluatedPathCandidate {
-                path: WithOrigin::new(EvaluatedPath::Resolved(path.clone()), origin, []),
+                path: WithOrigin::new(EvaluatedPath::Resolved(path.to_path_buf()), origin, []),
                 constraints: constraints.clone(),
             })
             .collect();

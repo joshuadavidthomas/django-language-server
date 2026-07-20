@@ -211,8 +211,8 @@ mod invalidation_tests {
     use djls_project::LibraryName;
     use djls_project::LoadableLibraryLookup;
     use djls_project::Project;
-    use djls_project::PythonModule;
     use djls_project::PythonModuleName;
+    use djls_project::PythonSourceModule;
     use djls_project::SymbolKey;
     use djls_project::TemplateEnvironment;
     use djls_project::TemplateLibrary;
@@ -1602,7 +1602,7 @@ mod invalidation_tests {
         db.project = Some(project);
         let name = PythonModuleName::parse("unrelated").unwrap();
 
-        let module = PythonModule::resolve(&db, project, name.clone())
+        let module = PythonSourceModule::resolve(&db, project, name.clone())
             .expect("unrelated should resolve from the project root");
         assert_eq!(module.path(), unrelated_path.as_path());
         assert_eq!(
@@ -1623,7 +1623,7 @@ mod invalidation_tests {
             .add_file(vendor.join("unrelated/marker.txt"), String::new());
         db.bump_file_root_revision(vendor_root);
 
-        let module = PythonModule::resolve(&db, project, name.clone())
+        let module = PythonSourceModule::resolve(&db, project, name.clone())
             .expect("unrelated should stay resolved from the project root");
         assert_eq!(module.path(), unrelated_path.as_path());
         assert_eq!(
@@ -1648,7 +1648,7 @@ mod invalidation_tests {
             .add_file(vendor.join("unrelated.py"), String::new());
         db.bump_file_root_revision(vendor_root);
 
-        let module = PythonModule::resolve(&db, project, name)
+        let module = PythonSourceModule::resolve(&db, project, name)
             .expect("unrelated should stay resolved from the project root");
         assert_eq!(module.path(), unrelated_path.as_path());
         assert_eq!(

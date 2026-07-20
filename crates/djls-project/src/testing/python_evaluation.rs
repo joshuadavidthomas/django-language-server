@@ -11,6 +11,7 @@ use crate::python::InvalidModuleName;
 use crate::python::PythonImportError;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::PythonSourceModule;
 use crate::python::PythonSyntaxError;
 use crate::python::evaluation;
 use crate::python::file_to_module;
@@ -66,33 +67,37 @@ pub struct PythonValueView {
 pub enum PythonValueKindView {
     Str(String),
     Bool(bool),
-    Path(Utf8PathBuf),
-    PathSymbol(PythonPathSymbolView),
-    OtherLiteral,
+    Path(PythonPathView),
+    UnsupportedLiteral,
     List(Vec<PythonSequenceItemView>),
     Tuple(Vec<PythonSequenceItemView>),
     Dict(Vec<PythonDictItemView>),
-    Module(PythonModuleObjectIdView),
+    Module(PythonModuleView),
     Unknown(PythonUnknownView),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PythonModuleObjectIdView {
+pub enum PythonModuleView {
     Source(PythonModuleName),
     Namespace(PythonModuleName),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PythonPathView {
+    Object(Utf8PathBuf),
+    Intrinsic(PythonPathIntrinsicView),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PythonPathSymbolView {
+pub enum PythonPathIntrinsicView {
     BuiltinsModule,
-    BuiltinStr,
-    ModuleFile,
+    BuiltinStrType,
     PathlibModule,
-    PathlibPath,
+    PathlibPathType,
     OsModule,
     OsPathModule,
-    OsPathJoin,
-    OsPathDirname,
+    OsPathJoinFunction,
+    OsPathDirnameFunction,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -229,7 +234,7 @@ pub fn python_module_evaluation(
 pub fn python_module_evaluation_for_module(
     db: &dyn Db,
     project: Project,
-    module: PythonModule,
+    module: PythonSourceModule,
 ) -> PythonModuleEvaluationView {
     let values = evaluation::python_module_values(db, project, module.clone()).clone();
     let dependencies = evaluation::python_module_dependencies(db, project, module).clone();
@@ -336,11 +341,15 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
         kind: match value.into_kind() {
             evaluation::PythonValueKind::Str(value) => PythonValueKindView::Str(value),
             evaluation::PythonValueKind::Bool(value) => PythonValueKindView::Bool(value),
-            evaluation::PythonValueKind::Path(value) => PythonValueKindView::Path(value),
-            evaluation::PythonValueKind::PathSymbol(symbol) => {
-                PythonValueKindView::PathSymbol(path_symbol_view(symbol))
+            evaluation::PythonValueKind::Path(path) => PythonValueKindView::Path(match path {
+                crate::python::PythonPath::Object(path) => PythonPathView::Object(path),
+                crate::python::PythonPath::Intrinsic(intrinsic) => {
+                    PythonPathView::Intrinsic(path_intrinsic_view(intrinsic))
+                }
+            }),
+            evaluation::PythonValueKind::UnsupportedLiteral => {
+                PythonValueKindView::UnsupportedLiteral
             }
-            evaluation::PythonValueKind::OtherLiteral => PythonValueKindView::OtherLiteral,
             evaluation::PythonValueKind::List(list) => {
                 PythonValueKindView::List(sequence_items_view(list.semantic_items()))
             }
@@ -364,7 +373,7 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
                     .collect(),
             ),
             evaluation::PythonValueKind::Module(id) => {
-                PythonValueKindView::Module(module_object_id_view(&id))
+                PythonValueKindView::Module(module_view(&id))
             }
             evaluation::PythonValueKind::Unknown(unknown) => {
                 PythonValueKindView::Unknown(unknown_view(unknown))
@@ -374,28 +383,33 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
     }
 }
 
-fn path_symbol_view(symbol: crate::python::PythonPathSymbol) -> PythonPathSymbolView {
-    match symbol {
-        crate::python::PythonPathSymbol::BuiltinsModule => PythonPathSymbolView::BuiltinsModule,
-        crate::python::PythonPathSymbol::BuiltinStr => PythonPathSymbolView::BuiltinStr,
-        crate::python::PythonPathSymbol::ModuleFile => PythonPathSymbolView::ModuleFile,
-        crate::python::PythonPathSymbol::PathlibModule => PythonPathSymbolView::PathlibModule,
-        crate::python::PythonPathSymbol::PathlibPath => PythonPathSymbolView::PathlibPath,
-        crate::python::PythonPathSymbol::OsModule => PythonPathSymbolView::OsModule,
-        crate::python::PythonPathSymbol::OsPathModule => PythonPathSymbolView::OsPathModule,
-        crate::python::PythonPathSymbol::OsPathJoin => PythonPathSymbolView::OsPathJoin,
-        crate::python::PythonPathSymbol::OsPathDirname => PythonPathSymbolView::OsPathDirname,
+fn path_intrinsic_view(intrinsic: crate::python::PythonPathIntrinsic) -> PythonPathIntrinsicView {
+    match intrinsic {
+        crate::python::PythonPathIntrinsic::BuiltinsModule => {
+            PythonPathIntrinsicView::BuiltinsModule
+        }
+        crate::python::PythonPathIntrinsic::BuiltinStrType => {
+            PythonPathIntrinsicView::BuiltinStrType
+        }
+        crate::python::PythonPathIntrinsic::PathlibModule => PythonPathIntrinsicView::PathlibModule,
+        crate::python::PythonPathIntrinsic::PathlibPathType => {
+            PythonPathIntrinsicView::PathlibPathType
+        }
+        crate::python::PythonPathIntrinsic::OsModule => PythonPathIntrinsicView::OsModule,
+        crate::python::PythonPathIntrinsic::OsPathModule => PythonPathIntrinsicView::OsPathModule,
+        crate::python::PythonPathIntrinsic::OsPathJoinFunction => {
+            PythonPathIntrinsicView::OsPathJoinFunction
+        }
+        crate::python::PythonPathIntrinsic::OsPathDirnameFunction => {
+            PythonPathIntrinsicView::OsPathDirnameFunction
+        }
     }
 }
 
-fn module_object_id_view(id: &evaluation::PythonModuleObjectId) -> PythonModuleObjectIdView {
-    match id {
-        evaluation::PythonModuleObjectId::Source(module) => {
-            PythonModuleObjectIdView::Source(module.name().clone())
-        }
-        evaluation::PythonModuleObjectId::Namespace(package) => {
-            PythonModuleObjectIdView::Namespace(package.name().clone())
-        }
+fn module_view(module: &PythonModule) -> PythonModuleView {
+    match module {
+        PythonModule::Source(module) => PythonModuleView::Source(module.name().clone()),
+        PythonModule::Namespace(package) => PythonModuleView::Namespace(package.name().clone()),
     }
 }
 

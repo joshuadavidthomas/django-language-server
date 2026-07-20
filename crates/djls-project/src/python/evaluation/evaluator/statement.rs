@@ -332,8 +332,7 @@ impl Evaluator<'_> {
             }
             PythonValueKind::Dict(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::PathSymbol(_)
-            | PythonValueKind::OtherLiteral
+            | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Bool(_)
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {
@@ -402,10 +401,10 @@ impl Evaluator<'_> {
         let mut names = Vec::new();
         let target_names = target_write_names(target);
         if target_names.is_empty() {
-            names = self.state.all_path_symbol_write_names();
+            names = self.state.all_path_intrinsic_write_names();
         } else {
             for target_name in target_names {
-                for alias in self.state.path_symbol_write_names(target_name) {
+                for alias in self.state.path_intrinsic_write_names(target_name) {
                     if !names.contains(&alias) {
                         names.push(alias);
                     }

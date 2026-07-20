@@ -26,8 +26,8 @@ use super::symbols::TemplateSymbol;
 use super::symbols::TemplateSymbolKind;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::PythonSourceModule;
 use crate::settings::settings_module_file;
 use crate::settings::types::InstalledAppEvidence;
 
@@ -62,7 +62,7 @@ pub struct TemplateLibraryKey {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TemplateLibraryModule {
-    Source(PythonModule),
+    Source(PythonSourceModule),
     Configured(PythonModuleName),
 }
 
@@ -134,7 +134,7 @@ impl TemplateLibrary {
     #[must_use]
     fn builtin(
         key: TemplateLibraryKey,
-        module: PythonModule,
+        module: PythonSourceModule,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
@@ -176,7 +176,7 @@ impl TemplateLibrary {
     fn installed(
         key: TemplateLibraryKey,
         load_name: LibraryName,
-        module: PythonModule,
+        module: PythonSourceModule,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
@@ -241,7 +241,7 @@ impl TemplateLibrary {
         key: TemplateLibraryKey,
         load_name: LibraryName,
         app: PythonModuleName,
-        module: PythonModule,
+        module: PythonSourceModule,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
@@ -654,7 +654,7 @@ type TestingBackendConfiguration = (Vec<(LibraryName, PythonModuleName)>, Vec<Py
 type DiscoveredLibrary = (
     LibraryName,
     TemplateLibraryKey,
-    PythonModule,
+    PythonSourceModule,
     Vec<TemplateSymbol>,
 );
 
@@ -670,7 +670,7 @@ struct InstalledAppLibraries {
 enum ConfiguredLibraryModule {
     Source {
         key: TemplateLibraryKey,
-        module: PythonModule,
+        module: PythonSourceModule,
         symbols: Vec<TemplateSymbol>,
         recovered: bool,
     },
@@ -2329,7 +2329,7 @@ fn library_from_module_name(
     project: Project,
     module_name: PythonModuleName,
 ) -> ConfiguredLibraryModule {
-    let Some(module) = PythonModule::resolve(db, project, module_name.clone()) else {
+    let Some(module) = PythonSourceModule::resolve(db, project, module_name.clone()) else {
         return ConfiguredLibraryModule::SourceLess {
             key: TemplateLibraryKey::new(db, None, module_name.clone()),
             module: module_name,

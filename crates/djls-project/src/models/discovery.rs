@@ -11,13 +11,13 @@ use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonModule;
+use crate::python::PythonSourceModule;
 use crate::python::file_to_module;
 
 #[salsa::tracked(returns(ref))]
-pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
+pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonSourceModule> {
     let search_paths = project.search_paths(db);
-    let mut modules_by_path: Vec<(usize, PythonModule)> = Vec::new();
+    let mut modules_by_path: Vec<(usize, PythonSourceModule)> = Vec::new();
     let mut path_indexes: FxHashMap<Utf8PathBuf, usize> = FxHashMap::default();
 
     for search_path in search_paths.iter() {
