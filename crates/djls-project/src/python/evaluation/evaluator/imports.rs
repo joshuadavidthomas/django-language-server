@@ -220,7 +220,8 @@ impl Evaluator<'_> {
                 );
             }
             Ok((name, resolution)) => {
-                let load = self.load_import_chain(&name, resolution, clause_origin);
+                let load =
+                    self.load_import_chain(&name, resolution, clause_origin, ChainLoadMode::Full);
                 self.bind_direct_clause(clause, &load, binding_origin);
             }
         }
@@ -273,9 +274,10 @@ impl Evaluator<'_> {
         }
     }
 
-    /// Evaluate a `from ... import ...` statement: load the source chain (with
-    /// its new parent-package effects) then freeze named/star selection on the
-    /// terminal source module's values, exactly as before.
+    /// Evaluate a `from ... import ...` statement. Star imports retain their
+    /// existing source-values policy. Named imports are selected here, where
+    /// member projection can fall back to an exact package child through the
+    /// same chain loader used by ordinary imports.
     fn evaluate_from_import(&mut self, statement: &ast::StmtImportFrom) {
         let import = FromImport::lower(self, statement);
         let request = PythonImportRequest {
@@ -294,16 +296,25 @@ impl Evaluator<'_> {
                     .apply_from_failure(&import, &PythonUnknownCause::InvalidImport(error));
             }
             Ok((name, resolution)) => {
-                let load = self.load_import_chain(&name, resolution, import.origin);
+                let load =
+                    self.load_import_chain(&name, resolution, import.origin, ChainLoadMode::Full);
                 match load.leaf {
-                    ChainOutcome::Source { values, .. } => {
-                        self.state.apply_from_selection(&import, &name, &values);
+                    ChainOutcome::Source { object, values } => match &import.selection {
+                        ImportSelection::Star => {
+                            self.state.apply_star_import(&values, import.origin);
+                        }
+                        ImportSelection::Named(_) => {
+                            self.apply_named_from_selection(&import, &name, &object, Some(&values));
+                        }
+                    },
+                    ChainOutcome::Namespace { object }
+                    | ChainOutcome::Cycle { object }
+                    | ChainOutcome::External { object, .. }
+                        if matches!(import.selection, ImportSelection::Named(_)) =>
+                    {
+                        self.apply_named_from_selection(&import, &name, &object, None);
                     }
                     ChainOutcome::Namespace { .. } => {
-                        // A namespace terminal has no loadable source module, so
-                        // for member selection it is a not-found source. The
-                        // loader records no outcome for a namespace terminal, so
-                        // record the canonical not-found here.
                         self.state.record_import(PythonImportOutcome::NotFound {
                             origin: import.origin,
                             module: name.clone(),
@@ -311,28 +322,102 @@ impl Evaluator<'_> {
                         self.state
                             .apply_from_failure(&import, &PythonUnknownCause::ImportNotFound(name));
                     }
-                    ChainOutcome::NotFound { module } => {
-                        // The loader already recorded the not-found outcome.
-                        self.state.apply_from_failure(
-                            &import,
-                            &PythonUnknownCause::ImportNotFound(module),
-                        );
-                    }
-                    ChainOutcome::External { module, .. } => {
-                        self.state.apply_from_failure(
-                            &import,
-                            &PythonUnknownCause::SkippedExternal(module),
-                        );
-                    }
-                    ChainOutcome::Cycle { .. } => {
-                        self.state
-                            .apply_from_failure(&import, &PythonUnknownCause::Cycle);
-                    }
-                    ChainOutcome::Unreadable { error, .. } => {
-                        self.state
-                            .apply_from_failure(&import, &PythonUnknownCause::Unreadable(error));
-                    }
+                    ChainOutcome::NotFound { module } => self
+                        .state
+                        .apply_from_failure(&import, &PythonUnknownCause::ImportNotFound(module)),
+                    ChainOutcome::External { module, .. } => self
+                        .state
+                        .apply_from_failure(&import, &PythonUnknownCause::SkippedExternal(module)),
+                    ChainOutcome::Cycle { .. } => self
+                        .state
+                        .apply_from_failure(&import, &PythonUnknownCause::Cycle),
+                    ChainOutcome::Unreadable { error, .. } => self
+                        .state
+                        .apply_from_failure(&import, &PythonUnknownCause::Unreadable(error)),
                 }
+            }
+        }
+    }
+
+    fn apply_named_from_selection(
+        &mut self,
+        import: &FromImport<'_>,
+        module: &PythonModuleName,
+        object: &PythonModuleObjectId,
+        values: Option<&PythonModuleValues>,
+    ) {
+        let ImportSelection::Named(bindings) = &import.selection else {
+            unreachable!("named selection caller checked the import form")
+        };
+        for imported in bindings {
+            let mut binding =
+                self.project_module_member(object, imported.imported, imported.origin);
+            if binding.import_fallback_constraints().is_some() && object.is_package() {
+                let child_name = PythonModuleName::parse(&format!(
+                    "{}.{}",
+                    object.name().as_str(),
+                    imported.imported
+                ))
+                .expect("an imported identifier extends a valid module name");
+                let request = PythonImportRequest {
+                    level: 0,
+                    module: Some(child_name.as_str()),
+                    importer: &self.module,
+                };
+                let (_resolved_name, resolution) =
+                    PythonModule::resolve_import_chain(self.db, self.project, request)
+                        .expect("an exact child request is a valid absolute import");
+                let child = self.load_import_chain(
+                    &child_name,
+                    resolution,
+                    import.origin,
+                    ChainLoadMode::ChildFallback {
+                        parent: object,
+                        member: &binding,
+                    },
+                );
+                let fallback = match child.leaf {
+                    ChainOutcome::Source { object, .. }
+                    | ChainOutcome::Namespace { object }
+                    | ChainOutcome::Cycle { object }
+                    | ChainOutcome::External { object, .. }
+                        if child.leaf_reached =>
+                    {
+                        Some(PythonBinding::bound(
+                            PythonValue::module(object, imported.origin),
+                            imported.origin,
+                        ))
+                    }
+                    ChainOutcome::Unreadable { error } => Some(PythonBinding::unknown(
+                        &PythonUnknownCause::Unreadable(error),
+                        imported.origin,
+                    )),
+                    ChainOutcome::NotFound { .. }
+                    | ChainOutcome::Source { .. }
+                    | ChainOutcome::Namespace { .. }
+                    | ChainOutcome::Cycle { .. }
+                    | ChainOutcome::External { .. } => None,
+                };
+                if let Some(fallback) = fallback {
+                    binding = binding
+                        .replace_unbound_with(Some(fallback.clone()), imported.origin)
+                        .join_fallback_on_cycle(&fallback, imported.origin);
+                }
+            }
+
+            let missing = PythonUnknownCause::MissingImportMember {
+                module: module.clone(),
+                member: imported.imported.to_string(),
+            };
+            binding = binding.replace_unbound_with(
+                Some(PythonBinding::unknown(&missing, imported.origin)),
+                imported.origin,
+            );
+            self.state
+                .assign_binding(imported.bound, binding, imported.origin);
+            if let Some(values) = values {
+                self.state
+                    .copy_imported_mutations(values, imported.imported, imported.bound);
             }
         }
     }
@@ -347,16 +432,16 @@ impl Evaluator<'_> {
         name: &PythonModuleName,
         resolution: PythonImportChainResolution,
         origin: Origin,
+        mode: ChainLoadMode<'_>,
     ) -> ChainLoad {
-        let (components, failure) = match resolution {
+        let (mut components, failure) = match resolution {
             PythonImportChainResolution::Resolved(chain) => (chain.into_components(), None),
             PythonImportChainResolution::Failed { prefix, failure } => {
                 (prefix.into_components(), Some(failure))
             }
         };
+        let mut progress = ChainLoadProgress::start(&mut components, mode);
         let resolved_len = components.len();
-
-        let mut progress = ChainLoadProgress::default();
 
         for (index, component) in components.into_iter().enumerate() {
             let is_last = failure.is_none() && index + 1 == resolved_len;
@@ -381,6 +466,7 @@ impl Evaluator<'_> {
                         &attribute,
                         &object,
                         origin,
+                        progress.terminal_member(is_last),
                     );
                     progress.root.get_or_insert_with(|| object.clone());
                     progress.parent = Some(object.clone());
@@ -393,17 +479,14 @@ impl Evaluator<'_> {
                     if !module.search_path().is_project_code() =>
                 {
                     progress.external = true;
-                    self.state
-                        .record_import(PythonImportOutcome::SkippedExternal {
-                            origin,
-                            module: name.clone(),
-                        });
+                    self.record_external_outcome(name, origin, &mut progress);
                     self.state.attach_external_component(
                         progress.parent.as_ref(),
                         &attribute,
                         &object,
                         name,
                         origin,
+                        progress.terminal_member(is_last),
                     );
                     progress.root.get_or_insert_with(|| object.clone());
                     progress.parent = Some(object.clone());
@@ -423,6 +506,7 @@ impl Evaluator<'_> {
                         &attribute,
                         &object,
                         origin,
+                        None,
                     );
                     progress.root.get_or_insert_with(|| object.clone());
                     progress.parent = Some(object);
@@ -461,12 +545,14 @@ impl Evaluator<'_> {
         origin: Origin,
         progress: &mut ChainLoadProgress,
     ) {
+        self.record_external_outcome(name, origin, progress);
         self.state.attach_external_component(
             progress.parent.as_ref(),
             attribute,
             &object,
             name,
             origin,
+            progress.terminal_member(is_last),
         );
         progress.root.get_or_insert_with(|| object.clone());
         progress.parent = Some(object.clone());
@@ -476,6 +562,22 @@ impl Evaluator<'_> {
                 object,
                 module: name.clone(),
             });
+        }
+    }
+
+    fn record_external_outcome(
+        &mut self,
+        name: &PythonModuleName,
+        origin: Origin,
+        progress: &mut ChainLoadProgress,
+    ) {
+        if !progress.external_outcome_recorded {
+            self.state
+                .record_import(PythonImportOutcome::SkippedExternal {
+                    origin,
+                    module: name.clone(),
+                });
+            progress.external_outcome_recorded = true;
         }
     }
 
@@ -492,9 +594,15 @@ impl Evaluator<'_> {
     ) -> bool {
         match self.evaluate_source_component(module, origin) {
             SourceComponent::Cycle => {
+                self.state.attach_component(
+                    progress.parent.as_ref(),
+                    attribute,
+                    &object,
+                    origin,
+                    progress.terminal_member(is_last),
+                );
                 self.state
-                    .attach_component(progress.parent.as_ref(), attribute, &object, origin);
-                self.state.open_component_cycle(&object, origin);
+                    .open_component_cycle(&object, origin, progress.terminal_member(is_last));
                 progress.root.get_or_insert_with(|| object.clone());
                 progress.leaf_reached = is_last;
                 progress.terminal = Some(ChainOutcome::Cycle { object });
@@ -506,9 +614,15 @@ impl Evaluator<'_> {
                 true
             }
             SourceComponent::Evaluated(values, objects) => {
-                self.state.module_objects_merge(objects, origin);
                 self.state
-                    .attach_component(progress.parent.as_ref(), attribute, &object, origin);
+                    .module_objects_merge(objects, origin, progress.terminal_member(is_last));
+                self.state.attach_component(
+                    progress.parent.as_ref(),
+                    attribute,
+                    &object,
+                    origin,
+                    progress.terminal_member(is_last),
+                );
                 progress.root.get_or_insert_with(|| object.clone());
                 progress.parent = Some(object.clone());
                 if is_last {
@@ -609,6 +723,15 @@ impl Evaluator<'_> {
 }
 
 /// The child attribute name and nominal object identity of a chain component.
+fn component_object(component: &ResolvedChainComponent) -> PythonModuleObjectId {
+    match component {
+        ResolvedChainComponent::Source(module) => PythonModuleObjectId::Source(module.clone()),
+        ResolvedChainComponent::Namespace(package) => {
+            PythonModuleObjectId::Namespace(package.clone())
+        }
+    }
+}
+
 fn component_identity(component: &ResolvedChainComponent) -> (String, PythonModuleObjectId) {
     let attribute = component
         .name()
@@ -617,12 +740,7 @@ fn component_identity(component: &ResolvedChainComponent) -> (String, PythonModu
         .next()
         .unwrap_or_default()
         .to_string();
-    let object = match component {
-        ResolvedChainComponent::Source(module) => PythonModuleObjectId::Source(module.clone()),
-        ResolvedChainComponent::Namespace(package) => {
-            PythonModuleObjectId::Namespace(package.clone())
-        }
-    };
+    let object = component_object(component);
     (attribute, object)
 }
 
@@ -694,13 +812,56 @@ impl ChainOutcome {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ChainLoadMode<'a> {
+    Full,
+    ChildFallback {
+        parent: &'a PythonModuleObjectId,
+        member: &'a PythonBinding,
+    },
+}
+
 #[derive(Default)]
 struct ChainLoadProgress {
     root: Option<PythonModuleObjectId>,
     parent: Option<PythonModuleObjectId>,
     terminal: Option<ChainOutcome>,
+    terminal_member: Option<PythonBinding>,
     leaf_reached: bool,
     external: bool,
+    external_outcome_recorded: bool,
+}
+
+impl ChainLoadProgress {
+    fn start(components: &mut Vec<ResolvedChainComponent>, mode: ChainLoadMode<'_>) -> Self {
+        let ChainLoadMode::ChildFallback { parent, member } = mode else {
+            return Self::default();
+        };
+        let root = components.first().map(component_object);
+        let prefix_index = components
+            .iter()
+            .position(|component| component_object(component) == *parent)
+            .expect("an exact child chain retains its already-loaded parent prefix");
+        components.drain(..=prefix_index);
+        Self {
+            root,
+            parent: Some(parent.clone()),
+            terminal_member: Some(member.clone()),
+            external: matches!(
+                parent,
+                PythonModuleObjectId::Source(module) if !module.search_path().is_project_code()
+            ),
+            ..Self::default()
+        }
+    }
+
+    fn terminal_member(&self, is_last: bool) -> Option<&PythonBinding> {
+        if is_last {
+            self.terminal_member.as_ref()
+        } else {
+            None
+        }
+    }
 }
 
 /// The result of loading a chain: the root component object (for unaliased
@@ -787,14 +948,25 @@ impl EvaluationState {
         attribute: &str,
         object: &PythonModuleObjectId,
         origin: Origin,
+        terminal_member: Option<&PythonBinding>,
     ) {
         if let Some(parent) = parent {
-            self.module_objects.attach_child(
-                parent.clone(),
-                attribute.to_string(),
-                object.clone(),
-                origin,
-            );
+            if let Some(member) = terminal_member {
+                self.module_objects.attach_child_for_import_fallback(
+                    parent.clone(),
+                    attribute.to_string(),
+                    object,
+                    member,
+                    origin,
+                );
+            } else {
+                self.module_objects.attach_child(
+                    parent.clone(),
+                    attribute.to_string(),
+                    object.clone(),
+                    origin,
+                );
+            }
         }
     }
 
@@ -808,57 +980,58 @@ impl EvaluationState {
         object: &PythonModuleObjectId,
         module: &PythonModuleName,
         origin: Origin,
+        terminal_member: Option<&PythonBinding>,
     ) {
-        self.attach_component(parent, attribute, object, origin);
-        self.module_objects.open_cause(
-            object.clone(),
-            PythonNamespaceCause::unconstrained(PythonUnknown::new(
-                PythonUnknownCause::SkippedExternal(module.clone()),
-                [origin],
-            )),
+        self.attach_component(parent, attribute, object, origin, terminal_member);
+        let unknown = PythonUnknown::new(
+            PythonUnknownCause::SkippedExternal(module.clone()),
+            [origin],
         );
+        if let Some(cause) = Self::object_cause(unknown, terminal_member) {
+            self.module_objects.open_cause(object.clone(), cause);
+        }
     }
 
     /// Mark a cycle-seed component's object open with a `Cycle` cause so reads of
     /// its attributes become cycle unknowns.
-    fn open_component_cycle(&mut self, object: &PythonModuleObjectId, origin: Origin) {
-        self.module_objects.open_cause(
-            object.clone(),
-            PythonNamespaceCause::unconstrained(PythonUnknown::new(
-                PythonUnknownCause::Cycle,
-                [origin],
-            )),
-        );
+    fn open_component_cycle(
+        &mut self,
+        object: &PythonModuleObjectId,
+        origin: Origin,
+        terminal_member: Option<&PythonBinding>,
+    ) {
+        let unknown = PythonUnknown::new(PythonUnknownCause::Cycle, [origin]);
+        if let Some(cause) = Self::object_cause(unknown, terminal_member) {
+            self.module_objects.open_cause(object.clone(), cause);
+        }
+    }
+
+    fn object_cause(
+        unknown: PythonUnknown,
+        terminal_member: Option<&PythonBinding>,
+    ) -> Option<PythonNamespaceCause> {
+        match terminal_member {
+            Some(member) => member
+                .import_fallback_constraints()
+                .map(|constraints| PythonNamespaceCause::constrained(unknown, constraints)),
+            None => Some(PythonNamespaceCause::unconstrained(unknown)),
+        }
     }
 
     /// Merge a loaded component's own child effects into this importer's object
-    /// state in source order.
-    fn module_objects_merge(&mut self, objects: PythonModuleObjects, origin: Origin) {
-        self.module_objects.merge(objects, origin);
-    }
-
-    /// Freeze named/star selection on a loaded source module, unchanged from the
-    /// pre-chain behavior. Files, dependencies, and outcomes were already
-    /// recorded by the chain loader.
-    fn apply_from_selection(
+    /// state in source order, restricting a fallback module to the branches
+    /// where member projection remained absent.
+    fn module_objects_merge(
         &mut self,
-        import: &FromImport<'_>,
-        module: &PythonModuleName,
-        values: &PythonModuleValues,
+        objects: PythonModuleObjects,
+        origin: Origin,
+        terminal_member: Option<&PythonBinding>,
     ) {
-        match &import.selection {
-            ImportSelection::Star => self.apply_star_import(values, import.origin),
-            ImportSelection::Named(bindings) => {
-                for binding in bindings {
-                    self.bind_named_import(
-                        module,
-                        values,
-                        binding.imported,
-                        binding.bound,
-                        binding.origin,
-                    );
-                }
-            }
+        if let Some(member) = terminal_member {
+            self.module_objects
+                .merge_for_import_fallback(objects, member, origin);
+        } else {
+            self.module_objects.merge(objects, origin);
         }
     }
 
@@ -938,176 +1111,22 @@ impl EvaluationState {
         }
     }
 
-    fn bind_named_import(
+    fn copy_imported_mutations(
         &mut self,
-        module: &PythonModuleName,
         values: &PythonModuleValues,
         imported_name: &str,
         bound_name: &str,
-        origin: Origin,
     ) {
-        let syntax_errors = values
-            .syntax_impacts
-            .iter()
-            .filter(|impact| impact.affects(imported_name))
-            .map(|impact| impact.error.clone())
-            .collect::<Vec<_>>();
-        let missing_member = PythonUnknownCause::MissingImportMember {
-            module: module.clone(),
-            member: imported_name.to_string(),
-        };
-        let (mut binding, unbound_constraints) = match values.bindings.get(imported_name) {
-            Some(imported) => {
-                let imported = imported.clone().rebase_binding_origin(origin);
-                let constraints = imported
-                    .alternatives_with_constraints()
-                    .filter_map(|(alternative, constraints)| {
-                        (*alternative == PythonBindingState::Unbound).then_some(constraints.clone())
-                    })
-                    .collect::<Vec<_>>();
-                (imported, constraints)
-            }
-            None => (
-                PythonBinding::unknown(&missing_member, origin),
-                vec![BranchConstraints::unconstrained()],
-            ),
-        };
-        binding.rebase_cycle_unknowns(origin);
-        if let Some(remainder) = &values.namespace_remainder {
-            for unbound in &unbound_constraints {
-                for cause in remainder.as_slice() {
-                    let constraints = unbound.intersection(&cause.constraints);
-                    if let Some(unknown) = PythonBinding::constrained_unknown(
-                        &cause.unknown.cause,
-                        origin,
-                        &constraints,
-                    ) {
-                        binding = binding.join(unknown, origin);
-                    }
-                }
-            }
-        }
-        binding = binding.replace_unbound_with(
-            Some(PythonBinding::unknown(&missing_member, origin)),
-            origin,
+        self.mutations.extend(
+            values
+                .mutations
+                .iter()
+                .filter(|mutation| mutation.binding == imported_name)
+                .cloned()
+                .map(|mut mutation| {
+                    mutation.binding = bound_name.to_string();
+                    mutation
+                }),
         );
-        if !syntax_errors.is_empty() {
-            let unknown =
-                PythonBinding::unknown(&PythonUnknownCause::SyntaxErrors(syntax_errors), origin);
-            binding = binding.join(unknown, origin);
-        }
-        self.bindings.insert(bound_name.to_string(), binding);
-        let copied = values
-            .mutations
-            .iter()
-            .filter(|mutation| mutation.binding == imported_name)
-            .cloned()
-            .map(|mut mutation| {
-                mutation.binding = bound_name.to_string();
-                mutation
-            })
-            .collect::<Vec<_>>();
-        self.mutations.extend(copied);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use djls_source::File;
-    use djls_source::Span;
-    use salsa::plumbing::FromId;
-    use salsa::plumbing::Id;
-
-    use super::super::PythonNamespaceRemainder;
-    use super::super::PythonValue;
-    use super::super::PythonValueKind;
-    use super::BranchConstraints;
-    use super::EvaluationState;
-    use super::Origin;
-    use super::PythonBinding;
-    use super::PythonBindingState;
-    use super::PythonModuleValues;
-    use super::PythonNamespaceCause;
-    use super::PythonUnknown;
-    use super::PythonUnknownCause;
-    use crate::python::PythonModuleName;
-
-    fn test_file(index: u64) -> File {
-        File::from_id(Id::from_bits(index + 1))
-    }
-
-    fn origin(start: usize) -> Origin {
-        Origin::new(test_file(0), Span::saturating_from_parts_usize(start, 1))
-    }
-
-    #[test]
-    fn named_import_replaces_only_unbound_alternatives_and_preserves_constraints() {
-        let branch_origin = origin(10);
-        let import_origin = origin(20);
-        let mut known_constraints = BranchConstraints::unconstrained();
-        known_constraints.select(branch_origin, 0);
-        let mut missing_constraints = BranchConstraints::unconstrained();
-        missing_constraints.select(branch_origin, 1);
-
-        let mut known = PythonBinding::bound(
-            PythonValue::string("known".to_string(), origin(1)),
-            origin(1),
-        );
-        known.select_branch(branch_origin, 0);
-        let mut unbound = PythonBinding::unbound();
-        unbound.select_branch(branch_origin, 1);
-
-        let mut namespace_cause = PythonNamespaceCause::unconstrained(PythonUnknown::new(
-            PythonUnknownCause::ImportNotFound(PythonModuleName::parse("missing").unwrap()),
-            [origin(2)],
-        ));
-        namespace_cause.select_branch(branch_origin, 1);
-
-        let mut values = PythonModuleValues::default();
-        values
-            .bindings
-            .insert("MEMBER".to_string(), known.join(unbound, branch_origin));
-        values.namespace_remainder = Some(PythonNamespaceRemainder::new(vec![namespace_cause]));
-
-        let module = PythonModuleName::parse("plugin").unwrap();
-        let mut state = EvaluationState::new(test_file(0));
-        state.bind_named_import(&module, &values, "MEMBER", "ALIAS", import_origin);
-
-        let binding = state.binding("ALIAS").expect("the alias should be bound");
-        assert!(
-            !binding
-                .alternatives()
-                .any(|alternative| *alternative == PythonBindingState::Unbound)
-        );
-
-        let mut known_actual = None;
-        let mut missing_actual = None;
-        let mut namespace_actual = None;
-        for (alternative, constraints) in binding.alternatives_with_constraints() {
-            let PythonBindingState::Bound(bound) = alternative else {
-                continue;
-            };
-            match &bound.value.kind {
-                PythonValueKind::Str(value) if value == "known" => {
-                    known_actual = Some(constraints.clone());
-                }
-                PythonValueKind::Unknown(unknown) => match &unknown.cause {
-                    PythonUnknownCause::MissingImportMember { module, member }
-                        if module.as_str() == "plugin" && member == "MEMBER" =>
-                    {
-                        missing_actual = Some(constraints.clone());
-                    }
-                    PythonUnknownCause::ImportNotFound(module) if module.as_str() == "missing" => {
-                        namespace_actual = Some(constraints.clone());
-                    }
-                    _ => {}
-                },
-                _ => {}
-            }
-        }
-
-        assert_eq!(known_actual, Some(known_constraints));
-        assert_eq!(missing_actual, Some(missing_constraints.clone()));
-        assert_eq!(namespace_actual, Some(missing_constraints));
     }
 }

@@ -236,7 +236,7 @@ fn resolve_name(
             // file module's is its parent. This distinguishes a genuine
             // `pkg/__init__.py` package from an explicit `pkg.__init__` file
             // alias, which a path-suffix check cannot.
-            let is_regular_package = module.package.as_ref() == Some(&module.name);
+            let is_regular_package = module.is_package();
             let root = module.search_path().clone();
             let path = module.path().to_path_buf();
             let file = module.file();
@@ -641,6 +641,14 @@ impl PythonModule {
         &self.name
     }
 
+    /// Whether this identity is a regular package rather than a file module.
+    /// Package policy belongs to the resolved identity; callers must not infer
+    /// it from `__init__.py` path spelling.
+    #[must_use]
+    pub(crate) fn is_package(&self) -> bool {
+        self.package.as_ref() == Some(&self.name)
+    }
+
     #[must_use]
     pub fn path(&self) -> &Utf8Path {
         &self.path
@@ -806,6 +814,7 @@ mod tests {
             package.package.as_ref().map(PythonModuleName::as_str),
             Some("pkg")
         );
+        assert!(package.is_package());
 
         for (name, expected_package) in [
             ("top_level", None),
@@ -819,6 +828,7 @@ mod tests {
                 module.package.as_ref().map(PythonModuleName::as_str),
                 expected_package
             );
+            assert!(!module.is_package());
         }
     }
 }

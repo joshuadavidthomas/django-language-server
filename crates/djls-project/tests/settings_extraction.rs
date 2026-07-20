@@ -410,7 +410,7 @@ fn unresolved_moduleless_relative_import_records_canonical_failure() {
             if *origin == Origin::new(
                 settings,
                 expected_span(source, "from . import VALUE"),
-            ) && module.as_str() == "pkg"
+            ) && module.as_str() == "pkg.VALUE"
     ));
     let binding = evaluation
         .binding("VALUE")
@@ -423,8 +423,8 @@ fn unresolved_moduleless_relative_import_records_canonical_failure() {
                 ..
             },
             ..
-        })] if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module)
-            if module.as_str() == "pkg")
+        })] if matches!(&unknown.cause, PythonUnknownCauseView::MissingImportMember { module, member }
+            if module.as_str() == "pkg" && member == "VALUE")
     ));
 }
 
@@ -1616,6 +1616,295 @@ fn deterministically_true_dotted_import_binds_module_unconditionally() {
 }
 
 #[test]
+fn named_from_import_loads_exact_package_child_with_alias_origins() {
+    let source = "from pkg import child as alias\n";
+    let (file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/child.py", "VALUE = 'child'\n"),
+        ],
+        source,
+    );
+    assert_eq!(
+        bound_module(&evaluation, "alias"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.child").unwrap())
+    );
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["resolved:pkg", "resolved:pkg.child"]
+    );
+    let alias_origin = Origin::new(file, expected_span(source, "child as alias"));
+    assert_eq!(
+        bound_value(&evaluation, "alias").binding_origins,
+        [alias_origin]
+    );
+    let statement_origin = Origin::new(
+        file,
+        expected_span(source, "from pkg import child as alias"),
+    );
+    assert!(matches!(
+        &evaluation.imports[1],
+        PythonImportOutcomeView::Resolved { origin, imported_module, .. }
+            if *origin == statement_origin && imported_module.as_str() == "pkg.child"
+    ));
+    assert_eq!(evaluation.dependency_files.len(), 3);
+}
+
+#[test]
+fn named_from_import_existing_private_member_shadows_child() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", "_child = 'member'\n"),
+            ("/project/pkg/_child.py", "VALUE = 'child'\n"),
+        ],
+        "from pkg import _child\n",
+    );
+    assert!(
+        matches!(&bound_value(&evaluation, "_child").value.kind, PythonValueKindView::Str(value) if value == "member")
+    );
+    assert_eq!(import_module_names(&evaluation), ["resolved:pkg"]);
+}
+
+#[test]
+fn named_from_import_conditional_member_attaches_child_only_when_absent() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/pkg/__init__.py",
+                "if FLAG:\n    child = 'member'\n",
+            ),
+            ("/project/pkg/child.py", "import pkg.side\n"),
+            ("/project/pkg/side.py", ""),
+        ],
+        "from pkg import child\nimport pkg\nATTR = pkg.child\nSIDE = pkg.side\n",
+    );
+    for name in ["child", "ATTR"] {
+        let binding = evaluation.binding(name).unwrap();
+        assert!(binding.alternatives.iter().any(|alternative| matches!(alternative, PythonBindingAlternativeView::Bound(PythonBoundValueView { value: PythonValueView { kind: PythonValueKindView::Str(value), .. }, .. }) if value == "member")));
+        assert!(binding.alternatives.iter().any(|alternative| matches!(alternative, PythonBindingAlternativeView::Bound(PythonBoundValueView { value: PythonValueView { kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)), .. }, .. }) if module.as_str() == "pkg.child")));
+    }
+    let side = evaluation.binding("SIDE").expect("SIDE should be bound");
+    assert!(side.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                ..
+            },
+            ..
+        }) if module.as_str() == "pkg.side"
+    )));
+    assert!(side.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::ModuleAttribute { module, member }
+            if module.as_str() == "pkg" && member == "side")
+    )));
+}
+
+#[test]
+fn named_from_import_loads_namespace_child_and_types_missing_child() {
+    let (_file, success) =
+        evaluate_module_with(&[("/project/ns/child.py", "")], "from ns import child\n");
+    assert_eq!(
+        bound_module(&success, "child"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("ns.child").unwrap())
+    );
+    assert_eq!(import_module_names(&success), ["resolved:ns.child"]);
+
+    let (_file, missing) = evaluate_module_with(
+        &[("/project/pkg/__init__.py", "")],
+        "from pkg import absent\n",
+    );
+    assert_eq!(
+        import_module_names(&missing),
+        ["resolved:pkg", "notfound:pkg.absent"]
+    );
+    assert!(
+        matches!(&bound_value(&missing, "absent").value.kind, PythonValueKindView::Unknown(unknown) if matches!(&unknown.cause, PythonUnknownCauseView::MissingImportMember { module, member } if module.as_str() == "pkg" && member == "absent"))
+    );
+}
+
+#[test]
+fn named_from_import_external_package_child_keeps_identity_open_without_dependencies() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            (
+                "/project/.venv/lib/python3.12/site-packages/external/__init__.py",
+                "PARENT = 'not evaluated'\n",
+            ),
+            (
+                "/project/.venv/lib/python3.12/site-packages/external/child.py",
+                "VALUE = 'not evaluated'\n",
+            ),
+        ],
+        "from external import child\nimport external as parent\nATTR = child.VALUE\nATTACHED = parent.child\n",
+    );
+
+    assert_eq!(
+        &import_module_names(&evaluation)[..2],
+        ["external:external", "external:external.child"]
+    );
+    assert_eq!(
+        evaluation.dependency_files.len(),
+        1,
+        "external source files must not become dependencies",
+    );
+    let child = evaluation.binding("child").expect("child should be bound");
+    assert!(child.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                ..
+            },
+            ..
+        }) if module.as_str() == "external.child"
+    )));
+    let attached = evaluation
+        .binding("ATTACHED")
+        .expect("the loaded child should remain attached to its parent");
+    assert!(attached.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Module(PythonModuleObjectIdView::Source(module)),
+                ..
+            },
+            ..
+        }) if module.as_str() == "external.child"
+    )));
+    assert!(!attached.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(unknown.cause, PythonUnknownCauseView::ModuleAttribute { .. })
+    )));
+
+    let attribute = evaluation.binding("ATTR").expect("ATTR should be bound");
+    assert!(attribute.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module)
+            if module.as_str() == "external.child")
+    )));
+}
+
+#[test]
+fn named_from_import_unreadable_child_records_edge_without_attachment() {
+    let (db, settings, evaluation) = evaluate_unreadable_module(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            ("/project/pkg/child.py", "VALUE = 'hidden'\n"),
+        ],
+        "/project/pkg/child.py",
+        "from pkg import child\nimport pkg\nATTR = pkg.child\n",
+    );
+    let package = path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py")).unwrap();
+    let child_file = path_to_file(&db, Utf8Path::new("/project/pkg/child.py")).unwrap();
+
+    assert!(matches!(
+        &evaluation.imports[0],
+        PythonImportOutcomeView::Resolved { imported_module, .. }
+            if imported_module.as_str() == "pkg"
+    ));
+    assert!(matches!(
+        &evaluation.imports[1],
+        PythonImportOutcomeView::Unreadable { imported_module, .. }
+            if imported_module.as_str() == "pkg.child"
+    ));
+    assert_eq!(
+        &evaluation.dependency_files[..3],
+        [settings, package, child_file],
+    );
+    assert!(matches!(
+        &bound_value(&evaluation, "child").value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(unknown.cause, PythonUnknownCauseView::Unreadable(_))
+    ));
+    assert!(matches!(
+        &bound_value(&evaluation, "ATTR").value.kind,
+        PythonValueKindView::Unknown(unknown)
+            if matches!(&unknown.cause, PythonUnknownCauseView::ModuleAttribute { module, member }
+                if module.as_str() == "pkg" && member == "child")
+    ));
+}
+
+#[test]
+fn named_from_import_child_cycle_records_recovery_and_binds_handle() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[
+            ("/project/pkg/__init__.py", ""),
+            (
+                "/project/pkg/child.py",
+                "import settings\nVALUE = 'partial'\n",
+            ),
+        ],
+        "from pkg import child\nATTR = child.VALUE\n",
+    );
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["cycle:settings", "resolved:pkg", "resolved:pkg.child"]
+    );
+    assert_eq!(
+        bound_module(&evaluation, "child"),
+        &PythonModuleObjectIdView::Source(PythonModuleName::parse("pkg.child").unwrap())
+    );
+    assert!(matches!(
+        &bound_value(&evaluation, "ATTR").value.kind,
+        PythonValueKindView::Str(value) if value == "partial"
+    ));
+}
+
+#[test]
+fn named_from_import_cycle_seed_parent_still_loads_exact_child() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/pkg/__init__.py",
+        "from . import child\nATTR = child.VALUE\n",
+    );
+    db.add_file("/project/pkg/child.py", "VALUE = 'child'\n");
+    let project = python_project(&db);
+    let package =
+        PythonModule::resolve(&db, project, PythonModuleName::parse("pkg").unwrap()).unwrap();
+    let package_file = package.file();
+    let child_file = db.file(Utf8Path::new("/project/pkg/child.py"));
+    let evaluation = python_module_evaluation_for_module(&db, project, package);
+
+    assert_eq!(
+        import_module_names(&evaluation),
+        ["cycle:pkg", "resolved:pkg.child"]
+    );
+    assert_eq!(evaluation.dependency_files, [package_file, child_file]);
+    let child = evaluation.binding("child").expect("child should be bound");
+    assert!(child.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView {
+                kind: PythonValueKindView::Unknown(unknown),
+                ..
+            },
+            ..
+        }) if matches!(unknown.cause, PythonUnknownCauseView::Cycle)
+    )));
+}
+
+#[test]
 fn from_dotted_import_named_records_parent_effects_and_selects_member() {
     // A dotted `from pkg.sub import CHILD` loads the side-effecting parent
     // `pkg/__init__.py` (new parent effect) and the leaf `pkg/sub.py`, then
@@ -2033,13 +2322,23 @@ fn from_dotted_import_external_suffix_skips_and_fails_selection() {
     );
 
     assert_eq!(import_module_names(&evaluation), ["external:ns.sub"]);
-    let value = bound_value(&evaluation, "VALUE");
-    assert!(matches!(
-        &value.value.kind,
-        PythonValueKindView::Unknown(unknown)
-            if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module)
-                if module.as_str() == "ns.sub")
-    ));
+    let value = evaluation.binding("VALUE").expect("VALUE should be bound");
+    assert!(value.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView { kind: PythonValueKindView::Unknown(unknown), .. },
+            ..
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module)
+            if module.as_str() == "ns.sub")
+    )));
+    assert!(value.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView { kind: PythonValueKindView::Unknown(unknown), .. },
+            ..
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::MissingImportMember { module, member }
+            if module.as_str() == "ns.sub" && member == "VALUE")
+    )));
 }
 
 #[test]
@@ -2056,14 +2355,14 @@ fn from_dotted_import_namespace_leaf_records_source_prefix_and_not_found() {
 
     assert_eq!(
         import_module_names(&evaluation),
-        ["resolved:pkg", "notfound:pkg.ns"]
+        ["resolved:pkg", "notfound:pkg.ns.VALUE"]
     );
     let value = bound_value(&evaluation, "VALUE");
     assert!(matches!(
         &value.value.kind,
         PythonValueKindView::Unknown(unknown)
-            if matches!(&unknown.cause, PythonUnknownCauseView::ImportNotFound(module)
-                if module.as_str() == "pkg.ns")
+            if matches!(&unknown.cause, PythonUnknownCauseView::MissingImportMember { module, member }
+                if module.as_str() == "pkg.ns" && member == "VALUE")
     ));
 }
 
@@ -3330,16 +3629,21 @@ fn python_module_evaluation_reports_skipped_external_import() {
     let binding = evaluation
         .binding("VALUE")
         .expect("skipped import should bind unknown");
-    assert!(matches!(
-        binding.alternatives.as_slice(),
-        [PythonBindingAlternativeView::Bound(PythonBoundValueView {
-            value: PythonValueView {
-                kind: PythonValueKindView::Unknown(unknown),
-                ..
-            },
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView { kind: PythonValueKindView::Unknown(unknown), .. },
             ..
-        })] if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module) if module.as_str() == "external")
-    ));
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::SkippedExternal(module) if module.as_str() == "external")
+    )));
+    assert!(binding.alternatives.iter().any(|alternative| matches!(
+        alternative,
+        PythonBindingAlternativeView::Bound(PythonBoundValueView {
+            value: PythonValueView { kind: PythonValueKindView::Unknown(unknown), .. },
+            ..
+        }) if matches!(&unknown.cause, PythonUnknownCauseView::MissingImportMember { module, member }
+            if module.as_str() == "external" && member == "VALUE")
+    )));
 }
 
 #[test]

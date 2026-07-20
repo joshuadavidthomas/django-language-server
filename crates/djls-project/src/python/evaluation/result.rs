@@ -60,9 +60,13 @@ impl StructuralOrd for PythonNamespaceCause {
 
 impl PythonNamespaceCause {
     pub(super) fn unconstrained(unknown: PythonUnknown) -> Self {
+        Self::constrained(unknown, BranchConstraints::unconstrained())
+    }
+
+    pub(super) fn constrained(unknown: PythonUnknown, constraints: BranchConstraints) -> Self {
         Self {
             unknown,
-            constraints: BranchConstraints::unconstrained(),
+            constraints,
         }
     }
 

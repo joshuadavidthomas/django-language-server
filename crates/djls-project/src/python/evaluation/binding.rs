@@ -243,6 +243,136 @@ impl PythonBinding {
             .unwrap_or_else(|| Self::unknown(unsupported, origin))
     }
 
+    /// Constraints where an exact child import remains feasible: definite
+    /// absence, or a cycle seed whose partially initialized namespace cannot
+    /// establish either presence or absence yet.
+    pub(super) fn import_fallback_constraints(&self) -> Option<BranchConstraints> {
+        self.cases
+            .iter()
+            .filter(|case| {
+                case.state == PythonBindingState::Unbound || case.state.is_cycle_unknown()
+            })
+            .map(|case| case.constraints.clone())
+            .reduce(|mut constraints, incoming| {
+                constraints.merge(incoming);
+                constraints
+            })
+    }
+
+    fn cycle_constraints(&self) -> Option<BranchConstraints> {
+        self.cases
+            .iter()
+            .filter(|case| case.state.is_cycle_unknown())
+            .map(|case| case.constraints.clone())
+            .reduce(|mut constraints, incoming| {
+                constraints.merge(incoming);
+                constraints
+            })
+    }
+
+    /// Add a successful/typed fallback result on cycle-seed alternatives without
+    /// turning cycle uncertainty into definite missing-member evidence.
+    pub(super) fn join_fallback_on_cycle(mut self, fallback: &Self, origin: Origin) -> Self {
+        let Some(constraints) = self.cycle_constraints() else {
+            return self;
+        };
+        if let Some(fallback) = fallback.clone().intersect_constraints(&constraints) {
+            self = self.join(fallback, origin);
+        }
+        self
+    }
+
+    /// Build a loaded-child coordinate from a complete member projection.
+    /// Residual `Unbound` cases become the exact child module. Exact intrinsic
+    /// members preserve the prior child coordinate so they still win lookup.
+    /// Cycle uncertainty retains both the cycle and loaded-child possibilities.
+    pub(super) fn attach_module_for_import_fallback(
+        &self,
+        prior: &Self,
+        child: &PythonModuleObjectId,
+        origin: Origin,
+    ) -> Self {
+        let mut contributions = Vec::new();
+        for case in &self.cases {
+            let contribution = match &case.state {
+                PythonBindingState::Unbound => Self::constrained_bound(
+                    PythonValue::module(child.clone(), origin),
+                    origin,
+                    &case.constraints,
+                ),
+                state if state.is_cycle_unknown() => Self::constrained_bound(
+                    PythonValue::module(child.clone(), origin),
+                    origin,
+                    &case.constraints,
+                )
+                .map(|module| {
+                    Self {
+                        cases: vec![case.clone()],
+                    }
+                    .join(module, origin)
+                }),
+                PythonBindingState::Bound(bound)
+                    if matches!(bound.value.kind, PythonValueKind::Unknown(_)) =>
+                {
+                    Some(Self {
+                        cases: vec![case.clone()],
+                    })
+                }
+                PythonBindingState::Bound(_) => prior
+                    .clone()
+                    .intersect_constraints(&case.constraints)
+                    .or_else(|| Self::unbound().intersect_constraints(&case.constraints)),
+            };
+            if let Some(contribution) = contribution {
+                contributions.push(contribution);
+            }
+        }
+        contributions
+            .into_iter()
+            .reduce(|left, right| left.join(right, origin))
+            .unwrap_or_else(Self::unbound)
+    }
+
+    /// Apply one fallback module's object effect only where member projection
+    /// permits the child import. Other member alternatives preserve the prior
+    /// coordinate; cycle alternatives retain both possibilities.
+    pub(super) fn merge_effect_for_import_fallback(
+        &self,
+        prior: &Self,
+        incoming: &Self,
+        origin: Origin,
+    ) -> Self {
+        let mut contributions = Vec::new();
+        for case in &self.cases {
+            let contribution = match &case.state {
+                PythonBindingState::Unbound => {
+                    incoming.clone().intersect_constraints(&case.constraints)
+                }
+                state if state.is_cycle_unknown() => {
+                    let incoming = incoming.clone().intersect_constraints(&case.constraints);
+                    let prior = prior.clone().intersect_constraints(&case.constraints);
+                    match (prior, incoming) {
+                        (Some(prior), Some(incoming)) => Some(prior.join(incoming, origin)),
+                        (Some(prior), None) => Some(prior),
+                        (None, Some(incoming)) => Some(incoming),
+                        (None, None) => None,
+                    }
+                }
+                PythonBindingState::Bound(_) => prior
+                    .clone()
+                    .intersect_constraints(&case.constraints)
+                    .or_else(|| Self::unbound().intersect_constraints(&case.constraints)),
+            };
+            if let Some(contribution) = contribution {
+                contributions.push(contribution);
+            }
+        }
+        contributions
+            .into_iter()
+            .reduce(|left, right| left.join(right, origin))
+            .unwrap_or_else(Self::unbound)
+    }
+
     /// Merge an incoming imported coordinate onto `prior`, distributing per
     /// incoming constrained case: an `Unbound` case preserves `prior` on its
     /// constraints, an exact module attachment assigns (dropping `prior` there),
@@ -417,6 +547,18 @@ impl StructuralOrd for PythonBindingCase {
 pub(crate) enum PythonBindingState {
     Bound(PythonBoundValue),
     Unbound,
+}
+
+impl PythonBindingState {
+    fn is_cycle_unknown(&self) -> bool {
+        let Self::Bound(bound) = self else {
+            return false;
+        };
+        bound
+            .value
+            .unknown_value()
+            .is_some_and(|unknown| unknown.cause == PythonUnknownCause::Cycle)
+    }
 }
 
 impl StructuralOrd for PythonBindingState {

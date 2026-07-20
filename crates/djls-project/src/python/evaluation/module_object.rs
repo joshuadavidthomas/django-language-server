@@ -128,6 +128,15 @@ impl PythonModuleObjectId {
             Self::Namespace(package) => package.name(),
         }
     }
+
+    /// Whether this object can own importable children. Source identity owns
+    /// regular-package policy; namespace objects are packages by construction.
+    pub(crate) fn is_package(&self) -> bool {
+        match self {
+            Self::Source(module) => module.is_package(),
+            Self::Namespace(_) => true,
+        }
+    }
 }
 
 impl StructuralOrd for PythonModuleObjectId {
@@ -273,6 +282,25 @@ impl PythonModuleObjects {
         self.set_child(object, attribute, PythonBinding::bound(value, origin));
     }
 
+    /// Attach a child where member projection permits fallback. Exact member
+    /// branches retain the prior coordinate, while cycle-seed branches retain
+    /// both possibilities, so fallback never becomes unconditional.
+    pub(crate) fn attach_child_for_import_fallback(
+        &mut self,
+        object: PythonModuleObjectId,
+        attribute: String,
+        child: &PythonModuleObjectId,
+        member: &PythonBinding,
+        origin: Origin,
+    ) {
+        let prior = self
+            .read_child(&object, &attribute)
+            .cloned()
+            .unwrap_or_else(PythonBinding::unbound);
+        let binding = member.attach_module_for_import_fallback(&prior, child, origin);
+        self.set_child(object, attribute, binding);
+    }
+
     /// Extend object-scoped open causes in first-seen order with exact
     /// deduplication.
     pub(crate) fn open_cause(&mut self, object: PythonModuleObjectId, cause: PythonNamespaceCause) {
@@ -310,6 +338,40 @@ impl PythonModuleObjects {
             self.set_child(object, attribute, merged);
         }
         self.causes.extend(incoming.causes);
+        self.normalize();
+    }
+
+    /// Merge one conditionally evaluated fallback module's object effects only
+    /// where source member projection permits fallback. Existing coordinates
+    /// survive on exact member alternatives; incoming causes are likewise
+    /// intersected with the feasible fallback constraints.
+    pub(crate) fn merge_for_import_fallback(
+        &mut self,
+        incoming: Self,
+        member: &PythonBinding,
+        origin: Origin,
+    ) {
+        for ModuleChildCoordinate {
+            object,
+            attribute,
+            binding,
+        } in incoming.children
+        {
+            let prior = self
+                .read_child(&object, &attribute)
+                .cloned()
+                .unwrap_or_else(PythonBinding::unbound);
+            let merged = member.merge_effect_for_import_fallback(&prior, &binding, origin);
+            self.set_child(object, attribute, merged);
+        }
+        let Some(unbound) = member.import_fallback_constraints() else {
+            return;
+        };
+        self.causes
+            .extend(incoming.causes.into_iter().filter_map(|mut entry| {
+                entry.cause.constraints = entry.cause.constraints.intersection(&unbound);
+                (!entry.cause.constraints.is_impossible()).then_some(entry)
+            }));
         self.normalize();
     }
 
@@ -579,6 +641,62 @@ mod tests {
         binding
             .alternatives()
             .any(|state| *state == PythonBindingState::Unbound)
+    }
+
+    #[test]
+    fn conditional_attachment_consumes_absence_and_preserves_correlated_member_cases() {
+        let parent = source("pkg", 1);
+        let child = source("pkg.child", 2);
+        let join = origin(10);
+        let mut present_constraints = BranchConstraints::unconstrained();
+        present_constraints.select(join, 0);
+        let mut absent_constraints = BranchConstraints::unconstrained();
+        absent_constraints.select(join, 1);
+
+        let mut present = PythonBinding::bound(
+            PythonValue::string("member".to_string(), origin(1)),
+            origin(1),
+        );
+        present.select_branch(join, 0);
+        let mut absent = PythonBinding::unbound();
+        absent.select_branch(join, 1);
+        let mut uncertain =
+            PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin(2));
+        uncertain.select_branch(join, 1);
+        let member = present.join(absent, join).join(uncertain, join);
+
+        let mut objects = PythonModuleObjects::default();
+        objects.attach_child_for_import_fallback(
+            parent.clone(),
+            "child".to_string(),
+            &child,
+            &member,
+            origin(3),
+        );
+
+        let binding = objects.read_child(&parent, "child").unwrap();
+        let mut module_constraints = None;
+        let mut unknown_constraints = None;
+        let mut unbound_constraints = None;
+        for (state, constraints) in binding.alternatives_with_constraints() {
+            match state {
+                PythonBindingState::Bound(bound)
+                    if matches!(bound.value.kind, PythonValueKind::Module(_)) =>
+                {
+                    module_constraints = Some(constraints.clone());
+                }
+                PythonBindingState::Bound(bound) if bound.value.unknown_value().is_some() => {
+                    unknown_constraints = Some(constraints.clone());
+                }
+                PythonBindingState::Unbound => {
+                    unbound_constraints = Some(constraints.clone());
+                }
+                PythonBindingState::Bound(_) => {}
+            }
+        }
+        assert_eq!(module_constraints, Some(absent_constraints.clone()));
+        assert_eq!(unknown_constraints, Some(absent_constraints));
+        assert_eq!(unbound_constraints, Some(present_constraints));
     }
 
     #[test]
