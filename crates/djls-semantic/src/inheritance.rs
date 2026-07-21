@@ -31,7 +31,7 @@ use crate::tags::TagRole;
 // The loop is one state transition over a correlated parent chain; extracting its few remaining
 // lines would split cycle and inconclusive-parent decisions from the state they update.
 #[allow(clippy::too_many_lines)]
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> TemplateInheritance<'_> {
     let resolution = template_resolution(db, project);
     let mut ancestors = Vec::new();
@@ -192,7 +192,7 @@ fn inheritance_origins<'db>(
         .collect()
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 fn template_extends_target<'db>(
     db: &'db dyn Db,
     file: File,
@@ -208,10 +208,11 @@ fn template_extends_target<'db>(
 pub struct TemplateInheritance<'db> {
     #[returns(ref)]
     pub ancestors: Vec<TemplateOrigin<'db>>,
+    #[returns(clone)]
     pub end: ChainEnd,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ChainEnd {
     Root,
     Dynamic { span: Span },

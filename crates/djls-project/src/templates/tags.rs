@@ -46,6 +46,7 @@ pub use crate::templates::tags::types::TagRuleMap;
 /// `HelperCall` identity, enabling Salsa's built-in memoization.
 #[salsa::interned]
 pub(crate) struct HelperCall<'db> {
+    #[returns(copy)]
     pub file: File,
     #[returns(ref)]
     pub callee_name: String,
@@ -64,6 +65,7 @@ pub(crate) struct HelperCall<'db> {
 /// the analyzer on the callee body, and extracts the return
 /// value.
 #[salsa::tracked(
+    returns(clone),
     cycle_initial=analyze_helper_cycle_initial,
     cycle_fn=analyze_helper_cycle_recover,
 )]

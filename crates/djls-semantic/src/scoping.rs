@@ -170,10 +170,11 @@ pub(crate) struct TemplateAnalysisProjection<'db> {
     #[tracked]
     #[returns(ref)]
     pub(crate) captured_closers: Vec<CapturedClosingTag>,
+    #[returns(copy)]
     pub(crate) tree: TemplateTree<'db>,
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 #[allow(clippy::too_many_lines)]
 pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
     db: &'db dyn Db,
@@ -389,7 +390,7 @@ fn occurrence_spec<'a>(
     }
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub(crate) fn template_analysis_projection_for_file<'db>(
     db: &'db dyn Db,
     file: File,

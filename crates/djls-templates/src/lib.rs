@@ -64,7 +64,7 @@ pub use tokens::TagDelimiter;
 pub use tokens::Token;
 pub use visitor::Visitor;
 
-#[derive(Clone, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, PartialEq, Eq, salsa::SalsaValue)]
 pub enum TemplateParseResult<'db> {
     Parsed(NodeList<'db>),
     NotTemplate,
@@ -116,7 +116,7 @@ pub fn lex_template_impl(source: &str) -> Vec<Token> {
 /// let diagnostics =
 ///     parse_template::accumulated::<TemplateDiagnostic>(db, file);
 /// ```
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn parse_template(db: &dyn Db, file: File) -> TemplateParseResult<'_> {
     let source = match file.try_source(db) {
         Ok(source) => source,

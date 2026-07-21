@@ -25,7 +25,7 @@ use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::active_template_tags;
 use crate::tags::TagRole;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TemplateReferenceKind {
     Extends,
     Include,
@@ -50,7 +50,7 @@ impl<'db> TemplateReferences<'db> {
     }
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> TemplateReferences<'_> {
     let mut by_template_name = FxHashMap::default();
     let resolution = template_resolution(db, project);
@@ -109,7 +109,7 @@ impl<'db> TemplateReferencesInFile<'db> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::SalsaValue)]
 pub struct TemplateReferenceInFile<'db> {
     target_template_name: TemplateName<'db>,
     kind: TemplateReferenceKind,
@@ -146,7 +146,7 @@ impl<'db> TemplateLibraryReferencesInFile<'db> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TemplateLibraryReferenceInFile {
     load_name: LibraryName,
     span: Span,
@@ -275,7 +275,7 @@ impl TemplateLibraryReferenceInFile {
     }
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub fn template_references_in_file(
     db: &dyn SemanticDb,
     _project: Project,
@@ -304,7 +304,7 @@ pub fn template_references_in_file(
     TemplateReferencesInFile::new(db, references)
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub fn template_library_references_in_file(
     db: &dyn SemanticDb,
     file: File,
@@ -357,9 +357,13 @@ pub fn references_to_template_name<'db>(
 
 #[salsa::tracked]
 pub struct TemplateReference<'db> {
+    #[returns(copy)]
     source_origin: TemplateOrigin<'db>,
+    #[returns(copy)]
     target_name: TemplateName<'db>,
+    #[returns(copy)]
     reference_kind: TemplateReferenceKind,
+    #[returns(copy)]
     reference_span: Span,
 }
 

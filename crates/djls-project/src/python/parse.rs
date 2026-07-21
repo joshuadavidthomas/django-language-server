@@ -12,7 +12,7 @@ use ruff_python_ast::Stmt;
 use crate::ast::RangedExt;
 use crate::python::evaluation::StructuralOrd;
 
-#[derive(Clone, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, PartialEq, Eq, salsa::SalsaValue)]
 enum PythonParseResult<'db> {
     Parsed(PythonParse<'db>),
     NotPython,
@@ -30,7 +30,7 @@ struct PythonParse<'db> {
     syntax_errors: Vec<PythonSyntaxError>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RecoveredPythonModule<'db> {
     parse: PythonParse<'db>,
 }
@@ -126,7 +126,7 @@ pub(crate) fn python_syntax_errors(db: &dyn SourceDb, file: File) -> Option<&[Py
     }
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 fn parse_python_file(db: &dyn SourceDb, file: File) -> PythonParseResult<'_> {
     let source = match file.try_source(db) {
         Ok(source) => source,

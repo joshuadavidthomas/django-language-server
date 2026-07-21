@@ -549,7 +549,7 @@ pub fn resolve_prefix(db: &dyn ProjectDb, project: Project, dotted_path: &str) -
 
 // Salsa tracked-query keys are by-value; `name` is a key, not a borrow.
 #[allow(clippy::needless_pass_by_value)]
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn resolve_package_dirs(
     db: &dyn ProjectDb,
     project: Project,
@@ -568,7 +568,7 @@ pub fn resolve_package_dirs(
 
 // Salsa tracked-query keys are by-value; `source_path` is a key, not a borrow.
 #[allow(clippy::needless_pass_by_value)]
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_to_module(
     db: &dyn ProjectDb,
     project: Project,
@@ -703,7 +703,7 @@ impl PythonSourceModule {
 
 #[salsa::tracked]
 impl PythonSourceModule {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn resolve(db: &dyn ProjectDb, project: Project, name: PythonModuleName) -> Option<Self> {
         match resolve_name(db, project, &name) {
             ModuleLookupResult::RegularPackage {

@@ -56,6 +56,7 @@ enum TemplateLibraryKind {
 /// settings-case evidence from masquerading as a navigable Python source.
 #[salsa::interned(no_lifetime, debug)]
 pub struct TemplateLibraryId {
+    #[returns(copy)]
     pub file: Option<File>,
     #[returns(ref)]
     pub module: PythonModuleName,
