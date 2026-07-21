@@ -42,18 +42,6 @@ So far it's all been built by [a simple country CRUD web developer](https://yout
 
 ### Linting
 
-#### Structural Lints
-
-[ast-grep](https://ast-grep.github.io/) enforces repository-specific structural conventions that Clippy cannot express. The configuration lives in [`tools/ast-grep/`](./tools/ast-grep/).
-
-Install the native `sg` CLI, then run the ast-grep scan and native rule tests through `just`:
-
-```bash
-just ast-grep
-```
-
-When changing ast-grep rules, update the matching tests in [`tools/ast-grep/tests/`](./tools/ast-grep/tests/).
-
 #### Visibility Audits
 
 [Hawk](https://github.com/astral-sh/hawk) is an experimental Cargo lint from Astral that checks unnecessary public Rust visibility across a closed-world workspace. It is useful here because most crates are internal architecture layers behind the shipped `djls` binary.
@@ -317,7 +305,6 @@ $ just
 $ # just --list --list-submodules
 
 Available recipes:
-    ast-grep       # run ast-grep scan and rule tests
     bumpver *ARGS
     check *ARGS
     clean
