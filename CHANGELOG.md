@@ -38,7 +38,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
-- Changed Django settings analysis to preserve exact alternative configurations and known field values through unrelated dynamic expressions.
+- Changed Django settings analysis to keep mutually exclusive configuration branches separate instead of combining their values into one partial result.
+- Changed Django settings analysis to treat closed unsupported Python literals as malformed rather than unresolved.
 - Changed template semantics and IDE features to use each file's feasible backends and the Template Library definitions active at each source position.
 - Changed template-library completion and installed-app guidance to retain known results through unrelated discovery problems, while unknown-library and unknown-symbol diagnostics now require an exhaustive miss.
 - Changed template navigation to avoid reporting templates as missing when configuration or filesystem search is incomplete, while retaining known possible destinations.
@@ -72,7 +73,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Fixed
 
 - Fixed static path evaluation to follow imported helper aliases without mistaking shadowed `Path`, `str`, or `os` bindings for standard-library helpers.
-- Fixed closed unsupported Python literals in Django settings being reported as dynamic instead of malformed.
 - Fixed static Django settings evaluation through ordinary and `from` imports, including dotted module chains, module attributes, named package children, and `__all__`-controlled star exports.
 - Fixed Python settings evaluation to distinguish list and tuple concatenation while preserving known collection facts through supported iterable extensions.
 - Fixed relative imports in Django settings modules, including package aliases and overlapping Python search roots.
