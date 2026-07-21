@@ -18,6 +18,7 @@ pub use files::File;
 pub use files::FileError;
 pub use files::FileKind;
 pub use files::FileReadError;
+pub use files::FileReadErrorKind;
 pub use files::FileRoot;
 pub use files::FileRootKind;
 pub use files::FileStatus;

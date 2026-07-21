@@ -80,20 +80,23 @@ mod tests {
     fn build_test_tarball(populate: impl FnOnce(&mut tar::Builder<Vec<u8>>)) -> Vec<u8> {
         let mut builder = tar::Builder::new(Vec::new());
         populate(&mut builder);
-        let tar_bytes = builder.into_inner().expect("tar builder finish");
+        let tar_bytes = builder
+            .into_inner()
+            .expect("test tar builder should finish");
 
         let mut gz_bytes = Vec::new();
         let mut encoder =
             flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
-        std::io::Write::write_all(&mut encoder, &tar_bytes).expect("gz write");
-        encoder.finish().expect("gz finish");
+        std::io::Write::write_all(&mut encoder, &tar_bytes).expect("test tarball should compress");
+        encoder.finish().expect("test gzip encoder should finish");
 
         gz_bytes
     }
 
     fn temp_dir() -> (tempfile::TempDir, Utf8PathBuf) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test directory path should be UTF-8");
         (dir, path)
     }
 
@@ -112,16 +115,17 @@ mod tests {
                     "Django-5.2/django/templatetags/i18n.py",
                     &content[..],
                 )
-                .unwrap();
+                .expect("regular file should be appended to test tarball");
         });
 
         let (_dir, out) = temp_dir();
-        extract_tarball(data.as_slice(), &out).unwrap();
+        extract_tarball(data.as_slice(), &out).expect("regular file test tarball should extract");
 
         let extracted = out.join("django/templatetags/i18n.py");
         assert!(extracted.as_std_path().exists(), "file should be extracted");
         assert_eq!(
-            std::fs::read_to_string(extracted.as_std_path()).unwrap(),
+            std::fs::read_to_string(extracted.as_std_path())
+                .expect("extracted test file should be readable"),
             "# tag code"
         );
     }
@@ -137,7 +141,7 @@ mod tests {
             dir_header.set_cksum();
             builder
                 .append_data(&mut dir_header, "Django-5.2/django/templatetags/", &[][..])
-                .unwrap();
+                .expect("directory should be appended to test tarball");
 
             // Add a regular file after the directory
             let content = b"# tag";
@@ -152,11 +156,12 @@ mod tests {
                     "Django-5.2/django/templatetags/i18n.py",
                     &content[..],
                 )
-                .unwrap();
+                .expect("regular file should follow directory in test tarball");
         });
 
         let (_dir, out) = temp_dir();
-        extract_tarball(data.as_slice(), &out).unwrap();
+        extract_tarball(data.as_slice(), &out)
+            .expect("test tarball with directory entry should extract");
 
         // The file should exist (created via parent dir creation)
         let file = out.join("django/templatetags/i18n.py");
@@ -185,7 +190,7 @@ mod tests {
                     "Django-5.2/django/templatetags/evil.py",
                     "/etc/passwd",
                 )
-                .unwrap();
+                .expect("symbolic link should be appended to test tarball");
 
             // Add a real file after the symlink
             let content = b"# tag code";
@@ -200,11 +205,12 @@ mod tests {
                     "Django-5.2/django/templatetags/i18n.py",
                     &content[..],
                 )
-                .unwrap();
+                .expect("regular file should follow symlink in test tarball");
         });
 
         let (_dir, out) = temp_dir();
-        let warnings = extract_tarball(data.as_slice(), &out).unwrap();
+        let warnings = extract_tarball(data.as_slice(), &out)
+            .expect("test tarball containing a symlink should extract");
 
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("link entry"));
@@ -237,7 +243,7 @@ mod tests {
                     "Django-5.2/django/templatetags/evil.py",
                     "Django-5.2/django/templatetags/i18n.py",
                 )
-                .unwrap();
+                .expect("hard link should be appended to test tarball");
 
             // Add a real file after the hard link
             let content = b"# tag code";
@@ -252,11 +258,12 @@ mod tests {
                     "Django-5.2/django/templatetags/i18n.py",
                     &content[..],
                 )
-                .unwrap();
+                .expect("regular file should follow hard link in test tarball");
         });
 
         let (_dir, out) = temp_dir();
-        let warnings = extract_tarball(data.as_slice(), &out).unwrap();
+        let warnings = extract_tarball(data.as_slice(), &out)
+            .expect("test tarball containing a hard link should extract");
 
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("link entry"));
@@ -284,7 +291,7 @@ mod tests {
         header.set_mode(0o644);
         header
             .set_path("Django-5.2/django/templatetags/safe.py")
-            .unwrap();
+            .expect("safe traversal-test tar path should be accepted");
 
         // Overwrite the path bytes directly to include `..`
         let evil_path = b"Django-5.2/django/templatetags/../../templatetags/evil.py";
@@ -295,21 +302,27 @@ mod tests {
         let mut tar_bytes = Vec::new();
         {
             let mut builder = tar::Builder::new(&mut tar_bytes);
-            builder.append(&header, &content[..]).unwrap();
-            builder.into_inner().unwrap();
+            builder
+                .append(&header, &content[..])
+                .expect("traversal entry should be appended to test tarball");
+            builder
+                .finish()
+                .expect("traversal test tarball should finish");
         }
 
         let mut gz_bytes = Vec::new();
         let mut encoder =
             flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
-        std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
-        encoder.finish().unwrap();
+        std::io::Write::write_all(&mut encoder, &tar_bytes)
+            .expect("traversal test tarball should compress");
+        encoder
+            .finish()
+            .expect("traversal test gzip encoder should finish");
 
         let (_dir, out) = temp_dir();
-        let result = extract_tarball(gz_bytes.as_slice(), &out);
-
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = extract_tarball(gz_bytes.as_slice(), &out)
+            .expect_err("tarball path traversal should be rejected")
+            .to_string();
         assert!(
             err.contains("Invalid tarball entry path"),
             "error should mention invalid path, got: {err}"
@@ -326,7 +339,7 @@ mod tests {
         header.set_mode(0o644);
         header
             .set_path("Django-5.2/django/templatetags/safe.py")
-            .unwrap();
+            .expect("safe absolute-path test tar path should be accepted");
 
         // After stripping top-level dir, this becomes "/django/templatetags/evil.py".
         let evil_path = b"Django-5.2//django/templatetags/evil.py";
@@ -337,21 +350,27 @@ mod tests {
         let mut tar_bytes = Vec::new();
         {
             let mut builder = tar::Builder::new(&mut tar_bytes);
-            builder.append(&header, &content[..]).unwrap();
-            builder.into_inner().unwrap();
+            builder
+                .append(&header, &content[..])
+                .expect("absolute entry should be appended to test tarball");
+            builder
+                .finish()
+                .expect("absolute-path test tarball should finish");
         }
 
         let mut gz_bytes = Vec::new();
         let mut encoder =
             flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
-        std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
-        encoder.finish().unwrap();
+        std::io::Write::write_all(&mut encoder, &tar_bytes)
+            .expect("absolute-path test tarball should compress");
+        encoder
+            .finish()
+            .expect("absolute-path test gzip encoder should finish");
 
         let (_dir, out) = temp_dir();
-        let result = extract_tarball(gz_bytes.as_slice(), &out);
-
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = extract_tarball(gz_bytes.as_slice(), &out)
+            .expect_err("absolute tarball path should be rejected")
+            .to_string();
         assert!(
             err.contains("Invalid tarball entry path"),
             "error should mention invalid path, got: {err}"

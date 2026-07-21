@@ -21,7 +21,7 @@ fn project_with_templates(
     db: &mut TestDatabase,
     template_dirs: Vec<&str>,
     templates: Vec<(&str, &str, &str)>,
-) -> Project {
+) -> anyhow::Result<Project> {
     let dirs_literal = template_dirs
         .into_iter()
         .map(|dir| format!("'{dir}'"))
@@ -61,7 +61,8 @@ fn inconclusive_load_role_does_not_create_a_load_event() {
             "{% load custom %}{% include 'partial.html' %}",
         )
         .file("/test/project/templates/partial.html", "partial")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
     let partial = TemplateName::new(&db, "partial.html".to_string());
 
     assert_eq!(references_to_template_name(&db, project, partial).len(), 1);
@@ -86,7 +87,8 @@ fn template_references_record_extends_and_include_kinds() {
                 "partial",
             ),
         ],
-    );
+    )
+    .expect("template project fixture should install");
 
     let base = TemplateName::new(&db, "base.html".to_string());
     let partial = TemplateName::new(&db, "partial.html".to_string());
@@ -122,7 +124,8 @@ fn later_load_only_shadows_template_reference_occurrences_after_it() {
             "{% include 'partial.html' %}\n{% load custom %}\n{% include 'partial.html' %}",
         )
         .file("/test/project/templates/partial.html", "partial")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
 
     let partial = TemplateName::new(&db, "partial.html".to_string());
     let references = references_to_template_name(&db, project, partial);
@@ -147,13 +150,15 @@ fn unreadable_referencing_template_contributes_no_references() {
                 "partial",
             ),
         ],
-    );
+    )
+    .expect("template project fixture should install");
     {
         let partial = TemplateName::new(&db, "partial.html".to_string());
         assert_eq!(references_to_template_name(&db, project, partial).len(), 1);
     }
 
-    db.remove_file(child_path);
+    db.remove_file(child_path)
+        .expect("referencing template should be removed from the test database");
     SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
 
     let partial = TemplateName::new(&db, "partial.html".to_string());
@@ -178,7 +183,8 @@ fn template_references_ignore_dynamic_template_names() {
                 "partial",
             ),
         ],
-    );
+    )
+    .expect("template project fixture should install");
 
     let partial = TemplateName::new(&db, "partial.html".to_string());
     let references = references_to_template_name(&db, project, partial);
@@ -205,7 +211,8 @@ fn template_references_ignore_include_inside_verbatim() {
                 "partial",
             ),
         ],
-    );
+    )
+    .expect("template project fixture should install");
 
     let partial = TemplateName::new(&db, "partial.html".to_string());
     let references = references_to_template_name(&db, project, partial);
@@ -227,7 +234,8 @@ fn template_references_ignore_extends_inside_comment() {
             ),
             ("base.html", "/test/project/templates/base.html", "base"),
         ],
-    );
+    )
+    .expect("template project fixture should install");
 
     let base = TemplateName::new(&db, "base.html".to_string());
     let references = references_to_template_name(&db, project, base);
@@ -256,7 +264,8 @@ fn template_references_include_only_active_references() {
                 "partial",
             ),
         ],
-    );
+    )
+    .expect("template project fixture should install");
 
     let partial = TemplateName::new(&db, "partial.html".to_string());
     let references = references_to_template_name(&db, project, partial);
@@ -276,7 +285,8 @@ fn template_references_exclude_missing_targets() {
             "/test/project/templates/child.html",
             "{% include 'missing.html' %}",
         )],
-    );
+    )
+    .expect("template project fixture should install");
 
     let missing = TemplateName::new(&db, "missing.html".to_string());
 
@@ -297,7 +307,8 @@ fn template_references_keep_known_inconclusive_targets() {
             "{% include 'partial.html' %}",
         )
         .file("/test/project/templates/partial.html", "partial")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
     let partial = TemplateName::new(&db, "partial.html".to_string());
 
     let references = references_to_template_name(&db, project, partial);
@@ -314,7 +325,8 @@ fn template_references_are_omitted_when_target_exists_only_in_another_backend() 
         .file("/test/project/testproject/settings.py", settings)
         .file("/test/project/a/child.html", "{% include 'only-b.html' %}")
         .file("/test/project/b/only-b.html", "b")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
 
     let only_b = TemplateName::new(&db, "only-b.html".to_string());
     assert!(references_to_template_name(&db, project, only_b).is_empty());
@@ -332,7 +344,8 @@ fn relative_references_normalize_for_every_name_of_the_source_file() {
             "{% include './parent.html' %}",
         )
         .file("/test/project/templates/alias/parent.html", "parent")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
 
     let nested = TemplateName::new(&db, "alias/parent.html".to_string());
     let root = TemplateName::new(&db, "parent.html".to_string());
@@ -356,8 +369,11 @@ fn custom_shadowed_load_tag_creates_no_library_reference() {
             "from django import template\nregister = template.Library()\n",
         )
         .file("/test/project/templates/page.html", "{% load custom %}")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("fixture file should exist in the test database");
 
     assert!(
         template_library_references_in_file(&db, file)
@@ -386,7 +402,8 @@ fn shadowed_load_does_not_bootstrap_loaded_opaque_grammar() {
             "{% load custom %}{% shadow %}{% include 'partial.html' %}{% endshadow %}",
         )
         .file("/test/project/templates/partial.html", "partial")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
     let partial = TemplateName::new(&db, "partial.html".to_string());
 
     assert_eq!(references_to_template_name(&db, project, partial).len(), 1);
@@ -407,8 +424,11 @@ fn captured_else_does_not_retain_a_colliding_loader_role() {
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% else outside %}{% if condition %}{% else captured %}{% endif %}";
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("loader fixture should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("loader fixture should exist in the test database");
 
     let references = template_library_references_in_file(&db, file).as_slice(&db);
 
@@ -416,7 +436,9 @@ fn captured_else_does_not_retain_a_colliding_loader_role() {
     assert_eq!(references[0].load_name().as_str(), "outside");
     assert_eq!(
         references[0].span().start_usize(),
-        source.find("outside").unwrap()
+        source
+            .find("outside")
+            .expect("fixture should contain the standalone loader argument")
     );
 }
 
@@ -443,7 +465,8 @@ fn template_references_to_template_name_include_all_sources() {
                 "partial",
             ),
         ],
-    );
+    )
+    .expect("template project fixture should install");
 
     let partial = TemplateName::new(&db, "partial.html".to_string());
     let references = references_to_template_name(&db, project, partial);

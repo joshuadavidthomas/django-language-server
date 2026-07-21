@@ -1,3 +1,5 @@
+use std::io;
+
 use djls_conf::TagDef;
 use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
@@ -11,6 +13,7 @@ use djls_project::PythonModuleName;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::ScopedTemplateSymbolLookup;
 use djls_project::SymbolDefinition;
+use djls_project::TemplateLibraryAppCandidates;
 use djls_project::TemplateLibraryCatalog;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
@@ -23,50 +26,59 @@ use djls_project::testing::TemplateLibraryInput;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
-fn module(name: &str) -> PythonModuleName {
-    PythonModuleName::parse(name).unwrap()
+type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+fn module(name: &str) -> TestResult<PythonModuleName> {
+    Ok(PythonModuleName::parse(name)?)
 }
 
-fn library_name(name: &str) -> LibraryName {
-    LibraryName::parse(name).unwrap()
+fn library_name(name: &str) -> TestResult<LibraryName> {
+    Ok(LibraryName::parse(name)?)
 }
 
-fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TemplateSymbol {
-    TemplateSymbol {
+fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TestResult<TemplateSymbol> {
+    Ok(TemplateSymbol {
         kind,
-        name: TemplateSymbolName::parse(name).unwrap(),
+        name: TemplateSymbolName::parse(name)?,
         definition: SymbolDefinition::Unknown,
         doc: doc.map(str::to_string),
-    }
+    })
 }
 
-fn builtin(module: &str, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
-    TemplateLibraryInput::Builtin {
-        module: self::module(module),
-        symbols,
-    }
+fn builtin(
+    module_name: &str,
+    symbols: Vec<TestResult<TemplateSymbol>>,
+) -> TestResult<TemplateLibraryInput> {
+    Ok(TemplateLibraryInput::Builtin {
+        module: module(module_name)?,
+        symbols: symbols.into_iter().collect::<TestResult<_>>()?,
+    })
 }
 
-fn loadable(load_name: &str, module: &str, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
-    TemplateLibraryInput::Loadable {
-        load_name: library_name(load_name),
-        module: self::module(module),
-        symbols,
-    }
+fn loadable(
+    load_name: &str,
+    module_name: &str,
+    symbols: Vec<TestResult<TemplateSymbol>>,
+) -> TestResult<TemplateLibraryInput> {
+    Ok(TemplateLibraryInput::Loadable {
+        load_name: library_name(load_name)?,
+        module: module(module_name)?,
+        symbols: symbols.into_iter().collect::<TestResult<_>>()?,
+    })
 }
 
 fn available_in_app(
     load_name: &str,
     app: &str,
-    module: &str,
-    symbols: Vec<TemplateSymbol>,
-) -> TemplateLibraryInput {
-    TemplateLibraryInput::AvailableInApp {
-        load_name: library_name(load_name),
-        app: self::module(app),
-        module: self::module(module),
-        symbols,
-    }
+    module_name: &str,
+    symbols: Vec<TestResult<TemplateSymbol>>,
+) -> TestResult<TemplateLibraryInput> {
+    Ok(TemplateLibraryInput::AvailableInApp {
+        load_name: library_name(load_name)?,
+        app: module(app)?,
+        module: module(module_name)?,
+        symbols: symbols.into_iter().collect::<TestResult<_>>()?,
+    })
 }
 
 fn libraries(open: bool, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraryCatalog {
@@ -78,36 +90,55 @@ fn libraries(open: bool, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraryCa
     }
 }
 
-fn backend(loadable: Vec<(&str, &str)>, builtins: Vec<&str>) -> TemplateBackendLibrariesInput {
-    TemplateBackendLibrariesInput {
-        loadable: loadable
-            .into_iter()
-            .map(|(name, module)| (library_name(name), self::module(module)))
-            .collect(),
-        builtins: builtins.into_iter().map(self::module).collect(),
-    }
+fn backend(
+    loadable: Vec<(&str, &str)>,
+    builtins: Vec<&str>,
+) -> TestResult<TemplateBackendLibrariesInput> {
+    let loadable = loadable
+        .into_iter()
+        .map(|(name, module_name)| Ok((library_name(name)?, module(module_name)?)))
+        .collect::<TestResult<_>>()?;
+    let builtins = builtins
+        .into_iter()
+        .map(module)
+        .collect::<TestResult<_>>()?;
+    Ok(TemplateBackendLibrariesInput { loadable, builtins })
 }
 
 fn project_inventory(libraries: &TemplateLibraryCatalog) -> ScopedTemplateLibraries<'_> {
     ScopedTemplateLibraries::from_project_inventory(libraries)
 }
 
+fn available_in_app_candidates(
+    lookup: MissingTemplateLibraryLookup,
+) -> Result<TemplateLibraryAppCandidates, io::Error> {
+    match lookup {
+        MissingTemplateLibraryLookup::FoundInApps(candidates) => Ok(candidates),
+        MissingTemplateLibraryLookup::Absent => {
+            Err(io::Error::other("template library has no app candidates"))
+        }
+        MissingTemplateLibraryLookup::Inconclusive => Err(io::Error::other(
+            "template library app candidates are inconclusive",
+        )),
+    }
+}
+
 fn configured_libraries(
     open: bool,
     inputs: Vec<TemplateLibraryInput>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TemplateLibraryCatalog {
+) -> TestResult<TemplateLibraryCatalog> {
     let db = TestDatabase::new();
-    if open {
-        testing::template_library_catalog_with_settings_case_omissions(&db, inputs, settings_cases)
+    Ok(if open {
+        testing::template_library_catalog_with_settings_case_omissions(&db, inputs, settings_cases)?
     } else {
-        testing::template_library_catalog_with_settings_cases(&db, inputs, settings_cases)
-    }
+        testing::template_library_catalog_with_settings_cases(&db, inputs, settings_cases)?
+    })
 }
 
 #[test]
 fn closed_and_open_misses_are_distinct() {
-    let name = library_name("missing");
+    let name = library_name("missing").expect("test library name should be valid");
     let closed = libraries(false, Vec::new());
     assert_eq!(
         project_inventory(&closed).loadable_library(&name),
@@ -123,16 +154,22 @@ fn closed_and_open_misses_are_distinct() {
 #[test]
 fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder() {
     let inputs = vec![
-        loadable("shared", "project.alpha", Vec::new()),
-        loadable("shared", "project.beta", Vec::new()),
+        loadable("shared", "project.alpha", Vec::new())
+            .expect("loadable library fixture should be valid"),
+        loadable("shared", "project.beta", Vec::new())
+            .expect("loadable library fixture should be valid"),
     ];
     let unanimous = configured_libraries(
         false,
         inputs.clone(),
-        vec![vec![backend(vec![("shared", "project.alpha")], vec![])]],
-    );
+        vec![vec![
+            backend(vec![("shared", "project.alpha")], vec![])
+                .expect("template backend fixture should be valid"),
+        ]],
+    )
+    .expect("template library settings fixture should be valid");
     assert!(matches!(
-        project_inventory(&unanimous).loadable_library(&library_name("shared")),
+        project_inventory(&unanimous).loadable_library(&library_name("shared").expect("test library name should be valid")),
         LoadableLibraryLookup::Found(library) if library.module_name_str() == "project.alpha"
     ));
 
@@ -140,12 +177,15 @@ fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
         false,
         inputs.clone(),
         vec![vec![
-            backend(vec![("shared", "project.alpha")], vec![]),
-            backend(vec![("shared", "project.beta")], vec![]),
+            backend(vec![("shared", "project.alpha")], vec![])
+                .expect("template backend fixture should be valid"),
+            backend(vec![("shared", "project.beta")], vec![])
+                .expect("template backend fixture should be valid"),
         ]],
-    );
+    )
+    .expect("template library settings fixture should be valid");
     assert!(matches!(
-        project_inventory(&disagreement).loadable_library(&library_name("shared")),
+        project_inventory(&disagreement).loadable_library(&library_name("shared").expect("test library name should be valid")),
         LoadableLibraryLookup::Ambiguous(records) if records.len() == 2
     ));
 
@@ -153,22 +193,28 @@ fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
         false,
         inputs.clone(),
         vec![vec![
-            backend(vec![("shared", "project.alpha")], vec![]),
-            backend(vec![], vec![]),
+            backend(vec![("shared", "project.alpha")], vec![])
+                .expect("template backend fixture should be valid"),
+            backend(vec![], vec![]).expect("template backend fixture should be valid"),
         ]],
-    );
+    )
+    .expect("template library settings fixture should be valid");
     assert!(matches!(
-        project_inventory(&present_absent).loadable_library(&library_name("shared")),
+        project_inventory(&present_absent).loadable_library(&library_name("shared").expect("test library name should be valid")),
         LoadableLibraryLookup::Ambiguous(records) if records.len() == 1
     ));
 
     let open = configured_libraries(
         true,
         inputs,
-        vec![vec![backend(vec![("shared", "project.alpha")], vec![])]],
-    );
+        vec![vec![
+            backend(vec![("shared", "project.alpha")], vec![])
+                .expect("template backend fixture should be valid"),
+        ]],
+    )
+    .expect("template library settings fixture should be valid");
     assert!(matches!(
-        project_inventory(&open).loadable_library(&library_name("shared")),
+        project_inventory(&open).loadable_library(&library_name("shared").expect("test library name should be valid")),
         LoadableLibraryLookup::Inconclusive(records) if records.len() == 1
     ));
 }
@@ -185,7 +231,8 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
                 symbol(TemplateSymbolKind::Filter, "all_filter", None),
                 symbol(TemplateSymbolKind::Filter, "one_filter", None),
             ],
-        ),
+        )
+        .expect("loadable library fixture should be valid"),
         loadable(
             "shared",
             "project.beta",
@@ -193,20 +240,26 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
                 symbol(TemplateSymbolKind::Tag, "all_tag", None),
                 symbol(TemplateSymbolKind::Filter, "all_filter", None),
             ],
-        ),
+        )
+        .expect("loadable library fixture should be valid"),
     ];
     let libraries = configured_libraries(
         false,
         inputs,
         vec![vec![
-            backend(vec![("shared", "project.alpha")], vec![]),
-            backend(vec![("shared", "project.beta")], vec![]),
+            backend(vec![("shared", "project.alpha")], vec![])
+                .expect("template backend fixture should be valid"),
+            backend(vec![("shared", "project.beta")], vec![])
+                .expect("template backend fixture should be valid"),
         ]],
-    );
+    )
+    .expect("template library settings fixture should be valid");
 
     assert_eq!(
         project_inventory(&libraries).symbol("all_tag", TemplateSymbolKind::Tag),
-        ScopedTemplateSymbolLookup::RequiresLoad(vec![library_name("shared")])
+        ScopedTemplateSymbolLookup::RequiresLoad(vec![
+            library_name("shared").expect("test library name should be valid")
+        ])
     );
     assert_eq!(
         project_inventory(&libraries).symbol("one_tag", TemplateSymbolKind::Tag),
@@ -214,7 +267,9 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
     );
     assert_eq!(
         project_inventory(&libraries).symbol("all_filter", TemplateSymbolKind::Filter),
-        ScopedTemplateSymbolLookup::RequiresLoad(vec![library_name("shared")])
+        ScopedTemplateSymbolLookup::RequiresLoad(vec![
+            library_name("shared").expect("test library name should be valid")
+        ])
     );
     assert_eq!(
         project_inventory(&libraries).symbol("one_filter", TemplateSymbolKind::Filter),
@@ -230,29 +285,35 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
             builtin(
                 "django.template.defaulttags",
                 vec![symbol(TemplateSymbolKind::Tag, "if", None)],
-            ),
+            )
+            .expect("builtin library fixture should be valid"),
             loadable(
                 "alpha",
                 "project.alpha",
                 vec![symbol(TemplateSymbolKind::Tag, "if", None)],
-            ),
+            )
+            .expect("loadable library fixture should be valid"),
             loadable(
                 "beta",
                 "project.beta",
                 vec![symbol(TemplateSymbolKind::Tag, "if", None)],
-            ),
+            )
+            .expect("loadable library fixture should be valid"),
         ],
         vec![vec![
             backend(
                 vec![("alpha", "project.alpha"), ("beta", "project.beta")],
                 vec!["django.template.defaulttags"],
-            ),
+            )
+            .expect("template backend fixture should be valid"),
             backend(
                 vec![("alpha", "project.alpha"), ("beta", "project.beta")],
                 vec![],
-            ),
+            )
+            .expect("template backend fixture should be valid"),
         ]],
-    );
+    )
+    .expect("template library settings fixture should be valid");
     let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&inventory);
 
     let unloaded =
@@ -316,14 +377,14 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
             "/project/project/settings.py",
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("missing-library project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
-    let LoadableLibraryLookup::Found(library) =
-        project_inventory(libraries).loadable_library_str("panels")
-    else {
-        panic!("configured library should remain definitively loadable");
-    };
+    let library = project_inventory(libraries)
+        .loadable_library_str("panels")
+        .found()
+        .expect("configured panels library should remain definitively loadable");
     assert_eq!(library.module_name_str(), "missing.panel_tags");
     assert!(library.source_file().is_none());
     assert!(
@@ -349,14 +410,15 @@ fn source_less_alias_keeps_missing_same_named_available_in_app_symbols_inconclus
             "/project/available_in_app/templatetags/shared.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef shared_tag(): pass\n@register.filter\ndef shared_filter(value): return value\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("shared-library project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let scoped_libraries = project_inventory(libraries);
-    let LoadableLibraryLookup::Found(library) = scoped_libraries.loadable_library_str("shared")
-    else {
-        panic!("the configured source-less alias should be definitively loadable");
-    };
+    let library = scoped_libraries
+        .loadable_library_str("shared")
+        .found()
+        .expect("configured source-less shared alias should be definitively loadable");
     assert!(library.source_file().is_none());
     assert!(library.symbols_are_unobserved());
     assert_eq!(
@@ -404,7 +466,8 @@ fn exact_alias_after_unknown_key_is_definitive_while_other_names_stay_open() {
             "/project/project_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef certain(): pass\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("partially known library project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     assert!(matches!(
@@ -431,7 +494,8 @@ fn definite_load_restores_certainty_after_uncertain_builtins() {
             "/project/project_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef restored(): pass\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("correlated-library project fixture should build");
     let inventory = template_library_catalog(&db, project);
     let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(inventory);
 
@@ -452,15 +516,16 @@ fn loadable_duplicate_load_name_uses_last_record() {
     let libraries = libraries(
         false,
         vec![
-            loadable("custom", "project.templatetags.original", Vec::new()),
-            loadable("custom", "project.templatetags.replacement", Vec::new()),
+            loadable("custom", "project.templatetags.original", Vec::new())
+                .expect("loadable library fixture should be valid"),
+            loadable("custom", "project.templatetags.replacement", Vec::new())
+                .expect("loadable library fixture should be valid"),
         ],
     );
-    let LoadableLibraryLookup::Found(library) =
-        project_inventory(&libraries).loadable_library(&library_name("custom"))
-    else {
-        panic!("expected a definitive loadable library");
-    };
+    let library = project_inventory(&libraries)
+        .loadable_library(&library_name("custom").expect("test library name should be valid"))
+        .found()
+        .expect("duplicate custom load name should resolve to one definitive library");
     assert_eq!(
         library.module_name_str(),
         "project.templatetags.replacement"
@@ -469,16 +534,19 @@ fn loadable_duplicate_load_name_uses_last_record() {
 
 #[test]
 fn available_symbol_guidance_survives_open_remainder() {
-    let app = module("available_in_app");
-    let load_name = library_name("extra_tags");
+    let app = module("available_in_app").expect("test Python module name should be valid");
+    let load_name = library_name("extra_tags").expect("test library name should be valid");
     let libraries = libraries(
         true,
-        vec![available_in_app(
-            "extra_tags",
-            "available_in_app",
-            "available_in_app.templatetags.extra_tags",
-            vec![symbol(TemplateSymbolKind::Tag, "extra", None)],
-        )],
+        vec![
+            available_in_app(
+                "extra_tags",
+                "available_in_app",
+                "available_in_app.templatetags.extra_tags",
+                vec![symbol(TemplateSymbolKind::Tag, "extra", None)],
+            )
+            .expect("available-in-app library fixture should be valid"),
+        ],
     );
     assert_eq!(
         project_inventory(&libraries).available_in_app_symbol("extra", TemplateSymbolKind::Tag),
@@ -491,23 +559,35 @@ fn available_in_app_library_guidance_is_sorted_and_deduplicated() {
     let libraries = libraries(
         false,
         vec![
-            available_in_app("shared", "beta", "beta.templatetags.shared", Vec::new()),
+            available_in_app("shared", "beta", "beta.templatetags.shared", Vec::new())
+                .expect("available-in-app library fixture should be valid"),
             available_in_app(
                 "shared",
                 "alpha",
                 "alpha.templatetags.shared_extra",
                 Vec::new(),
-            ),
-            available_in_app("shared", "alpha", "alpha.templatetags.shared", Vec::new()),
+            )
+            .expect("available-in-app library fixture should be valid"),
+            available_in_app("shared", "alpha", "alpha.templatetags.shared", Vec::new())
+                .expect("available-in-app library fixture should be valid"),
         ],
     );
-    let MissingTemplateLibraryLookup::FoundInApps(apps) =
-        project_inventory(&libraries).missing_library(&library_name("shared"))
-    else {
-        panic!("shared should have available-in-app candidates");
-    };
-    assert_eq!(apps.primary(), &module("alpha"));
-    assert_eq!(apps.as_slice(), [module("alpha"), module("beta")]);
+    let apps = available_in_app_candidates(
+        project_inventory(&libraries)
+            .missing_library(&library_name("shared").expect("test library name should be valid")),
+    )
+    .expect("missing shared library should have available-in-app candidates");
+    assert_eq!(
+        apps.primary(),
+        &module("alpha").expect("test Python module name should be valid")
+    );
+    assert_eq!(
+        apps.as_slice(),
+        [
+            module("alpha").expect("test Python module name should be valid"),
+            module("beta").expect("test Python module name should be valid")
+        ]
+    );
 }
 
 #[test]
@@ -522,7 +602,8 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
                     "duplicate",
                     Some("first"),
                 )],
-            ),
+            )
+            .expect("builtin library fixture should be valid"),
             builtin(
                 "a_second",
                 vec![symbol(
@@ -530,12 +611,14 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
                     "duplicate",
                     Some("second"),
                 )],
-            ),
+            )
+            .expect("builtin library fixture should be valid"),
             loadable(
                 "humanize",
                 "django.contrib.humanize.templatetags.humanize",
                 vec![symbol(TemplateSymbolKind::Filter, "intcomma", None)],
-            ),
+            )
+            .expect("loadable library fixture should be valid"),
         ],
     );
     let scoped_libraries = project_inventory(&libraries);
@@ -580,9 +663,12 @@ fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
     let libraries = testing::template_library_catalog(
         &db,
         vec![
-            builtin("django.template.defaulttags", Vec::new()),
-            builtin("project.builtins", Vec::new()),
-            builtin("django.template.defaulttags", Vec::new()),
+            builtin("django.template.defaulttags", Vec::new())
+                .expect("builtin library fixture should be valid"),
+            builtin("project.builtins", Vec::new())
+                .expect("builtin library fixture should be valid"),
+            builtin("django.template.defaulttags", Vec::new())
+                .expect("builtin library fixture should be valid"),
         ],
     );
     let scoped_libraries = project_inventory(&libraries);

@@ -30,32 +30,30 @@ impl fmt::Display for Fixture {
 
 pub type ValidationErrorFixture = Fixture;
 
-pub fn template_fixtures() -> &'static [Fixture] {
-    static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();
-    FIXTURES
-        .get_or_init(|| {
-            load_fixtures("django", &["html", "htm", "txt", "xml"], "template")
-                .into_iter()
-                .map(map_template_fixture)
-                .collect()
-        })
-        .as_slice()
+pub fn template_fixtures() -> Result<&'static [Fixture], FixtureLoadError> {
+    static FIXTURES: OnceLock<Result<Vec<Fixture>, FixtureLoadError>> = OnceLock::new();
+    match FIXTURES.get_or_init(|| {
+        load_fixtures("django", &["html", "htm", "txt", "xml"], "template")
+            .map(|fixtures| fixtures.into_iter().map(map_template_fixture).collect())
+    }) {
+        Ok(fixtures) => Ok(fixtures.as_slice()),
+        Err(error) => Err(error.clone()),
+    }
 }
 
-pub fn validation_error_fixtures() -> &'static [Fixture] {
-    static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();
-    FIXTURES
-        .get_or_init(|| {
-            load_fixtures(
-                "diagnostics",
-                &["html", "htm", "txt", "xml"],
-                "validation error template",
-            )
-            .into_iter()
-            .map(map_template_fixture)
-            .collect()
-        })
-        .as_slice()
+pub fn validation_error_fixtures() -> Result<&'static [Fixture], FixtureLoadError> {
+    static FIXTURES: OnceLock<Result<Vec<Fixture>, FixtureLoadError>> = OnceLock::new();
+    match FIXTURES.get_or_init(|| {
+        load_fixtures(
+            "diagnostics",
+            &["html", "htm", "txt", "xml"],
+            "validation error template",
+        )
+        .map(|fixtures| fixtures.into_iter().map(map_template_fixture).collect())
+    }) {
+        Ok(fixtures) => Ok(fixtures.as_slice()),
+        Err(error) => Err(error.clone()),
+    }
 }
 
 fn map_template_fixture(mut fixture: Fixture) -> Fixture {
@@ -63,22 +61,39 @@ fn map_template_fixture(mut fixture: Fixture) -> Fixture {
     fixture
 }
 
-pub fn python_fixtures() -> &'static [Fixture] {
-    static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();
-    FIXTURES
-        .get_or_init(|| load_fixtures("python", &["py"], "Python"))
-        .as_slice()
+pub fn python_fixtures() -> Result<&'static [Fixture], FixtureLoadError> {
+    static FIXTURES: OnceLock<Result<Vec<Fixture>, FixtureLoadError>> = OnceLock::new();
+    match FIXTURES.get_or_init(|| load_fixtures("python", &["py"], "Python")) {
+        Ok(fixtures) => Ok(fixtures.as_slice()),
+        Err(error) => Err(error.clone()),
+    }
 }
 
-pub fn model_fixtures() -> &'static [Fixture] {
-    static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();
-    FIXTURES
-        .get_or_init(|| load_fixtures("models", &["py"], "model"))
-        .as_slice()
+pub fn model_fixtures() -> Result<&'static [Fixture], FixtureLoadError> {
+    static FIXTURES: OnceLock<Result<Vec<Fixture>, FixtureLoadError>> = OnceLock::new();
+    match FIXTURES.get_or_init(|| load_fixtures("models", &["py"], "model")) {
+        Ok(fixtures) => Ok(fixtures.as_slice()),
+        Err(error) => Err(error.clone()),
+    }
 }
 
 pub(crate) fn crate_root() -> Utf8PathBuf {
     Utf8PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-bench")
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum FixtureLoadError {
+    #[error("failed to load {kind} fixtures: {source}")]
+    Read {
+        kind: &'static str,
+        #[source]
+        source: Arc<io::Error>,
+    },
+    #[error("no {kind} files discovered under {root}")]
+    Empty {
+        kind: &'static str,
+        root: Utf8PathBuf,
+    },
 }
 
 #[derive(Debug)]
@@ -90,6 +105,8 @@ pub struct CorpusTemplates {
 
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum CorpusLoadError {
+    #[error("benchmark corpus is invalid or stale: {message}")]
+    Invalid { message: String },
     #[error("Django package is missing under corpus root {corpus_root}")]
     MissingDjangoPackage { corpus_root: Utf8PathBuf },
     #[error("no {selection} corpus templates discovered under {selection_root}")]
@@ -127,12 +144,12 @@ fn read_corpus_templates(
     let discovered_file_count = paths.len();
     let mut files = Vec::with_capacity(discovered_file_count);
     for path in paths {
-        let relative =
-            path.strip_prefix(corpus_root)
-                .map_err(|_| CorpusLoadError::OutsideCorpusRoot {
-                    path: path.clone(),
-                    corpus_root: corpus_root.to_path_buf(),
-                })?;
+        let relative = path
+            .strip_prefix(corpus_root)
+            .map_err(|_strip_prefix_error| CorpusLoadError::OutsideCorpusRoot {
+                path: path.clone(),
+                corpus_root: corpus_root.to_path_buf(),
+            })?;
         let source = fs::read_to_string(path.as_std_path()).map_err(|error| {
             CorpusLoadError::ReadTemplate {
                 path: path.clone(),
@@ -157,7 +174,9 @@ fn load_corpus_templates(
         return Ok(None);
     }
 
-    let corpus = Corpus::require();
+    let corpus = Corpus::require().map_err(|error| CorpusLoadError::Invalid {
+        message: error.to_string(),
+    })?;
     let (selection_root, paths) = get_selection(&corpus)?;
     read_corpus_templates(corpus.root(), selection, &selection_root, paths).map(Some)
 }
@@ -194,12 +213,20 @@ pub fn full_corpus_templates() -> Result<Option<&'static CorpusTemplates>, Corpu
     }
 }
 
-fn load_fixtures(subdir: &str, extensions: &[&str], kind: &str) -> Vec<Fixture> {
+fn load_fixtures(
+    subdir: &str,
+    extensions: &[&str],
+    kind: &'static str,
+) -> Result<Vec<Fixture>, FixtureLoadError> {
     let root = crate_root().join("fixtures").join(subdir);
 
     let mut raw = Vec::new();
-    collect_files(root.as_path(), root.as_path(), extensions, &mut raw)
-        .unwrap_or_else(|err| panic!("failed to load {kind} fixtures: {err}"));
+    collect_files(root.as_path(), root.as_path(), extensions, &mut raw).map_err(|source| {
+        FixtureLoadError::Read {
+            kind,
+            source: Arc::new(source),
+        }
+    })?;
 
     raw.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -212,12 +239,11 @@ fn load_fixtures(subdir: &str, extensions: &[&str], kind: &str) -> Vec<Fixture> 
         })
         .collect();
 
-    assert!(
-        !fixtures.is_empty(),
-        "no {kind} files discovered under {root}"
-    );
+    if fixtures.is_empty() {
+        return Err(FixtureLoadError::Empty { kind, root });
+    }
 
-    fixtures
+    Ok(fixtures)
 }
 
 fn collect_files(
@@ -264,7 +290,6 @@ fn collect_files(
 
 #[cfg(test)]
 mod tests {
-    use std::env;
     use std::fmt::Write as _;
 
     use camino::Utf8Path;
@@ -283,6 +308,7 @@ mod tests {
     use super::read_corpus_templates;
     use super::template_fixtures;
     use super::validation_error_fixtures;
+    use crate::bench_corpus_is_required;
 
     #[derive(Serialize)]
     struct FixtureSetSnapshot {
@@ -302,7 +328,10 @@ mod tests {
         let digest = Sha256::digest(bytes);
         let mut output = String::with_capacity(digest.len() * 2);
         for byte in digest {
-            write!(output, "{byte:02x}").expect("writing to a String should not fail");
+            assert!(
+                write!(output, "{byte:02x}").is_ok(),
+                "writing a SHA-256 digest to a String should succeed"
+            );
         }
         output
     }
@@ -329,19 +358,24 @@ mod tests {
     fn fixture_identities_are_stable() {
         assert_yaml_snapshot!(
             "fixture_identity_templates",
-            fixture_set_snapshot(template_fixtures())
+            fixture_set_snapshot(
+                template_fixtures().expect("template benchmark fixtures should load")
+            )
         );
         assert_yaml_snapshot!(
             "fixture_identity_validation_errors",
-            fixture_set_snapshot(validation_error_fixtures())
+            fixture_set_snapshot(
+                validation_error_fixtures()
+                    .expect("validation error benchmark fixtures should load")
+            )
         );
         assert_yaml_snapshot!(
             "fixture_identity_python",
-            fixture_set_snapshot(python_fixtures())
+            fixture_set_snapshot(python_fixtures().expect("Python benchmark fixtures should load"))
         );
         assert_yaml_snapshot!(
             "fixture_identity_models",
-            fixture_set_snapshot(model_fixtures())
+            fixture_set_snapshot(model_fixtures().expect("model benchmark fixtures should load"))
         );
     }
 
@@ -351,7 +385,7 @@ mod tests {
         let selection_root = corpus_root.join("repos/django-6.0");
 
         let error = read_corpus_templates(corpus_root, "Django", &selection_root, Vec::new())
-            .expect_err("an available empty selection must fail");
+            .expect_err("an available empty Django corpus selection should fail");
 
         assert!(matches!(
             error,
@@ -368,7 +402,7 @@ mod tests {
         let outside_path = Utf8PathBuf::from("/elsewhere/template.html");
         let error =
             read_corpus_templates(corpus_root, "full", corpus_root, vec![outside_path.clone()])
-                .expect_err("a template outside the corpus root must fail");
+                .expect_err("a template outside the corpus root should fail corpus loading");
         assert!(matches!(
             error,
             CorpusLoadError::OutsideCorpusRoot {
@@ -384,7 +418,7 @@ mod tests {
             corpus_root,
             vec![unreadable_path.clone()],
         )
-        .expect_err("an unreadable corpus template must fail");
+        .expect_err("an unreadable corpus template should fail corpus loading");
         assert!(
             matches!(
                 error,
@@ -396,13 +430,12 @@ mod tests {
 
     #[test]
     fn corpus_loader_synchronizes_every_discovered_template() {
-        let required = env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_some();
+        let required = bench_corpus_is_required();
         for (name, corpus) in [
             ("Django", django_corpus_templates()),
             ("full", full_corpus_templates()),
         ] {
-            let corpus =
-                corpus.unwrap_or_else(|error| panic!("failed to load {name} corpus: {error}"));
+            let corpus = corpus.expect("benchmark corpus should load");
             let Some(corpus) = corpus else {
                 assert!(!required, "{name} benchmark corpus is not synchronized");
                 eprintln!("{name} benchmark corpus is not synchronized; skipping loader check");

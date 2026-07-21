@@ -1,8 +1,8 @@
 use std::env;
 use std::path::Path;
 
-fn main() {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+fn main() -> Result<(), env::VarError> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
     let corpus_dir = Path::new(&manifest_dir).join(".corpus");
 
     println!("cargo:rerun-if-changed=manifest.toml");
@@ -14,4 +14,6 @@ fn main() {
             "cargo:warning=Corpus not synced. Run: cargo run -p djls-testing --bin corpus -- sync"
         );
     }
+
+    Ok(())
 }

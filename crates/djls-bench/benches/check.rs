@@ -13,27 +13,111 @@
 //! Scales from the fixture batch to the full corpus to stress the kernel while
 //! keeping that narrower boundary explicit.
 //!
-//! Corpus benchmarks require a synced corpus (`just corpus sync`) and
-//! skip gracefully when unavailable.
+//! Corpus benchmarks require a synced corpus (`just corpus sync`) when
+//! `DJLS_REQUIRE_BENCH_CORPUS` is set. Optional local runs skip an absent corpus.
 
-use std::env;
-
+use camino::Utf8PathBuf;
 use divan::Bencher;
 use divan::black_box;
 use divan::counter::ItemsCount;
 use djls::check_template;
+use djls_bench::BenchmarkSetupError;
 use djls_bench::CorpusLoadError;
 use djls_bench::CorpusTemplates;
+use djls_bench::Db;
+use djls_bench::corpus_or_skip;
 use djls_bench::django_corpus_templates;
 use djls_bench::full_corpus_templates;
 use djls_bench::realistic_db;
+use djls_bench::require;
 use djls_bench::template_fixtures;
 use djls_conf::DiagnosticsConfig;
 use djls_ide::prepare_project_template_analysis;
 use djls_source::DiagnosticRenderer;
+use djls_source::File;
+use djls_source::FileError;
+use djls_source::FileReadError;
 
 fn main() {
     divan::main();
+}
+
+#[derive(Debug, thiserror::Error)]
+enum CheckSetupError {
+    #[error(transparent)]
+    Database(#[from] BenchmarkSetupError),
+    #[error("failed to register check fixture {path}: {source}")]
+    Register {
+        path: Utf8PathBuf,
+        #[source]
+        source: FileError,
+    },
+    #[error("check benchmark database has no Project to prime and index")]
+    MissingProject,
+    #[error("failed to preflight check benchmark template {path}: {source}")]
+    Check {
+        path: Utf8PathBuf,
+        #[source]
+        source: FileReadError,
+    },
+}
+
+struct CheckInput {
+    db: Db,
+    files: Vec<File>,
+    config: DiagnosticsConfig,
+    renderer: DiagnosticRenderer,
+}
+
+fn build_check_input(fixtures: &[(&Utf8PathBuf, &String)]) -> Result<CheckInput, CheckSetupError> {
+    let mut db = realistic_db()?;
+    let mut files = Vec::with_capacity(fixtures.len());
+    for &(path, source) in fixtures {
+        let file = db
+            .file_with_contents(path.clone(), source)
+            .map_err(|source| CheckSetupError::Register {
+                path: path.clone(),
+                source,
+            })?;
+        files.push(file);
+    }
+    prepare_project_template_analysis(&db).ok_or(CheckSetupError::MissingProject)?;
+    Ok(CheckInput {
+        db,
+        files,
+        config: DiagnosticsConfig::default(),
+        renderer: DiagnosticRenderer::plain(),
+    })
+}
+
+fn check_input<'a>(
+    fixtures: impl IntoIterator<Item = (&'a Utf8PathBuf, &'a String)>,
+) -> Result<CheckInput, CheckSetupError> {
+    let fixtures: Vec<_> = fixtures.into_iter().collect();
+    let preflight = build_check_input(&fixtures)?;
+    for &file in &preflight.files {
+        check_template(&preflight.db, file).map_err(|source| CheckSetupError::Check {
+            path: file.path(&preflight.db).clone(),
+            source,
+        })?;
+    }
+
+    // Keep preflight query results out of the database used for timings.
+    build_check_input(&fixtures)
+}
+
+fn run_check_kernel(input: &CheckInput) -> usize {
+    let mut total_errors = 0;
+    for &file in &input.files {
+        let result = require(
+            format_args!("check benchmark template {}", file.path(&input.db)),
+            check_template(&input.db, file),
+        );
+        if result.has_diagnostics() {
+            total_errors += result.render(&input.config, &input.renderer).len();
+        }
+    }
+    total_errors
 }
 
 // Batch: all fixture templates through one fresh database.
@@ -42,33 +126,19 @@ fn main() {
 
 #[divan::bench]
 fn fixtures(bencher: Bencher) {
-    let fixtures = template_fixtures();
+    let fixtures = require("load check benchmark fixtures", template_fixtures());
     bencher
         .with_inputs(move || {
-            let mut db = realistic_db();
-            let files: Vec<_> = fixtures
-                .iter()
-                .map(|fixture| db.file_with_contents(fixture.path.clone(), &fixture.source))
-                .collect();
-            prepare_project_template_analysis(&db)
-                .expect("check benchmark database should install a Project");
-            (
-                db,
-                files,
-                DiagnosticsConfig::default(),
-                DiagnosticRenderer::plain(),
+            require(
+                "prepare fixture check benchmark input",
+                check_input(
+                    fixtures
+                        .iter()
+                        .map(|fixture| (&fixture.path, &fixture.source)),
+                ),
             )
         })
-        .bench_local_refs(|(db, files, config, fmt)| {
-            let mut total_errors = 0;
-            for &file in files.iter() {
-                let result = check_template(db, file).expect("benchmark file should be readable");
-                if result.has_diagnostics() {
-                    total_errors += result.render(config, fmt).len();
-                }
-            }
-            black_box(total_errors);
-        });
+        .bench_local_refs(|input| black_box(run_check_kernel(input)));
 }
 
 // Corpus-scale: real Django templates and the full corpus.
@@ -76,14 +146,9 @@ fn fixtures(bencher: Bencher) {
 fn bench_corpus_check(
     bencher: Bencher,
     corpus: Result<Option<&'static CorpusTemplates>, CorpusLoadError>,
+    selection: &'static str,
 ) {
-    let corpus = corpus.unwrap_or_else(|error| panic!("failed to load benchmark corpus: {error}"));
-    let Some(corpus) = corpus else {
-        assert!(
-            env::var_os("DJLS_REQUIRE_BENCH_CORPUS").is_none(),
-            "corpus not synced; run `just corpus sync` before benchmarks",
-        );
-        eprintln!("corpus not synced, skipping");
+    let Some(corpus) = corpus_or_skip(format_args!("{selection} check benchmark"), corpus) else {
         return;
     };
 
@@ -92,43 +157,24 @@ fn bench_corpus_check(
     bencher
         .counter(ItemsCount::new(file_count))
         .with_inputs(move || {
-            let mut db = realistic_db();
-            let files: Vec<_> = corpus
-                .files
-                .iter()
-                .map(|(path, source)| db.file_with_contents(path.clone(), source))
-                .collect();
-            prepare_project_template_analysis(&db)
-                .expect("check benchmark database should install a Project");
-            (
-                db,
-                files,
-                DiagnosticsConfig::default(),
-                DiagnosticRenderer::plain(),
+            require(
+                format_args!("prepare {selection} corpus check benchmark input"),
+                check_input(corpus.files.iter().map(|(path, source)| (path, source))),
             )
         })
-        .bench_local_refs(|(db, files, config, fmt)| {
-            let mut total_errors = 0;
-            for &file in files.iter() {
-                let result = check_template(db, file).expect("benchmark file should be readable");
-                if result.has_diagnostics() {
-                    total_errors += result.render(config, fmt).len();
-                }
-            }
-            black_box(total_errors);
-        });
+        .bench_local_refs(|input| black_box(run_check_kernel(input)));
 }
 
 // Django's own templates (~123 files). Fresh db each iteration.
 
 #[divan::bench]
 fn corpus_django(bencher: Bencher) {
-    bench_corpus_check(bencher, django_corpus_templates());
+    bench_corpus_check(bencher, django_corpus_templates(), "Django");
 }
 
 // Full corpus (~6 000 templates from 36 packages). Fresh db each iteration.
 
 #[divan::bench]
 fn corpus_all(bencher: Bencher) {
-    bench_corpus_check(bencher, full_corpus_templates());
+    bench_corpus_check(bencher, full_corpus_templates(), "full");
 }

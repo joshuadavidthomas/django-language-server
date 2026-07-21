@@ -93,17 +93,35 @@ pub struct FileRoot {
     pub revision: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error)]
+pub enum FileReadErrorKind {
+    #[error("filesystem error: {0:?}")]
+    Filesystem(ErrorKind),
+    #[error("file is not registered in this source database")]
+    MissingSynchronizedEntry,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("failed to read {path}: {kind:?}")]
+#[error("failed to read {path}: {kind}")]
 pub struct FileReadError {
     path: Utf8PathBuf,
-    kind: ErrorKind,
+    kind: FileReadErrorKind,
 }
 
 impl FileReadError {
     #[must_use]
     pub fn new(path: Utf8PathBuf, kind: ErrorKind) -> Self {
-        Self { path, kind }
+        Self {
+            path,
+            kind: FileReadErrorKind::Filesystem(kind),
+        }
+    }
+
+    fn missing_synchronized_entry(path: Utf8PathBuf) -> Self {
+        Self {
+            path,
+            kind: FileReadErrorKind::MissingSynchronizedEntry,
+        }
     }
 
     #[must_use]
@@ -112,7 +130,7 @@ impl FileReadError {
     }
 
     #[must_use]
-    pub const fn kind(&self) -> ErrorKind {
+    pub const fn kind(&self) -> FileReadErrorKind {
         self.kind
     }
 }
@@ -346,20 +364,17 @@ impl SourceFiles {
     }
 
     fn source(&self, db: &dyn Db, file: File) -> Result<SourceText, FileReadError> {
-        self.0
-            .by_path
-            .get(file.path(db))
-            .expect("interned file should have a synchronized source outcome")
-            .source
-            .clone()
+        let path = file.path(db);
+        let Some(entry) = self.0.by_path.get(path) else {
+            return Err(FileReadError::missing_synchronized_entry(path.clone()));
+        };
+        entry.source.clone()
     }
 
-    fn set_source(&self, path: &Utf8Path, source: Result<SourceText, FileReadError>) {
+    fn set_source(&self, path: &Utf8Path, file: File, source: Result<SourceText, FileReadError>) {
         self.0
             .by_path
-            .get_mut(path)
-            .expect("interned file should have a synchronized source outcome")
-            .source = source;
+            .insert(path.to_owned(), SourceFileEntry { file, source });
     }
 
     #[must_use]
@@ -407,8 +422,10 @@ impl SourceFiles {
     where
         SalsaDb: salsa::Database + ?Sized,
     {
-        self.root(db, path)
-            .unwrap_or_else(|| panic!("expected registered source root for {path}"))
+        match self.root(db, path) {
+            Some(root) => root,
+            None => panic!("expected registered source root for {path}"),
+        }
     }
 
     /// Register a root for future file creation.
@@ -504,7 +521,7 @@ fn sync_file(db: &mut dyn Db, path: &Utf8Path) {
         file.set_status(db).to(next_status);
     }
     if current_source != next_source {
-        db.files().set_source(path, next_source);
+        db.files().set_source(path, file, next_source);
     }
     db.bump_file_revision(file);
 }

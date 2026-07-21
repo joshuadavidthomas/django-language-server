@@ -332,12 +332,11 @@ fn resolve_chain_from_name(
         })
         .collect::<Vec<_>>();
     let components = name.as_str().split('.').collect::<Vec<_>>();
+    let component_names = name.prefixes();
     let mut resolved: Vec<PythonModule> = Vec::new();
 
-    for (index, component) in components.iter().enumerate() {
+    for (index, (component, component_name)) in components.iter().zip(component_names).enumerate() {
         let is_last = index + 1 == components.len();
-        let component_name = PythonModuleName::parse(&components[..=index].join("."))
-            .expect("a prefix of a valid dotted module name is valid");
 
         let mut portions = Vec::new();
         let mut resolved_source: Option<(PythonSourceModule, Option<CandidateDirectory>)> = None;
@@ -763,7 +762,8 @@ mod tests {
         let chain = ResolvedImportChain {
             components: vec![
                 PythonModule::Namespace(PythonNamespacePackage::new(
-                    PythonModuleName::parse("pkg").unwrap(),
+                    PythonModuleName::parse("pkg")
+                        .expect("test Python module name should be valid"),
                     Vec::new(),
                 )),
                 PythonModule::Source(package),
@@ -782,18 +782,19 @@ mod tests {
         let root_failure = PythonImportChainResolution::Failed {
             prefix: ResolvedImportChain::default(),
             failure: PythonImportChainFailure::NotFound(
-                PythonModuleName::parse("missing").unwrap(),
+                PythonModuleName::parse("missing")
+                    .expect("test Python module name should be valid"),
             ),
         };
-        let PythonImportChainResolution::Failed { prefix, .. } = root_failure else {
-            unreachable!("constructed a failed resolution")
-        };
-        assert!(prefix.components.is_empty());
+        assert!(matches!(
+            root_failure,
+            PythonImportChainResolution::Failed { prefix, .. } if prefix.components.is_empty()
+        ));
     }
 
     fn module_parts(name: &str) -> (PythonModuleName, Utf8PathBuf, File, SearchPath) {
         (
-            PythonModuleName::parse(name).unwrap(),
+            PythonModuleName::parse(name).expect("test Python module name should be valid"),
             Utf8PathBuf::from(format!("/project/{}.py", name.replace('.', "/"))),
             File::from_id(Id::from_bits(1)),
             SearchPath::FirstParty(Utf8PathBuf::from("/project")),
@@ -803,15 +804,19 @@ mod tests {
     #[test]
     fn typed_module_order_compares_every_equality_bearing_field() {
         let base = PythonSourceModule {
-            name: PythonModuleName::parse("pkg.module").unwrap(),
-            package: Some(PythonModuleName::parse("pkg").unwrap()),
+            name: PythonModuleName::parse("pkg.module")
+                .expect("test Python module name should be valid"),
+            package: Some(
+                PythonModuleName::parse("pkg").expect("test Python module name should be valid"),
+            ),
             path: Utf8PathBuf::from("/project/pkg/module.py"),
             file: File::from_id(Id::from_bits(15)),
             search_path: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
         };
         let unequal = [
             PythonSourceModule {
-                name: PythonModuleName::parse("pkg.other").unwrap(),
+                name: PythonModuleName::parse("pkg.other")
+                    .expect("test Python module name should be valid"),
                 ..base.clone()
             },
             PythonSourceModule {

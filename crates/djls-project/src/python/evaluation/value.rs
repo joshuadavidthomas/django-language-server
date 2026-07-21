@@ -563,7 +563,7 @@ impl PythonValue {
     /// Append one constructed element to a list or tuple literal under
     /// construction. An unknown element is recorded as a typed unknown element;
     /// every other value becomes an exact sequence element.
-    pub(super) fn push_constructed_element(&mut self, value: PythonValue) {
+    pub(super) fn push_constructed_element(&mut self, value: PythonValue) -> bool {
         let item = match value.kind {
             PythonValueKind::Unknown(unknown) => PythonSequenceItem::UnknownElement(unknown),
             PythonValueKind::Str(_)
@@ -576,17 +576,21 @@ impl PythonValue {
             | PythonValueKind::Module(_) => PythonSequenceItem::Value(value),
         };
         match &mut self.kind {
-            PythonValueKind::List(list) => list.append(&item),
-            PythonValueKind::Tuple(tuple) => tuple.append(&item),
+            PythonValueKind::List(list) => {
+                list.append(&item);
+                true
+            }
+            PythonValueKind::Tuple(tuple) => {
+                tuple.append(&item);
+                true
+            }
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
-            | PythonValueKind::Unknown(_) => {
-                unreachable!("sequence construction appends into a list or tuple")
-            }
+            | PythonValueKind::Unknown(_) => false,
         }
     }
 
@@ -608,9 +612,7 @@ impl PythonValue {
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
-            | PythonValueKind::Unknown(_) => {
-                unreachable!("sequence construction extends a list or tuple")
-            }
+            | PythonValueKind::Unknown(_) => None,
         }
     }
 
@@ -681,12 +683,16 @@ impl PythonValue {
         &mut self,
         incoming: Self,
         operation_origin: Option<Origin>,
-    ) {
-        debug_assert!(self.same_semantic_value(&incoming));
+    ) -> bool {
+        if !self.same_semantic_value(&incoming) {
+            return false;
+        }
         self.evidence.merge(incoming.evidence);
-        self.kind
+        let merged = self
+            .kind
             .merge_semantically_equal(incoming.kind, operation_origin);
         self.normalize();
+        merged
     }
 }
 
@@ -712,92 +718,74 @@ pub(crate) enum PythonValueKind {
     Unknown(PythonUnknown),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum PythonValueKindOrder {
+    Bool,
+    Dict,
+    List,
+    Module,
+    PathObject,
+    Str,
+    Tuple,
+    UnsupportedLiteral,
+    PathIntrinsic,
+    Unknown,
+}
+
 impl PythonValueKind {
-    /// Typed precedence preserving the evaluator's order from before path
-    /// objects and path intrinsics shared one enclosing variant.
-    fn structural_rank(&self) -> u8 {
+    fn structural_order(&self) -> PythonValueKindOrder {
         match self {
-            Self::Bool(_) => 0,
-            Self::Dict(_) => 1,
-            Self::List(_) => 2,
-            Self::Module(_) => 3,
-            Self::Path(PythonPath::Object(_)) => 4,
-            Self::Str(_) => 5,
-            Self::Tuple(_) => 6,
-            Self::UnsupportedLiteral => 7,
-            Self::Path(PythonPath::Intrinsic(_)) => 8,
-            Self::Unknown(_) => 9,
+            Self::Bool(_) => PythonValueKindOrder::Bool,
+            Self::Dict(_) => PythonValueKindOrder::Dict,
+            Self::List(_) => PythonValueKindOrder::List,
+            Self::Module(_) => PythonValueKindOrder::Module,
+            Self::Path(PythonPath::Object(_)) => PythonValueKindOrder::PathObject,
+            Self::Str(_) => PythonValueKindOrder::Str,
+            Self::Tuple(_) => PythonValueKindOrder::Tuple,
+            Self::UnsupportedLiteral => PythonValueKindOrder::UnsupportedLiteral,
+            Self::Path(PythonPath::Intrinsic(_)) => PythonValueKindOrder::PathIntrinsic,
+            Self::Unknown(_) => PythonValueKindOrder::Unknown,
         }
     }
 }
 
 impl StructuralOrd for PythonValueKind {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        let ordering = self.structural_rank().cmp(&other.structural_rank());
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-        match self {
-            Self::Str(left) => {
-                let Self::Str(right) = other else {
-                    unreachable!("equal value-kind ranks identify the same variant")
-                };
+        match (self, other) {
+            (Self::Str(left), Self::Str(right)) => left.cmp(right),
+            (Self::Bool(left), Self::Bool(right)) => left.cmp(right),
+            (Self::Path(PythonPath::Object(left)), Self::Path(PythonPath::Object(right))) => {
                 left.cmp(right)
             }
-            Self::Bool(left) => {
-                let Self::Bool(right) = other else {
-                    unreachable!("equal value-kind ranks identify the same variant")
-                };
-                left.cmp(right)
-            }
-            Self::Path(PythonPath::Object(left)) => {
-                let Self::Path(PythonPath::Object(right)) = other else {
-                    unreachable!("equal value-kind ranks identify concrete paths")
-                };
-                left.cmp(right)
-            }
-            Self::Path(PythonPath::Intrinsic(left)) => {
-                let Self::Path(PythonPath::Intrinsic(right)) = other else {
-                    unreachable!("equal value-kind ranks identify path intrinsics")
-                };
+            (Self::Path(PythonPath::Intrinsic(left)), Self::Path(PythonPath::Intrinsic(right))) => {
                 left.structural_rank().cmp(&right.structural_rank())
             }
-            Self::UnsupportedLiteral => {
-                let Self::UnsupportedLiteral = other else {
-                    unreachable!("equal value-kind ranks identify the same variant")
-                };
-                Ordering::Equal
-            }
-            Self::List(left) => {
-                let Self::List(right) = other else {
-                    unreachable!("equal value-kind ranks identify the same variant")
-                };
-                left.structural_cmp(right)
-            }
-            Self::Tuple(left) => {
-                let Self::Tuple(right) = other else {
-                    unreachable!("equal value-kind ranks identify the same variant")
-                };
-                left.structural_cmp(right)
-            }
-            Self::Dict(left) => {
-                let Self::Dict(right) = other else {
-                    unreachable!("equal value-kind ranks identify the same variant")
-                };
-                left.structural_cmp(right)
-            }
-            Self::Module(left) => {
-                let Self::Module(right) = other else {
-                    unreachable!("equal value-kind ranks identify the same variant")
-                };
-                left.structural_cmp(right)
-            }
-            Self::Unknown(left) => {
-                let Self::Unknown(right) = other else {
-                    unreachable!("equal value-kind ranks identify the same variant")
-                };
-                left.structural_cmp(right)
-            }
+            (Self::UnsupportedLiteral, Self::UnsupportedLiteral) => Ordering::Equal,
+            (Self::List(left), Self::List(right)) => left.structural_cmp(right),
+            (Self::Tuple(left), Self::Tuple(right)) => left.structural_cmp(right),
+            (Self::Dict(left), Self::Dict(right)) => left.structural_cmp(right),
+            (Self::Module(left), Self::Module(right)) => left.structural_cmp(right),
+            (Self::Unknown(left), Self::Unknown(right)) => left.structural_cmp(right),
+            (
+                left @ (Self::Str(_)
+                | Self::Bool(_)
+                | Self::Path(_)
+                | Self::UnsupportedLiteral
+                | Self::List(_)
+                | Self::Tuple(_)
+                | Self::Dict(_)
+                | Self::Module(_)
+                | Self::Unknown(_)),
+                right @ (Self::Str(_)
+                | Self::Bool(_)
+                | Self::Path(_)
+                | Self::UnsupportedLiteral
+                | Self::List(_)
+                | Self::Tuple(_)
+                | Self::Dict(_)
+                | Self::Module(_)
+                | Self::Unknown(_)),
+            ) => left.structural_order().cmp(&right.structural_order()),
         }
     }
 }
@@ -844,20 +832,27 @@ impl PythonValueKind {
         }
     }
 
-    fn merge_semantically_equal(&mut self, incoming: Self, operation_origin: Option<Origin>) {
-        debug_assert!(self.same_semantic_value(&incoming));
+    fn merge_semantically_equal(
+        &mut self,
+        incoming: Self,
+        operation_origin: Option<Origin>,
+    ) -> bool {
+        if !self.same_semantic_value(&incoming) {
+            return false;
+        }
         match (self, incoming) {
             (Self::List(existing), Self::List(incoming)) => {
-                existing.merge_semantically_equal(incoming, operation_origin);
+                existing.merge_semantically_equal(incoming, operation_origin)
             }
             (Self::Tuple(existing), Self::Tuple(incoming)) => {
-                existing.merge_semantically_equal(incoming, operation_origin);
+                existing.merge_semantically_equal(incoming, operation_origin)
             }
             (Self::Dict(existing), Self::Dict(incoming)) => {
-                existing.merge_semantically_equal(incoming, operation_origin);
+                existing.merge_semantically_equal(incoming, operation_origin)
             }
             (Self::Unknown(existing), Self::Unknown(incoming)) => {
                 existing.merge_origins(&incoming);
+                true
             }
             // Atomic facts and module identity carry no mergeable payload;
             // equal values stay equal.
@@ -865,7 +860,7 @@ impl PythonValueKind {
             | (Self::Bool(_), Self::Bool(_))
             | (Self::Path(_), Self::Path(_))
             | (Self::UnsupportedLiteral, Self::UnsupportedLiteral)
-            | (Self::Module(_), Self::Module(_)) => {}
+            | (Self::Module(_), Self::Module(_)) => true,
             (
                 Self::Str(_)
                 | Self::Bool(_)
@@ -876,8 +871,16 @@ impl PythonValueKind {
                 | Self::Dict(_)
                 | Self::Module(_)
                 | Self::Unknown(_),
-                _,
-            ) => unreachable!("semantic equality requires matching value variants"),
+                Self::Str(_)
+                | Self::Bool(_)
+                | Self::Path(_)
+                | Self::UnsupportedLiteral
+                | Self::List(_)
+                | Self::Tuple(_)
+                | Self::Dict(_)
+                | Self::Module(_)
+                | Self::Unknown(_),
+            ) => false,
         }
     }
 }
@@ -970,120 +973,99 @@ pub(crate) enum PythonUnknownCause {
     AlternativeLimitExceeded,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum PythonUnknownCauseOrder {
+    AlternativeLimitExceeded,
+    Cycle,
+    ImportNotFound,
+    InvalidImport,
+    MissingImportMember,
+    SkippedExternal,
+    SyntaxErrors,
+    Unreadable,
+    UnsupportedExpression,
+    UnsupportedMutation,
+    ModuleAttribute,
+}
+
 impl PythonUnknownCause {
-    /// Typed precedence matching the evaluator's previously observed retained
-    /// subsets: `AlternativeLimitExceeded`, Cycle, `ImportNotFound`, `InvalidImport`,
-    /// `MissingImportMember`, `SkippedExternal`, `SyntaxErrors`, Unreadable,
-    /// `UnsupportedExpression`, `UnsupportedMutation`, then `ModuleAttribute`
-    /// appended last to keep existing precedence stable.
-    fn structural_rank(&self) -> u8 {
+    fn structural_order(&self) -> PythonUnknownCauseOrder {
         match self {
-            Self::AlternativeLimitExceeded => 0,
-            Self::Cycle => 1,
-            Self::ImportNotFound(_) => 2,
-            Self::InvalidImport(_) => 3,
-            Self::MissingImportMember { .. } => 4,
-            Self::SkippedExternal(_) => 5,
-            Self::SyntaxErrors(_) => 6,
-            Self::Unreadable(_) => 7,
-            Self::UnsupportedExpression => 8,
-            Self::UnsupportedMutation => 9,
-            Self::ModuleAttribute { .. } => 10,
+            Self::AlternativeLimitExceeded => PythonUnknownCauseOrder::AlternativeLimitExceeded,
+            Self::Cycle => PythonUnknownCauseOrder::Cycle,
+            Self::ImportNotFound(_) => PythonUnknownCauseOrder::ImportNotFound,
+            Self::InvalidImport(_) => PythonUnknownCauseOrder::InvalidImport,
+            Self::MissingImportMember { .. } => PythonUnknownCauseOrder::MissingImportMember,
+            Self::SkippedExternal(_) => PythonUnknownCauseOrder::SkippedExternal,
+            Self::SyntaxErrors(_) => PythonUnknownCauseOrder::SyntaxErrors,
+            Self::Unreadable(_) => PythonUnknownCauseOrder::Unreadable,
+            Self::UnsupportedExpression => PythonUnknownCauseOrder::UnsupportedExpression,
+            Self::UnsupportedMutation => PythonUnknownCauseOrder::UnsupportedMutation,
+            Self::ModuleAttribute { .. } => PythonUnknownCauseOrder::ModuleAttribute,
         }
     }
 }
 
 impl StructuralOrd for PythonUnknownCause {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        let ordering = self.structural_rank().cmp(&other.structural_rank());
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-        match self {
-            Self::UnsupportedExpression => {
-                let Self::UnsupportedExpression = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                Ordering::Equal
-            }
-            Self::UnsupportedMutation => {
-                let Self::UnsupportedMutation = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                Ordering::Equal
-            }
-            Self::InvalidImport(left) => {
-                let Self::InvalidImport(right) = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                left.structural_cmp(right)
-            }
-            Self::ImportNotFound(left) => {
-                let Self::ImportNotFound(right) = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                left.cmp(right)
-            }
-            Self::MissingImportMember {
-                module: left_module,
-                member: left_member,
-            } => {
-                let Self::MissingImportMember {
+        match (self, other) {
+            (Self::UnsupportedExpression, Self::UnsupportedExpression)
+            | (Self::UnsupportedMutation, Self::UnsupportedMutation)
+            | (Self::Cycle, Self::Cycle)
+            | (Self::AlternativeLimitExceeded, Self::AlternativeLimitExceeded) => Ordering::Equal,
+            (Self::InvalidImport(left), Self::InvalidImport(right)) => left.structural_cmp(right),
+            (Self::ImportNotFound(left), Self::ImportNotFound(right))
+            | (Self::SkippedExternal(left), Self::SkippedExternal(right)) => left.cmp(right),
+            (
+                Self::MissingImportMember {
+                    module: left_module,
+                    member: left_member,
+                },
+                Self::MissingImportMember {
                     module: right_module,
                     member: right_member,
-                } = other
-                else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                left_module
-                    .cmp(right_module)
-                    .then_with(|| left_member.cmp(right_member))
-            }
-            Self::ModuleAttribute {
-                module: left_module,
-                member: left_member,
-            } => {
-                let Self::ModuleAttribute {
+                },
+            )
+            | (
+                Self::ModuleAttribute {
+                    module: left_module,
+                    member: left_member,
+                },
+                Self::ModuleAttribute {
                     module: right_module,
                     member: right_member,
-                } = other
-                else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                left_module
-                    .cmp(right_module)
-                    .then_with(|| left_member.cmp(right_member))
-            }
-            Self::SkippedExternal(left) => {
-                let Self::SkippedExternal(right) = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                left.cmp(right)
-            }
-            Self::Unreadable(left) => {
-                let Self::Unreadable(right) = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                left.structural_cmp(right)
-            }
-            Self::SyntaxErrors(left) => {
-                let Self::SyntaxErrors(right) = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
+                },
+            ) => left_module
+                .cmp(right_module)
+                .then_with(|| left_member.cmp(right_member)),
+            (Self::Unreadable(left), Self::Unreadable(right)) => left.structural_cmp(right),
+            (Self::SyntaxErrors(left), Self::SyntaxErrors(right)) => {
                 left.as_slice().structural_cmp(right.as_slice())
             }
-            Self::Cycle => {
-                let Self::Cycle = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                Ordering::Equal
-            }
-            Self::AlternativeLimitExceeded => {
-                let Self::AlternativeLimitExceeded = other else {
-                    unreachable!("equal unknown-cause ranks identify the same variant")
-                };
-                Ordering::Equal
-            }
+            (
+                left @ (Self::UnsupportedExpression
+                | Self::UnsupportedMutation
+                | Self::InvalidImport(_)
+                | Self::ImportNotFound(_)
+                | Self::MissingImportMember { .. }
+                | Self::ModuleAttribute { .. }
+                | Self::SkippedExternal(_)
+                | Self::Unreadable(_)
+                | Self::SyntaxErrors(_)
+                | Self::Cycle
+                | Self::AlternativeLimitExceeded),
+                right @ (Self::UnsupportedExpression
+                | Self::UnsupportedMutation
+                | Self::InvalidImport(_)
+                | Self::ImportNotFound(_)
+                | Self::MissingImportMember { .. }
+                | Self::ModuleAttribute { .. }
+                | Self::SkippedExternal(_)
+                | Self::Unreadable(_)
+                | Self::SyntaxErrors(_)
+                | Self::Cycle
+                | Self::AlternativeLimitExceeded),
+            ) => left.structural_order().cmp(&right.structural_order()),
         }
     }
 }
@@ -1189,7 +1171,13 @@ mod tests {
         let items = match &value.kind {
             PythonValueKind::List(list) => list.semantic_items(),
             PythonValueKind::Tuple(tuple) => tuple.semantic_items(),
-            _ => panic!("expected a sequence value"),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_) => panic!("expected a sequence value"),
         };
         items
             .iter()
@@ -1546,11 +1534,20 @@ mod tests {
         }
 
         let mut constructed = list_value(origin(3), Vec::new());
-        constructed.push_constructed_element(path_intrinsic);
-        constructed.push_constructed_element(unsupported_literal);
-        let PythonValueKind::List(list) = constructed.kind else {
-            panic!("constructed value should remain a list");
-        };
+        assert!(constructed.push_constructed_element(path_intrinsic));
+        assert!(constructed.push_constructed_element(unsupported_literal));
+        let list = match constructed.kind {
+            PythonValueKind::List(list) => Some(list),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_) => None,
+        }
+        .expect("constructed value should remain a list");
         assert!(matches!(
             &list.semantic_items()[0],
             PythonSequenceItem::Value(PythonValue {
@@ -1567,6 +1564,29 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn construction_mutations_reject_non_sequence_receivers_without_panicking() {
+        let mut receiver = str_value(origin(1), "receiver");
+        let original = receiver.clone();
+
+        assert!(!receiver.push_constructed_element(str_value(origin(2), "element")));
+        assert_eq!(receiver, original);
+        assert_eq!(
+            receiver.star_extend_construction(&list_value(origin(3), Vec::new()), origin(4)),
+            None
+        );
+        assert_eq!(receiver, original);
+    }
+
+    #[test]
+    fn mismatched_semantic_merge_returns_false_and_preserves_the_receiver() {
+        let mut receiver = list_value(origin(1), Vec::new());
+        let original = receiver.clone();
+
+        assert!(!receiver.merge_semantically_equal(str_value(origin(2), "other"), None));
+        assert_eq!(receiver, original);
     }
 
     #[test]
@@ -1715,9 +1735,18 @@ mod tests {
             origin(2),
             vec![PythonSequenceItem::Value(str_value(origin(5), "a"))],
         );
-        let PythonValueKind::List(list) = &mut receiver.kind else {
-            panic!("the receiver should remain a list");
-        };
+        let list = match &mut receiver.kind {
+            PythonValueKind::List(list) => Some(list),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_) => None,
+        }
+        .expect("the receiver should remain a list");
         let extended = list.extend_from(&source, origin(4));
         assert!(extended.is_some());
         assert_eq!(
@@ -1790,24 +1819,23 @@ mod tests {
 
     #[test]
     fn binary_add_covers_every_nominal_kind_pair() {
-        fn matrix_value(kind: usize) -> PythonValue {
-            match kind {
-                0 => list_value(origin(1), Vec::new()),
-                1 => tuple_value(origin(1), Vec::new()),
-                2 => str_value(origin(1), "s"),
-                3 => dict_value(origin(1)),
-                4 => bool_value(origin(1), true),
-                5 => path_value(origin(1), "p"),
-                6 => path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType),
-                7 => unsupported_literal_value(origin(1)),
-                8 => unknown_value(origin(1)),
-                _ => unreachable!("the matrix has nine nominal kinds"),
-            }
-        }
+        let matrix_values = || {
+            [
+                list_value(origin(1), Vec::new()),
+                tuple_value(origin(1), Vec::new()),
+                str_value(origin(1), "s"),
+                dict_value(origin(1)),
+                bool_value(origin(1), true),
+                path_value(origin(1), "p"),
+                path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType),
+                unsupported_literal_value(origin(1)),
+                unknown_value(origin(1)),
+            ]
+        };
 
-        for left_kind in 0..9 {
-            for right_kind in 0..9 {
-                let result = matrix_value(left_kind).add(&matrix_value(right_kind), origin(9));
+        for (left_kind, left) in matrix_values().into_iter().enumerate() {
+            for (right_kind, right) in matrix_values().into_iter().enumerate() {
+                let result = left.clone().add(&right, origin(9));
                 let supported = matches!((left_kind, right_kind), (0, 0 | 8) | (1, 1 | 8) | (2, 2));
                 assert_eq!(
                     !matches!(result.kind, PythonValueKind::Unknown(_)),
@@ -1932,9 +1960,18 @@ mod tests {
 
     fn extend_list(source: &PythonValue) -> (Option<()>, PythonValue) {
         let mut receiver = list_value(origin(1), vec![str_item(origin(2), "seed")]);
-        let PythonValueKind::List(list) = &mut receiver.kind else {
-            panic!("the receiver should remain a list");
-        };
+        let list = match &mut receiver.kind {
+            PythonValueKind::List(list) => Some(list),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_) => None,
+        }
+        .expect("the receiver should remain a list");
         let extended = list.extend_from(source, origin(9));
         (extended, receiver)
     }
@@ -1976,16 +2013,26 @@ mod tests {
         source.merge_semantically_equal(str_value(origin(10), "abc"), None);
         let (ok, result) = extend_list(&source);
         assert!(ok.is_some());
-        let PythonValueKind::List(list) = result.kind else {
-            panic!("extension receiver should remain a list");
-        };
-        let PythonSequenceItem::UnknownUnpack(unknown) = list
+        let list = match result.kind {
+            PythonValueKind::List(list) => Some(list),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_) => None,
+        }
+        .expect("extension receiver should remain a list");
+        let unknown = list
             .semantic_items()
             .last()
-            .expect("imprecise source should append an unpack")
-        else {
-            panic!("imprecise source should append an unknown unpack");
-        };
+            .and_then(|item| match item {
+                PythonSequenceItem::UnknownUnpack(unknown) => Some(unknown),
+                PythonSequenceItem::UnknownElement(_) | PythonSequenceItem::Value(_) => None,
+            })
+            .expect("imprecise source should append an unknown unpack");
         assert_eq!(
             unknown.origins().collect::<Vec<_>>(),
             [origin(10), origin(20)]

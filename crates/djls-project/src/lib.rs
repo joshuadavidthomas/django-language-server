@@ -11,6 +11,7 @@ pub use db::Db;
 pub use discovery::CountLabel;
 pub use discovery::DjangoDiscoveryProgress;
 pub use discovery::DjangoEnvironmentData;
+pub use discovery::EnvironmentAssemblyError;
 pub use discovery::EnvironmentPart;
 pub use discovery::EnvironmentPhase;
 pub use discovery::ProjectFactsData;

@@ -114,37 +114,51 @@ fn normalize_formatted_text(formatted: String, format_options: FormatOptions) ->
     formatted
 }
 
-fn trim_trailing_line_whitespace(text: String) -> String {
-    let mut bytes = text.into_bytes();
-    let mut read = 0;
-    let mut write = 0;
-    let mut line_write_end = 0;
+fn trim_trailing_line_whitespace(mut text: String) -> String {
+    let ranges = {
+        let bytes = text.as_bytes();
+        let mut ranges = Vec::new();
+        let mut read = 0;
+        let mut trailing_start = None;
 
-    while read < bytes.len() {
-        if let Some(ending) = LineEnding::match_at(&bytes, read) {
-            write = line_write_end;
-
-            for offset in 0..ending.byte_len() {
-                bytes[write] = bytes[read + offset];
-                write += 1;
-            }
-
-            read += ending.byte_len();
-            line_write_end = write;
-        } else {
-            let byte = bytes[read];
-            bytes[write] = byte;
-            read += 1;
-            write += 1;
-
-            if !matches!(byte, b' ' | b'\t') {
-                line_write_end = write;
+        while read < bytes.len() {
+            if let Some(ending) = LineEnding::match_at(bytes, read) {
+                if let Some(start) = trailing_start.take() {
+                    ranges.push((start, read));
+                }
+                read += ending.byte_len();
+            } else {
+                if matches!(bytes[read], b' ' | b'\t') {
+                    trailing_start.get_or_insert(read);
+                } else {
+                    trailing_start = None;
+                }
+                read += 1;
             }
         }
-    }
 
-    bytes.truncate(line_write_end);
-    String::from_utf8(bytes).expect("trimming ASCII whitespace preserves UTF-8")
+        if let Some(start) = trailing_start {
+            ranges.push((start, bytes.len()));
+        }
+        ranges
+    };
+
+    let mut byte_offset = 0;
+    let mut range_index = 0;
+    text.retain(|character| {
+        while ranges
+            .get(range_index)
+            .is_some_and(|&(_, end)| end <= byte_offset)
+        {
+            range_index += 1;
+        }
+        let keep = ranges
+            .get(range_index)
+            .is_none_or(|&(start, _)| byte_offset < start);
+        byte_offset += character.len_utf8();
+        keep
+    });
+    text
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -277,7 +291,7 @@ mod tests {
                 FormatBackend::Djangofmt,
                 FormatOptions::default(),
             )
-            .unwrap(),
+            .expect("valid template should format successfully"),
             FormatOutcome::Changed(
                 "<div style=\"background-image: url('{{ MEDIA_URL }}{{ picture }}')\">\n    Content\n</div>\n"
                     .to_string(),
@@ -296,7 +310,7 @@ mod tests {
                 FormatBackend::Djangofmt,
                 FormatOptions::default(),
             )
-            .unwrap(),
+            .expect("already formatted template should be accepted"),
             FormatOutcome::Unchanged,
         );
     }
@@ -312,7 +326,7 @@ mod tests {
                 FormatBackend::Djangofmt,
                 FormatOptions::default(),
             )
-            .unwrap(),
+            .expect("ignored template should be recognized"),
             FormatOutcome::Ignored,
         );
     }

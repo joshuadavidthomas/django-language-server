@@ -130,7 +130,36 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
             .iter()
             .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
             .collect(),
-        _ => Vec::new(),
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Compare(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => Vec::new(),
     }
 }
 
@@ -155,7 +184,36 @@ pub(super) fn is_token_contents_expr(expr: &Expr, token_var: Option<&str>) -> bo
             false
         }
         Expr::Subscript(sub) => is_token_contents_expr(&sub.value, token_var),
-        _ => false,
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Compare(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => false,
     }
 }
 
@@ -181,7 +239,8 @@ mod tests {
     // Corpus: verbatim in defaulttags.py — parse(("endverbatim",)) + delete_first_token
     #[test]
     fn simple_end_tag_single_parse() {
-        let func = django_function("django/template/defaulttags.py", "verbatim").unwrap();
+        let func = django_function("django/template/defaulttags.py", "verbatim")
+            .expect("expected Django fixture function should exist");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endverbatim"));
         assert!(spec.intermediates.is_empty());
@@ -191,7 +250,8 @@ mod tests {
     // Corpus: do_if in defaulttags.py — parse(("elif", "else", "endif")) with while/if branches
     #[test]
     fn if_else_intermediates() {
-        let func = django_function("django/template/defaulttags.py", "do_if").unwrap();
+        let func = django_function("django/template/defaulttags.py", "do_if")
+            .expect("expected Django fixture function should exist");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endif"));
         assert!(spec.intermediates.contains(&"elif".to_string()));
@@ -202,7 +262,8 @@ mod tests {
     // Corpus: comment in defaulttags.py — skip_past("endcomment")
     #[test]
     fn opaque_block_skip_past() {
-        let func = django_function("django/template/defaulttags.py", "comment").unwrap();
+        let func = django_function("django/template/defaulttags.py", "comment")
+            .expect("expected Django fixture function should exist");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endcomment"));
         assert!(spec.intermediates.is_empty());
@@ -264,7 +325,8 @@ def do_block(parser, token):
     // conditional parse(("endfor",))
     #[test]
     fn multiple_parse_calls_classify_correctly() {
-        let func = django_function("django/template/defaulttags.py", "do_for").unwrap();
+        let func = django_function("django/template/defaulttags.py", "do_for")
+            .expect("expected Django fixture function should exist");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endfor"));
         assert_eq!(spec.intermediates, vec!["empty".to_string()]);
@@ -274,7 +336,8 @@ def do_block(parser, token):
     // Corpus: now in defaulttags.py — no parser.parse() or skip_past calls
     #[test]
     fn no_parse_calls_returns_none() {
-        let func = django_function("django/template/defaulttags.py", "now").unwrap();
+        let func = django_function("django/template/defaulttags.py", "now")
+            .expect("expected Django fixture function should exist");
         assert!(extract_block_spec(&func).is_none());
     }
 
@@ -312,7 +375,8 @@ def do_if(parser, token):
     // for endblock validation
     #[test]
     fn simple_block_with_endblock_validation() {
-        let func = django_function("django/template/loader_tags.py", "do_block").unwrap();
+        let func = django_function("django/template/loader_tags.py", "do_block")
+            .expect("expected Django fixture function should exist");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
         assert!(spec.intermediates.is_empty());
@@ -323,7 +387,8 @@ def do_if(parser, token):
     // delete_first_token
     #[test]
     fn sequential_parse_then_check() {
-        let func = django_function("django/template/defaulttags.py", "spaceless").unwrap();
+        let func = django_function("django/template/defaulttags.py", "spaceless")
+            .expect("expected Django fixture function should exist");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endspaceless"));
         assert!(spec.intermediates.is_empty());
@@ -333,7 +398,8 @@ def do_if(parser, token):
     // end-tag ("end%s" % bits[0]) and "plural" intermediate
     #[test]
     fn next_token_loop_blocktrans_pattern() {
-        let func = django_function("django/templatetags/i18n.py", "do_block_translate").unwrap();
+        let func = django_function("django/templatetags/i18n.py", "do_block_translate")
+            .expect("expected Django fixture function should exist");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag, EndTagEvidence::SelfNamed);
         assert_eq!(spec.intermediates, vec!["plural".to_string()]);

@@ -89,7 +89,7 @@ mod tests {
     use crate::scoping::LoadedLibraries;
     use crate::scoping::loads::LoadArgument;
 
-    fn catalog() -> TemplateLibraryCatalog {
+    fn catalog() -> anyhow::Result<TemplateLibraryCatalog> {
         let db = djls_testing::TestDatabase::new();
         make_template_library_catalog(
             &db,
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn occurrence_lookup_respects_positioned_loads() {
-        let catalog = catalog();
+        let catalog = catalog().expect("template library catalog fixture should build");
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&catalog);
         let loaded = LoadedLibraries::new(vec![LoadStatement::new(
             Span::new(10, 10),

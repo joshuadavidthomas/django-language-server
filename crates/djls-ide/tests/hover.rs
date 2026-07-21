@@ -6,14 +6,14 @@ use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
-fn hover_markdown(hover: ls_types::Hover) -> String {
-    let ls_types::HoverContents::Markup(contents) = hover.contents else {
-        panic!("template hover should use markup content");
-    };
-    contents.value
+fn hover_markdown(hover: ls_types::Hover) -> Option<String> {
+    match hover.contents {
+        ls_types::HoverContents::Markup(contents) => Some(contents.value),
+        ls_types::HoverContents::Scalar(_) | ls_types::HoverContents::Array(_) => None,
+    }
 }
 
-fn collision_fixture(source: &str) -> (TestDatabase, File) {
+fn collision_fixture(source: &str) -> Result<(TestDatabase, File), Box<dyn std::error::Error>> {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['builtin_tags'], 'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]\n";
     let library_source = |doc: &str| {
@@ -37,23 +37,29 @@ fn collision_fixture(source: &str) -> (TestDatabase, File) {
             library_source("Beta definition"),
         )
         .file("/test/project/templates/page.html", source)
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
-    (db, file)
+        .install(&mut db)?;
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"))?;
+    Ok((db, file))
 }
 
 #[test]
 fn tag_hover_follows_definition_collisions_at_each_load_position() {
     let source = "{% shared %}{% load alpha %}{% shared %}{% load beta %}{% shared %}";
-    let (db, file) = collision_fixture(source);
+    let (db, file) =
+        collision_fixture(source).expect("tag definition collision fixture should build");
     let offsets = source
         .match_indices("shared")
-        .map(|(offset, _)| Offset::new(u32::try_from(offset).unwrap()))
+        .map(|(offset, _)| {
+            Offset::new(u32::try_from(offset).expect("test source offset should fit in u32"))
+        })
         .collect::<Vec<_>>();
 
-    let before = hover_markdown(hover(&db, file, offsets[0]).expect("builtin tag hover"));
-    let after_alpha = hover_markdown(hover(&db, file, offsets[1]).expect("alpha tag hover"));
-    let after_beta = hover_markdown(hover(&db, file, offsets[2]).expect("beta tag hover"));
+    let before = hover_markdown(hover(&db, file, offsets[0]).expect("builtin tag hover"))
+        .expect("builtin tag hover should use markup content");
+    let after_alpha = hover_markdown(hover(&db, file, offsets[1]).expect("alpha tag hover"))
+        .expect("alpha tag hover should use markup content");
+    let after_beta = hover_markdown(hover(&db, file, offsets[2]).expect("beta tag hover"))
+        .expect("beta tag hover should use markup content");
 
     assert!(before.contains("Defined in `builtin_tags`."), "{before}");
     assert!(
@@ -81,18 +87,24 @@ fn captured_if_else_does_not_hover_a_colliding_custom_definition() {
             "from django import template\nregister = template.Library()\n\n@register.simple_tag(name='else')\ndef custom_else():\n    \"\"\"Custom else definition.\"\"\"\n    return ''\n",
         )
         .file("/test/project/templates/page.html", source)
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+        .install(&mut db)
+        .expect("captured-tag project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("template fixture file should exist");
     let offsets = source
         .match_indices("else")
-        .map(|(offset, _)| Offset::new(u32::try_from(offset).unwrap()))
+        .map(|(offset, _)| {
+            Offset::new(u32::try_from(offset).expect("test source offset should fit in u32"))
+        })
         .collect::<Vec<_>>();
 
     assert_eq!(hover(&db, file, offsets[0]), None);
 
     let standalone = hover_markdown(
         hover(&db, file, offsets[1]).expect("standalone custom else definition hover"),
-    );
+    )
+    .expect("standalone custom else hover should use markup content");
     assert!(standalone.contains("(tag) else"), "{standalone}");
     assert!(
         standalone.contains("Defined in `custom_tags`."),
@@ -103,15 +115,21 @@ fn captured_if_else_does_not_hover_a_colliding_custom_definition() {
 #[test]
 fn filter_hover_follows_definition_collisions_at_each_load_position() {
     let source = "{{ value|shared_filter }}{% load alpha %}{{ value|shared_filter }}{% load beta %}{{ value|shared_filter }}";
-    let (db, file) = collision_fixture(source);
+    let (db, file) =
+        collision_fixture(source).expect("filter definition collision fixture should build");
     let offsets = source
         .match_indices("shared_filter")
-        .map(|(offset, _)| Offset::new(u32::try_from(offset).unwrap()))
+        .map(|(offset, _)| {
+            Offset::new(u32::try_from(offset).expect("test source offset should fit in u32"))
+        })
         .collect::<Vec<_>>();
 
-    let before = hover_markdown(hover(&db, file, offsets[0]).expect("builtin filter hover"));
-    let after_alpha = hover_markdown(hover(&db, file, offsets[1]).expect("alpha filter hover"));
-    let after_beta = hover_markdown(hover(&db, file, offsets[2]).expect("beta filter hover"));
+    let before = hover_markdown(hover(&db, file, offsets[0]).expect("builtin filter hover"))
+        .expect("builtin filter hover should use markup content");
+    let after_alpha = hover_markdown(hover(&db, file, offsets[1]).expect("alpha filter hover"))
+        .expect("alpha filter hover should use markup content");
+    let after_beta = hover_markdown(hover(&db, file, offsets[2]).expect("beta filter hover"))
+        .expect("beta filter hover should use markup content");
 
     assert!(before.contains("Defined in `builtin_tags`."), "{before}");
     assert!(
@@ -141,13 +159,24 @@ fn multi_backend_same_definition_hovers_across_builtin_and_loaded_exposure() {
             "from django import template\nregister = template.Library()\n",
         )
         .file("/test/project/shared/page.html", source)
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/shared/page.html"));
-    let offset = Offset::new(u32::try_from(source.find("common").unwrap()).unwrap());
+        .install(&mut db)
+        .expect("multi-backend hover project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .expect("shared template fixture should exist");
+    let offset = Offset::new(
+        u32::try_from(
+            source
+                .find("common")
+                .expect("test source should contain the expected text"),
+        )
+        .expect("test source offset should fit in u32"),
+    );
 
     let markdown = hover_markdown(
         hover(&db, file, offset).expect("the shared definition should have a consensus hover"),
-    );
+    )
+    .expect("shared definition hover should use markup content");
 
     assert!(markdown.contains("(tag) common"), "{markdown}");
     assert!(markdown.contains("Defined in `shared_tags`."), "{markdown}");
@@ -156,10 +185,19 @@ fn multi_backend_same_definition_hovers_across_builtin_and_loaded_exposure() {
 #[test]
 fn selective_import_symbol_hover_uses_the_source_library() {
     let source = "{% load shared from alpha %}";
-    let (db, file) = collision_fixture(source);
-    let offset = Offset::new(u32::try_from(source.find("shared").unwrap()).unwrap());
+    let (db, file) =
+        collision_fixture(source).expect("selective import collision fixture should build");
+    let offset = Offset::new(
+        u32::try_from(
+            source
+                .find("shared")
+                .expect("test source should contain the expected text"),
+        )
+        .expect("test source offset should fit in u32"),
+    );
 
-    let markdown = hover_markdown(hover(&db, file, offset).expect("selective import hover"));
+    let markdown = hover_markdown(hover(&db, file, offset).expect("selective import hover"))
+        .expect("selective import hover should use markup content");
 
     assert!(markdown.contains("Defined in `alpha_tags`."), "{markdown}");
     assert!(!markdown.contains("Defined in `beta_tags`."), "{markdown}");
@@ -175,16 +213,27 @@ fn template_hover_does_not_resolve_from_another_backend() {
         .file("/test/project/testproject/settings.py", settings)
         .file("/test/project/a/child.html", source)
         .file("/test/project/b/base.html", "other backend")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/a/child.html"));
+        .install(&mut db)
+        .expect("multi-backend template fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("child template fixture should exist");
 
     let result = hover(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
     )
     .expect("missing template hover should still explain the miss");
-    let markdown = hover_markdown(result);
+    let markdown =
+        hover_markdown(result).expect("missing template hover should use markup content");
     assert!(markdown.contains("Template not found."));
     assert!(!markdown.contains("Resolved to"));
 }
@@ -202,16 +251,27 @@ fn template_hover_resolves_absolute_reference_from_originless_file() {
         )
         .file("/test/project/scratch.html", source)
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+        .install(&mut db)
+        .expect("originless template fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("scratch template fixture should exist");
 
     let result = hover(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
     )
     .expect("absolute reference should resolve from project inventory");
-    let markdown = hover_markdown(result);
+    let markdown =
+        hover_markdown(result).expect("resolved template hover should use markup content");
 
     assert!(
         markdown.contains("Resolved to `/test/project/templates/base.html`"),
@@ -232,16 +292,27 @@ fn missing_template_hover_says_template_not_found() {
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
         )
         .file(child_path, source)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("missing-template project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
     let result = hover(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("missing").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("missing")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
     )
     .expect("missing template with known search roots should have hover");
-    let markdown = hover_markdown(result);
+    let markdown =
+        hover_markdown(result).expect("missing template hover should use markup content");
 
     assert!(markdown.contains("Template not found."));
     assert!(markdown.contains("`/test/project/templates/missing.html`"));
@@ -263,16 +334,27 @@ fn inconclusive_template_hover_describes_incomplete_search_and_possible_matches(
         .file(child_path, source)
         .file("/test/project/templates/base.html", "first")
         .file("/test/project/app/templates/base.html", "second")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("incomplete-search project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
     let result = hover(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
     )
     .expect("inconclusive template search should have hover");
-    let markdown = hover_markdown(result);
+    let markdown =
+        hover_markdown(result).expect("inconclusive template hover should use markup content");
 
     assert!(markdown.contains("Template search is incomplete."));
     assert!(markdown.contains("Possible matches:"));

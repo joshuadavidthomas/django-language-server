@@ -63,7 +63,35 @@ pub(super) fn eval_expr_with_ctx(
             eval_subscript(&base, slice, env)
         }
 
-        _ => AbstractValue::Unknown,
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Compare(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::List(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => AbstractValue::Unknown,
     }
 }
 
@@ -252,65 +280,65 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &mut Env) -> Abstract
         return AbstractValue::Unknown;
     };
 
-    match slice {
-        // bits[N] or bits[-N]
-        Expr::NumberLiteral(ExprNumberLiteral {
+    // bits[N] or bits[-N]
+    if let Expr::NumberLiteral(ExprNumberLiteral {
+        value: Number::Int(int_val),
+        ..
+    }) = slice
+    {
+        return int_val
+            .as_i64()
+            .map_or(AbstractValue::Unknown, |n| i64_to_index_element(n, split));
+    }
+
+    // bits[unary -N]
+    if let Expr::UnaryOp(unary) = slice
+        && matches!(unary.op, ruff_python_ast::UnaryOp::USub)
+    {
+        if let Expr::NumberLiteral(ExprNumberLiteral {
             value: Number::Int(int_val),
             ..
-        }) => int_val
-            .as_i64()
-            .map_or(AbstractValue::Unknown, |n| i64_to_index_element(n, split)),
-
-        // bits[unary -N]
-        Expr::UnaryOp(unary) if matches!(unary.op, ruff_python_ast::UnaryOp::USub) => {
-            if let Expr::NumberLiteral(ExprNumberLiteral {
-                value: Number::Int(int_val),
-                ..
-            }) = unary.operand.as_ref()
-                && let Some(n) = int_val.as_i64()
-            {
-                let Ok(index) = usize::try_from(n.unsigned_abs()) else {
-                    return AbstractValue::Unknown;
-                };
-                return AbstractValue::SplitElement {
-                    index: SplitPosition::Backward(index),
-                };
-            }
-            AbstractValue::Unknown
-        }
-
-        // bits[N:], bits[:N], bits[:-N]
-        Expr::Slice(ExprSlice {
-            lower, upper, step, ..
-        }) => {
-            if step.is_some() {
+        }) = unary.operand.as_ref()
+            && let Some(n) = int_val.as_i64()
+        {
+            let Ok(index) = usize::try_from(n.unsigned_abs()) else {
                 return AbstractValue::Unknown;
-            }
-
-            match (lower.as_deref(), upper.as_deref()) {
-                // bits[N:] — slice from N onwards
-                (Some(lower_expr), None) => {
-                    if let Some(n) = lower_expr.non_negative_integer() {
-                        return AbstractValue::SplitResult(split.after_slice_from(n));
-                    }
-                    AbstractValue::Unknown
-                }
-                // bits[:N], bits[:-N], or bits[:] — truncation, preserve offset
-                (None, _) => AbstractValue::SplitResult(*split),
-                _ => AbstractValue::Unknown,
-            }
+            };
+            return AbstractValue::SplitElement {
+                index: SplitPosition::Backward(index),
+            };
         }
-
-        // bits[variable]
-        expr if expr.name_target().is_some() => {
-            let idx = eval_expr(slice, env);
-            if let AbstractValue::Int(n) = idx {
-                i64_to_index_element(n, split)
-            } else {
-                AbstractValue::Unknown
-            }
-        }
-
-        _ => AbstractValue::Unknown,
+        return AbstractValue::Unknown;
     }
+
+    // bits[N:], bits[:N], bits[:-N]
+    if let Expr::Slice(ExprSlice {
+        lower, upper, step, ..
+    }) = slice
+    {
+        if step.is_some() {
+            return AbstractValue::Unknown;
+        }
+
+        return match (lower.as_deref(), upper.as_deref()) {
+            // bits[N:] — slice from N onwards
+            (Some(lower_expr), None) => lower_expr
+                .non_negative_integer()
+                .map_or(AbstractValue::Unknown, |n| {
+                    AbstractValue::SplitResult(split.after_slice_from(n))
+                }),
+            // bits[:N], bits[:-N], or bits[:] — truncation, preserve offset
+            (None, _) => AbstractValue::SplitResult(*split),
+            _ => AbstractValue::Unknown,
+        };
+    }
+
+    // bits[variable]
+    if slice.name_target().is_some()
+        && let AbstractValue::Int(n) = eval_expr(slice, env)
+    {
+        return i64_to_index_element(n, split);
+    }
+
+    AbstractValue::Unknown
 }

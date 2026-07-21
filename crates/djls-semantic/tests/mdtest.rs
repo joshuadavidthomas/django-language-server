@@ -3,23 +3,7 @@ use std::path::Path;
 #[test]
 fn mdtest() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/mdtest");
-    assert_claimed_mdtest_suites(&root);
-    djls_testing::run_suite(&root.join("diagnostics"));
-    djls_testing::run_suite(&root.join("tags"));
-}
-
-fn assert_claimed_mdtest_suites(root: &Path) {
-    let mut actual = std::fs::read_dir(root)
-        .expect("failed to read mdtest root")
-        .map(|entry| entry.expect("failed to read mdtest root entry").path())
-        .filter(|path| path.is_dir())
-        .map(|path| {
-            path.file_name()
-                .expect("mdtest suite path should have a file name")
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect::<Vec<_>>();
+    let mut actual = claimed_mdtest_suites(&root).expect("mdtest suites should be readable");
     actual.sort();
 
     let mut expected = vec![
@@ -33,4 +17,17 @@ fn assert_claimed_mdtest_suites(root: &Path) {
         actual, expected,
         "resources/mdtest contains unregistered suites; register new suites in semantic mdtest tests"
     );
+    djls_testing::run_suite(&root.join("diagnostics")).expect("diagnostic mdtest suite should run");
+    djls_testing::run_suite(&root.join("tags")).expect("tag mdtest suite should run");
+}
+
+fn claimed_mdtest_suites(root: &Path) -> std::io::Result<Vec<String>> {
+    let mut suites = Vec::new();
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        if entry.path().is_dir() {
+            suites.push(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+    Ok(suites)
 }

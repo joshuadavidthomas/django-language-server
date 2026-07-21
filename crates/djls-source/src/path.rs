@@ -39,7 +39,7 @@ mod tests {
     fn test_safe_join_allows_normal_path() {
         let base = Utf8Path::new("/templates");
         assert_eq!(
-            safe_join(base, "myapp/base.html").unwrap(),
+            safe_join(base, "myapp/base.html").expect("path within base should join safely"),
             Utf8PathBuf::from("/templates/myapp/base.html")
         );
     }

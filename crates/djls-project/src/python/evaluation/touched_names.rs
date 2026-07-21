@@ -242,11 +242,12 @@ impl DefiniteWriteCollector {
                     self.record_targets(target, value, dominates);
                 }
             }
-            ast::Stmt::AnnAssign(assign) if assign.value.is_some() => {
-                let value = assign.value.as_deref().expect("guarded by is_some");
-                let exact_bool = self.exact_bool(value);
-                let dominates = self.taint.expression_is_independent(value);
-                self.record_targets(&assign.target, exact_bool, dominates);
+            ast::Stmt::AnnAssign(assign) => {
+                if let Some(value) = assign.value.as_deref() {
+                    let exact_bool = self.exact_bool(value);
+                    let dominates = self.taint.expression_is_independent(value);
+                    self.record_targets(&assign.target, exact_bool, dominates);
+                }
             }
             ast::Stmt::Import(import) => {
                 for clause in DirectImportClause::lower(import) {
@@ -277,8 +278,7 @@ impl DefiniteWriteCollector {
                     self.record_uncertain_writes(touched);
                 }
             }
-            ast::Stmt::AnnAssign(_)
-            | ast::Stmt::AugAssign(_)
+            ast::Stmt::AugAssign(_)
             | ast::Stmt::Delete(_)
             | ast::Stmt::Expr(_)
             | ast::Stmt::For(_)

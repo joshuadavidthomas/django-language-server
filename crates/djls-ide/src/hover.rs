@@ -1,5 +1,3 @@
-use std::fmt::Write as _;
-
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::LibraryName;
 use djls_project::LoadableLibraryLookup;
@@ -132,7 +130,8 @@ fn render_template_reference_hover(
                     .map(|origin| format!("- `{}`", origin.path_buf(db)))
                     .collect::<Vec<_>>()
                     .join("\n");
-                let _ = write!(message, "\n\nPossible matches:\n\n{possible}");
+                message.push_str("\n\nPossible matches:\n\n");
+                message.push_str(&possible);
             }
             sections.push(message);
         }
@@ -237,7 +236,9 @@ fn render_symbol_hover(
         }),
     }];
     let mut markdown = render_template_symbol_hover(&candidates)?;
-    let _ = write!(markdown, "\n---\nDefined in `{module_name}`.");
+    markdown.push_str("\n---\nDefined in `");
+    markdown.push_str(module_name.as_str());
+    markdown.push_str("`.");
     Some(markdown)
 }
 
@@ -358,6 +359,7 @@ fn format_docstring(doc: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::io;
 
     use super::*;
 
@@ -372,7 +374,7 @@ mod tests {
         name: &str,
         doc: Option<&str>,
         origin: TestOrigin,
-    ) -> TemplateSymbolCandidate {
+    ) -> Result<TemplateSymbolCandidate, Box<dyn std::error::Error>> {
         let mut libraries = HashMap::new();
         let mut builtins = Vec::new();
         let mut fixture = match (kind, origin) {
@@ -406,23 +408,26 @@ mod tests {
         let db = djls_testing::TestDatabase::new();
         let libraries = djls_testing::make_template_library_catalog(
             &db, &tags, &filters, &libraries, &builtins,
-        );
+        )?;
 
-        ScopedTemplateLibraries::from_project_inventory(&libraries)
+        Ok(ScopedTemplateLibraries::from_project_inventory(&libraries)
             .scoped_symbol_candidates(name, kind)
             .into_iter()
             .next()
-            .expect("candidate should exist")
+            .ok_or_else(|| io::Error::other("hover candidate should exist"))?)
     }
 
     #[test]
     fn tag_hover_includes_signature_and_docstring() {
-        let candidates = vec![candidate(
-            TemplateSymbolKind::Tag,
-            "if",
-            Some("Evaluate a condition."),
-            TestOrigin::Builtin("django.template.defaulttags"),
-        )];
+        let candidates = vec![
+            candidate(
+                TemplateSymbolKind::Tag,
+                "if",
+                Some("Evaluate a condition."),
+                TestOrigin::Builtin("django.template.defaulttags"),
+            )
+            .expect("tag hover candidate fixture should be valid"),
+        ];
 
         let markdown = render_template_symbol_hover(&candidates);
 
@@ -434,12 +439,15 @@ mod tests {
 
     #[test]
     fn filter_hover_falls_back_to_load_hint() {
-        let candidates = vec![candidate(
-            TemplateSymbolKind::Filter,
-            "intcomma",
-            None,
-            TestOrigin::Loadable("humanize"),
-        )];
+        let candidates = vec![
+            candidate(
+                TemplateSymbolKind::Filter,
+                "intcomma",
+                None,
+                TestOrigin::Loadable("humanize"),
+            )
+            .expect("filter hover candidate fixture should be valid"),
+        ];
 
         let markdown = render_template_symbol_hover(&candidates);
 

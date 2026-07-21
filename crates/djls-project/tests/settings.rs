@@ -62,8 +62,8 @@ struct GoldenTemplateSymbol {
     module: String,
 }
 
-fn library_name(name: &str) -> LibraryName {
-    LibraryName::parse(name).unwrap()
+fn library_name(name: &str) -> Result<LibraryName, Box<dyn std::error::Error>> {
+    Ok(LibraryName::parse(name)?)
 }
 
 fn active_builtin_modules(libraries: &TemplateLibraryCatalog) -> Vec<String> {
@@ -90,18 +90,37 @@ fn execution_count(db: &(impl Database + ?Sized), events: &[Event], query_name: 
             EventKind::WillExecute { database_key } => db
                 .ingredient_debug_name(database_key.ingredient_index())
                 .contains(query_name),
-            _ => false,
+            EventKind::DidValidateMemoizedValue { .. }
+            | EventKind::WillBlockOn { .. }
+            | EventKind::WillIterateCycle { .. }
+            | EventKind::DidFinalizeCycle { .. }
+            | EventKind::WillCheckCancellation
+            | EventKind::DidSetCancellationFlag
+            | EventKind::WillDiscardStaleOutput { .. }
+            | EventKind::DidDiscard { .. }
+            | EventKind::DidDiscardAccumulated { .. }
+            | EventKind::DidInternValue { .. }
+            | EventKind::DidReuseInternedValue { .. }
+            | EventKind::DidValidateInternedValue { .. } => false,
         })
         .count()
 }
 
-fn update_project_file(db: &mut TestDatabase, path: &str, source: &str) {
-    db.add_file(path, source);
+fn update_project_file(
+    db: &mut TestDatabase,
+    path: &str,
+    source: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    db.add_file(path, source)?;
     SourceChanges::new([ChangeEvent::ContentChanged(path.into())]).apply(db);
+    Ok(())
 }
 
-fn update_settings_file(db: &mut TestDatabase, source: &str) {
-    update_project_file(db, "/proj/myproject/settings.py", source);
+fn update_settings_file(
+    db: &mut TestDatabase,
+    source: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    update_project_file(db, "/proj/myproject/settings.py", source)
 }
 
 #[test]
@@ -114,10 +133,14 @@ fn unrelated_recovered_syntax_error_does_not_degrade_settings() {
             "/proj/myproject/settings.py",
             "INSTALLED_APPS = ['blog']\ndef broken(",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-    let app_cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings = serde_json::to_value(django_settings(&db, project))
+        .expect("test value should serialize to JSON");
+    let app_cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
     assert_eq!(app_cases.len(), 1);
     assert!(app_cases[0].get("known").is_some());
     assert!(settings.get("parse_status").is_none());
@@ -138,10 +161,14 @@ fn named_imported_syntax_impact_only_weakens_affected_setting() {
             "/proj/myproject/settings/local.py",
             "from .base import INSTALLED_APPS, TEMPLATES",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-    let app_cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings = serde_json::to_value(django_settings(&db, project))
+        .expect("test value should serialize to JSON");
+    let app_cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
     assert_eq!(app_cases.len(), 3);
     assert!(!app_cases.iter().any(|case| case == "unset"));
     assert_eq!(
@@ -159,7 +186,9 @@ fn named_imported_syntax_impact_only_weakens_affected_setting() {
         2
     );
 
-    let template_cases = settings["templates"]["cases"].as_array().unwrap();
+    let template_cases = settings["templates"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
     assert_eq!(template_cases.len(), 1);
     assert!(template_cases[0].get("known").is_some());
     assert!(settings.get("parse_status").is_none());
@@ -177,10 +206,14 @@ fn star_imported_name_scoped_syntax_impact_does_not_open_namespace() {
             "TEMPLATES = []\nif FLAG:\n    INSTALLED_APPS = ['blog']\n    broken(\n",
         )
         .file("/proj/myproject/settings/local.py", "from .base import *\n")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
-    let app_cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let app_cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
     assert_eq!(app_cases.len(), 3);
     assert!(app_cases.iter().any(|case| case == "unset"));
     assert_eq!(
@@ -198,7 +231,9 @@ fn star_imported_name_scoped_syntax_impact_does_not_open_namespace() {
         1
     );
 
-    let template_cases = settings["templates"]["cases"].as_array().unwrap();
+    let template_cases = settings["templates"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
     assert_eq!(template_cases.len(), 1);
     assert!(template_cases[0].get("known").is_some());
 }
@@ -218,10 +253,14 @@ fn later_exact_assignment_dominates_syntax_impact_through_named_import() {
             "/proj/myproject/settings/local.py",
             "from .base import INSTALLED_APPS\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
-    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
 
     assert_eq!(cases.len(), 1);
     assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
@@ -239,10 +278,14 @@ fn later_exact_assignment_dominates_syntax_impact_through_star_import() {
             "INSTALLED_APPS = [\n    'stale',\n    @\n]\nINSTALLED_APPS = ['base']\n",
         )
         .file("/proj/myproject/settings/local.py", "from .base import *\n")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
-    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
 
     assert_eq!(cases.len(), 1);
     assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
@@ -264,10 +307,13 @@ fn later_named_import_dominates_namespace_wide_syntax_exclusion() {
             "/proj/myproject/settings.py",
             "from .base import INSTALLED_APPS\n",
         )
-        .install(&mut db);
+        .install(&mut db).expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
-    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
 
     assert_eq!(cases.len(), 1);
     assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
@@ -286,10 +332,13 @@ fn star_import_preserves_namespace_wide_syntax_uncertainty() {
             "if FLAG:\n    from .clean import *\n    broken(]\nfrom .apps import APPS as INSTALLED_APPS\n",
         )
         .file("/proj/myproject/settings.py", "from .base import *\n")
-        .install(&mut db);
+        .install(&mut db).expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
-    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
 
     assert!(
         has_case(&settings["installed_apps"], "known"),
@@ -319,10 +368,13 @@ fn settings_accept_supported_python_newer_than_ruff_default_target() {
             path.as_str(),
             "type AppName = str\nINSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-    let errors = python_syntax_errors(&db, db.file(path)).expect("file should be Python");
+    let settings = serde_json::to_value(django_settings(&db, project))
+        .expect("expected JSON value should be a string");
+    let errors = python_syntax_errors(&db, db.file(path).expect("settings test file should exist"))
+        .expect("file should be Python");
 
     assert!(
         errors
@@ -349,11 +401,14 @@ fn settings_consumers_share_one_core_evaluation_without_mutation() {
         .django_settings_module("myproject.settings")
         .file("/proj/myproject/__init__.py", "")
         .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
     let _ = django_settings(&db, project);
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
     assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
@@ -375,20 +430,28 @@ fn comment_only_leaf_edit_backdates_before_evaluation_root_and_sibling() {
         )
         .file("/proj/myproject/leaf.py", "INSTALLED_APPS = ['a']\n")
         .file("/proj/myproject/sibling.py", "TEMPLATES = []\n")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
     let _ = django_settings(&db, project);
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
     update_project_file(
         &mut db,
         "/proj/myproject/leaf.py",
         "INSTALLED_APPS = ['a']\n# comment only\n",
-    );
+    )
+    .expect("settings project file should be updated");
     let _ = django_settings(&db, project);
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
@@ -406,16 +469,24 @@ fn value_change_backdates_dependency_projection() {
         .django_settings_module("myproject.settings")
         .file("/proj/myproject/__init__.py", "")
         .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
     let _ = django_settings(&db, project);
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
-    update_settings_file(&mut db, "INSTALLED_APPS = ['b']");
+    update_settings_file(&mut db, "INSTALLED_APPS = ['b']")
+        .expect("Django settings file should be updated");
     let _ = django_settings(&db, project);
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
     assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
@@ -433,16 +504,26 @@ fn dependency_change_backdates_value_projection() {
         .file("/proj/myproject/__init__.py", "")
         .file("/proj/myproject/extra.py", "")
         .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let before = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    let before =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
-    update_settings_file(&mut db, "INSTALLED_APPS = ['a']\nfrom .extra import *");
+    update_settings_file(&mut db, "INSTALLED_APPS = ['a']\nfrom .extra import *")
+        .expect("Django settings file should be updated");
     let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let after = to_value(django_settings(&db, project)).unwrap();
-    let events = event_log.take();
+    let after =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     assert_eq!(after, before);
     // The `from .extra import *` edit makes settings.py load its parent package
@@ -464,16 +545,26 @@ fn origin_shift_changes_values_but_backdates_dependency_projection() {
         .django_settings_module("myproject.settings")
         .file("/proj/myproject/__init__.py", "")
         .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']\n")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let before = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    let before =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
-    update_settings_file(&mut db, "\nINSTALLED_APPS = ['a']\n");
-    let after = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    update_settings_file(&mut db, "\nINSTALLED_APPS = ['a']\n")
+        .expect("Django settings file should be updated");
+    let after =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     assert_ne!(after, before);
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
@@ -495,17 +586,27 @@ fn unreachable_import_edit_keeps_root_paths_cold() {
             "if False:\n    from .unreachable import *\nINSTALLED_APPS = ['a']\n",
         )
         .file("/proj/myproject/unreachable.py", "VALUE = 'old'\n")
-        .install(&mut db);
-    let _unreachable = db.file(Utf8Path::new("/proj/myproject/unreachable.py"));
+        .install(&mut db)
+        .expect("settings project fixture should install");
+    let _unreachable = db
+        .file(Utf8Path::new("/proj/myproject/unreachable.py"))
+        .expect("settings test file should exist");
 
     let _ = django_settings(&db, project);
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
-    update_project_file(&mut db, "/proj/myproject/unreachable.py", "VALUE = 'new'\n");
+    update_project_file(&mut db, "/proj/myproject/unreachable.py", "VALUE = 'new'\n")
+        .expect("settings project file should be updated");
     let _ = django_settings(&db, project);
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
     assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
@@ -525,11 +626,15 @@ fn direct_settings_cycle_is_bounded_and_retains_local_values() {
             "/proj/myproject/settings.py",
             "from .settings import *\nINSTALLED_APPS = ['local']\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
     let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     assert_eq!(
         settings["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
@@ -556,14 +661,21 @@ fn imported_uncertain_namespace_preserves_local_setting_alternatives() {
             "if FLAG:\n    INSTALLED_APPS = ['first']\nelse:\n    INSTALLED_APPS = ['second']\nfrom .plugins import *\n",
         )
         .file("/proj/myproject/plugins.py", "from .missing import *\n")
-        .install(&mut db);
+        .install(&mut db).expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
-    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
     let known = cases
         .iter()
         .filter_map(|case| case.get("known"))
-        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .map(|known| {
+            known["apps"][0]["value"]
+                .as_str()
+                .expect("expected JSON field should be an array")
+        })
         .collect::<BTreeSet<_>>();
 
     assert_eq!(known, ["first", "second"].into_iter().collect());
@@ -584,9 +696,11 @@ fn named_import_of_absent_open_setting_is_dynamic_without_domain_absence() {
             "/proj/myproject/plugins.py",
             "if ENABLED:\n    from .missing import *\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
     assert!(!has_case(&settings["templates"], "unset"), "{settings:#}");
     assert!(has_case(&settings["templates"], "dynamic"), "{settings:#}");
 }
@@ -605,14 +719,22 @@ fn conditional_star_binding_falls_back_to_the_pre_import_local_value() {
             "/proj/myproject/plugins.py",
             "if ENABLED:\n    INSTALLED_APPS = ['imported']\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
-    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
     let known = cases
         .iter()
         .filter_map(|case| case.get("known"))
-        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .map(|known| {
+            known["apps"][0]["value"]
+                .as_str()
+                .expect("expected JSON field should be an array")
+        })
         .collect::<BTreeSet<_>>();
 
     assert_eq!(known, ["imported", "local"].into_iter().collect());
@@ -633,14 +755,22 @@ fn exact_all_conditional_setting_preserves_local_setting_alternative() {
             "/proj/myproject/plugins.py",
             "if ENABLED:\n    INSTALLED_APPS = ['imported']\n__all__ = ['INSTALLED_APPS']\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
-    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let cases = settings["installed_apps"]["cases"]
+        .as_array()
+        .expect("expected JSON field should be an array");
     let known = cases
         .iter()
         .filter_map(|case| case.get("known"))
-        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .map(|known| {
+            known["apps"][0]["value"]
+                .as_str()
+                .expect("expected JSON field should be an array")
+        })
         .collect::<BTreeSet<_>>();
 
     assert_eq!(known, ["imported", "local"].into_iter().collect());
@@ -663,11 +793,15 @@ fn two_file_settings_cycle_is_bounded_and_retains_local_values() {
             "/proj/myproject/base.py",
             "from .settings import *\nTEMPLATES = []\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
     let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     assert_eq!(
         settings["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
@@ -696,11 +830,17 @@ fn child_topology_change_backdates_values_projection() {
             "/proj/myproject/settings.py",
             "import myproject.child\nINSTALLED_APPS = ['a']\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let before = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    let before =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
     // Adding an import to the loaded child changes the recursive object/topology
     // effect (a new attached coordinate and a new source edge) without touching
@@ -709,10 +849,14 @@ fn child_topology_change_backdates_values_projection() {
         &mut db,
         "/proj/myproject/child.py",
         "X = 'v1'\nimport myproject.other\n",
-    );
-    let after = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    )
+    .expect("settings project file should be updated");
+    let after =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     // The root module's exposed settings never change, so `django_settings`
     // backdates even though the recursive core and its dependency projection
@@ -740,20 +884,30 @@ fn parent_package_init_edit_invalidates_dotted_consumer() {
             "/proj/myproject/settings.py",
             "import myproject.pkg.sub\nINSTALLED_APPS = myproject.pkg.APPS\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let before = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    let before =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
     update_project_file(
         &mut db,
         "/proj/myproject/pkg/__init__.py",
         "APPS = ['news']\n",
-    );
-    let after = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    )
+    .expect("settings project file should be updated");
+    let after =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     // Editing the dotted parent package `myproject/pkg/__init__.py` invalidates
     // the settings consumer that reads `myproject.pkg.APPS`: the parent and the
@@ -780,20 +934,30 @@ fn external_module_body_edit_never_reaches_the_consumer() {
             "/proj/myproject/settings.py",
             "import ext\nINSTALLED_APPS = ['a']\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let before = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    let before =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
     update_project_file(
         &mut db,
         "/proj/.venv/lib/python3.12/site-packages/ext/__init__.py",
         "VALUE = 'new'\n",
-    );
-    let after = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let events = event_log.take();
+    )
+    .expect("settings project file should be updated");
+    let after =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     // The external body is never parsed, evaluated, or recorded as a dependency,
     // so editing it leaves every projection cold and the settings unchanged.
@@ -813,7 +977,8 @@ fn search_path_winner_change_recomputes_module_reads() {
     // `/extra` is a separate project-code root registered alongside `/proj`; the
     // first-party `/proj` root outranks it, so a later `/proj/mod.py` becomes the
     // resolution winner and changes the imported module's object identity.
-    db.add_file("/extra/keep.py", "");
+    db.add_file("/extra/keep.py", "")
+        .expect("settings test file should be added");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/proj"),
@@ -829,17 +994,27 @@ fn search_path_winner_change_recomputes_module_reads() {
             "/proj/myproject/settings.py",
             "import mod\nINSTALLED_APPS = mod.APPS\n",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
-    let before = to_value(django_settings(&db, project)).unwrap();
-    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
-    let _ = event_log.take();
+    let before =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    drop(ProjectFactsPhase::SettingsSources.run(&db, project));
+    drop(
+        event_log
+            .take()
+            .expect("settings event log should be readable"),
+    );
 
-    db.add_file("/proj/mod.py", "APPS = ['root']\n");
+    db.add_file("/proj/mod.py", "APPS = ['root']\n")
+        .expect("settings test file should be added");
     SourceChanges::new([ChangeEvent::BecameVisible("/proj/mod.py".into())]).apply(&mut db);
 
-    let after = to_value(django_settings(&db, project)).unwrap();
-    let events = event_log.take();
+    let after =
+        to_value(django_settings(&db, project)).expect("test value should serialize to JSON");
+    let events = event_log
+        .take()
+        .expect("settings event log should be readable");
 
     // The new first-party `/proj/mod.py` outranks `/extra/mod.py`, so the
     // imported module's object identity changes and the module-attribute read
@@ -946,13 +1121,18 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
     inner.add_file(leaf_path.clone(), "TEMPLATES = []\n".to_string());
     let mut db = EventTestDatabase {
         storage: Storage::new(Some(Box::new({
-            let events = events.clone();
-            move |event| events.lock().unwrap().push(event)
+            let events = Arc::clone(&events);
+            move |event| {
+                events
+                    .lock()
+                    .expect("test mutex should not be poisoned")
+                    .push(event);
+            }
         }))),
         fs: Arc::new(ToggleReadFileSystem {
             inner,
             toggled_path: leaf_path,
-            readable: readable.clone(),
+            readable: Arc::clone(&readable),
         }),
         files: SourceFiles::default(),
         project: None,
@@ -972,7 +1152,10 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
         root,
         search_paths,
         interpreter,
-        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        Some(
+            PythonModuleName::parse("myproject.settings")
+                .expect("test Python module name should be valid"),
+        ),
         pythonpath,
         Vec::new(),
         Settings::default().tagspecs().clone(),
@@ -986,7 +1169,10 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
         ProjectFactsPhase::SettingsSources.run(&db, project).count(),
         3
     );
-    events.lock().unwrap().clear();
+    events
+        .lock()
+        .expect("test mutex should not be poisoned")
+        .clear();
 
     for next_readable in [false, true] {
         readable.store(next_readable, Ordering::SeqCst);
@@ -996,7 +1182,8 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
             ProjectFactsPhase::SettingsSources.run(&db, project).count(),
             3
         );
-        let transition_events = mem::take(&mut *events.lock().unwrap());
+        let transition_events =
+            mem::take(&mut *events.lock().expect("test mutex should not be poisoned"));
 
         assert_eq!(
             execution_count(&db, &transition_events, "evaluate_python_module"),
@@ -1084,10 +1271,15 @@ impl FileSystem for FailingFileSystem {
                         entries,
                         issues: vec![io::ErrorKind::PermissionDenied],
                     },
-                    other => other,
+                    other @ (RootWalk::Missing | RootWalk::File(_) | RootWalk::Inaccessible(_)) => {
+                        other
+                    }
                 }
             }
-            _ => self.inner.walk_root(root, options),
+            FileSystemFailure::Read(_)
+            | FileSystemFailure::Walk(_)
+            | FileSystemFailure::PartialWalk(_)
+            | FileSystemFailure::PathToFile(_) => self.inner.walk_root(root, options),
         }
     }
 }
@@ -1096,18 +1288,18 @@ fn project_with_settings(
     db: &mut TestDatabase,
     settings_module: &str,
     files: &[(&str, &str)],
-) -> Project {
+) -> Result<Project, Box<dyn std::error::Error>> {
     let mut fixture = ProjectFixture::new("/proj").django_settings_module(settings_module);
     for (path, source) in files {
         fixture = fixture.file(*path, *source);
     }
-    fixture.install(db)
+    Ok(fixture.install(db)?)
 }
 
 fn project_with_file_system_failure(
     files: &[(&str, &str)],
     failure: FileSystemFailure,
-) -> (OsTestDatabase, Project) {
+) -> Result<(OsTestDatabase, Project), Box<dyn std::error::Error>> {
     let mut fs = InMemoryFileSystem::new();
     for (path, source) in files {
         fs.add_file(Utf8PathBuf::from(*path), (*source).to_string());
@@ -1130,14 +1322,14 @@ fn project_with_file_system_failure(
         root,
         search_paths,
         interpreter,
-        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        Some(PythonModuleName::parse("myproject.settings")?),
         pythonpath,
         Vec::new(),
         djls_conf::Settings::default().tagspecs().clone(),
     );
     db.set_project(project);
 
-    (db, project)
+    Ok((db, project))
 }
 
 fn complete_template_dirs(db: &dyn ProjectDb, project: Project) -> Vec<Utf8PathBuf> {
@@ -1149,33 +1341,38 @@ fn complete_template_dirs(db: &dyn ProjectDb, project: Project) -> Vec<Utf8PathB
         .collect()
 }
 
-fn apply_project_discovery(db: &mut TestDatabase) {
-    let _facts = run_django_discovery(db).expect("project should be configured");
+fn apply_project_discovery(db: &mut TestDatabase) -> Result<(), io::Error> {
+    run_django_discovery(db)
+        .map_err(io::Error::other)?
+        .map(drop)
+        .ok_or_else(|| io::Error::other("project should be configured before discovery"))
 }
 
-fn project_requiring_environment_application(db: &mut TestDatabase) -> Project {
+fn project_requiring_environment_application(
+    db: &mut TestDatabase,
+) -> Result<Project, Box<dyn std::error::Error>> {
     db.add_file(
         "/proj/settings.py",
         "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'extras.tags'}}}]\n",
-    );
-    db.add_file("/vendor/extras/__init__.py", "");
+    )?;
+    db.add_file("/vendor/extras/__init__.py", "")?;
     db.add_file(
         "/vendor/extras/tags.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(): pass\n",
-    );
+    )?;
 
     let project = Project::new(
         db,
         Utf8PathBuf::from("/proj"),
         SearchPaths::default(),
         Interpreter::Auto,
-        Some(PythonModuleName::parse("settings").unwrap()),
+        Some(PythonModuleName::parse("settings")?),
         vec![Utf8PathBuf::from("/vendor")],
         Vec::new(),
         Settings::default().tagspecs().clone(),
     );
     db.set_project(project);
-    project
+    Ok(project)
 }
 
 #[test]
@@ -1185,22 +1382,34 @@ fn django_discovery_run_matches_explicit_phase_sequence() {
     let updated_source = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(value): pass\n";
 
     let mut sequenced = TestDatabase::new();
-    let sequenced_project = project_requiring_environment_application(&mut sequenced);
-    let sequenced_library = sequenced.file(library_path);
+    let sequenced_project = project_requiring_environment_application(&mut sequenced)
+        .expect("environment-application project fixture should build");
+    let sequenced_library = sequenced
+        .file(library_path)
+        .expect("sequenced settings test file should exist");
     assert_eq!(
-        sequenced_library.try_source(&sequenced).unwrap().as_str(),
+        sequenced_library
+            .try_source(&sequenced)
+            .expect("test library should have readable source")
+            .as_str(),
         original_source
     );
     let sequenced_revision_before = sequenced_library.revision(&sequenced);
-    sequenced.add_file(library_path.as_str(), updated_source);
+    sequenced
+        .add_file(library_path.as_str(), updated_source)
+        .expect("sequenced template library should be updated");
 
-    let scoped_libraries = compute_django_environment(&sequenced, sequenced_project);
-    apply_django_environment(&mut sequenced, scoped_libraries);
+    let environment = compute_django_environment(&sequenced, sequenced_project)
+        .expect("all Django environment phases should assemble");
+    apply_django_environment(&mut sequenced, environment);
     let expected = compute_project_facts(&sequenced, sequenced_project);
     apply_project_facts(&mut sequenced, &expected);
 
     assert_eq!(
-        sequenced_library.try_source(&sequenced).unwrap().as_str(),
+        sequenced_library
+            .try_source(&sequenced)
+            .expect("expected JSON value should be a string")
+            .as_str(),
         updated_source
     );
     assert_eq!(
@@ -1209,24 +1418,31 @@ fn django_discovery_run_matches_explicit_phase_sequence() {
     );
 
     let mut synchronous = TestDatabase::new();
-    let synchronous_project = project_requiring_environment_application(&mut synchronous);
-    let synchronous_library = synchronous.file(library_path);
+    let synchronous_project = project_requiring_environment_application(&mut synchronous)
+        .expect("environment-application project fixture should build");
+    let synchronous_library = synchronous
+        .file(library_path)
+        .expect("synchronous settings test file should exist");
     assert_eq!(
         synchronous_library
             .try_source(&synchronous)
-            .unwrap()
+            .expect("expected JSON value should be a string")
             .as_str(),
         original_source
     );
     let synchronous_revision_before = synchronous_library.revision(&synchronous);
-    synchronous.add_file(library_path.as_str(), updated_source);
+    synchronous
+        .add_file(library_path.as_str(), updated_source)
+        .expect("synchronous template library should be updated");
 
-    let actual = run_django_discovery(&mut synchronous).expect("project should be configured");
+    let actual = run_django_discovery(&mut synchronous)
+        .expect("all Django environment phases should assemble")
+        .expect("project should be configured");
 
     assert_eq!(
         synchronous_library
             .try_source(&synchronous)
-            .unwrap()
+            .expect("expected JSON value should be a string")
             .as_str(),
         updated_source
     );
@@ -1242,8 +1458,14 @@ fn django_discovery_run_matches_explicit_phase_sequence() {
     );
     for path in actual.file_paths() {
         assert_eq!(
-            synchronous.file(path).try_source(&synchronous),
-            sequenced.file(path).try_source(&sequenced),
+            synchronous
+                .file(path)
+                .expect("synchronous settings test file should exist")
+                .try_source(&synchronous),
+            sequenced
+                .file(path)
+                .expect("sequenced settings test file should exist")
+                .try_source(&sequenced),
             "synchronized source outcome differs for {path}"
         );
     }
@@ -1252,11 +1474,14 @@ fn django_discovery_run_matches_explicit_phase_sequence() {
 #[test]
 fn django_discovery_run_applies_environment_before_computing_facts() {
     let mut db = TestDatabase::new();
-    let project = project_requiring_environment_application(&mut db);
+    let project = project_requiring_environment_application(&mut db)
+        .expect("environment-application project fixture should build");
 
     assert!(project.search_paths(&db).iter().next().is_none());
 
-    let facts = run_django_discovery(&mut db).expect("project should be configured");
+    let facts = run_django_discovery(&mut db)
+        .expect("all Django environment phases should assemble")
+        .expect("project should be configured");
 
     assert_eq!(
         project
@@ -1282,14 +1507,16 @@ fn django_discovery_run_applies_environment_before_computing_facts() {
 fn django_discovery_run_without_project_returns_none_without_mutating_sources() {
     let mut db = TestDatabase::new();
     let path = Utf8Path::new("/proj/preexisting.py");
-    db.add_file(path.as_str(), "before\n");
-    let file = db.file(path);
+    db.add_file(path.as_str(), "before\n")
+        .expect("settings test file should be added");
+    let file = db.file(path).expect("settings test file should exist");
     let source_before = file.try_source(&db);
     let revision_before = file.revision(&db);
 
-    db.add_file(path.as_str(), "after\n");
+    db.add_file(path.as_str(), "after\n")
+        .expect("settings test file should be added");
 
-    assert_eq!(run_django_discovery(&mut db), None);
+    assert_eq!(run_django_discovery(&mut db), Ok(None));
     assert_eq!(file.revision(&db), revision_before);
     assert_eq!(file.try_source(&db), source_before);
 }
@@ -1315,7 +1542,7 @@ fn django_discovery_enumerates_settings_star_import_chain() {
                 "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let discovery = compute_project_facts(&db, project);
 
@@ -1343,7 +1570,7 @@ fn settings_sources_includes_semantically_reached_imports_and_excludes_unreachab
             ("/proj/myproject/base.py", "INSTALLED_APPS = []\n"),
             ("/proj/myproject/unreachable.py", "INSTALLED_APPS = [\n"),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let discovery = compute_project_facts(&db, project);
 
@@ -1371,7 +1598,7 @@ fn settings_sources_excludes_import_guarded_by_imported_false_flag() {
             ("/proj/myproject/flags.py", "DEBUG = False\n"),
             ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let discovery = compute_project_facts(&db, project);
 
@@ -1397,7 +1624,7 @@ fn settings_sources_includes_import_after_unsupported_guard_touch() {
             ),
             ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let discovery = compute_project_facts(&db, project);
 
@@ -1423,7 +1650,7 @@ fn settings_sources_includes_import_after_loop_guard_change() {
             ),
             ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let discovery = compute_project_facts(&db, project);
 
@@ -1449,7 +1676,7 @@ fn settings_sources_plain_import_alias_makes_guarded_import_reachable() {
             ),
             ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let discovery = compute_project_facts(&db, project);
 
@@ -1475,7 +1702,7 @@ fn settings_sources_dedupes_duplicate_import_edges() {
             ),
             ("/proj/myproject/base.py", "INSTALLED_APPS = ['base']\n"),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let discovery = compute_project_facts(&db, project);
 
@@ -1513,14 +1740,18 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
         root,
         search_paths,
         interpreter,
-        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        Some(
+            PythonModuleName::parse("myproject.settings")
+                .expect("test Python module name should be valid"),
+        ),
         pythonpath,
         Vec::new(),
         Settings::default().tagspecs().clone(),
     );
     db.set_project(project);
 
-    let settings = to_value(django_settings(&db, project)).unwrap();
+    let settings =
+        to_value(django_settings(&db, project)).expect("test Python module name should be valid");
     assert_eq!(
         settings["installed_apps"]["cases"][0]["dynamic"]["evidence"][0]["issue"]["kind"],
         "unreadable"
@@ -1565,7 +1796,10 @@ fn django_discovery_includes_deduped_unreadable_settings_source() {
         root,
         search_paths,
         interpreter,
-        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        Some(
+            PythonModuleName::parse("myproject.settings")
+                .expect("test Python module name should be valid"),
+        ),
         pythonpath,
         Vec::new(),
         tag_specs,
@@ -1595,7 +1829,7 @@ fn template_dirs_resolve_settings_module_file() {
             "/proj/myproject/settings.py",
             "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n",
         )],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -1614,7 +1848,7 @@ fn template_dirs_follow_supported_nested_insert_and_remove_mutations() {
 TEMPLATES[0]['DIRS'].insert(1, '/proj/inserted')
 TEMPLATES[0]['DIRS'].remove('/proj/removed')",
         )],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -1640,14 +1874,21 @@ fn template_dirs_merge_equivalent_explicit_backend_branches() {
                 "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-    assert_eq!(settings["templates"]["cases"].as_array().unwrap().len(), 1);
+    let settings = serde_json::to_value(django_settings(&db, project))
+        .expect("test value should serialize to JSON");
+    assert_eq!(
+        settings["templates"]["cases"]
+            .as_array()
+            .expect("expected JSON field should be an array")
+            .len(),
+        1
+    );
     assert_eq!(
         settings["templates"]["cases"][0]["known"]["backends"]
             .as_array()
-            .unwrap()
+            .expect("expected JSON field should be an array")
             .len(),
         1
     );
@@ -1669,14 +1910,15 @@ fn template_resolution_earlier_walk_failure_weakens_later_candidate() {
             ("/proj/second/base.html", "base"),
         ],
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/first")),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected the earlier walk failure to make resolution inconclusive");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("the earlier walk failure should make resolution inconclusive");
 
     assert_eq!(search.name, name);
     assert_eq!(search.possible_origins.len(), 1);
@@ -1695,14 +1937,17 @@ fn template_resolution_retains_candidate_from_partial_walk_as_possible_origin() 
             ("/proj/templates/base.html", "base"),
         ],
         FileSystemFailure::PartialWalk(Utf8PathBuf::from("/proj/templates")),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     let name = TemplateName::new(&db, "base.html".to_string());
 
     let resolution = template_resolution(&db, project);
     assert_eq!(resolution.origins(&db).count(), 1);
-    let TemplateResolutionResult::Inconclusive(search) = resolution.resolve(&db, name) else {
-        panic!("expected the partial walk to make its retained candidate uncertain");
-    };
+    let search = match resolution.resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("the partial walk should make its retained candidate uncertain");
 
     assert_eq!(search.possible_origins.len(), 1);
     assert_eq!(
@@ -1721,14 +1966,17 @@ fn template_resolution_definite_earlier_candidate_wins_before_later_walk_failure
             ("/proj/second/other.html", "other"),
         ],
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/second")),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let TemplateResolutionResult::Found(origin) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected the definite earlier candidate to win");
-    };
+    let origin = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Found(origin) => Some(origin),
+        TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
+            None
+        }
+    }
+    .expect("the definite earlier candidate should win");
 
     assert_eq!(origin.path_buf(&db), Utf8Path::new("/proj/first/base.html"));
 }
@@ -1742,14 +1990,15 @@ fn template_resolution_no_candidate_with_walk_failure_is_inconclusive() {
             ("/proj/templates/other.html", "other"),
         ],
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/templates")),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     let name = TemplateName::new(&db, "missing.html".to_string());
 
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected the failed walk to make a missing result inconclusive");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("the failed walk should make a missing result inconclusive");
 
     assert_eq!(search.name, name);
     assert!(search.possible_origins.is_empty());
@@ -1765,14 +2014,15 @@ fn template_resolution_target_path_conversion_failure_is_inconclusive() {
             ("/proj/templates/base.html", "base"),
         ],
         FileSystemFailure::PathToFile(target),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected the target indexing failure to make resolution inconclusive");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("the target indexing failure should make resolution inconclusive");
 
     assert_eq!(search.name, name);
     assert!(search.possible_origins.is_empty());
@@ -1787,14 +2037,15 @@ fn template_resolution_app_dirs_candidate_walk_failure_is_inconclusive() {
             ("/proj/blog/__init__.py", ""),
         ],
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/blog/templates")),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     let name = TemplateName::new(&db, "missing.html".to_string());
 
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected the APP_DIRS metadata failure to make resolution inconclusive");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("the APP_DIRS metadata failure should make resolution inconclusive");
 
     assert!(search.possible_origins.is_empty());
     assert_eq!(
@@ -1819,7 +2070,7 @@ fn template_dirs_keep_different_explicit_backend_alternatives() {
                 "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/b']}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let directories = template_directories(&db, project);
     assert!(directories.settings_cases_may_omit_roots());
@@ -1839,11 +2090,11 @@ fn template_dirs_keep_different_explicit_backend_alternatives() {
     );
 
     let name = TemplateName::new(&db, "index.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected alternative backend ordering to precede known roots");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("alternative backend ordering should precede known roots");
     assert_eq!(search.possible_origins.len(), 2);
 }
 
@@ -1860,14 +2111,14 @@ fn unknown_backend_before_known_backend_weakens_known_candidate() {
                 "TEMPLATES = [UNKNOWN, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
     let name = TemplateName::new(&db, "index.html".to_string());
 
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected unknown backend ordering to precede the known root");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("unknown backend ordering should precede the known root");
     assert_eq!(search.possible_origins.len(), 1);
 }
 
@@ -1888,8 +2139,10 @@ fn uncertain_backend_dictionary_before_known_backend_keeps_library_identity_alig
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': UNKNOWN}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
             ),
         ],
-    );
-    let file = db.file(Utf8Path::new("/proj/templates/index.html"));
+    ).expect("settings project fixture should build");
+    let file = db
+        .file(Utf8Path::new("/proj/templates/index.html"))
+        .expect("settings test file should exist");
 
     assert!(
         matches!(
@@ -1918,9 +2171,10 @@ fn missing_template_backend_excludes_directory_and_library_consumers() {
                 "INSTALLED_APPS = []\nTEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = serde_json::to_value(django_settings(&db, project))
+        .expect("test value should serialize to JSON");
     assert!(has_case(&settings["templates"], "malformed"));
 
     let directories = template_directories(&db, project);
@@ -1951,9 +2205,10 @@ fn dynamic_template_backend_excludes_directory_and_library_consumers() {
                 "INSTALLED_APPS = []\nBACKEND = object()\nTEMPLATES = [{'BACKEND': BACKEND, 'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let settings = serde_json::to_value(django_settings(&db, project))
+        .expect("test value should serialize to JSON");
     assert!(has_case(&settings["templates"], "dynamic"));
 
     let directories = template_directories(&db, project);
@@ -1974,7 +2229,8 @@ fn template_dirs_treat_unset_templates_as_exact_absence() {
         &mut db,
         "myproject.settings",
         &[("/proj/myproject/settings.py", "INSTALLED_APPS = []\n")],
-    );
+    )
+    .expect("settings project fixture should build");
 
     let directories = template_directories(&db, project);
 
@@ -1984,7 +2240,8 @@ fn template_dirs_treat_unset_templates_as_exact_absence() {
 #[test]
 fn template_dirs_treat_unresolved_configured_settings_as_unknown() {
     let mut db = TestDatabase::new();
-    let project = project_with_settings(&mut db, "myproject.settings", &[]);
+    let project = project_with_settings(&mut db, "myproject.settings", &[])
+        .expect("settings project fixture should build");
 
     let directories = template_directories(&db, project);
 
@@ -2014,7 +2271,7 @@ fn template_dirs_resolve_relative_star_imports() {
                 "from .base import *\nINSTALLED_APPS += ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2050,7 +2307,7 @@ fn template_dirs_resolve_relative_star_imports_from_package_module() {
                 "from .base import *\nINSTALLED_APPS += ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2077,7 +2334,7 @@ fn template_dirs_recover_from_star_import_cycle() {
                 "from .settings import *\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2099,7 +2356,7 @@ fn template_dirs_include_dirs_entries_before_app_dirs() {
                 "from pathlib import Path\nBASE_DIR = Path(__file__).parent.parent\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2126,7 +2383,7 @@ fn template_dirs_resolve_app_config_entries() {
                 "INSTALLED_APPS = ['blog.apps.BlogConfig']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2147,7 +2404,7 @@ fn template_dirs_resolve_app_config_class_from_init_module() {
                 "INSTALLED_APPS = ['something.WeirdConfig']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2168,7 +2425,7 @@ fn template_dirs_demote_broken_app_config_entry_to_partial() {
                 "INSTALLED_APPS = ['myapp.apps.MyConfig']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let directories = template_directories(&db, project);
 
@@ -2178,12 +2435,14 @@ fn template_dirs_demote_broken_app_config_entry_to_partial() {
 #[test]
 fn template_dirs_resolve_apps_from_site_packages_search_path() {
     let mut db = TestDatabase::new();
-    db.add_file("/site/pkg/__init__.py", "");
-    db.add_file("/site/pkg/templates/pkg/index.html", "index");
+    db.add_file("/site/pkg/__init__.py", "")
+        .expect("settings test file should be added");
+    db.add_file("/site/pkg/templates/pkg/index.html", "index")
+        .expect("settings test file should be added");
     db.add_file(
         "/proj/myproject/settings.py",
         "INSTALLED_APPS = ['pkg']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-    );
+    ).expect("settings test file should be added");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/proj"),
@@ -2194,7 +2453,8 @@ fn template_dirs_resolve_apps_from_site_packages_search_path() {
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
         .search_paths(search_paths)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2214,7 +2474,7 @@ fn template_dirs_resolve_bare_namespace_app_entry() {
                 "INSTALLED_APPS = ['nsapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2224,12 +2484,14 @@ fn template_dirs_resolve_bare_namespace_app_entry() {
 #[test]
 fn template_dirs_resolve_namespace_app_portions_in_root_order() {
     let mut db = TestDatabase::new();
-    db.add_file("/proj/nsapp/templates/project.html", "project");
-    db.add_file("/vendor/nsapp/templates/vendor.html", "vendor");
+    db.add_file("/proj/nsapp/templates/project.html", "project")
+        .expect("settings test file should be added");
+    db.add_file("/vendor/nsapp/templates/vendor.html", "vendor")
+        .expect("settings test file should be added");
     db.add_file(
         "/proj/myproject/settings.py",
         "INSTALLED_APPS = ['nsapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-    );
+    ).expect("settings test file should be added");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/proj"),
@@ -2240,7 +2502,8 @@ fn template_dirs_resolve_namespace_app_portions_in_root_order() {
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
         .search_paths(search_paths)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
     let dirs = complete_template_dirs(&db, project);
 
@@ -2267,7 +2530,7 @@ fn template_dirs_demote_file_module_app_to_partial() {
                 "INSTALLED_APPS = ['app']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let directories = template_directories(&db, project);
 
@@ -2284,7 +2547,7 @@ fn template_dirs_demote_unresolved_app_to_partial() {
             "/proj/myproject/settings.py",
             "INSTALLED_APPS = ['missing']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
         )],
-    );
+    ).expect("settings project fixture should build");
 
     let directories = template_directories(&db, project);
 
@@ -2321,7 +2584,7 @@ fn template_library_catalog_discover_app_templatetags_and_builtins() {
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
@@ -2368,14 +2631,19 @@ fn template_library_catalog_cross_product_divergent_installed_apps_with_template
                 "if APP_FLAG:\n    INSTALLED_APPS = ['first']\nelse:\n    INSTALLED_APPS = ['second']\nif TEMPLATE_FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/other'], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
-    let LoadableLibraryLookup::Ambiguous(candidates) =
-        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
-            .loadable_library_str("shared")
-    else {
-        panic!("divergent app alternatives must retain both library outcomes");
-    };
+    let candidates = match ScopedTemplateLibraries::from_project_inventory(
+        template_library_catalog(&db, project),
+    )
+    .loadable_library_str("shared")
+    {
+        LoadableLibraryLookup::Ambiguous(candidates) => Some(candidates),
+        LoadableLibraryLookup::Found(_)
+        | LoadableLibraryLookup::Inconclusive(_)
+        | LoadableLibraryLookup::Absent => None,
+    }
+    .expect("divergent app alternatives should retain both library outcomes");
     let modules = candidates
         .iter()
         .map(|library| library.module_name_str())
@@ -2404,7 +2672,8 @@ fn unset_templates_is_closed_absence_for_app_libraries() {
             ),
             ("/proj/myproject/settings.py", "INSTALLED_APPS = ['blog']\n"),
         ],
-    );
+    )
+    .expect("settings project fixture should build");
 
     assert_eq!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -2430,7 +2699,7 @@ fn dynamic_installed_apps_keep_guidance_open_without_template_backends() {
                 ),
                 ("/proj/myproject/settings.py", settings.as_str()),
             ],
-        );
+        ).expect("settings project fixture should build");
 
         let libraries = template_library_catalog(&db, project);
         assert_eq!(
@@ -2446,8 +2715,9 @@ fn dynamic_installed_apps_keep_guidance_open_without_template_backends() {
             "dynamic apps with {templates:?} must not produce definitive filter guidance"
         );
         assert_eq!(
-            ScopedTemplateLibraries::from_project_inventory(libraries)
-                .missing_library(&library_name("crispy")),
+            ScopedTemplateLibraries::from_project_inventory(libraries).missing_library(
+                &library_name("crispy").expect("test library name should be valid")
+            ),
             MissingTemplateLibraryLookup::Inconclusive,
             "dynamic apps with {templates:?} must not produce definitive library guidance"
         );
@@ -2482,14 +2752,14 @@ fn template_symbol_lookup_uses_later_definite_available_candidate() {
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'alpha': 'project_tags'}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     assert_eq!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .available_in_app_symbol("shared_tag", TemplateSymbolKind::Tag),
         AppTemplateSymbolLookup::FoundInApp {
-            app: PythonModuleName::parse("zeta").unwrap(),
-            load_name: library_name("zeta"),
+            app: PythonModuleName::parse("zeta").expect("test Python module name should be valid"),
+            load_name: library_name("zeta").expect("test library name should be valid"),
         },
         "a shadowed earlier candidate must not hide a later definite candidate"
     );
@@ -2513,7 +2783,7 @@ fn template_library_catalog_discover_package_templatetags() {
                 "INSTALLED_APPS = ['nsapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
@@ -2533,16 +2803,18 @@ fn template_library_catalog_discover_package_templatetags() {
 #[test]
 fn template_library_catalog_discover_namespace_package_templatetags() {
     let mut db = TestDatabase::new();
-    db.add_file("/proj/nsapp/other.py", "");
-    db.add_file("/vendor/nsapp/templatetags/__init__.py", "");
+    db.add_file("/proj/nsapp/other.py", "")
+        .expect("settings test file should be added");
+    db.add_file("/vendor/nsapp/templatetags/__init__.py", "")
+        .expect("settings test file should be added");
     db.add_file(
         "/vendor/nsapp/templatetags/custom.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef hello():\n    pass\n",
-    );
+    ).expect("settings test file should be added");
     db.add_file(
         "/proj/myproject/settings.py",
         "INSTALLED_APPS = ['nsapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-    );
+    ).expect("settings test file should be added");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/proj"),
@@ -2553,7 +2825,8 @@ fn template_library_catalog_discover_namespace_package_templatetags() {
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
         .search_paths(search_paths)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("settings project fixture should install");
 
     let libraries = template_library_catalog(&db, project);
 
@@ -2600,14 +2873,14 @@ fn template_library_catalog_include_empty_registered_modules() {
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
     let empty = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("empty")
         .found()
-        .unwrap();
+        .expect("settings fixture should have the expected shape");
     assert_eq!(empty.module_name_str(), "blog.templatetags.empty");
     assert!(empty.symbols().is_empty());
 }
@@ -2632,7 +2905,7 @@ fn template_library_catalog_skip_discovered_helpers_without_demoting_inventory()
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
@@ -2676,7 +2949,8 @@ fn template_library_catalog_preserve_installed_app_discovery_order_across_failur
     let (db, project) = project_with_file_system_failure(
         &files,
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/first/templatetags")),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library)
@@ -2686,7 +2960,8 @@ fn template_library_catalog_preserve_installed_app_discovery_order_across_failur
     let (db, project) = project_with_file_system_failure(
         &files,
         FileSystemFailure::Walk(Utf8PathBuf::from("/proj/second/templatetags")),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Inconclusive(candidates)
@@ -2713,13 +2988,19 @@ fn template_library_catalog_preserve_installed_app_order_across_source_analysis_
             ("/proj/second/templatetags/shared.py", valid_library),
         ],
         FileSystemFailure::Read(Utf8PathBuf::from("/proj/second/templatetags/shared.py")),
-    );
-    let LoadableLibraryLookup::Inconclusive(candidates) =
-        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
-            .loadable_library_str("shared")
-    else {
-        panic!("the unreadable later candidate should leave the earlier library feasible");
-    };
+    )
+    .expect("file-system failure project fixture should build");
+    let candidates = match ScopedTemplateLibraries::from_project_inventory(
+        template_library_catalog(&db, project),
+    )
+    .loadable_library_str("shared")
+    {
+        LoadableLibraryLookup::Inconclusive(candidates) => Some(candidates),
+        LoadableLibraryLookup::Found(_)
+        | LoadableLibraryLookup::Ambiguous(_)
+        | LoadableLibraryLookup::Absent => None,
+    }
+    .expect("the unreadable later candidate should leave the earlier library feasible");
     assert!(matches!(
         candidates.as_slice(),
         [library] if library.module_name_str() == "first.templatetags.shared"
@@ -2737,7 +3018,8 @@ fn template_library_catalog_preserve_installed_app_order_across_source_analysis_
             ("/proj/second/templatetags/shared.py", valid_library),
         ],
         FileSystemFailure::Read(Utf8PathBuf::from("/proj/second/templatetags/shared.py")),
-    );
+    )
+    .expect("file-system failure project fixture should build");
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
         LoadableLibraryLookup::Found(library)
@@ -2767,14 +3049,13 @@ fn template_library_catalog_recovered_positive_candidate_remains_resolved() {
                 "INSTALLED_APPS = ['first', 'second']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
-    let LoadableLibraryLookup::Found(library) =
-        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("shared")
-    else {
-        panic!("the recovered later candidate should remain a known library");
-    };
+    let library = ScopedTemplateLibraries::from_project_inventory(libraries)
+        .loadable_library_str("shared")
+        .found()
+        .expect("the recovered later candidate should remain a known library");
     assert_eq!(library.module_name_str(), "second.templatetags.shared");
     assert!(
         library
@@ -2807,15 +3088,14 @@ fn template_library_catalog_retain_recovered_symbols_with_source_uncertainty() {
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
-    let LoadableLibraryLookup::Found(library) =
-        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("broken")
-    else {
-        panic!("the recovered module still identifies the same loadable library");
-    };
+    let library = ScopedTemplateLibraries::from_project_inventory(libraries)
+        .loadable_library_str("broken")
+        .found()
+        .expect("the recovered module should still identify the same loadable library");
     assert!(
         library
             .symbols()
@@ -2848,10 +3128,11 @@ fn template_library_catalog_accept_supported_python_newer_than_ruff_default_targ
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
-    let errors = python_syntax_errors(&db, db.file(path)).expect("file should be Python");
+    let errors = python_syntax_errors(&db, db.file(path).expect("settings test file should exist"))
+        .expect("file should be Python");
 
     assert!(
         ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -2887,12 +3168,13 @@ fn invalid_available_identifier_makes_missing_library_inconclusive() {
                 "INSTALLED_APPS = []\nTEMPLATES = []\n",
             ),
         ],
-    );
+    )
+    .expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(libraries)
-            .missing_library(&library_name("missing")),
+            .missing_library(&library_name("missing").expect("test library name should be valid")),
         MissingTemplateLibraryLookup::Inconclusive
     ));
 }
@@ -2925,7 +3207,10 @@ fn failed_available_candidate_walk_makes_missing_library_inconclusive() {
         root,
         search_paths,
         interpreter,
-        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        Some(
+            PythonModuleName::parse("myproject.settings")
+                .expect("test Python module name should be valid"),
+        ),
         pythonpath,
         Vec::new(),
         tag_specs,
@@ -2935,7 +3220,7 @@ fn failed_available_candidate_walk_makes_missing_library_inconclusive() {
     let libraries = template_library_catalog(&db, project);
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(libraries)
-            .missing_library(&library_name("missing")),
+            .missing_library(&library_name("missing").expect("test library name should be valid")),
         MissingTemplateLibraryLookup::Inconclusive
     ));
 }
@@ -2976,16 +3261,17 @@ fn template_library_catalog_collects_templatetags_available_outside_installed_ap
                 "INSTALLED_APPS = ['myapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
-    let MissingTemplateLibraryLookup::FoundInApps(apps) =
-        ScopedTemplateLibraries::from_project_inventory(libraries)
-            .missing_library(&library_name("crispy"))
-    else {
-        panic!("crispy should be reported as an available-in-app library candidate");
-    };
+    let apps = match ScopedTemplateLibraries::from_project_inventory(libraries)
+        .missing_library(&library_name("crispy").expect("test library name should be valid"))
+    {
+        MissingTemplateLibraryLookup::FoundInApps(apps) => Some(apps),
+        MissingTemplateLibraryLookup::Absent | MissingTemplateLibraryLookup::Inconclusive => None,
+    }
+    .expect("crispy should be reported as an available-in-app library candidate");
     assert_eq!(apps.primary().as_str(), "crispy");
     assert_eq!(
         apps.as_slice()
@@ -2995,27 +3281,30 @@ fn template_library_catalog_collects_templatetags_available_outside_installed_ap
         vec!["crispy"]
     );
 
-    let AppTemplateSymbolLookup::FoundInApp { app, load_name } =
-        ScopedTemplateLibraries::from_project_inventory(libraries)
-            .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag)
-    else {
-        panic!("crispy_tag should be reported as an available-in-app tag candidate");
-    };
+    let (app, load_name) = match ScopedTemplateLibraries::from_project_inventory(libraries)
+        .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag)
+    {
+        AppTemplateSymbolLookup::FoundInApp { app, load_name } => Some((app, load_name)),
+        AppTemplateSymbolLookup::Absent | AppTemplateSymbolLookup::Inconclusive => None,
+    }
+    .expect("crispy_tag should be reported as an available-in-app tag candidate");
     assert_eq!(app.as_str(), "crispy");
     assert_eq!(load_name.as_str(), "crispy");
 
-    let AppTemplateSymbolLookup::FoundInApp { app, load_name } =
-        ScopedTemplateLibraries::from_project_inventory(libraries)
-            .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter)
-    else {
-        panic!("crispy_filter should be reported as an available-in-app filter candidate");
-    };
+    let (app, load_name) = match ScopedTemplateLibraries::from_project_inventory(libraries)
+        .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter)
+    {
+        AppTemplateSymbolLookup::FoundInApp { app, load_name } => Some((app, load_name)),
+        AppTemplateSymbolLookup::Absent | AppTemplateSymbolLookup::Inconclusive => None,
+    }
+    .expect("crispy_filter should be reported as an available-in-app filter candidate");
     assert_eq!(app.as_str(), "crispy");
     assert_eq!(load_name.as_str(), "crispy");
 
     assert_eq!(
-        ScopedTemplateLibraries::from_project_inventory(libraries)
-            .missing_library(&library_name("myapp_tags")),
+        ScopedTemplateLibraries::from_project_inventory(libraries).missing_library(
+            &library_name("myapp_tags").expect("test library name should be valid")
+        ),
         MissingTemplateLibraryLookup::Inconclusive,
         "installed app libraries must be subtracted from available candidates"
     );
@@ -3051,20 +3340,22 @@ fn template_library_catalog_available_candidates_rerun_after_search_root_revisio
                 "INSTALLED_APPS = ['myapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     assert_eq!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
-            .missing_library(&library_name("crispy")),
+            .missing_library(&library_name("crispy").expect("test library name should be valid")),
         MissingTemplateLibraryLookup::Absent
     );
 
-    db.add_file("/proj/crispy/__init__.py", "");
-    db.add_file("/proj/crispy/templatetags/__init__.py", "");
+    db.add_file("/proj/crispy/__init__.py", "")
+        .expect("settings test file should be added");
+    db.add_file("/proj/crispy/templatetags/__init__.py", "")
+        .expect("settings test file should be added");
     db.add_file(
         "/proj/crispy/templatetags/crispy.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag():\n    pass\n",
-    );
+    ).expect("settings test file should be added");
     let root = db
         .files()
         .expect_root(&db, Utf8Path::new("/proj/crispy/templatetags/crispy.py"));
@@ -3074,7 +3365,7 @@ fn template_library_catalog_available_candidates_rerun_after_search_root_revisio
 
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(libraries)
-            .missing_library(&library_name("crispy")),
+            .missing_library(&library_name("crispy").expect("test library name should be valid")),
         MissingTemplateLibraryLookup::FoundInApps(_)
     ));
 }
@@ -3115,7 +3406,7 @@ fn django_discovery_updates_available_template_library_symbols() {
                 "INSTALLED_APPS = ['myapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     assert_eq!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -3126,8 +3417,8 @@ fn django_discovery_updates_available_template_library_symbols() {
     db.add_file(
         "/proj/crispy/templatetags/crispy.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n",
-    );
-    apply_project_discovery(&mut db);
+    ).expect("settings test file should be added");
+    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
 
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -3146,12 +3437,12 @@ fn template_library_catalog_demote_unresolved_app_to_partial() {
             "/proj/myproject/settings.py",
             "INSTALLED_APPS = ['missing']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
         )],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(libraries)
-            .missing_library(&library_name("missing")),
+            .missing_library(&library_name("missing").expect("test library name should be valid")),
         MissingTemplateLibraryLookup::Inconclusive
     ));
 }
@@ -3188,14 +3479,14 @@ fn template_library_catalog_include_options_libraries_and_builtins() {
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}, 'builtins': ['custom_builtin']}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
     let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
-        .unwrap();
+        .expect("settings fixture should have the expected shape");
     assert_eq!(custom.module_name_str(), "custom_tags");
     assert!(
         custom
@@ -3235,8 +3526,10 @@ fn partial_django_backend_keeps_alias_definitive_until_open_backend_selection() 
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}, unknown_key: 'maybe'}]\n",
             ),
         ],
-    );
-    let file = db.file(Utf8Path::new("/proj/templates/page.html"));
+    ).expect("settings project fixture should build");
+    let file = db
+        .file(Utf8Path::new("/proj/templates/page.html"))
+        .expect("settings test file should exist");
 
     assert!(matches!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("custom"),
@@ -3260,7 +3553,7 @@ fn partial_non_django_backend_contributes_open_library_alternative() {
             "/proj/myproject/settings.py",
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'project.backends.CustomTemplates', unknown_key: 'maybe'}]\n",
         )],
-    );
+    ).expect("settings project fixture should build");
 
     assert_eq!(
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -3297,15 +3590,19 @@ fn template_library_catalog_keep_candidate_with_later_backend_uncertainty() {
                 "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'project_tags'}}}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': UNKNOWN}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
-    let LoadableLibraryLookup::Inconclusive(candidates) =
-        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("custom")
-    else {
-        panic!("the open backend alternative should keep lookup inconclusive");
-    };
+    let candidates = match ScopedTemplateLibraries::from_project_inventory(libraries)
+        .loadable_library_str("custom")
+    {
+        LoadableLibraryLookup::Inconclusive(candidates) => Some(candidates),
+        LoadableLibraryLookup::Found(_)
+        | LoadableLibraryLookup::Ambiguous(_)
+        | LoadableLibraryLookup::Absent => None,
+    }
+    .expect("the open backend alternative should keep lookup inconclusive");
     let custom = candidates
         .into_iter()
         .find(|library| library.module_name_str() == "project_tags")
@@ -3353,14 +3650,14 @@ fn template_library_catalog_options_override_app_library_load_name() {
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True, 'OPTIONS': {'libraries': {'custom': 'project_tags'}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
     let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
-        .unwrap();
+        .expect("settings fixture should have the expected shape");
     assert_eq!(custom.module_name_str(), "project_tags");
     assert!(
         custom
@@ -3407,7 +3704,7 @@ fn failed_configured_library_is_inconclusive() {
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'broken': 'broken_tags'}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
@@ -3437,7 +3734,7 @@ fn unknown_configured_alias_keys_suppress_available_in_app_guidance() {
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
     let libraries = template_library_catalog(&db, project);
 
     assert_eq!(
@@ -3452,7 +3749,7 @@ fn unknown_configured_alias_keys_suppress_available_in_app_guidance() {
     );
     assert_eq!(
         ScopedTemplateLibraries::from_project_inventory(libraries)
-            .missing_library(&library_name("shared")),
+            .missing_library(&library_name("shared").expect("test library name should be valid")),
         MissingTemplateLibraryLookup::Inconclusive
     );
 }
@@ -3479,7 +3776,7 @@ fn exact_alias_after_unknown_keys_remains_authoritative() {
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN, 'shared': 'project_tags'}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
     let libraries = template_library_catalog(&db, project);
 
     assert_eq!(
@@ -3516,13 +3813,13 @@ fn unresolved_configured_alias_shadows_available_in_app_guidance() {
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'missing_tags'}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
     assert_eq!(
         ScopedTemplateLibraries::from_project_inventory(libraries)
-            .missing_library(&library_name("shared")),
+            .missing_library(&library_name("shared").expect("test library name should be valid")),
         MissingTemplateLibraryLookup::Inconclusive
     );
 }
@@ -3537,7 +3834,7 @@ fn template_library_catalog_omit_invalid_configured_alias_and_demote_knowledge()
             "/proj/myproject/settings.py",
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'broken': 'bad-module'}}}]\n",
         )],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
@@ -3559,7 +3856,7 @@ fn template_library_catalog_retain_missing_configured_alias_without_source() {
             "/proj/myproject/settings.py",
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'missing': 'missing_tags'}}}]\n",
         )],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
@@ -3595,7 +3892,7 @@ fn template_library_catalog_omit_configured_non_library_module_and_demote_knowle
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'not_a_library'}}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
 
@@ -3624,7 +3921,7 @@ fn template_library_catalog_include_resolved_and_configured_only_libraries() {
                 "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'good': 'good_tags', 'missing': 'missing_tags', 'invalid': 'bad-module'}, 'builtins': ['not_a_library']}}]\n",
             ),
         ],
-    );
+    ).expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let active_modules: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -3661,31 +3958,38 @@ fn template_library_catalog_include_resolved_and_configured_only_libraries() {
     );
 }
 
-fn django_facts_golden_fixture() -> (
+type DjangoFactsGoldenFixture = (
     OsTestDatabase,
     Project,
     Utf8PathBuf,
     Utf8PathBuf,
     DjangoFactsGolden,
-) {
-    let corpus = Corpus::require();
-    let django_source_root = corpus.root().join("repos/django-5.2");
-    assert!(
-        django_source_root.join("django/__init__.py").is_file(),
-        "pinned Django 5.2 corpus source is missing"
-    );
+);
 
-    let workspace = Utf8PathBuf::from_path_buf(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .canonicalize()
-            .unwrap(),
-    )
-    .unwrap();
+fn django_facts_golden_fixture() -> Result<DjangoFactsGoldenFixture, Box<dyn std::error::Error>> {
+    let corpus = Corpus::require()?;
+    let django_source_root = corpus.root().join("repos/django-5.2");
+    if !django_source_root.join("django/__init__.py").is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "pinned Django 5.2 corpus source is missing",
+        )
+        .into());
+    }
+
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()?;
+    let workspace = Utf8PathBuf::from_path_buf(workspace).map_err(|path| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("workspace path should be UTF-8: {}", path.display()),
+        )
+    })?;
     let project_root = workspace.join("tests/project");
     let golden_path = workspace.join("tests/fixtures/django-facts/django-5.2.json");
-    let golden =
-        serde_json::from_str(&std::fs::read_to_string(golden_path.as_std_path()).unwrap()).unwrap();
+    let golden_source = std::fs::read_to_string(golden_path.as_std_path())?;
+    let golden = serde_json::from_str(&golden_source)?;
 
     let mut db = OsTestDatabase::new();
     let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
@@ -3702,19 +4006,20 @@ fn django_facts_golden_fixture() -> (
         project_root.clone(),
         search_paths,
         interpreter,
-        Some(PythonModuleName::parse("djls_test.settings").unwrap()),
+        Some(PythonModuleName::parse("djls_test.settings")?),
         pythonpath,
         Vec::new(),
         djls_conf::Settings::default().tagspecs().clone(),
     );
     db.set_project(project);
 
-    (db, project, project_root, django_source_root, golden)
+    Ok((db, project, project_root, django_source_root, golden))
 }
 
 #[test]
 fn django_facts_golden_template_dirs_match() {
-    let (db, project, project_root, django_source_root, golden) = django_facts_golden_fixture();
+    let (db, project, project_root, django_source_root, golden) =
+        django_facts_golden_fixture().expect("Django facts golden fixture should build");
     let expected: Vec<_> = golden
         .template_dirs
         .into_iter()
@@ -3736,7 +4041,8 @@ fn django_facts_golden_template_dirs_match() {
 
 #[test]
 fn django_facts_golden_template_library_catalog_matches() {
-    let (db, project, _, _, golden) = django_facts_golden_fixture();
+    let (db, project, _, _, golden) =
+        django_facts_golden_fixture().expect("Django facts golden fixture should build");
     let libraries = template_library_catalog(&db, project);
     let actual_builtins = active_builtin_modules(libraries);
     assert_eq!(actual_builtins, golden.template_library_catalog.builtins);

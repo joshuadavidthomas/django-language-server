@@ -1,3 +1,4 @@
+use std::io;
 use std::ptr;
 
 use camino::Utf8Path;
@@ -25,19 +26,23 @@ use salsa::Database as _;
 use serde_json::Value;
 use serde_json::json;
 
-fn model_id<'a>(graph: &'a ModelGraph, name: &'a str, module_name: &str) -> &'a ModelId {
+fn model_id<'a>(
+    graph: &'a ModelGraph,
+    name: &'a str,
+    module_name: &str,
+) -> Result<&'a ModelId, io::Error> {
     graph
         .models_named(name)
         .find(|(id, _model)| id.module_name().as_str() == module_name)
         .map(|(id, _model)| id)
-        .expect("model should exist")
+        .ok_or_else(|| io::Error::other(format!("model `{module_name}.{name}` does not exist")))
 }
 
-fn graph_value(graph: &ModelGraph) -> Value {
-    serde_json::to_value(graph).expect("model graph should serialize")
+fn graph_value(graph: &ModelGraph) -> Result<Value, serde_json::Error> {
+    serde_json::to_value(graph)
 }
 
-fn relation_value<'a>(graph: &'a Value, model: &str, field: &str) -> &'a Value {
+fn relation_value<'a>(graph: &'a Value, model: &str, field: &str) -> Result<&'a Value, io::Error> {
     graph["models"][model]["relations"]
         .as_array()
         .and_then(|relations| {
@@ -45,12 +50,17 @@ fn relation_value<'a>(graph: &'a Value, model: &str, field: &str) -> &'a Value {
                 .iter()
                 .find(|relation| relation["field_name"]["value"] == field)
         })
-        .expect("relation should exist")
+        .ok_or_else(|| io::Error::other(format!("relation `{model}.{field}` does not exist")))
 }
 
-fn update_file(db: &mut TestDatabase, path: &str, content: &str) {
-    db.add_file(path, content);
+fn update_file(
+    db: &mut TestDatabase,
+    path: &str,
+    content: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    db.add_file(path, content)?;
     SourceChanges::new([ChangeEvent::ContentChanged(path.into())]).apply(db);
+    Ok(())
 }
 
 fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
@@ -60,30 +70,58 @@ fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str)
             salsa::EventKind::WillExecute { database_key } => db
                 .ingredient_debug_name(database_key.ingredient_index())
                 .contains(query_name),
-            _ => false,
+            salsa::EventKind::DidValidateMemoizedValue { .. }
+            | salsa::EventKind::WillBlockOn { .. }
+            | salsa::EventKind::WillIterateCycle { .. }
+            | salsa::EventKind::DidFinalizeCycle { .. }
+            | salsa::EventKind::WillCheckCancellation
+            | salsa::EventKind::DidSetCancellationFlag
+            | salsa::EventKind::WillDiscardStaleOutput { .. }
+            | salsa::EventKind::DidDiscard { .. }
+            | salsa::EventKind::DidDiscardAccumulated { .. }
+            | salsa::EventKind::DidInternValue { .. }
+            | salsa::EventKind::DidReuseInternedValue { .. }
+            | salsa::EventKind::DidValidateInternedValue { .. } => false,
         })
         .count()
 }
 
-fn expected_span(source: &str, needle: &str) -> Span {
+type RelationLocation = (String, djls_source::File, Span, Option<Span>);
+
+fn expected_span(source: &str, needle: &str) -> Result<Span, io::Error> {
     let start = source
         .find(needle)
-        .unwrap_or_else(|| panic!("expected source to contain {needle:?}"));
-    Span::saturating_from_parts_usize(start, needle.len())
+        .ok_or_else(|| io::Error::other(format!("source does not contain {needle:?}")))?;
+    Ok(Span::saturating_from_parts_usize(start, needle.len()))
 }
 
-fn expected_span_after(source: &str, anchor: &str, needle: &str) -> Span {
+fn expected_span_after(source: &str, anchor: &str, needle: &str) -> Result<Span, io::Error> {
     let anchor_start = source
         .find(anchor)
-        .unwrap_or_else(|| panic!("expected source to contain anchor {anchor:?}"));
-    let relative_start = source[anchor_start..]
-        .find(needle)
-        .unwrap_or_else(|| panic!("expected {needle:?} after {anchor:?}"));
-    Span::saturating_from_parts_usize(anchor_start + relative_start, needle.len())
+        .ok_or_else(|| io::Error::other(format!("source does not contain anchor {anchor:?}")))?;
+    let relative_start = source[anchor_start..].find(needle).ok_or_else(|| {
+        io::Error::other(format!(
+            "source does not contain {needle:?} after {anchor:?}"
+        ))
+    })?;
+    Ok(Span::saturating_from_parts_usize(
+        anchor_start + relative_start,
+        needle.len(),
+    ))
+}
+
+fn relation_location<'a>(
+    locations: &'a [RelationLocation],
+    field: &str,
+) -> Result<&'a RelationLocation, io::Error> {
+    locations
+        .iter()
+        .find(|(name, ..)| name == field)
+        .ok_or_else(|| io::Error::other(format!("relation location for {field:?} does not exist")))
 }
 
 fn assert_relation_location(
-    actual: &(String, djls_source::File, Span, Option<Span>),
+    actual: &RelationLocation,
     field: &str,
     file: djls_source::File,
     field_span: Span,
@@ -102,9 +140,9 @@ fn model_graph_span_probe(
     project: Project,
     module_name: String,
     model_name: String,
-) -> u32 {
+) -> Option<u32> {
     let graph = compute_model_graph(db, project);
-    let mut checksum = u32::try_from(graph.len()).expect("test model graph should fit in u32");
+    let mut checksum = u32::try_from(graph.len()).ok()?;
 
     if let Some((_file, span)) = model_location(graph, module_name.as_str(), model_name.as_str()) {
         checksum = checksum
@@ -125,10 +163,15 @@ fn model_graph_span_probe(
         }
     }
 
-    checksum
+    Some(checksum)
 }
 
-fn probe_model(db: &TestDatabase, project: Project, module_name: &str, model_name: &str) -> u32 {
+fn probe_model(
+    db: &TestDatabase,
+    project: Project,
+    module_name: &str,
+    model_name: &str,
+) -> Option<u32> {
     model_graph_span_probe(db, project, module_name.to_string(), model_name.to_string())
 }
 
@@ -138,9 +181,13 @@ fn recovered_syntax_retains_imports_and_model_facts_with_error_span() {
         "from django.db import models\n\nclass Post(models.Model):\n    pass\n\ndef broken(";
     let db = TestDatabase::new();
     let path = Utf8Path::new("/project/blog/models.py");
-    db.add_file(path.as_str(), source);
-    let file = db.file(path);
-    let module_name = PythonModuleName::parse("blog.models").unwrap();
+    db.add_file(path.as_str(), source)
+        .expect("recovered model fixture should be added to the test database");
+    let file = db
+        .file(path)
+        .expect("recovered model fixture should exist in the test database");
+    let module_name =
+        PythonModuleName::parse("blog.models").expect("test Python module name should be valid");
 
     let graph = extract_model_graph(&db, file, module_name);
     assert!(
@@ -154,7 +201,10 @@ fn recovered_syntax_retains_imports_and_model_facts_with_error_span() {
     assert_eq!(errors[0].class, PythonSyntaxErrorClass::Ordinary);
     assert_eq!(
         errors[0].span,
-        Span::new(u32::try_from(source.len()).unwrap(), 0)
+        Span::new(
+            u32::try_from(source.len()).expect("expected JSON value should be a string"),
+            0
+        )
     );
 }
 
@@ -167,10 +217,16 @@ fn model_graph_span_probe_reexecutes_when_model_span_shifts() {
     );
     let project = ProjectFixture::new("/project")
         .file("/project/accounts/models.py", initial)
-        .build(&db);
+        .build(&db)
+        .expect("shifted-model-span project fixture should build");
 
-    let before = probe_model(&db, project, "accounts.models", "User");
-    let _ = event_log.take();
+    let before = probe_model(&db, project, "accounts.models", "User")
+        .expect("test model graph should fit in u32");
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before the model edit"),
+    );
 
     update_file(
         &mut db,
@@ -178,9 +234,13 @@ fn model_graph_span_probe_reexecutes_when_model_span_shifts() {
         include_str!(
             "testdata/model_relations/model_graph_span_probe_reexecutes_when_model_span_shifts/accounts/models_updated.py"
         ),
-    );
-    let after = probe_model(&db, project, "accounts.models", "User");
-    let events = event_log.take();
+    )
+    .expect("updated model fixture should be written");
+    let after = probe_model(&db, project, "accounts.models", "User")
+        .expect("test model graph should fit in u32");
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the model edit");
 
     assert_ne!(after, before);
     assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
@@ -203,10 +263,16 @@ fn model_graph_span_probe_reexecutes_when_relation_is_added() {
                 "testdata/model_relations/model_graph_span_probe_reexecutes_when_relation_is_added/blog/models_initial.py"
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("added-relation project fixture should build");
 
-    let before = probe_model(&db, project, "blog.models", "Post");
-    let _ = event_log.take();
+    let before = probe_model(&db, project, "blog.models", "Post")
+        .expect("test model graph should fit in u32");
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before the relation edit"),
+    );
 
     update_file(
         &mut db,
@@ -214,9 +280,13 @@ fn model_graph_span_probe_reexecutes_when_relation_is_added() {
         include_str!(
             "testdata/model_relations/model_graph_span_probe_reexecutes_when_relation_is_added/blog/models_updated.py"
         ),
-    );
-    let after = probe_model(&db, project, "blog.models", "Post");
-    let events = event_log.take();
+    )
+    .expect("updated relation fixture should be written");
+    let after = probe_model(&db, project, "blog.models", "Post")
+        .expect("test model graph should fit in u32");
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the relation edit");
 
     assert_ne!(after, before);
     assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
@@ -233,10 +303,16 @@ fn model_graph_span_probe_backdates_for_trailing_whitespace() {
                 "testdata/model_relations/model_graph_span_probe_backdates_for_trailing_whitespace/accounts/models_initial.py"
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("trailing-whitespace project fixture should build");
 
-    let before = probe_model(&db, project, "accounts.models", "User");
-    let _ = event_log.take();
+    let before = probe_model(&db, project, "accounts.models", "User")
+        .expect("test model graph should fit in u32");
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before the whitespace edit"),
+    );
 
     update_file(
         &mut db,
@@ -247,9 +323,13 @@ fn model_graph_span_probe_backdates_for_trailing_whitespace() {
             ),
             "   \n"
         ),
-    );
-    let after = probe_model(&db, project, "accounts.models", "User");
-    let events = event_log.take();
+    )
+    .expect("whitespace-only model fixture should be written");
+    let after = probe_model(&db, project, "accounts.models", "User")
+        .expect("test model graph should fit in u32");
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the whitespace edit");
 
     assert_eq!(after, before);
     assert_eq!(execution_count(&db, &events, "model_graph_span_probe"), 0);
@@ -266,10 +346,16 @@ fn model_graph_span_probe_backdates_for_span_shift_in_file_without_model_facts()
                 "testdata/model_relations/model_graph_span_probe_backdates_for_span_shift_in_file_without_model_facts/empty/models_initial.py"
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("model-free project fixture should build");
 
-    let before = probe_model(&db, project, "empty.models", "Missing");
-    let _ = event_log.take();
+    let before = probe_model(&db, project, "empty.models", "Missing")
+        .expect("test model graph should fit in u32");
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before the model-free edit"),
+    );
 
     update_file(
         &mut db,
@@ -277,9 +363,13 @@ fn model_graph_span_probe_backdates_for_span_shift_in_file_without_model_facts()
         include_str!(
             "testdata/model_relations/model_graph_span_probe_backdates_for_span_shift_in_file_without_model_facts/empty/models_updated.py"
         ),
-    );
-    let after = probe_model(&db, project, "empty.models", "Missing");
-    let events = event_log.take();
+    )
+    .expect("updated model-free fixture should be written");
+    let after = probe_model(&db, project, "empty.models", "Missing")
+        .expect("test model graph should fit in u32");
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the model-free edit");
 
     assert_eq!(after, before);
     assert_eq!(execution_count(&db, &events, "model_graph_span_probe"), 0);
@@ -300,10 +390,16 @@ fn model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relati
                 "testdata/model_relations/model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relation_span/blog/models.py"
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("deferred-child project fixture should build");
 
-    let before = probe_model(&db, project, "blog.models", "Article");
-    let _ = event_log.take();
+    let before = probe_model(&db, project, "blog.models", "Article")
+        .expect("test model graph should fit in u32");
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before the inherited-relation edit"),
+    );
 
     update_file(
         &mut db,
@@ -311,9 +407,13 @@ fn model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relati
         include_str!(
             "testdata/model_relations/model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relation_span/base/models_updated.py"
         ),
-    );
-    let after = probe_model(&db, project, "blog.models", "Article");
-    let events = event_log.take();
+    )
+    .expect("updated inherited-relation fixture should be written");
+    let after = probe_model(&db, project, "blog.models", "Article")
+        .expect("test model graph should fit in u32");
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the inherited-relation edit");
 
     assert_ne!(after, before);
     assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
@@ -333,56 +433,70 @@ fn model_graph_records_model_and_relation_provenance_for_relation_forms() {
             ),
         )
         .file("/project/blog/models.py", source)
-        .build(&db);
+        .build(&db)
+        .expect("relation-provenance project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let blog_file = db.file(Utf8Path::new("/project/blog/models.py"));
+    let blog_file = db
+        .file(Utf8Path::new("/project/blog/models.py"))
+        .expect("blog model fixture should exist in the test database");
     let (model_file, model_span) =
         model_location(graph, "blog.models", "Post").expect("Post model should have location");
     assert_eq!(model_file, blog_file);
-    assert_eq!(model_span, expected_span(source, "Post"));
+    assert_eq!(
+        model_span,
+        expected_span(source, "Post").expect("Post model name should occur in the model fixture")
+    );
 
     let locations = model_relation_locations(graph, "blog.models", "Post");
-    let location = |field: &str| {
-        locations
-            .iter()
-            .find(|(name, ..)| name == field)
-            .unwrap_or_else(|| panic!("expected relation location for {field}"))
-    };
 
     assert_relation_location(
-        location("author"),
+        relation_location(&locations, "author").expect("author relation location should exist"),
         "author",
         blog_file,
-        expected_span(source, "author"),
-        Some(expected_span(source, "\"accounts.User\"")),
+        expected_span(source, "author").expect("author field should occur in the model fixture"),
+        Some(
+            expected_span(source, "\"accounts.User\"")
+                .expect("author target should occur in the model fixture"),
+        ),
     );
     assert_relation_location(
-        location("editor"),
+        relation_location(&locations, "editor").expect("editor relation location should exist"),
         "editor",
         blog_file,
-        expected_span(source, "editor"),
-        Some(expected_span(source, "account_models.User")),
+        expected_span(source, "editor").expect("editor field should occur in the model fixture"),
+        Some(
+            expected_span(source, "account_models.User")
+                .expect("editor target should occur in the model fixture"),
+        ),
     );
     assert_relation_location(
-        location("parent"),
+        relation_location(&locations, "parent").expect("parent relation location should exist"),
         "parent",
         blog_file,
-        expected_span(source, "parent"),
-        Some(expected_span(source, "\"self\"")),
+        expected_span(source, "parent").expect("parent field should occur in the model fixture"),
+        Some(
+            expected_span(source, "\"self\"")
+                .expect("parent target should occur in the model fixture"),
+        ),
     );
     assert_relation_location(
-        location("tags"),
+        relation_location(&locations, "tags").expect("tags relation location should exist"),
         "tags",
         blog_file,
-        expected_span(source, "tags"),
-        Some(expected_span(source, "\"Tag\"")),
+        expected_span(source, "tags").expect("tags field should occur in the model fixture"),
+        Some(
+            expected_span(source, "\"Tag\"")
+                .expect("tags target should occur in the model fixture"),
+        ),
     );
     assert_relation_location(
-        location("content_object"),
+        relation_location(&locations, "content_object")
+            .expect("content_object relation location should exist"),
         "content_object",
         blog_file,
-        expected_span(source, "content_object"),
+        expected_span(source, "content_object")
+            .expect("content_object field should occur in the model fixture"),
         None,
     );
 }
@@ -403,58 +517,60 @@ fn model_graph_records_inherited_relation_provenance() {
         .file("/project/inheritance/models.py", same_file_source)
         .file("/project/base/models.py", base_source)
         .file("/project/child/models.py", child_source)
-        .build(&db);
+        .build(&db)
+        .expect("inherited-relation project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let same_file = db.file(Utf8Path::new("/project/inheritance/models.py"));
-    let base_file = db.file(Utf8Path::new("/project/base/models.py"));
+    let same_file = db
+        .file(Utf8Path::new("/project/inheritance/models.py"))
+        .expect("same-file inheritance fixture should exist in the test database");
+    let base_file = db
+        .file(Utf8Path::new("/project/base/models.py"))
+        .expect("base model fixture should exist in the test database");
 
     for child in ["SameFileChild", "SameFileSibling"] {
         let locations = model_relation_locations(graph, "inheritance.models", child);
-        let location = |field: &str| {
-            locations
-                .iter()
-                .find(|(name, ..)| name == field)
-                .unwrap_or_else(|| panic!("expected relation location for {child}.{field}"))
-        };
 
         assert_relation_location(
-            location("grand_owner"),
+            relation_location(&locations, "grand_owner")
+                .expect("inherited grand_owner relation location should exist"),
             "grand_owner",
             same_file,
-            expected_span(same_file_source, "grand_owner"),
-            Some(expected_span(
-                same_file_source,
-                "\"inheritance.GrandTarget\"",
-            )),
+            expected_span(same_file_source, "grand_owner")
+                .expect("grand_owner field should occur in the inheritance fixture"),
+            Some(
+                expected_span(same_file_source, "\"inheritance.GrandTarget\"")
+                    .expect("grand_owner target should occur in the inheritance fixture"),
+            ),
         );
         assert_relation_location(
-            location("parent_owner"),
+            relation_location(&locations, "parent_owner")
+                .expect("inherited parent_owner relation location should exist"),
             "parent_owner",
             same_file,
-            expected_span(same_file_source, "parent_owner"),
-            Some(expected_span(
-                same_file_source,
-                "\"inheritance.ParentTarget\"",
-            )),
+            expected_span(same_file_source, "parent_owner")
+                .expect("parent_owner field should occur in the inheritance fixture"),
+            Some(
+                expected_span(same_file_source, "\"inheritance.ParentTarget\"")
+                    .expect("parent_owner target should occur in the inheritance fixture"),
+            ),
         );
     }
 
     for child in ["CrossChild", "CrossSibling"] {
         let locations = model_relation_locations(graph, "child.models", child);
-        let location = |field: &str| {
-            locations
-                .iter()
-                .find(|(name, ..)| name == field)
-                .unwrap_or_else(|| panic!("expected relation location for {child}.{field}"))
-        };
 
         assert_relation_location(
-            location("base_owner"),
+            relation_location(&locations, "base_owner")
+                .expect("inherited base_owner relation location should exist"),
             "base_owner",
             base_file,
-            expected_span(base_source, "base_owner"),
-            Some(expected_span(base_source, "\"base.BaseTarget\"")),
+            expected_span(base_source, "base_owner")
+                .expect("base_owner field should occur in the base model fixture"),
+            Some(
+                expected_span(base_source, "\"base.BaseTarget\"")
+                    .expect("base_owner target should occur in the base model fixture"),
+            ),
         );
     }
 }
@@ -475,18 +591,32 @@ fn qualified_relation_resolves_cross_app() {
                 "testdata/model_relations/qualified_relation_resolves_cross_app/blog/models.py"
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("qualified-relation project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
-    let accounts_user = model_id(graph, "User", "accounts.models");
-    let blog_user = model_id(graph, "User", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
+    let accounts_user = model_id(graph, "User", "accounts.models")
+        .expect("model fixture should contain the requested model");
+    let blog_user = model_id(graph, "User", "blog.models")
+        .expect("model fixture should contain the requested model");
 
     let resolved = graph
         .resolve_relation(post, "author")
         .expect("qualified relation should resolve");
-    assert!(ptr::eq(resolved, graph.get_by_id(accounts_user).unwrap()));
-    assert!(!ptr::eq(resolved, graph.get_by_id(blog_user).unwrap()));
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(accounts_user)
+            .expect("test value should resolve")
+    ));
+    assert!(!ptr::eq(
+        resolved,
+        graph
+            .get_by_id(blog_user)
+            .expect("test value should resolve")
+    ));
 }
 
 #[test]
@@ -501,18 +631,32 @@ fn bare_relation_resolves_relative_to_scope_app() {
             "/project/blog/models.py",
             include_str!("testdata/model_relations/bare_relation_resolves_relative_to_scope_app/blog/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("bare-relation project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let profile = model_id(graph, "Profile", "accounts.models");
-    let accounts_user = model_id(graph, "User", "accounts.models");
-    let blog_user = model_id(graph, "User", "blog.models");
+    let profile = model_id(graph, "Profile", "accounts.models")
+        .expect("model fixture should contain the requested model");
+    let accounts_user = model_id(graph, "User", "accounts.models")
+        .expect("model fixture should contain the requested model");
+    let blog_user = model_id(graph, "User", "blog.models")
+        .expect("model fixture should contain the requested model");
 
     let resolved = graph
         .resolve_relation(profile, "user")
         .expect("bare relation should resolve in the scope app");
-    assert!(ptr::eq(resolved, graph.get_by_id(accounts_user).unwrap()));
-    assert!(!ptr::eq(resolved, graph.get_by_id(blog_user).unwrap()));
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(accounts_user)
+            .expect("test value should resolve")
+    ));
+    assert!(!ptr::eq(
+        resolved,
+        graph
+            .get_by_id(blog_user)
+            .expect("test value should resolve")
+    ));
 }
 
 #[test]
@@ -525,15 +669,22 @@ fn self_relation_resolves_to_scope_model() {
                 "testdata/model_relations/self_relation_resolves_to_scope_model/catalog/models.py"
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("self-relation project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let category = model_id(graph, "Category", "catalog.models");
+    let category = model_id(graph, "Category", "catalog.models")
+        .expect("model fixture should contain the requested model");
 
     let resolved = graph
         .resolve_relation(category, "parent")
         .expect("self relation should resolve");
-    assert!(ptr::eq(resolved, graph.get_by_id(category).unwrap()));
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(category)
+            .expect("test value should resolve")
+    ));
 }
 
 #[test]
@@ -548,24 +699,39 @@ fn later_same_name_class_shadows_imported_base_for_relation() {
             "/project/blog/models.py",
             include_str!("testdata/model_relations/imported_foreign_key_resolves_to_imported_model_id/blog/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("imported-foreign-key project fixture should build");
 
     // Occurrence-local resolution follows Python scoping: the later
     // `class User` rebinds the name imported from `accounts.models`, so the FK
     // occurrence resolves to the local `blog.models.User`, not the import.
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
-    let accounts_user = model_id(graph, "User", "accounts.models");
-    let blog_user = model_id(graph, "User", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
+    let accounts_user = model_id(graph, "User", "accounts.models")
+        .expect("model fixture should contain the requested model");
+    let blog_user = model_id(graph, "User", "blog.models")
+        .expect("model fixture should contain the requested model");
 
     let resolved = graph
         .resolve_relation(post, "author")
         .expect("shadowed relation should resolve to the local class");
-    assert!(ptr::eq(resolved, graph.get_by_id(blog_user).unwrap()));
-    assert!(!ptr::eq(resolved, graph.get_by_id(accounts_user).unwrap()));
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(blog_user)
+            .expect("test value should resolve")
+    ));
+    assert!(!ptr::eq(
+        resolved,
+        graph
+            .get_by_id(accounts_user)
+            .expect("test value should resolve")
+    ));
 
-    let value = graph_value(graph);
-    let relation = relation_value(&value, "blog.models.Post", "author");
+    let value = graph_value(graph).expect("model graph should serialize");
+    let relation = relation_value(&value, "blog.models.Post", "author")
+        .expect("model fixture should contain the requested relation");
     assert_eq!(
         relation["target"]["value"],
         json!({ "kind": "Bare", "name": "User" })
@@ -588,21 +754,36 @@ fn attribute_qualified_expression_retains_source_path_and_resolves() {
             "/project/blog/models.py",
             include_str!("testdata/model_relations/attribute_qualified_expression_retains_source_path_and_resolves/blog/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("qualified-expression project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
-    let accounts_user = model_id(graph, "User", "accounts.models");
-    let blog_user = model_id(graph, "User", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
+    let accounts_user = model_id(graph, "User", "accounts.models")
+        .expect("model fixture should contain the requested model");
+    let blog_user = model_id(graph, "User", "blog.models")
+        .expect("model fixture should contain the requested model");
 
     let resolved = graph
         .resolve_relation(post, "author")
         .expect("attribute relation should resolve");
-    assert!(ptr::eq(resolved, graph.get_by_id(accounts_user).unwrap()));
-    assert!(!ptr::eq(resolved, graph.get_by_id(blog_user).unwrap()));
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(accounts_user)
+            .expect("test value should resolve")
+    ));
+    assert!(!ptr::eq(
+        resolved,
+        graph
+            .get_by_id(blog_user)
+            .expect("test value should resolve")
+    ));
 
-    let value = graph_value(graph);
-    let relation = relation_value(&value, "blog.models.Post", "author");
+    let value = graph_value(graph).expect("model graph should serialize");
+    let relation = relation_value(&value, "blog.models.Post", "author")
+        .expect("model fixture should contain the requested relation");
     assert_eq!(
         relation["target"]["value"],
         json!({ "kind": "Attribute", "path": ["account_models", "User"] })
@@ -621,11 +802,14 @@ fn model_base_import_spellings_are_recognized() {
             "/project/base_alias/models.py",
             include_str!("testdata/model_relations/model_base_import_spellings_are_recognized/base_alias/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("model-base spelling project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    model_id(graph, "FromBase", "base_alias.models");
-    model_id(graph, "FromModule", "base_alias.models");
+    model_id(graph, "FromBase", "base_alias.models")
+        .expect("model fixture should contain the requested model");
+    model_id(graph, "FromModule", "base_alias.models")
+        .expect("model fixture should contain the requested model");
 }
 
 #[test]
@@ -644,24 +828,28 @@ fn imported_abstract_base_import_spellings_are_recognized_and_inherit_relations(
             "/project/c_app/models.py",
             include_str!("testdata/model_relations/imported_abstract_base_import_spellings_are_recognized_and_inherit_relations/c_app/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("abstract-base spelling project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let user = model_id(graph, "User", "a_app.models");
-    let article = model_id(graph, "Article", "b_app.models");
-    let story = model_id(graph, "Story", "c_app.models");
+    let user = model_id(graph, "User", "a_app.models")
+        .expect("model fixture should contain the requested model");
+    let article = model_id(graph, "Article", "b_app.models")
+        .expect("model fixture should contain the requested model");
+    let story = model_id(graph, "Story", "c_app.models")
+        .expect("model fixture should contain the requested model");
 
     assert!(ptr::eq(
         graph
             .resolve_relation(article, "owner")
             .expect("direct imported abstract base relation should resolve"),
-        graph.get_by_id(user).unwrap()
+        graph.get_by_id(user).expect("test value should resolve")
     ));
     assert!(ptr::eq(
         graph
             .resolve_relation(story, "owner")
             .expect("aliased imported abstract base relation should resolve"),
-        graph.get_by_id(user).unwrap()
+        graph.get_by_id(user).expect("test value should resolve")
     ));
 }
 
@@ -677,21 +865,36 @@ fn dotted_string_auth_user_resolves_via_app_label_path() {
             "/project/shop/models.py",
             include_str!("testdata/model_relations/dotted_string_auth_user_resolves_via_app_label_path/shop/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("dotted-auth-user project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let order = model_id(graph, "Order", "shop.models");
-    let auth_user = model_id(graph, "User", "auth.models");
-    let shop_user = model_id(graph, "User", "shop.models");
+    let order = model_id(graph, "Order", "shop.models")
+        .expect("model fixture should contain the requested model");
+    let auth_user = model_id(graph, "User", "auth.models")
+        .expect("model fixture should contain the requested model");
+    let shop_user = model_id(graph, "User", "shop.models")
+        .expect("model fixture should contain the requested model");
 
     let resolved = graph
         .resolve_relation(order, "user")
         .expect("dotted string relation should resolve by app label");
-    assert!(ptr::eq(resolved, graph.get_by_id(auth_user).unwrap()));
-    assert!(!ptr::eq(resolved, graph.get_by_id(shop_user).unwrap()));
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(auth_user)
+            .expect("test value should resolve")
+    ));
+    assert!(!ptr::eq(
+        resolved,
+        graph
+            .get_by_id(shop_user)
+            .expect("test value should resolve")
+    ));
 
-    let value = graph_value(graph);
-    let relation = relation_value(&value, "shop.models.Order", "user");
+    let value = graph_value(graph).expect("model graph should serialize");
+    let relation = relation_value(&value, "shop.models.Order", "user")
+        .expect("model fixture should contain the requested relation");
     assert_eq!(
         relation["target"]["value"],
         json!({ "kind": "Qualified", "app_label": "auth", "name": "User" })
@@ -706,14 +909,17 @@ fn unresolvable_imported_target_records_explicit_reason() {
             "/project/blog/models.py",
             include_str!("testdata/model_relations/unresolvable_imported_target_records_explicit_reason/blog/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("unresolved-import project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
 
-    let value = graph_value(graph);
-    let relation = relation_value(&value, "blog.models.Post", "author");
+    let value = graph_value(graph).expect("model graph should serialize");
+    let relation = relation_value(&value, "blog.models.Post", "author")
+        .expect("model fixture should contain the requested relation");
     assert_eq!(
         relation["resolution"]["Unresolved"]["reason"]["ImportNotFound"],
         json!({ "requested": "missing.models.User" })
@@ -732,14 +938,17 @@ fn imported_module_target_records_explicit_reason() {
             "/project/blog/models.py",
             include_str!("testdata/model_relations/imported_module_target_records_explicit_reason/blog/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("module-target project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
 
-    let value = graph_value(graph);
-    let relation = relation_value(&value, "blog.models.Post", "author");
+    let value = graph_value(graph).expect("model graph should serialize");
+    let relation = relation_value(&value, "blog.models.Post", "author")
+        .expect("model fixture should contain the requested relation");
     assert_eq!(
         relation["resolution"]["Unresolved"]["reason"]["ImportedTargetIsModule"],
         json!({ "module": "accounts.models" })
@@ -758,14 +967,17 @@ fn imported_partial_target_is_preserved_when_model_id_is_absent() {
             "/project/blog/models.py",
             include_str!("testdata/model_relations/imported_partial_target_is_preserved_when_model_id_is_absent/blog/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("partial-target project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
 
-    let value = graph_value(graph);
-    let relation = relation_value(&value, "blog.models.Post", "author");
+    let value = graph_value(graph).expect("model graph should serialize");
+    let relation = relation_value(&value, "blog.models.Post", "author")
+        .expect("model fixture should contain the requested relation");
     assert_eq!(
         relation["resolution"],
         json!({
@@ -793,14 +1005,17 @@ fn ambiguous_app_label_fallback_is_preserved_in_relation_resolution() {
             "/project/NEWS/models.py",
             include_str!("testdata/model_relations/ambiguous_app_label_fallback_is_preserved_in_relation_resolution/news_upper/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("ambiguous-app-label project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "NEWS.models");
+    let post = model_id(graph, "Post", "NEWS.models")
+        .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
 
-    let value = graph_value(graph);
-    let relation = relation_value(&value, "NEWS.models.Post", "author");
+    let value = graph_value(graph).expect("model graph should serialize");
+    let relation = relation_value(&value, "NEWS.models.Post", "author")
+        .expect("model fixture should contain the requested relation");
     assert_eq!(
         relation["resolution"]["Ambiguous"]["candidates"],
         json!(["News.models.User", "news.models.User"])
@@ -820,12 +1035,14 @@ fn computed_model_graph_does_not_expose_file_local_relation_resolution() {
             "/project/blog/models.py",
             include_str!("testdata/model_relations/computed_model_graph_does_not_expose_file_local_relation_resolution/blog/models.py"),
         )
-        .build(&db);
+        .build(&db)
+        .expect("file-local-resolution project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let value = graph_value(graph);
+    let value = graph_value(graph).expect("model graph should serialize");
     assert_eq!(
-        relation_value(&value, "blog.models.TaggedItem", "target")["resolution"],
+        relation_value(&value, "blog.models.TaggedItem", "target")
+            .expect("model fixture should contain the requested relation")["resolution"],
         json!({
             "Unresolved": {
                 "reason": {
@@ -838,7 +1055,8 @@ fn computed_model_graph_does_not_expose_file_local_relation_resolution() {
         })
     );
     assert_eq!(
-        relation_value(&value, "blog.models.TaggedItem", "content_object")["resolution"],
+        relation_value(&value, "blog.models.TaggedItem", "content_object")
+            .expect("model fixture should contain the requested relation")["resolution"],
         json!({ "Unresolved": { "reason": "NoStaticTarget" } })
     );
 }
@@ -850,15 +1068,18 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
     db.add_file(
         "/project/accounts/models.py",
         include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/accounts/models.py"),
-    );
+    )
+    .expect("accounts model fixture should be added to the test database");
     db.add_file(
         "/project/blog/models.py",
         include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/blog/models_initial.py"),
-    );
+    )
+    .expect("blog model fixture should be added to the test database");
     db.add_file(
         "/project/other/models.py",
         include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/other/models_initial.py"),
-    );
+    )
+    .expect("other model fixture should be added to the test database");
 
     let interpreter = Interpreter::Auto;
     let search_paths = SearchPaths::from_project_settings(
@@ -881,15 +1102,21 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
     db.set_project(project);
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
-    let user = model_id(graph, "User", "accounts.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
+    let user = model_id(graph, "User", "accounts.models")
+        .expect("model fixture should contain the requested model");
     assert!(ptr::eq(
         graph
             .resolve_relation(post, "author")
             .expect("initial import should resolve"),
-        graph.get_by_id(user).unwrap()
+        graph.get_by_id(user).expect("test value should resolve")
     ));
-    let _ = event_log.take();
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before the import edit"),
+    );
 
     update_file(
         &mut db,
@@ -897,17 +1124,28 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
         include_str!(
             "testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/blog/models_updated.py"
         ),
-    );
+    )
+    .expect("updated blog model fixture should be written");
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
-    let profile = model_id(graph, "Profile", "accounts.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
+    let profile = model_id(graph, "Profile", "accounts.models")
+        .expect("model fixture should contain the requested model");
     assert!(ptr::eq(
         graph
             .resolve_relation(post, "author")
             .expect("edited import should resolve"),
-        graph.get_by_id(profile).unwrap()
+        graph.get_by_id(profile).expect("test value should resolve")
     ));
-    assert!(execution_count(&db, &event_log.take(), "compute_model_graph") > 0);
+    assert!(
+        execution_count(
+            &db,
+            &event_log
+                .take()
+                .expect("Salsa event log should be readable after the import edit"),
+            "compute_model_graph",
+        ) > 0
+    );
 
     update_file(
         &mut db,
@@ -915,30 +1153,39 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
         include_str!(
             "testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/other/models_updated.py"
         ),
-    );
+    )
+    .expect("updated unrelated model fixture should be written");
     let _graph = compute_model_graph(&db, project);
-    let events = event_log.take();
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the unrelated edit");
     assert_eq!(execution_count(&db, &events, "extract_models"), 1);
 }
 
 /// Detect whether occurrence-local model extraction recognizes `class` as a
 /// Django model in a single-file module. Exercises the source-order alias
 /// scanner end to end through the `extract_models` query.
-fn detects_model(source: &str, class: &str) -> bool {
+fn detects_model_result(source: &str, class: &str) -> Result<bool, Box<dyn std::error::Error>> {
     let db = TestDatabase::new();
     let path = Utf8Path::new("/project/app/models.py");
-    db.add_file(path.as_str(), source);
-    let file = db.file(path);
-    let module_name = PythonModuleName::parse("app.models").unwrap();
-    extract_model_graph(&db, file, module_name)
+    db.add_file(path.as_str(), source)?;
+    let file = db.file(path)?;
+    let module_name = PythonModuleName::parse("app.models")?;
+    Ok(extract_model_graph(&db, file, module_name)
         .models_named(class)
         .next()
-        .is_some()
+        .is_some())
+}
+
+macro_rules! detects_model {
+    ($source:expr, $class:expr $(,)?) => {
+        detects_model_result($source, $class).expect("model-detection fixture should build")
+    };
 }
 
 #[test]
 fn control_import_before_class_is_recognized() {
-    assert!(detects_model(
+    assert!(detects_model!(
         "from django.db import models\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -948,15 +1195,15 @@ fn control_import_before_class_is_recognized() {
 fn control_recognized_base_import_spellings() {
     // Direct alias, dotted unaliased, and named from-import alias all remain
     // recognized under occurrence-local resolution.
-    assert!(detects_model(
+    assert!(detects_model!(
         "import django.db.models as dm\nclass Thing(dm.Model):\n    pass\n",
         "Thing",
     ));
-    assert!(detects_model(
+    assert!(detects_model!(
         "import django.db.models\nclass Thing(django.db.models.Model):\n    pass\n",
         "Thing",
     ));
-    assert!(detects_model(
+    assert!(detects_model!(
         "from django.db.models import Model as Base\nclass Thing(Base):\n    pass\n",
         "Thing",
     ));
@@ -965,7 +1212,7 @@ fn control_recognized_base_import_spellings() {
 #[test]
 fn control_django_db_models_recognized_without_external_source() {
     // No accounts/django sources are provided; recognition is purely symbolic.
-    assert!(detects_model(
+    assert!(detects_model!(
         "from django.db import models\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -973,7 +1220,7 @@ fn control_django_db_models_recognized_without_external_source() {
 
 #[test]
 fn correction_import_after_class_does_not_affect_earlier_class() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "class Thing(models.Model):\n    pass\nfrom django.db import models\n",
         "Thing",
     ));
@@ -981,7 +1228,7 @@ fn correction_import_after_class_does_not_affect_earlier_class() {
 
 #[test]
 fn correction_reassignment_before_occurrence_removes_certainty() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nmodels = None\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -989,7 +1236,7 @@ fn correction_reassignment_before_occurrence_removes_certainty() {
 
 #[test]
 fn correction_delete_before_occurrence_removes_certainty() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\ndel models\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -997,7 +1244,7 @@ fn correction_delete_before_occurrence_removes_certainty() {
 
 #[test]
 fn correction_function_definition_before_occurrence_removes_certainty() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\ndef models():\n    pass\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -1005,7 +1252,7 @@ fn correction_function_definition_before_occurrence_removes_certainty() {
 
 #[test]
 fn correction_class_definition_before_occurrence_removes_certainty() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nclass models:\n    pass\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -1013,7 +1260,7 @@ fn correction_class_definition_before_occurrence_removes_certainty() {
 
 #[test]
 fn correction_branch_disagreement_is_conservatively_unresolved() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nif flag:\n    models = None\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -1021,7 +1268,7 @@ fn correction_branch_disagreement_is_conservatively_unresolved() {
 
 #[test]
 fn correction_try_disagreement_is_conservatively_unresolved() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\ntry:\n    models = None\nexcept Exception:\n    pass\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -1036,8 +1283,8 @@ fn correction_later_exact_import_restores_certainty_for_later_only() {
         "from django.db import models\n",
         "class Late(models.Model):\n    pass\n",
     );
-    assert!(!detects_model(source, "Early"));
-    assert!(detects_model(source, "Late"));
+    assert!(!detects_model!(source, "Early"));
+    assert!(detects_model!(source, "Late"));
 }
 
 #[test]
@@ -1048,8 +1295,8 @@ fn correction_earlier_occurrence_stable_after_later_write() {
         "models = None\n",
         "class Late(models.Model):\n    pass\n",
     );
-    assert!(detects_model(source, "Early"));
-    assert!(!detects_model(source, "Late"));
+    assert!(detects_model!(source, "Early"));
+    assert!(!detects_model!(source, "Late"));
 }
 
 #[test]
@@ -1062,25 +1309,25 @@ fn contained_model_occurrences_use_branch_local_aliases_without_exporting_them()
         "class Outside(models.Model):\n",
         "    pass\n",
     );
-    assert!(detects_model(source, "Inside"));
-    assert!(!detects_model(source, "Outside"));
+    assert!(detects_model!(source, "Inside"));
+    assert!(!detects_model!(source, "Outside"));
 }
 
 #[test]
 fn compound_binding_targets_invalidate_aliases_inside_their_bodies() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nfor models in values:\n    class Thing(models.Model):\n        pass\n",
         "Thing",
     ));
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nmatch value:\n    case models:\n        class Thing(models.Model):\n            pass\n",
         "Thing",
     ));
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\ntry:\n    pass\nexcept Exception as models:\n    class Thing(models.Model):\n        pass\n",
         "Thing",
     ));
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nwith resource() as models:\n    class Thing(models.Model):\n        pass\n",
         "Thing",
     ));
@@ -1088,7 +1335,7 @@ fn compound_binding_targets_invalidate_aliases_inside_their_bodies() {
 
 #[test]
 fn unusable_exact_relative_import_removes_stale_symbolic_alias() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nfrom ....missing import models\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -1106,10 +1353,12 @@ fn relative_model_alias_resolves_an_imported_abstract_base() {
             "/project/app/models.py",
             "from .base.models import AbstractThing as Base\nclass Thing(Base):\n    pass\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("aliased-abstract-base project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    model_id(graph, "Thing", "app.models");
+    model_id(graph, "Thing", "app.models")
+        .expect("model fixture should contain the requested model");
 }
 
 #[test]
@@ -1130,36 +1379,47 @@ fn class_body_relations_capture_alias_state_at_each_occurrence() {
             "from django.db import models\nclass User(models.Model):\n    pass\n",
         )
         .file("/project/blog/models.py", source)
-        .build(&db);
+        .build(&db)
+        .expect("class-body relation project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
-    let accounts_user = model_id(graph, "User", "accounts.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
+    let accounts_user = model_id(graph, "User", "accounts.models")
+        .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "before"), None);
     assert!(ptr::eq(
         graph
             .resolve_relation(post, "imported")
             .expect("class-local import should resolve at its occurrence"),
-        graph.get_by_id(accounts_user).unwrap(),
+        graph
+            .get_by_id(accounts_user)
+            .expect("test value should resolve"),
     ));
     assert_eq!(graph.resolve_relation(post, "after"), None);
 
-    let value = graph_value(graph);
+    let value = graph_value(graph).expect("model graph should serialize");
     assert_eq!(
-        relation_value(&value, "blog.models.Post", "imported")["resolution"],
+        relation_value(&value, "blog.models.Post", "imported")
+            .expect("model fixture should contain the requested relation")["resolution"],
         json!({ "Resolved": "accounts.models.User" })
     );
     assert_eq!(
-        relation_value(&value, "blog.models.Post", "before")["resolution"]["Unresolved"]["reason"]
-            ["SameAppTargetNotFound"]["name"],
+        relation_value(&value, "blog.models.Post", "before")
+            .expect("model fixture should contain the requested relation")["resolution"]["Unresolved"]
+            ["reason"]["SameAppTargetNotFound"]["name"],
         json!("User")
     );
     assert_eq!(
-        relation_value(&value, "blog.models.Post", "after")["resolution"]["Unresolved"]["reason"]["MissingImportBinding"],
+        relation_value(&value, "blog.models.Post", "after")
+            .expect("model fixture should contain the requested relation")["resolution"]["Unresolved"]
+            ["reason"]["MissingImportBinding"],
         json!({ "binding": "User" })
     );
 
-    let file = db.file(Utf8Path::new("/project/blog/models.py"));
+    let file = db
+        .file(Utf8Path::new("/project/blog/models.py"))
+        .expect("class-body model fixture should exist in the test database");
     let locations = model_relation_locations(graph, "blog.models", "Post");
     for (field, anchor) in [
         ("before", "before ="),
@@ -1174,8 +1434,12 @@ fn class_body_relations_capture_alias_state_at_each_occurrence() {
             location,
             field,
             file,
-            expected_span_after(source, anchor, field),
-            Some(expected_span_after(source, anchor, "User")),
+            expected_span_after(source, anchor, field)
+                .expect("relation field should occur after its fixture anchor"),
+            Some(
+                expected_span_after(source, anchor, "User")
+                    .expect("relation target should occur after its fixture anchor"),
+            ),
         );
     }
 }
@@ -1197,10 +1461,12 @@ fn class_body_compound_aliases_apply_only_to_contained_relations() {
             "from django.db import models\nclass User(models.Model):\n    pass\n",
         )
         .file("/project/blog/models.py", source)
-        .build(&db);
+        .build(&db)
+        .expect("compound-alias project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
     assert!(graph.resolve_relation(post, "conditional").is_some());
     assert_eq!(graph.resolve_relation(post, "outside"), None);
 }
@@ -1222,21 +1488,21 @@ fn scanner_visits_every_compound_body_and_preserves_untouched_aliases() {
     for name in [
         "InFor", "InWhile", "InTry", "InExcept", "InMatch", "InWith", "After",
     ] {
-        assert!(detects_model(source, name), "{name} should be recognized");
+        assert!(detects_model!(source, name), "{name} should be recognized");
     }
 }
 
 #[test]
 fn all_exact_write_forms_invalidate_symbolic_aliases() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nmodels: object = None\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nmodels += other\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\ntype models = object\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -1254,8 +1520,8 @@ fn star_import_preserves_known_model_alias_and_function_body_is_isolated() {
         "class Outer(models.Model):\n",
         "    pass\n",
     );
-    assert!(!detects_model(source, "Inner"));
-    assert!(detects_model(source, "Outer"));
+    assert!(!detects_model!(source, "Inner"));
+    assert!(detects_model!(source, "Outer"));
 }
 
 #[test]
@@ -1281,19 +1547,21 @@ fn deferred_imported_base_is_not_rebound_by_a_later_local_class() {
                 "    pass\n",
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("deferred-imported-base project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    model_id(graph, "Child", "blog.models");
+    model_id(graph, "Child", "blog.models")
+        .expect("model fixture should contain the requested model");
 }
 
 #[test]
 fn loop_and_match_writes_invalidate_aliases_after_the_compound() {
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nfor item in values:\n    models = None\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
-    assert!(!detects_model(
+    assert!(!detects_model!(
         "from django.db import models\nmatch value:\n    case _:\n        models = None\nclass Thing(models.Model):\n    pass\n",
         "Thing",
     ));
@@ -1317,16 +1585,21 @@ fn string_relation_targets_ignore_python_import_aliases() {
                 "    author = models.ForeignKey(\"User\", on_delete=models.CASCADE)\n",
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("string-relation project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
-    let blog_user = model_id(graph, "User", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
+    let blog_user = model_id(graph, "User", "blog.models")
+        .expect("model fixture should contain the requested model");
     assert!(ptr::eq(
         graph
             .resolve_relation(post, "author")
             .expect("string target should resolve in the current app"),
-        graph.get_by_id(blog_user).unwrap(),
+        graph
+            .get_by_id(blog_user)
+            .expect("test value should resolve"),
     ));
 }
 
@@ -1344,15 +1617,18 @@ fn explicitly_shadowed_relation_does_not_fall_back_to_same_app_model() {
                 "    author = models.ForeignKey(User, on_delete=models.CASCADE)\n",
             ),
         )
-        .build(&db);
+        .build(&db)
+        .expect("shadowed-relation project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let post = model_id(graph, "Post", "blog.models");
+    let post = model_id(graph, "Post", "blog.models")
+        .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
-    let value = graph_value(graph);
+    let value = graph_value(graph).expect("model graph should serialize");
     assert_eq!(
-        relation_value(&value, "blog.models.Post", "author")["resolution"]["Unresolved"]["reason"]
-            ["MissingImportBinding"],
+        relation_value(&value, "blog.models.Post", "author")
+            .expect("model fixture should contain the requested relation")["resolution"]["Unresolved"]
+            ["reason"]["MissingImportBinding"],
         json!({ "binding": "User" })
     );
 }
@@ -1366,7 +1642,7 @@ fn unresolved_qualified_base_does_not_collapse_to_local_class_name() {
         "class Child(missing.AbstractBase):\n",
         "    pass\n",
     );
-    assert!(!detects_model(source, "Child"));
+    assert!(!detects_model!(source, "Child"));
 }
 
 #[test]
@@ -1390,15 +1666,19 @@ fn earlier_deferred_model_cannot_overwrite_a_later_direct_definition() {
             ),
         )
         .file("/project/blog/models.py", source)
-        .build(&db);
+        .build(&db)
+        .expect("deferred-model project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let thing = model_id(graph, "Thing", "blog.models");
+    let thing = model_id(graph, "Thing", "blog.models")
+        .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(thing, "old"), None);
     assert!(graph.resolve_relation(thing, "new").is_some());
-    let (_file, span) = model_location(graph, "blog.models", "Thing").unwrap();
+    let (_file, span) =
+        model_location(graph, "blog.models", "Thing").expect("test value should resolve");
     assert_eq!(
         span,
         expected_span_after(source, "class Thing(models.Model)", "Thing")
+            .expect("later Thing model name should occur after its class declaration")
     );
 }

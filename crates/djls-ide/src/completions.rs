@@ -1000,6 +1000,7 @@ fn generate_filter_candidates(
 mod tests {
     use std::borrow::Cow;
     use std::collections::HashMap;
+    use std::io;
 
     use camino::Utf8Path;
     use djls_project::PythonModuleName;
@@ -1018,14 +1019,22 @@ mod tests {
     fn prefix(text: &'static str) -> OffsetPrefix<'static> {
         OffsetPrefix {
             text,
-            span: Span::before_offset(Offset::new(u32::try_from(text.len()).unwrap()), text.len()),
+            span: Span::before_offset(
+                Offset::new(
+                    u32::try_from(text.len()).expect("test source offset should fit in u32"),
+                ),
+                text.len(),
+            ),
         }
     }
 
     fn suffix(text: &'static str, start: u32) -> OffsetSuffix<'static> {
         OffsetSuffix {
             text,
-            span: Span::new(start, u32::try_from(text.len()).unwrap()),
+            span: Span::new(
+                start,
+                u32::try_from(text.len()).expect("test source offset should fit in u32"),
+            ),
         }
     }
 
@@ -1036,13 +1045,21 @@ mod tests {
             .collect()
     }
 
-    fn template_library_catalog(libraries: &[(&str, &str)]) -> TemplateLibraryCatalog {
+    fn template_library_catalog(
+        libraries: &[(&str, &str)],
+    ) -> Result<TemplateLibraryCatalog, Box<dyn std::error::Error>> {
         let libraries = libraries
             .iter()
             .map(|(name, module)| ((*name).to_string(), (*module).to_string()))
             .collect::<HashMap<_, _>>();
         let db = TestDatabase::new();
-        djls_testing::make_template_library_catalog(&db, &[], &[], &libraries, &[])
+        Ok(djls_testing::make_template_library_catalog(
+            &db,
+            &[],
+            &[],
+            &libraries,
+            &[],
+        )?)
     }
 
     fn template_symbol(
@@ -1053,23 +1070,30 @@ mod tests {
     ) -> TemplateSymbol {
         TemplateSymbol {
             kind,
-            name: TemplateSymbolName::parse(name).unwrap(),
+            name: TemplateSymbolName::parse(name)
+                .expect("test template symbol name should be valid"),
             definition: SymbolDefinition::Module(module.clone()),
             doc: doc.map(str::to_string),
         }
     }
 
-    fn filter_libraries() -> TemplateLibraryCatalog {
+    fn filter_libraries() -> Result<TemplateLibraryCatalog, Box<dyn std::error::Error>> {
         let libraries =
             HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
         let mut filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
         filter["doc"] = "Translate text.".into();
 
         let db = TestDatabase::new();
-        djls_testing::make_template_library_catalog(&db, &[], &[filter], &libraries, &[])
+        Ok(djls_testing::make_template_library_catalog(
+            &db,
+            &[],
+            &[filter],
+            &libraries,
+            &[],
+        )?)
     }
 
-    fn tag_libraries() -> TemplateLibraryCatalog {
+    fn tag_libraries() -> Result<TemplateLibraryCatalog, Box<dyn std::error::Error>> {
         let builtins = vec!["django.template.defaulttags".to_string()];
         let libraries =
             HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
@@ -1080,17 +1104,23 @@ mod tests {
         ];
 
         let db = TestDatabase::new();
-        djls_testing::make_template_library_catalog(&db, &tags, &[], &libraries, &builtins)
+        Ok(djls_testing::make_template_library_catalog(
+            &db,
+            &tags,
+            &[],
+            &libraries,
+            &builtins,
+        )?)
     }
 
-    fn builtin_availability() -> TemplateSymbolAvailability {
-        let libraries = tag_libraries();
-        ScopedTemplateLibraries::from_project_inventory(&libraries)
+    fn builtin_availability() -> Result<TemplateSymbolAvailability, Box<dyn std::error::Error>> {
+        let libraries = tag_libraries()?;
+        Ok(ScopedTemplateLibraries::from_project_inventory(&libraries)
             .scoped_symbol_candidates("if", TemplateSymbolKind::Tag)
             .into_iter()
             .next()
-            .expect("builtin if candidate should exist")
-            .availability
+            .ok_or_else(|| io::Error::other("builtin if candidate should exist"))?
+            .availability)
     }
 
     fn full_close() -> TagClose {
@@ -1100,7 +1130,8 @@ mod tests {
     }
 
     fn test_tag_symbol(name: &str) -> TemplateSymbol {
-        let module = PythonModuleName::parse("django.template.defaulttags").unwrap();
+        let module = PythonModuleName::parse("django.template.defaulttags")
+            .expect("test Python module name should be valid");
         template_symbol(TemplateSymbolKind::Tag, name, &module, None)
     }
 
@@ -1145,7 +1176,8 @@ mod tests {
         let libraries = template_library_catalog(&[
             ("i18n", "django.templatetags.i18n"),
             ("static", "django.templatetags.static"),
-        ]);
+        ])
+        .expect("template library fixture should be valid");
         let suffix = suffix("", 2);
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_library_name_candidates(
@@ -1171,7 +1203,8 @@ mod tests {
 
     #[test]
     fn library_name_candidate_replaces_source_suffix_without_consuming_full_close() {
-        let libraries = template_library_catalog(&[("static", "django.templatetags.static")]);
+        let libraries = template_library_catalog(&[("static", "django.templatetags.static")])
+            .expect("template library fixture should be valid");
         let suffix = suffix("i18n", 0);
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_library_name_candidates(
@@ -1190,7 +1223,7 @@ mod tests {
 
     #[test]
     fn generates_load_symbol_candidates() {
-        let libraries = tag_libraries();
+        let libraries = tag_libraries().expect("tag library fixture should be valid");
         let suffix = suffix("", 5);
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_load_symbol_candidates(
@@ -1209,7 +1242,7 @@ mod tests {
 
     #[test]
     fn load_symbol_candidate_adds_space_before_from_keyword() {
-        let libraries = tag_libraries();
+        let libraries = tag_libraries().expect("tag library fixture should be valid");
         let suffix = suffix("", 0);
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_load_symbol_candidates(
@@ -1387,7 +1420,8 @@ mod tests {
 
     #[test]
     fn tag_snippet_with_full_close_replaces_existing_close() {
-        let availability = builtin_availability();
+        let availability =
+            builtin_availability().expect("builtin tag availability fixture should be valid");
         let spec = block_tag_spec();
         let candidate = CompletionCandidate::tag_name(
             &test_tag_symbol("block"),
@@ -1415,9 +1449,12 @@ mod tests {
     #[test]
     fn filter_candidates_include_detail_and_documentation() {
         let db = TestDatabase::new();
-        db.add_file("/test.html", "");
-        let file = db.file(Utf8Path::new("/test.html"));
-        let libraries = filter_libraries();
+        db.add_file("/test.html", "")
+            .expect("filter completion fixture should be added");
+        let file = db
+            .file(Utf8Path::new("/test.html"))
+            .expect("filter completion fixture file should exist");
+        let libraries = filter_libraries().expect("filter library fixture should be valid");
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_filter_candidates(
             &db,
@@ -1450,8 +1487,11 @@ mod tests {
         );
 
         let db = TestDatabase::new();
-        db.add_file("/test.html", "");
-        let file = db.file(Utf8Path::new("/test.html"));
+        db.add_file("/test.html", "")
+            .expect("tag completion fixture should be added");
+        let file = db
+            .file(Utf8Path::new("/test.html"))
+            .expect("tag completion fixture file should exist");
         let scoped_libraries =
             ScopedTemplateLibraries::from_project_inventory(TemplateLibraryCatalog::empty_ref());
         let prefix = prefix("sta");
@@ -1476,7 +1516,8 @@ mod tests {
 
     #[test]
     fn partial_tag_close_extends_replacement_span() {
-        let availability = builtin_availability();
+        let availability =
+            builtin_availability().expect("builtin tag availability fixture should be valid");
         let candidate = CompletionCandidate::tag_name(
             &test_tag_symbol("load"),
             &prefix("lo"),
@@ -1495,7 +1536,8 @@ mod tests {
 
     #[test]
     fn partial_tag_close_after_whitespace_extends_replacement_span_to_close() {
-        let availability = builtin_availability();
+        let availability =
+            builtin_availability().expect("builtin tag availability fixture should be valid");
         let candidate = CompletionCandidate::tag_name(
             &test_tag_symbol("load"),
             &prefix("lo"),
@@ -1515,7 +1557,8 @@ mod tests {
     #[test]
     fn ranks_candidates_by_relevance_then_label() {
         let empty = prefix("");
-        let availability = builtin_availability();
+        let availability =
+            builtin_availability().expect("builtin tag availability fixture should be valid");
         let mut candidates = vec![
             CompletionCandidate::tag_argument_placeholder("<arg>".to_string(), &empty),
             CompletionCandidate::tag_name(

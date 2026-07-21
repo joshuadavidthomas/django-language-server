@@ -199,10 +199,20 @@ mod tests {
     use super::*;
 
     fn direct(source: &str) -> Vec<(String, String, String)> {
-        let module = parse_module(source).unwrap().into_syntax();
-        let Some(Stmt::Import(import)) = module.body.first() else {
-            panic!("expected a direct import");
-        };
+        let module = parse_module(source)
+            .expect("test Python source should parse")
+            .into_syntax();
+        let import = module
+            .body
+            .first()
+            .and_then(|statement| {
+                if let Stmt::Import(import) = statement {
+                    Some(import)
+                } else {
+                    None
+                }
+            })
+            .expect("expected a direct import");
         DirectImportClause::lower(import)
             .iter()
             .map(|clause| {
@@ -218,10 +228,22 @@ mod tests {
     fn from_import(source: &str) -> FromImportSyntax<'_> {
         // Leak the parsed module so the borrowed facts can outlive this helper
         // within a single test; acceptable in test-only code.
-        let module = Box::leak(Box::new(parse_module(source).unwrap().into_syntax()));
-        let Some(Stmt::ImportFrom(import)) = module.body.first() else {
-            panic!("expected a from import");
-        };
+        let module = Box::leak(Box::new(
+            parse_module(source)
+                .expect("test Python source should parse")
+                .into_syntax(),
+        ));
+        let import = module
+            .body
+            .first()
+            .and_then(|statement| {
+                if let Stmt::ImportFrom(import) = statement {
+                    Some(import)
+                } else {
+                    None
+                }
+            })
+            .expect("expected a from import");
         FromImportSyntax::lower(import)
     }
 
@@ -245,10 +267,20 @@ mod tests {
     #[test]
     fn direct_import_preserves_clause_order_and_spans() {
         let source = "import alpha.beta as first, gamma.delta\n";
-        let module = parse_module(source).unwrap().into_syntax();
-        let Some(Stmt::Import(import)) = module.body.first() else {
-            panic!("expected a direct import");
-        };
+        let module = parse_module(source)
+            .expect("test Python source should parse")
+            .into_syntax();
+        let import = module
+            .body
+            .first()
+            .and_then(|statement| {
+                if let Stmt::Import(import) = statement {
+                    Some(import)
+                } else {
+                    None
+                }
+            })
+            .expect("expected a direct import");
         let clauses = DirectImportClause::lower(import);
 
         // The clause span covers the whole `name [as alias]` clause, while the
@@ -282,9 +314,17 @@ mod tests {
         );
         assert!(!parsed.errors().is_empty());
         let module = parsed.into_syntax();
-        let Some(Stmt::ImportFrom(import)) = module.body.first() else {
-            panic!("expected a recovered from import");
-        };
+        let import = module
+            .body
+            .first()
+            .and_then(|statement| {
+                if let Stmt::ImportFrom(import) = statement {
+                    Some(import)
+                } else {
+                    None
+                }
+            })
+            .expect("expected a recovered from import");
         let syntax = FromImportSyntax::lower(import);
 
         assert!(syntax.has_star());

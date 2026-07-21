@@ -72,9 +72,13 @@ jobs:
           filters: |
             rust:
               - '.github/workflows/lint.yml'
+              - '.rustfmt.toml'
               - 'crates/**'
               - 'Cargo.lock'
               - 'Cargo.toml'
+              - 'clippy.toml'
+              - 'Justfile'
+              - 'rust-toolchain.toml'
 
   rustfmt:
     runs-on: ubuntu-24.04

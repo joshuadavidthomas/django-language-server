@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -37,13 +38,13 @@ impl TestModelGraph {
     }
 }
 
-fn compute_model_graph(db: &TestDatabase, project: Project) -> TestModelGraph {
+fn compute_model_graph(
+    db: &TestDatabase,
+    project: Project,
+) -> Result<TestModelGraph, Box<dyn std::error::Error>> {
     let mut graph = TestModelGraph::default();
     for module in model_modules(db, project).iter().rev() {
-        let source = module
-            .file()
-            .try_source(db)
-            .expect("resolved module should be readable");
+        let source = module.file().try_source(db)?;
         for line in source.as_str().lines() {
             let Some(rest) = line.trim_start().strip_prefix("class ") else {
                 continue;
@@ -60,19 +61,19 @@ fn compute_model_graph(db: &TestDatabase, project: Project) -> TestModelGraph {
             );
         }
     }
-    graph
+    Ok(graph)
 }
 
 fn project_for_search_paths(
     db: &mut TestDatabase,
     root: &str,
     search_paths: SearchPaths,
-) -> Project {
-    ProjectFixture::new(root)
+) -> Result<Project, Box<dyn std::error::Error>> {
+    Ok(ProjectFixture::new(root)
         .search_paths(search_paths)
         .interpreter(Interpreter::Auto)
         .register_roots(false)
-        .build(db)
+        .build(db)?)
 }
 
 fn project_with_template_settings(
@@ -80,21 +81,27 @@ fn project_with_template_settings(
     root: &str,
     search_paths: SearchPaths,
     settings_source: impl Into<String>,
-) -> Project {
-    ProjectFixture::new(root)
+) -> Result<Project, Box<dyn std::error::Error>> {
+    Ok(ProjectFixture::new(root)
         .search_paths(search_paths)
         .interpreter(Interpreter::Auto)
         .register_roots(false)
         .django_settings_module("settings")
         .file(format!("{root}/settings.py"), settings_source)
-        .build(db)
+        .build(db)?)
 }
 
-fn apply_project_discovery(db: &mut TestDatabase) {
-    let project = db.project().expect("project should be configured");
-    let environment = compute_django_environment(db, project);
+fn apply_project_discovery(db: &mut TestDatabase) -> Result<(), io::Error> {
+    let project = db.project().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "project should be configured before discovery",
+        )
+    })?;
+    let environment = compute_django_environment(db, project).map_err(io::Error::other)?;
     apply_django_environment(db, environment);
     let _facts = compute_project_facts(db, project);
+    Ok(())
 }
 
 fn will_execute_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
@@ -104,7 +111,18 @@ fn will_execute_count(db: &TestDatabase, events: &[salsa::Event], query_name: &s
             salsa::EventKind::WillExecute { database_key } => db
                 .ingredient_debug_name(database_key.ingredient_index())
                 .contains(query_name),
-            _ => false,
+            salsa::EventKind::DidValidateMemoizedValue { .. }
+            | salsa::EventKind::WillBlockOn { .. }
+            | salsa::EventKind::WillIterateCycle { .. }
+            | salsa::EventKind::DidFinalizeCycle { .. }
+            | salsa::EventKind::WillCheckCancellation
+            | salsa::EventKind::DidSetCancellationFlag
+            | salsa::EventKind::WillDiscardStaleOutput { .. }
+            | salsa::EventKind::DidDiscard { .. }
+            | salsa::EventKind::DidDiscardAccumulated { .. }
+            | salsa::EventKind::DidInternValue { .. }
+            | salsa::EventKind::DidReuseInternedValue { .. }
+            | salsa::EventKind::DidValidateInternedValue { .. } => false,
         })
         .count()
 }
@@ -119,7 +137,18 @@ fn will_execute_query_count(db: &TestDatabase, events: &[salsa::Event], query_na
                     .next()
                     == Some(query_name)
             }
-            _ => false,
+            salsa::EventKind::DidValidateMemoizedValue { .. }
+            | salsa::EventKind::WillBlockOn { .. }
+            | salsa::EventKind::WillIterateCycle { .. }
+            | salsa::EventKind::DidFinalizeCycle { .. }
+            | salsa::EventKind::WillCheckCancellation
+            | salsa::EventKind::DidSetCancellationFlag
+            | salsa::EventKind::WillDiscardStaleOutput { .. }
+            | salsa::EventKind::DidDiscard { .. }
+            | salsa::EventKind::DidDiscardAccumulated { .. }
+            | salsa::EventKind::DidInternValue { .. }
+            | salsa::EventKind::DidReuseInternedValue { .. }
+            | salsa::EventKind::DidValidateInternedValue { .. } => false,
         })
         .count()
 }
@@ -377,7 +406,8 @@ fn model_modules_use_first_party_search_path_relative_names() {
     db.add_file(
         "/project/src/blog/models.py",
         "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/project/src")];
     let search_paths = SearchPaths::from_project_settings(
@@ -387,7 +417,8 @@ fn model_modules_use_first_party_search_path_relative_names() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
     let modules = model_modules(&db, project);
     let module_names: Vec<_> = modules
@@ -401,7 +432,8 @@ fn model_modules_use_first_party_search_path_relative_names() {
 #[test]
 fn registering_search_paths_removes_obsolete_external_roots() {
     let db = TestDatabase::new();
-    db.add_file("/external/pkg/models.py", "");
+    db.add_file("/external/pkg/models.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/external")];
     let search_paths = SearchPaths::from_project_settings(
@@ -436,7 +468,8 @@ fn model_modules_tolerate_unregistered_search_paths() {
     db.add_file(
         "/shared/blog/models.py",
         "from django.db import models\nclass SharedArticle(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/shared")];
     let search_paths = SearchPaths::from_project_settings(
@@ -445,7 +478,8 @@ fn model_modules_tolerate_unregistered_search_paths() {
         &Interpreter::Auto,
         &pythonpath,
     );
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
     let modules = model_modules(&db, project);
     assert!(
@@ -458,11 +492,12 @@ fn model_modules_tolerate_unregistered_search_paths() {
 #[test]
 fn template_library_sources_tolerate_unregistered_search_paths() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/django/templatetags/__init__.py", "");
+    db.add_file("/project/django/templatetags/__init__.py", "")
+        .expect("resolver test file should be added");
     db.add_file(
         "/project/django/templatetags/i18n.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
-    );
+    ).expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -475,7 +510,8 @@ fn template_library_sources_tolerate_unregistered_search_paths() {
         "/project",
         search_paths,
         django_template_settings(&[], &[]),
-    );
+    )
+    .expect("template-settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let active: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -494,11 +530,12 @@ fn template_library_source_resolution_uses_project_venv_site_packages_root() {
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/django/templatetags/__init__.py",
         "",
-    );
+    )
+    .expect("resolver test file should be added");
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/django/templatetags/i18n.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
-    );
+    ).expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -512,7 +549,8 @@ fn template_library_source_resolution_uses_project_venv_site_packages_root() {
         "/project",
         search_paths,
         django_template_settings(&[], &[]),
-    );
+    )
+    .expect("template-settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let active: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -536,19 +574,21 @@ fn template_library_source_resolution_uses_project_venv_site_packages_root() {
 #[test]
 fn template_library_source_resolution_prefers_first_party_module_shadowing_dependency() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/django/templatetags/__init__.py", "");
+    db.add_file("/project/django/templatetags/__init__.py", "")
+        .expect("resolver test file should be added");
     db.add_file(
         "/project/django/templatetags/i18n.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
-    );
+    ).expect("resolver test file should be added");
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/django/templatetags/__init__.py",
         "",
-    );
+    )
+    .expect("resolver test file should be added");
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/django/templatetags/i18n.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
-    );
+    ).expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -562,7 +602,8 @@ fn template_library_source_resolution_prefers_first_party_module_shadowing_depen
         "/project",
         search_paths,
         django_template_settings(&[], &[]),
-    );
+    )
+    .expect("template-settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let active: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -587,11 +628,11 @@ fn active_template_library_sources_preserve_builtin_order_across_roots() {
     db.add_file(
         "/project/a/templatetags/tags.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef a_tag():\n    pass\n",
-    );
+    ).expect("resolver test file should be added");
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/z/templatetags/tags.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef z_tag():\n    pass\n",
-    );
+    ).expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -605,7 +646,8 @@ fn active_template_library_sources_preserve_builtin_order_across_roots() {
         "/project",
         search_paths,
         django_template_settings(&[], &["a.templatetags.tags", "z.templatetags.tags"]),
-    );
+    )
+    .expect("template-settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let module_names: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -627,11 +669,11 @@ fn active_template_library_sources_yield_loadable_before_builtins() {
     db.add_file(
         "/project/installed_tags.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom():\n    pass\n",
-    );
+    ).expect("resolver test file should be added");
     db.add_file(
         "/project/builtin_tags.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef builtin():\n    pass\n",
-    );
+    ).expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -645,7 +687,7 @@ fn active_template_library_sources_yield_loadable_before_builtins() {
         "/project",
         search_paths,
         "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'installed_tags'}, 'builtins': ['builtin_tags']}}]\n",
-    );
+    ).expect("template-settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let module_names: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -671,7 +713,8 @@ register = template.Library()
 def duplicate(value):
     return value
 ",
-    );
+    )
+    .expect("resolver test file should be added");
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/a_second.py",
         r"
@@ -682,7 +725,8 @@ register = template.Library()
 def duplicate(value, arg):
     return value
 ",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -696,7 +740,8 @@ def duplicate(value, arg):
         "/project",
         search_paths,
         django_template_settings(&[], &["z_first", "a_second"]),
-    );
+    )
+    .expect("template-settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let module_names: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -715,7 +760,8 @@ fn project_model_graph_reads_changed_project_file_after_django_discovery() {
     db.add_file(
         "/project/blog/models.py",
         "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -724,20 +770,22 @@ fn project_model_graph_reads_changed_project_file_after_django_discovery() {
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     db.set_project(project);
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_some());
     assert!(graph.get("Comment").is_none());
 
     db.add_file(
         "/project/blog/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    );
-    apply_project_discovery(&mut db);
+    )
+    .expect("resolver test file should be added");
+    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_none());
     assert!(graph.get("Comment").is_some());
 }
@@ -748,7 +796,8 @@ fn project_model_discovery_updates_through_django_discovery() {
     db.add_file(
         "/project/blog/models.py",
         "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -757,20 +806,22 @@ fn project_model_discovery_updates_through_django_discovery() {
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     db.set_project(project);
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_some());
     assert!(graph.get("Comment").is_none());
 
     db.add_file(
         "/project/comments/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    );
-    apply_project_discovery(&mut db);
+    )
+    .expect("resolver test file should be added");
+    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_some());
     assert!(graph.get("Comment").is_some());
 }
@@ -781,7 +832,8 @@ fn external_model_graph_reads_changed_site_packages_file_after_django_discovery(
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
         "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -790,20 +842,22 @@ fn external_model_graph_reads_changed_site_packages_file_after_django_discovery(
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     db.set_project(project);
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_some());
     assert!(graph.get("Comment").is_none());
 
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    );
-    apply_project_discovery(&mut db);
+    )
+    .expect("resolver test file should be added");
+    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_none());
     assert!(graph.get("Comment").is_some());
 }
@@ -814,11 +868,13 @@ fn external_model_graph_preserves_pythonpath_precedence() {
     db.add_file(
         "/zfirst/zapp/models.py",
         "from django.db import models\nclass Duplicate(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
     db.add_file(
         "/afallback/aapp/models.py",
         "from django.db import models\nclass Duplicate(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let pythonpath = vec![
         Utf8PathBuf::from("/zfirst"),
@@ -831,9 +887,10 @@ fn external_model_graph_preserves_pythonpath_precedence() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     let model = graph.get("Duplicate").expect("model should be discovered");
     assert_eq!(model.module_name.as_str(), "zapp.models");
 }
@@ -844,7 +901,8 @@ fn external_model_discovery_updates_through_django_discovery() {
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
         "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -853,20 +911,22 @@ fn external_model_discovery_updates_through_django_discovery() {
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     db.set_project(project);
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_some());
     assert!(graph.get("Comment").is_none());
 
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/comments/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    );
-    apply_project_discovery(&mut db);
+    )
+    .expect("resolver test file should be added");
+    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_some());
     assert!(graph.get("Comment").is_some());
 }
@@ -877,11 +937,13 @@ fn external_model_discovery_removes_deleted_models_through_django_discovery() {
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
         "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/comments/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -890,17 +952,19 @@ fn external_model_discovery_removes_deleted_models_through_django_discovery() {
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     db.set_project(project);
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_some());
     assert!(graph.get("Comment").is_some());
 
-    db.remove_file("/project/.venv/lib/python3.12/site-packages/comments/models.py");
-    apply_project_discovery(&mut db);
+    db.remove_file("/project/.venv/lib/python3.12/site-packages/comments/models.py")
+        .expect("resolver test file should be removed");
+    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("Article").is_some());
     assert!(graph.get("Comment").is_none());
 }
@@ -911,7 +975,8 @@ fn external_model_graph_reads_extra_pythonpath_models() {
     db.add_file(
         "/shared/blog/models.py",
         "from django.db import models\nclass SharedArticle(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/shared")];
     let search_paths = SearchPaths::from_project_settings(
@@ -921,9 +986,10 @@ fn external_model_graph_reads_extra_pythonpath_models() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("SharedArticle").is_some());
 }
 
@@ -941,7 +1007,8 @@ fn django_discovery_discovers_site_packages_created_after_bootstrap() {
         .search_paths(search_paths)
         .interpreter(Interpreter::Auto)
         .register_roots(false)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("Django-discovery project fixture should install");
 
     assert!(
         project
@@ -954,14 +1021,15 @@ fn django_discovery_discovers_site_packages_created_after_bootstrap() {
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
         "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
-    apply_project_discovery(&mut db);
+    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
 
     assert!(project.search_paths(&db).iter().any(|search_path| {
         search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
     }));
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("VenvArticle").is_some());
 }
 
@@ -979,27 +1047,31 @@ fn environment_then_project_facts_discovers_site_packages_created_after_bootstra
         .search_paths(search_paths)
         .interpreter(Interpreter::Auto)
         .register_roots(false)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project-facts fixture should install");
 
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
         "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
-    apply_project_discovery(&mut db);
+    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
 
     assert!(project.search_paths(&db).iter().any(|search_path| {
         search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
     }));
-    let graph = compute_model_graph(&db, project);
+    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
     assert!(graph.get("VenvArticle").is_some());
 }
 
 #[test]
 fn project_facts_enumerate_new_empty_templatetag_candidate_before_root_bump() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/blog/__init__.py", "");
-    db.add_file("/project/blog/templatetags/__init__.py", "");
+    db.add_file("/project/blog/__init__.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/blog/templatetags/__init__.py", "")
+        .expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -1008,12 +1080,14 @@ fn project_facts_enumerate_new_empty_templatetag_candidate_before_root_bump() {
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
     let candidates = ProjectFactsPhase::TemplateTagCandidates.run(&db, project);
     assert_eq!(candidates.count(), 0);
 
-    db.add_file("/project/blog/templatetags/future.py", "");
+    db.add_file("/project/blog/templatetags/future.py", "")
+        .expect("resolver test file should be added");
 
     let candidates = ProjectFactsPhase::TemplateTagCandidates.run(&db, project);
     assert_eq!(candidates.count(), 1);
@@ -1024,7 +1098,8 @@ fn model_modules_finds_models_py_without_inspecting_contents() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file("/project/emptyapp/models.py", "# no models here\n")
-        .build(&db);
+        .build(&db)
+        .expect("empty-app project fixture should build");
 
     let modules = model_modules(&db, project);
     assert_eq!(modules.len(), 1);
@@ -1044,7 +1119,8 @@ fn model_modules_finds_nested_apps() {
             "/project/accounts/models.py",
             "from django.db import models\nclass AccountsModel(models.Model):\n    pass\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("resolver project fixture should build");
 
     let modules = model_modules(&db, project);
     assert_eq!(modules.len(), 2);
@@ -1072,7 +1148,7 @@ fn model_modules_finds_models_package_files() {
             "/project/myapp/models/order.py",
             "from django.db import models\nclass Order(models.Model):\n    user = models.ForeignKey(User, on_delete=models.CASCADE)\n",
         )
-        .build(&db);
+        .build(&db).expect("resolver project fixture should build");
 
     let modules = model_modules(&db, project);
     assert_eq!(modules.len(), 3);
@@ -1091,11 +1167,15 @@ fn ty_first_party_module() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo.py", "print('Hello, world!')")
-        .build(&db);
+        .build(&db)
+        .expect("resolver project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
 
     assert_eq!(foo_module.name().as_str(), "foo");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
@@ -1111,11 +1191,15 @@ fn ty_resolve_package() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo/__init__.py", "print('Hello, world!')")
-        .build(&db);
+        .build(&db)
+        .expect("source-package project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
 
     assert_eq!(foo_module.name().as_str(), "foo");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
@@ -1136,11 +1220,15 @@ fn ty_package_priority_over_module() {
     let project = ProjectFixture::new("/src")
         .file("/src/foo/__init__.py", "print('Hello, world!')")
         .file("/src/foo.py", "print('Hello, world!')")
-        .build(&db);
+        .build(&db)
+        .expect("resolver project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
     assert_eq!(
@@ -1161,12 +1249,13 @@ fn ty_sub_packages() {
         .file("/src/foo/__init__.py", "")
         .file("/src/foo/bar/__init__.py", "")
         .file("/src/foo/bar/baz.py", "print('Hello, world!')")
-        .build(&db);
+        .build(&db)
+        .expect("nested-module project fixture should build");
 
     let baz_module = PythonSourceModule::resolve(
         &db,
         project,
-        PythonModuleName::parse("foo.bar.baz").unwrap(),
+        PythonModuleName::parse("foo.bar.baz").expect("test Python module name should be valid"),
     )
     .expect("foo.bar.baz should resolve");
 
@@ -1181,8 +1270,10 @@ fn ty_sub_packages() {
 #[test]
 fn ty_module_search_path_priority() {
     let mut db = TestDatabase::new();
-    db.add_file("/src/foo.py", "");
-    db.add_file("/site-packages/foo.py", "");
+    db.add_file("/src/foo.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/site-packages/foo.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
@@ -1192,11 +1283,15 @@ fn ty_module_search_path_priority() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/src", search_paths);
+    let project = project_for_search_paths(&mut db, "/src", search_paths)
+        .expect("search-path project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
     assert_eq!(
@@ -1213,16 +1308,22 @@ fn ty_module_search_path_priority() {
 #[cfg(unix)]
 #[test]
 fn ty_symlink() {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let root = Utf8PathBuf::from_path_buf(temp_dir.path().canonicalize().unwrap())
-        .expect("temp dir path should be UTF-8");
+    let temp_dir = tempfile::tempdir().expect("test temporary directory should be created");
+    let root = Utf8PathBuf::from_path_buf(
+        temp_dir
+            .path()
+            .canonicalize()
+            .expect("test temporary directory should be created"),
+    )
+    .expect("temp dir path should be UTF-8");
     let src = root.join("src");
     let foo = src.join("foo.py");
     let bar = src.join("bar.py");
 
-    std::fs::create_dir_all(&src).unwrap();
-    std::fs::write(&foo, "").unwrap();
-    std::os::unix::fs::symlink(foo.as_std_path(), bar.as_std_path()).unwrap();
+    std::fs::create_dir_all(&src).expect("test temporary directory should be created");
+    std::fs::write(&foo, "").expect("test temporary directory should be created");
+    std::os::unix::fs::symlink(foo.as_std_path(), bar.as_std_path())
+        .expect("test fixture file should be writable");
 
     let mut db = OsTestDatabase::new();
     let search_paths = SearchPaths::from_project_settings(
@@ -1244,12 +1345,18 @@ fn ty_symlink() {
     );
     db.set_project(project);
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
-    let bar_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
-            .expect("bar should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
+    let bar_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("bar").expect("test Python module name should be valid"),
+    )
+    .expect("bar should resolve");
 
     assert_ne!(foo_module, bar_module);
     assert_eq!(foo_module.path(), foo.as_path());
@@ -1269,20 +1376,28 @@ fn ty_deleting_an_unrelated_file_doesnt_change_module_resolution() {
     let project = ProjectFixture::new("/src")
         .file("/src/foo.py", "x = 1")
         .file("/src/bar.py", "y = 1")
-        .build(&db);
-    let foo_name = PythonModuleName::parse("foo").unwrap();
+        .build(&db)
+        .expect("incremental-resolution project fixture should build");
+    let foo_name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     let foo_path = foo_module.path().to_path_buf();
-    let _ = event_log.take();
+    drop(
+        event_log
+            .take()
+            .expect("resolver event log should be readable"),
+    );
 
-    db.remove_file("/src/bar.py");
+    db.remove_file("/src/bar.py")
+        .expect("resolver test file should be removed");
     File::sync_path(&mut db, Utf8Path::new("/src/bar.py"));
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name).expect("foo should resolve");
-    let events = event_log.take();
+    let events = event_log
+        .take()
+        .expect("resolver event log should be readable");
     assert_no_will_execute_events(&events);
     assert_eq!(foo_module.path(), foo_path.as_path());
 }
@@ -1292,15 +1407,19 @@ fn ty_deleting_an_unrelated_file_doesnt_change_module_resolution() {
 fn ty_adding_file_on_which_module_resolution_depends_invalidates_previously_failing_query_that_now_succeeds()
  {
     let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/src").build(&db);
-    let foo_bar_name = PythonModuleName::parse("foo.bar").unwrap();
+    let project = ProjectFixture::new("/src")
+        .build(&db)
+        .expect("resolver project fixture should build");
+    let foo_bar_name =
+        PythonModuleName::parse("foo.bar").expect("test Python module name should be valid");
 
     assert_eq!(
         PythonSourceModule::resolve(&db, project, foo_bar_name.clone()),
         None
     );
 
-    db.add_file("/src/foo/bar.py", "x = 1");
+    db.add_file("/src/foo/bar.py", "x = 1")
+        .expect("resolver test file should be added");
     File::sync_path(&mut db, Utf8Path::new("/src/foo/bar.py"));
 
     let foo_bar_module = PythonSourceModule::resolve(&db, project, foo_bar_name)
@@ -1313,8 +1432,10 @@ fn ty_adding_file_on_which_module_resolution_depends_invalidates_previously_fail
 fn ty_removing_file_on_which_module_resolution_depends_invalidates_previously_successful_query_that_now_fails()
  {
     let mut db = TestDatabase::new();
-    db.add_file("/src/foo/__init__.py", "x = 2");
-    db.add_file("/src/foo.py", "x = 1");
+    db.add_file("/src/foo/__init__.py", "x = 2")
+        .expect("resolver test file should be added");
+    db.add_file("/src/foo.py", "x = 1")
+        .expect("resolver test file should be added");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
@@ -1322,14 +1443,16 @@ fn ty_removing_file_on_which_module_resolution_depends_invalidates_previously_su
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/src", search_paths);
-    let foo_name = PythonModuleName::parse("foo").unwrap();
+    let project = project_for_search_paths(&mut db, "/src", search_paths)
+        .expect("search-path project fixture should build");
+    let foo_name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
 
-    db.remove_file("/src/foo/__init__.py");
+    db.remove_file("/src/foo/__init__.py")
+        .expect("resolver test file should be removed");
     File::sync_path(&mut db, Utf8Path::new("/src/foo/__init__.py"));
     File::sync_path(&mut db, Utf8Path::new("/src/foo"));
 
@@ -1343,7 +1466,8 @@ fn ty_removing_file_on_which_module_resolution_depends_invalidates_previously_su
 fn ty_adding_file_to_search_path_with_lower_priority_does_not_invalidate_query() {
     let event_log = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(event_log.clone());
-    db.add_file("/src/foo.py", "x = 1");
+    db.add_file("/src/foo.py", "x = 1")
+        .expect("resolver test file should be added");
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -1352,20 +1476,28 @@ fn ty_adding_file_to_search_path_with_lower_priority_does_not_invalidate_query()
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/src", search_paths);
-    let foo_name = PythonModuleName::parse("foo").unwrap();
+    let project = project_for_search_paths(&mut db, "/src", search_paths)
+        .expect("search-path project fixture should build");
+    let foo_name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
-    let _ = event_log.take();
+    drop(
+        event_log
+            .take()
+            .expect("resolver event log should be readable"),
+    );
 
-    db.add_file("/site-packages/foo.py", "x = 2");
+    db.add_file("/site-packages/foo.py", "x = 2")
+        .expect("resolver test file should be added");
     File::sync_path(&mut db, Utf8Path::new("/site-packages/foo.py"));
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name).expect("foo should remain resolved");
-    let events = event_log.take();
+    let events = event_log
+        .take()
+        .expect("resolver event log should be readable");
     assert_no_will_execute_events(&events);
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
 }
@@ -1374,7 +1506,8 @@ fn ty_adding_file_to_search_path_with_lower_priority_does_not_invalidate_query()
 #[test]
 fn ty_adding_file_to_search_path_with_higher_priority_invalidates_the_query() {
     let mut db = TestDatabase::new();
-    db.add_file("/site-packages/foo.py", "x = 2");
+    db.add_file("/site-packages/foo.py", "x = 2")
+        .expect("resolver test file should be added");
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -1383,14 +1516,16 @@ fn ty_adding_file_to_search_path_with_higher_priority_invalidates_the_query() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/src", search_paths);
-    let foo_name = PythonModuleName::parse("foo").unwrap();
+    let project = project_for_search_paths(&mut db, "/src", search_paths)
+        .expect("search-path project fixture should build");
+    let foo_name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/site-packages/foo.py"));
 
-    db.add_file("/src/foo.py", "x = 1");
+    db.add_file("/src/foo.py", "x = 1")
+        .expect("resolver test file should be added");
     File::sync_path(&mut db, Utf8Path::new("/src/foo.py"));
 
     let foo_module =
@@ -1402,8 +1537,10 @@ fn ty_adding_file_to_search_path_with_higher_priority_invalidates_the_query() {
 #[test]
 fn ty_deleting_file_from_higher_priority_search_path_invalidates_the_query() {
     let mut db = TestDatabase::new();
-    db.add_file("/src/foo.py", "x = 1");
-    db.add_file("/site-packages/foo.py", "x = 2");
+    db.add_file("/src/foo.py", "x = 1")
+        .expect("resolver test file should be added");
+    db.add_file("/site-packages/foo.py", "x = 2")
+        .expect("resolver test file should be added");
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -1412,14 +1549,16 @@ fn ty_deleting_file_from_higher_priority_search_path_invalidates_the_query() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/src", search_paths);
-    let foo_name = PythonModuleName::parse("foo").unwrap();
+    let project = project_for_search_paths(&mut db, "/src", search_paths)
+        .expect("search-path project fixture should build");
+    let foo_name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
 
-    db.remove_file("/src/foo.py");
+    db.remove_file("/src/foo.py")
+        .expect("resolver test file should be removed");
     File::sync_path(&mut db, Utf8Path::new("/src/foo.py"));
 
     let foo_module = PythonSourceModule::resolve(&db, project, foo_name)
@@ -1432,8 +1571,10 @@ fn ty_deleting_file_from_higher_priority_search_path_invalidates_the_query() {
 fn ty_module_resolution_paths_cached_between_different_module_resolutions_reexpressed() {
     let event_log = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(event_log.clone());
-    db.add_file("/src/foo.py", "");
-    db.add_file("/src/bar.py", "");
+    db.add_file("/src/foo.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/src/bar.py", "")
+        .expect("resolver test file should be added");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
@@ -1441,18 +1582,31 @@ fn ty_module_resolution_paths_cached_between_different_module_resolutions_reexpr
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/src", search_paths);
+    let project = project_for_search_paths(&mut db, "/src", search_paths)
+        .expect("search-path project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
-    let _ = event_log.take();
+    drop(
+        event_log
+            .take()
+            .expect("resolver event log should be readable"),
+    );
 
-    let bar_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
-            .expect("bar should resolve");
-    let events = event_log.take();
+    let bar_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("bar").expect("test Python module name should be valid"),
+    )
+    .expect("bar should resolve");
+    let events = event_log
+        .take()
+        .expect("resolver event log should be readable");
     assert_eq!(bar_module.path(), Utf8Path::new("/src/bar.py"));
     assert_eq!(
         will_execute_count(&db, &events, "PythonSourceModule::resolve_"),
@@ -1465,8 +1619,10 @@ fn ty_module_resolution_paths_cached_between_different_module_resolutions_reexpr
 #[test]
 fn ty_deleting_pth_file_on_which_module_resolution_depends_invalidates_cache_reexpressed() {
     let mut db = TestDatabase::new();
-    db.add_file("/site-packages/_foo.pth", "/x/src");
-    db.add_file("/x/src/foo.py", "");
+    db.add_file("/site-packages/_foo.pth", "/x/src")
+        .expect("resolver test file should be added");
+    db.add_file("/x/src/foo.py", "")
+        .expect("resolver test file should be added");
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -1475,14 +1631,16 @@ fn ty_deleting_pth_file_on_which_module_resolution_depends_invalidates_cache_ree
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
-    let foo_name = PythonModuleName::parse("foo").unwrap();
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
+    let foo_name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo.py"));
 
-    db.remove_file("/site-packages/_foo.pth");
+    db.remove_file("/site-packages/_foo.pth")
+        .expect("resolver test file should be removed");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
@@ -1499,8 +1657,10 @@ fn ty_deleting_pth_file_on_which_module_resolution_depends_invalidates_cache_ree
 #[test]
 fn ty_deleting_editable_install_on_which_module_resolution_depends_invalidates_cache_reexpressed() {
     let mut db = TestDatabase::new();
-    db.add_file("/site-packages/_foo.pth", "/x/src");
-    db.add_file("/x/src/foo.py", "");
+    db.add_file("/site-packages/_foo.pth", "/x/src")
+        .expect("resolver test file should be added");
+    db.add_file("/x/src/foo.py", "")
+        .expect("resolver test file should be added");
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -1509,14 +1669,16 @@ fn ty_deleting_editable_install_on_which_module_resolution_depends_invalidates_c
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
-    let foo_name = PythonModuleName::parse("foo").unwrap();
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
+    let foo_name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     let foo_module =
         PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo.py"));
 
-    db.remove_file("/x/src/foo.py");
+    db.remove_file("/x/src/foo.py")
+        .expect("resolver test file should be removed");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
@@ -1534,9 +1696,12 @@ fn ty_deleting_editable_install_on_which_module_resolution_depends_invalidates_c
 #[test]
 fn ty_editable_install_absolute_path() {
     let mut db = TestDatabase::new();
-    db.add_file("/site-packages/_foo.pth", "/x/src");
-    db.add_file("/x/src/foo/__init__.py", "");
-    db.add_file("/x/src/foo/bar.py", "");
+    db.add_file("/site-packages/_foo.pth", "/x/src")
+        .expect("resolver test file should be added");
+    db.add_file("/x/src/foo/__init__.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/x/src/foo/bar.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
@@ -1546,14 +1711,21 @@ fn ty_editable_install_absolute_path() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
-    let foo_bar_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap())
-            .expect("foo.bar should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
+    let foo_bar_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo.bar").expect("test Python module name should be valid"),
+    )
+    .expect("foo.bar should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/x/src/foo/__init__.py"));
     assert_eq!(foo_bar_module.path(), Utf8Path::new("/x/src/foo/bar.py"));
@@ -1563,10 +1735,14 @@ fn ty_editable_install_absolute_path() {
 #[test]
 fn ty_editable_install_pth_file_with_whitespace() {
     let mut db = TestDatabase::new();
-    db.add_file("/site-packages/_foo.pth", "        /x/src");
-    db.add_file("/site-packages/_bar.pth", "/y/src        ");
-    db.add_file("/x/src/foo.py", "");
-    db.add_file("/y/src/bar.py", "");
+    db.add_file("/site-packages/_foo.pth", "        /x/src")
+        .expect("resolver test file should be added");
+    db.add_file("/site-packages/_bar.pth", "/y/src        ")
+        .expect("resolver test file should be added");
+    db.add_file("/x/src/foo.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/y/src/bar.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
@@ -1576,15 +1752,23 @@ fn ty_editable_install_pth_file_with_whitespace() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("foo").expect("test Python module name should be valid")
+        ),
         None
     );
-    let bar_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("bar").unwrap())
-            .expect("bar should resolve");
+    let bar_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("bar").expect("test Python module name should be valid"),
+    )
+    .expect("bar should resolve");
     assert_eq!(bar_module.path(), Utf8Path::new("/y/src/bar.py"));
 }
 
@@ -1592,8 +1776,10 @@ fn ty_editable_install_pth_file_with_whitespace() {
 #[test]
 fn ty_editable_install_relative_path() {
     let mut db = TestDatabase::new();
-    db.add_file("/site-packages/_foo.pth", "../../x/../x/y/src");
-    db.add_file("/x/y/src/foo.py", "");
+    db.add_file("/site-packages/_foo.pth", "../../x/../x/y/src")
+        .expect("resolver test file should be added");
+    db.add_file("/x/y/src/foo.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
@@ -1603,11 +1789,15 @@ fn ty_editable_install_relative_path() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/x/y/src/foo.py"));
 }
@@ -1629,12 +1819,18 @@ spam
 not_a_directory
 ";
     let mut db = TestDatabase::new();
-    db.add_file("/site-packages/_foo.pth", "../../x/../x/y/src");
-    db.add_file("/site-packages/_lots_of_others.pth", complex_pth_file);
-    db.add_file("/x/y/src/foo.py", "");
-    db.add_file("/site-packages/spam/spam.py", "");
-    db.add_file("/a.py", "");
-    db.add_file("/baz/b.py", "");
+    db.add_file("/site-packages/_foo.pth", "../../x/../x/y/src")
+        .expect("resolver test file should be added");
+    db.add_file("/site-packages/_lots_of_others.pth", complex_pth_file)
+        .expect("resolver test file should be added");
+    db.add_file("/x/y/src/foo.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/site-packages/spam/spam.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/a.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/baz/b.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
@@ -1644,18 +1840,33 @@ not_a_directory
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
-    let a_module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
-        .expect("a should resolve");
-    let b_module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("b").unwrap())
-        .expect("b should resolve");
-    let spam_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("spam").unwrap())
-            .expect("spam should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
+    let a_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("a").expect("test Python module name should be valid"),
+    )
+    .expect("a should resolve");
+    let b_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("b").expect("test Python module name should be valid"),
+    )
+    .expect("b should resolve");
+    let spam_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("spam").expect("test Python module name should be valid"),
+    )
+    .expect("spam should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/x/y/src/foo.py"));
     assert_eq!(a_module.path(), Utf8Path::new("/a.py"));
@@ -1670,8 +1881,10 @@ not_a_directory
 #[test]
 fn ty_no_duplicate_search_paths_added() {
     let db = TestDatabase::new();
-    db.add_file("/src/foo.py", "");
-    db.add_file("/site-packages/_foo.pth", "/src");
+    db.add_file("/src/foo.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/site-packages/_foo.pth", "/src")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
@@ -1690,9 +1903,12 @@ fn ty_no_duplicate_search_paths_added() {
 #[test]
 fn ty_multiple_site_packages_with_editables() {
     let mut db = TestDatabase::new();
-    db.add_file("/venv/site-packages/foo.pth", "/x/y");
-    db.add_file("/x/y/a.py", "");
-    db.add_file("/system/site-packages/a.py", "");
+    db.add_file("/venv/site-packages/foo.pth", "/x/y")
+        .expect("resolver test file should be added");
+    db.add_file("/x/y/a.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/system/site-packages/a.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![
         Utf8PathBuf::from("/venv/site-packages"),
@@ -1705,10 +1921,15 @@ fn ty_multiple_site_packages_with_editables() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let a_module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
-        .expect("a should resolve");
+    let a_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("a").expect("test Python module name should be valid"),
+    )
+    .expect("a should resolve");
 
     assert_eq!(a_module.path(), Utf8Path::new("/x/y/a.py"));
 }
@@ -1720,11 +1941,15 @@ fn ty_stubs_over_module_source_runtime_uses_py() {
     let project = ProjectFixture::new("/src")
         .file("/src/foo.py", "")
         .file("/src/foo.pyi", "")
-        .build(&db);
+        .build(&db)
+        .expect("module-and-stub project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
 
     assert_eq!(foo_module.name().as_str(), "foo");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
@@ -1737,11 +1962,15 @@ fn ty_stubs_over_package_source_runtime_uses_package() {
     let project = ProjectFixture::new("/src")
         .file("/src/foo/__init__.py", "")
         .file("/src/foo.pyi", "")
-        .build(&db);
+        .build(&db)
+        .expect("package-and-stub project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
 
     assert_eq!(foo_module.name().as_str(), "foo");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo/__init__.py"));
@@ -1754,11 +1983,15 @@ fn ty_typing_stub_over_module_runtime_uses_py() {
     let project = ProjectFixture::new("/src")
         .file("/src/foo.py", "print('Hello, world!')")
         .file("/src/foo.pyi", "x: int")
-        .build(&db);
+        .build(&db)
+        .expect("source-precedence project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
 
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
     assert_eq!(
@@ -1773,13 +2006,22 @@ fn ty_namespace_package_reexpressed() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo/bar.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("resolver project fixture should build");
 
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("foo").expect("test Python module name should be valid")
+        ),
         None
     );
-    let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap());
+    let dirs = resolve_package_dirs(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    );
     assert_eq!(dirs.dirs, vec![Utf8PathBuf::from("/src/foo")]);
 }
 
@@ -1787,8 +2029,10 @@ fn ty_namespace_package_reexpressed() {
 #[test]
 fn ty_namespace_package_precedence_reexpressed() {
     let mut db = TestDatabase::new();
-    db.add_file("/src/foo/bar.py", "");
-    db.add_file("/site-packages/foo.py", "");
+    db.add_file("/src/foo/bar.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/site-packages/foo.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
@@ -1798,21 +2042,31 @@ fn ty_namespace_package_precedence_reexpressed() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/src", search_paths);
+    let project = project_for_search_paths(&mut db, "/src", search_paths)
+        .expect("search-path project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve from site-packages");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve from site-packages");
     assert_eq!(foo_module.path(), Utf8Path::new("/site-packages/foo.py"));
     assert!(
-        resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap())
-            .dirs
-            .is_empty()
+        resolve_package_dirs(
+            &db,
+            project,
+            PythonModuleName::parse("foo").expect("test Python module name should be valid")
+        )
+        .dirs
+        .is_empty()
     );
 
     let mut db = TestDatabase::new();
-    db.add_file("/src/foo.py", "");
-    db.add_file("/site-packages/foo/bar.py", "");
+    db.add_file("/src/foo.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/site-packages/foo/bar.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
@@ -1822,16 +2076,24 @@ fn ty_namespace_package_precedence_reexpressed() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/src", search_paths);
+    let project = project_for_search_paths(&mut db, "/src", search_paths)
+        .expect("search-path project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve from first party");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve from first party");
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
     assert!(
-        resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap())
-            .dirs
-            .is_empty()
+        resolve_package_dirs(
+            &db,
+            project,
+            PythonModuleName::parse("foo").expect("test Python module name should be valid")
+        )
+        .dirs
+        .is_empty()
     );
 }
 
@@ -1841,7 +2103,8 @@ fn ty_module_name_1_part_file_to_module() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("file-to-module project fixture should build");
     let foo_module = file_to_module(&db, project, Utf8PathBuf::from("/src/foo.py"))
         .expect("foo.py should map to foo");
     assert_eq!(foo_module.name().as_str(), "foo");
@@ -1849,7 +2112,8 @@ fn ty_module_name_1_part_file_to_module() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo/__init__.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("package-file project fixture should build");
     let foo_module = file_to_module(&db, project, Utf8PathBuf::from("/src/foo/__init__.py"))
         .expect("foo/__init__.py should map to foo");
     assert_eq!(foo_module.name().as_str(), "foo");
@@ -1861,7 +2125,8 @@ fn ty_module_name_2_parts_file_to_module() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo/bar.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("nested-file project fixture should build");
     let foo_bar_module = file_to_module(&db, project, Utf8PathBuf::from("/src/foo/bar.py"))
         .expect("foo/bar.py should map to foo.bar");
     assert_eq!(foo_bar_module.name().as_str(), "foo.bar");
@@ -1869,7 +2134,8 @@ fn ty_module_name_2_parts_file_to_module() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo/bar/__init__.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("nested-package project fixture should build");
     let foo_bar_module =
         file_to_module(&db, project, Utf8PathBuf::from("/src/foo/bar/__init__.py"))
             .expect("foo/bar/__init__.py should map to foo.bar");
@@ -1882,7 +2148,8 @@ fn ty_file_to_module_where_one_search_path_is_subdirectory_of_other() {
     let mut db = TestDatabase::new();
     let site_packages = Utf8PathBuf::from("/project/.venv/lib/python3.13/site-packages");
     let installed_foo_module = site_packages.join("foo/__init__.py");
-    db.add_file(installed_foo_module.as_str(), "");
+    db.add_file(installed_foo_module.as_str(), "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![site_packages.clone()];
     let search_paths = SearchPaths::from_project_settings(
@@ -1892,7 +2159,8 @@ fn ty_file_to_module_where_one_search_path_is_subdirectory_of_other() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
     let module = file_to_module(&db, project, installed_foo_module.clone())
         .expect("installed foo package should map to foo");
@@ -1914,7 +2182,8 @@ fn ty_module_name_3_parts_file_to_module() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo/bar/baz.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("deep-module project fixture should build");
     let foo_bar_baz_module = file_to_module(&db, project, Utf8PathBuf::from("/src/foo/bar/baz.py"))
         .expect("foo/bar/baz.py should map to foo.bar.baz");
     assert_eq!(foo_bar_baz_module.name().as_str(), "foo.bar.baz");
@@ -1922,7 +2191,8 @@ fn ty_module_name_3_parts_file_to_module() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/src")
         .file("/src/foo/bar/baz/__init__.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("deep-package project fixture should build");
     let foo_bar_baz_module = file_to_module(
         &db,
         project,
@@ -1937,14 +2207,23 @@ fn python_module_resolve_rejects_wrong_cased_file_module_on_case_insensitive_fs(
     let db = TestDatabase::case_insensitive();
     let project = ProjectFixture::new("/project")
         .file("/project/foo.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("top-level module project fixture should build");
 
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("Foo").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("Foo").expect("test Python module name should be valid")
+        ),
         None
     );
-    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-        .expect("foo should resolve");
+    let module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
     assert_eq!(module.path(), Utf8Path::new("/project/foo.py"));
 }
 
@@ -1953,15 +2232,23 @@ fn python_module_resolve_rejects_wrong_cased_dotted_file_module_on_case_insensit
     let db = TestDatabase::case_insensitive();
     let project = ProjectFixture::new("/project")
         .file("/project/pkg/bar.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("resolver project fixture should build");
 
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.Bar").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("pkg.Bar").expect("test Python module name should be valid")
+        ),
         None
     );
-    let module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
-            .expect("pkg.bar should resolve");
+    let module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.bar").expect("test Python module name should be valid"),
+    )
+    .expect("pkg.bar should resolve");
     assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
 }
 
@@ -1971,15 +2258,23 @@ fn python_module_resolve_rejects_wrong_cased_package_component_on_case_insensiti
     let project = ProjectFixture::new("/project")
         .file("/project/pkg/__init__.py", "")
         .file("/project/pkg/bar.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("resolver project fixture should build");
 
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("Pkg.bar").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("Pkg.bar").expect("test Python module name should be valid")
+        ),
         None
     );
-    let module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.bar").unwrap())
-            .expect("pkg.bar should resolve");
+    let module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.bar").expect("test Python module name should be valid"),
+    )
+    .expect("pkg.bar should resolve");
     assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
 }
 
@@ -1988,16 +2283,19 @@ fn case_only_rename_invalidates_resolution_on_case_insensitive_fs() {
     let mut db = TestDatabase::case_insensitive();
     let project = ProjectFixture::new("/project")
         .file("/project/Foo.py", "")
-        .build(&db);
-    let name = PythonModuleName::parse("foo").unwrap();
+        .build(&db)
+        .expect("case-insensitive project fixture should build");
+    let name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     assert_eq!(
         PythonSourceModule::resolve(&db, project, name.clone()),
         None
     );
 
-    db.remove_file("/project/Foo.py");
-    db.add_file("/project/foo.py", "");
+    db.remove_file("/project/Foo.py")
+        .expect("resolver test file should be removed");
+    db.add_file("/project/foo.py", "")
+        .expect("resolver test file should be added");
     File::sync_path(&mut db, Utf8Path::new("/project/foo.py"));
 
     let module =
@@ -2009,25 +2307,32 @@ fn case_only_rename_invalidates_resolution_on_case_insensitive_fs() {
 #[cfg(unix)]
 #[test]
 fn ty_case_sensitive_resolution_with_symlinked_directory() {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let root = Utf8PathBuf::from_path_buf(temp_dir.path().canonicalize().unwrap())
-        .expect("temp dir path should be UTF-8");
+    let temp_dir = tempfile::tempdir().expect("test Python module should resolve to source");
+    let root = Utf8PathBuf::from_path_buf(
+        temp_dir
+            .path()
+            .canonicalize()
+            .expect("test Python module should resolve to source"),
+    )
+    .expect("temp dir path should be UTF-8");
     let src = root.join("src");
     let a_package_target = root.join("a-package");
     let a_src = src.join("a");
 
-    std::fs::create_dir_all(&src).unwrap();
-    std::fs::create_dir_all(&a_package_target).unwrap();
+    std::fs::create_dir_all(&src).expect("test temporary directory should be created");
+    std::fs::create_dir_all(&a_package_target).expect("test temporary directory should be created");
     std::fs::write(
         a_package_target.join("__init__.py"),
         "class Foo: x: int = 4",
     )
-    .unwrap();
-    std::fs::write(src.join("main.py"), "print('Hi')").unwrap();
+    .expect("test fixture file should be writable");
+    std::fs::write(src.join("main.py"), "print('Hi')")
+        .expect("test fixture file should be writable");
 
     // The symlink triggers the slow path because canonicalizing
     // `src/a/__init__.py` returns `a-package/__init__.py`.
-    std::os::unix::fs::symlink(a_package_target.as_std_path(), a_src.as_std_path()).unwrap();
+    std::os::unix::fs::symlink(a_package_target.as_std_path(), a_src.as_std_path())
+        .expect("test fixture file should be writable");
 
     let mut db = OsTestDatabase::new();
     let search_paths = SearchPaths::from_project_settings(
@@ -2050,19 +2355,29 @@ fn ty_case_sensitive_resolution_with_symlinked_directory() {
     db.set_project(project);
 
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("A").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("A").expect("test Python module name should be valid")
+        ),
         None
     );
-    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("a").unwrap())
-        .expect("a should resolve");
+    let module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("a").expect("test Python module name should be valid"),
+    )
+    .expect("a should resolve");
     assert!(module.path().ends_with("src/a/__init__.py"));
 }
 
 #[test]
 fn python_module_resolve_applies_regular_package_terminality_across_roots() {
     let mut db = TestDatabase::new();
-    db.add_file("/root_a/foo/__init__.py", "");
-    db.add_file("/root_b/foo/bar.py", "");
+    db.add_file("/root_a/foo/__init__.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/root_b/foo/bar.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/root_a"), Utf8PathBuf::from("/root_b")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2072,14 +2387,22 @@ fn python_module_resolve_applies_regular_package_terminality_across_roots() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let foo_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap())
-            .expect("foo should resolve");
+    let foo_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    )
+    .expect("foo should resolve");
     assert_eq!(foo_module.path(), Utf8Path::new("/root_a/foo/__init__.py"));
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("foo.bar").expect("test Python module name should be valid")
+        ),
         None
     );
 }
@@ -2087,8 +2410,10 @@ fn python_module_resolve_applies_regular_package_terminality_across_roots() {
 #[test]
 fn python_module_resolve_traverses_namespace_portions_across_roots() {
     let mut db = TestDatabase::new();
-    db.add_file("/root_a/foo/spam.txt", "");
-    db.add_file("/root_b/foo/bar.py", "");
+    db.add_file("/root_a/foo/spam.txt", "")
+        .expect("resolver test file should be added");
+    db.add_file("/root_b/foo/bar.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/root_a"), Utf8PathBuf::from("/root_b")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2098,18 +2423,30 @@ fn python_module_resolve_traverses_namespace_portions_across_roots() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("foo").expect("test Python module name should be valid")
+        ),
         None
     );
-    let foo_bar_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("foo.bar").unwrap())
-            .expect("foo.bar should resolve through the namespace package");
+    let foo_bar_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("foo.bar").expect("test Python module name should be valid"),
+    )
+    .expect("foo.bar should resolve through the namespace package");
     assert_eq!(foo_bar_module.path(), Utf8Path::new("/root_b/foo/bar.py"));
 
-    let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("foo").unwrap());
+    let dirs = resolve_package_dirs(
+        &db,
+        project,
+        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
+    );
     assert_eq!(
         dirs.dirs,
         vec![
@@ -2125,10 +2462,15 @@ fn python_module_resolve_prefers_regular_package_over_sibling_file() {
     let project = ProjectFixture::new("/project")
         .file("/project/app.py", "")
         .file("/project/app/__init__.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("application-package project fixture should build");
 
-    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
-        .expect("app should resolve");
+    let module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    )
+    .expect("app should resolve");
 
     assert_eq!(module.path(), Utf8Path::new("/project/app/__init__.py"));
 }
@@ -2136,8 +2478,10 @@ fn python_module_resolve_prefers_regular_package_over_sibling_file() {
 #[test]
 fn python_module_resolve_uses_first_regular_hit_across_roots() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/app.py", "");
-    db.add_file("/project/vendor/app/__init__.py", "");
+    db.add_file("/project/app.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/vendor/app/__init__.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/project/vendor")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2147,10 +2491,15 @@ fn python_module_resolve_uses_first_regular_hit_across_roots() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
-        .expect("app should resolve");
+    let module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    )
+    .expect("app should resolve");
 
     assert_eq!(module.path(), Utf8Path::new("/project/app.py"));
 }
@@ -2160,9 +2509,14 @@ fn python_module_resolve_returns_none_for_namespace_only_directory() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file("/project/app/views.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("application-module project fixture should build");
 
-    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap());
+    let module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    );
 
     assert!(module.is_none());
 }
@@ -2170,8 +2524,10 @@ fn python_module_resolve_returns_none_for_namespace_only_directory() {
 #[test]
 fn python_module_resolve_records_selected_search_path() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/app.py", "");
-    db.add_file("/project/vendor/app.py", "");
+    db.add_file("/project/app.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/vendor/app.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/project/vendor")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2181,10 +2537,15 @@ fn python_module_resolve_records_selected_search_path() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let module = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
-        .expect("app should resolve");
+    let module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    )
+    .expect("app should resolve");
 
     assert_eq!(module.path(), Utf8Path::new("/project/app.py"));
     assert_eq!(
@@ -2198,9 +2559,14 @@ fn resolve_package_dirs_returns_regular_package_dir() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file("/project/app/__init__.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("package-directory project fixture should build");
 
-    let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("app").unwrap());
+    let dirs = resolve_package_dirs(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    );
 
     assert_eq!(dirs.dirs, vec![Utf8PathBuf::from("/project/app")]);
 }
@@ -2208,8 +2574,10 @@ fn resolve_package_dirs_returns_regular_package_dir() {
 #[test]
 fn resolve_package_dirs_merges_namespace_portions_in_root_order() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/app/views.py", "");
-    db.add_file("/vendor/app/models.py", "");
+    db.add_file("/project/app/views.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/vendor/app/models.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/vendor")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2219,9 +2587,14 @@ fn resolve_package_dirs_merges_namespace_portions_in_root_order() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("app").unwrap());
+    let dirs = resolve_package_dirs(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    );
 
     assert_eq!(
         dirs.dirs,
@@ -2238,9 +2611,14 @@ fn resolve_package_dirs_returns_empty_for_file_module() {
     let project = ProjectFixture::new("/project")
         .file("/project/app.py", "")
         .file("/project/app/templates/base.html", "")
-        .build(&db);
+        .build(&db)
+        .expect("application-template project fixture should build");
 
-    let dirs = resolve_package_dirs(&db, project, PythonModuleName::parse("app").unwrap());
+    let dirs = resolve_package_dirs(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    );
 
     assert!(dirs.dirs.is_empty());
 }
@@ -2250,7 +2628,8 @@ fn resolve_prefix_returns_full_resolution_with_empty_tail() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file("/project/myapp/apps.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("full-prefix project fixture should build");
 
     let resolved = resolve_prefix(&db, project, "myapp.apps");
 
@@ -2265,7 +2644,8 @@ fn resolve_prefix_returns_longest_module_with_unresolved_tail() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file("/project/myapp/apps.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("partial-prefix project fixture should build");
 
     let resolved = resolve_prefix(&db, project, "myapp.apps.MyConfig");
 
@@ -2278,7 +2658,9 @@ fn resolve_prefix_returns_longest_module_with_unresolved_tail() {
 #[test]
 fn resolve_prefix_returns_full_tail_when_nothing_resolves() {
     let db = TestDatabase::new();
-    let project = ProjectFixture::new("/project").build(&db);
+    let project = ProjectFixture::new("/project")
+        .build(&db)
+        .expect("unresolved-prefix project fixture should build");
 
     let resolved = resolve_prefix(&db, project, "myapp.apps.MyConfig");
 
@@ -2289,7 +2671,9 @@ fn resolve_prefix_returns_full_tail_when_nothing_resolves() {
 #[test]
 fn resolve_prefix_returns_full_tail_for_unparseable_path() {
     let db = TestDatabase::new();
-    let project = ProjectFixture::new("/project").build(&db);
+    let project = ProjectFixture::new("/project")
+        .build(&db)
+        .expect("unparseable-prefix project fixture should build");
 
     let resolved = resolve_prefix(&db, project, "my-app.thing");
 
@@ -2303,7 +2687,8 @@ fn file_to_module_returns_unique_module_for_source_and_init_files() {
     let project = ProjectFixture::new("/project")
         .file("/project/app/__init__.py", "")
         .file("/project/app/models.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("model-module project fixture should build");
 
     let models = file_to_module(&db, project, Utf8PathBuf::from("/project/app/models.py"))
         .expect("models.py should have one module name");
@@ -2325,9 +2710,10 @@ fn file_to_module_returns_unique_module_for_source_and_init_files() {
 }
 
 /// The `(importer, imported)` dotted-name pairs of every `Resolved` import
-/// outcome, in recorded first-seen order. Panics on any non-resolved outcome so
-/// callers assert exact resolution shape.
-fn resolved_edges(evaluation: &PythonModuleEvaluationView) -> Vec<(String, String)> {
+/// outcome, in recorded first-seen order.
+fn resolved_edges(
+    evaluation: &PythonModuleEvaluationView,
+) -> Result<Vec<(String, String)>, io::Error> {
     evaluation
         .imports
         .iter()
@@ -2336,11 +2722,18 @@ fn resolved_edges(evaluation: &PythonModuleEvaluationView) -> Vec<(String, Strin
                 importer_module,
                 imported_module,
                 ..
-            } => (
+            } => Ok((
                 importer_module.as_str().to_string(),
                 imported_module.as_str().to_string(),
-            ),
-            other => panic!("expected only resolved outcomes, got {other:?}"),
+            )),
+            other @ (PythonImportOutcomeView::InvalidImport { .. }
+            | PythonImportOutcomeView::NotFound { .. }
+            | PythonImportOutcomeView::SkippedExternal { .. }
+            | PythonImportOutcomeView::Unreadable { .. }
+            | PythonImportOutcomeView::SyntaxErrors { .. }
+            | PythonImportOutcomeView::Cycle { .. }) => Err(io::Error::other(format!(
+                "expected only resolved outcomes, got {other:?}"
+            ))),
         })
         .collect()
 }
@@ -2361,15 +2754,21 @@ fn python_module_package_identity_resolves_relative_imports_by_semantic_kind() {
             "/project/pkg/sibling.py",
             "PACKAGE_VALUE = 'package'\nMODULE_VALUE = 'module'\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("resolver project fixture should build");
 
     // The package importer `pkg` reaches `.sibling` relative to itself; its own
     // `__init__.py` file is already being initialized, so the parent package is
     // not re-evaluated and the only edge is `pkg -> pkg.sibling`.
-    let pkg = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg").unwrap())
-        .expect("pkg should resolve");
+    let pkg = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg").expect("test Python module name should be valid"),
+    )
+    .expect("pkg should resolve");
     assert_eq!(
-        resolved_edges(&python_module_evaluation_for_module(&db, project, pkg)),
+        resolved_edges(&python_module_evaluation_for_module(&db, project, pkg))
+            .expect("package imports should all resolve"),
         vec![("pkg".to_string(), "pkg.sibling".to_string())],
     );
 
@@ -2380,11 +2779,12 @@ fn python_module_package_identity_resolves_relative_imports_by_semantic_kind() {
     let settings = PythonSourceModule::resolve(
         &db,
         project,
-        PythonModuleName::parse("pkg.settings").unwrap(),
+        PythonModuleName::parse("pkg.settings").expect("test Python module name should be valid"),
     )
     .expect("pkg.settings should resolve");
     assert_eq!(
-        resolved_edges(&python_module_evaluation_for_module(&db, project, settings)),
+        resolved_edges(&python_module_evaluation_for_module(&db, project, settings))
+            .expect("settings imports should all resolve"),
         vec![
             ("pkg.settings".to_string(), "pkg".to_string()),
             ("pkg".to_string(), "pkg.sibling".to_string()),
@@ -2396,14 +2796,19 @@ fn python_module_package_identity_resolves_relative_imports_by_semantic_kind() {
 #[test]
 fn python_module_resolution_classifies_each_search_path_kind() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/first.py", "");
-    db.add_file("/extra/second.py", "");
-    db.add_file("/project/.venv/lib/python3.12/site-packages/third.py", "");
+    db.add_file("/project/first.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/extra/second.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/.venv/lib/python3.12/site-packages/third.py", "")
+        .expect("resolver test file should be added");
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/editable.pth",
         "/editable\n",
-    );
-    db.add_file("/editable/fourth.py", "");
+    )
+    .expect("resolver test file should be added");
+    db.add_file("/editable/fourth.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/extra")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2413,31 +2818,32 @@ fn python_module_resolution_classifies_each_search_path_kind() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
-    let classify = |name: &str| {
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse(name).unwrap())
-            .unwrap_or_else(|| panic!("{name} should resolve"))
-            .search_path()
-            .clone()
+    let classify = |name: &str| -> Result<SearchPath, Box<dyn std::error::Error>> {
+        let name = PythonModuleName::parse(name)?;
+        let module = PythonSourceModule::resolve(&db, project, name)
+            .ok_or_else(|| io::Error::other("test module should resolve"))?;
+        Ok(module.search_path().clone())
     };
 
     assert_eq!(
-        classify("first"),
+        classify("first").expect("first module should resolve"),
         SearchPath::FirstParty(Utf8PathBuf::from("/project"))
     );
     assert_eq!(
-        classify("second"),
+        classify("second").expect("second module should resolve"),
         SearchPath::Extra(Utf8PathBuf::from("/extra"))
     );
     assert_eq!(
-        classify("third"),
+        classify("third").expect("third module should resolve"),
         SearchPath::SitePackages(Utf8PathBuf::from(
             "/project/.venv/lib/python3.12/site-packages"
         ))
     );
     assert_eq!(
-        classify("fourth"),
+        classify("fourth").expect("fourth module should resolve"),
         SearchPath::Editable(Utf8PathBuf::from("/editable"))
     );
 }
@@ -2445,7 +2851,8 @@ fn python_module_resolution_classifies_each_search_path_kind() {
 #[test]
 fn python_module_chain_resolves_namespace_parent_before_source_child() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/nspkg/mod.py", "LEAF = 'leaf'\n");
+    db.add_file("/project/nspkg/mod.py", "LEAF = 'leaf'\n")
+        .expect("resolver test file should be added");
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
@@ -2453,24 +2860,33 @@ fn python_module_chain_resolves_namespace_parent_before_source_child() {
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
     // The namespace parent has no source body, so it does not resolve to a
     // `PythonSourceModule`, while the source child underneath it does.
     assert_eq!(
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("nspkg").unwrap()),
+        PythonSourceModule::resolve(
+            &db,
+            project,
+            PythonModuleName::parse("nspkg").expect("test Python module name should be valid")
+        ),
         None
     );
-    let child =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("nspkg.mod").unwrap())
-            .expect("the source child should resolve");
+    let child = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("nspkg.mod").expect("test Python module name should be valid"),
+    )
+    .expect("the source child should resolve");
     assert_eq!(child.path(), Utf8Path::new("/project/nspkg/mod.py"));
 }
 
 #[test]
 fn python_module_search_path_winner_replacement_changes_resolved_identity() {
     let mut db = TestDatabase::new();
-    db.add_file("/site-packages/foo.py", "x = 1");
+    db.add_file("/site-packages/foo.py", "x = 1")
+        .expect("resolver test file should be added");
     let pythonpath = vec![Utf8PathBuf::from("/site-packages")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -2479,8 +2895,9 @@ fn python_module_search_path_winner_replacement_changes_resolved_identity() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
-    let foo_name = PythonModuleName::parse("foo").unwrap();
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
+    let foo_name = PythonModuleName::parse("foo").expect("test Python module name should be valid");
 
     let external =
         PythonSourceModule::resolve(&db, project, foo_name.clone()).expect("foo should resolve");
@@ -2491,7 +2908,8 @@ fn python_module_search_path_winner_replacement_changes_resolved_identity() {
 
     // A higher-priority first-party file replaces the winner, producing a
     // different resolved identity (path and classification both change).
-    db.add_file("/project/foo.py", "x = 2");
+    db.add_file("/project/foo.py", "x = 2")
+        .expect("resolver test file should be added");
     File::sync_path(&mut db, Utf8Path::new("/project/foo.py"));
 
     let first_party = PythonSourceModule::resolve(&db, project, foo_name)
@@ -2507,9 +2925,12 @@ fn python_module_search_path_winner_replacement_changes_resolved_identity() {
 #[test]
 fn file_to_module_uses_first_containing_root_for_nested_first_party_paths() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/lib/__init__.py", "");
-    db.add_file("/project/lib/pkg/__init__.py", "");
-    db.add_file("/project/lib/pkg/mod.py", "");
+    db.add_file("/project/lib/__init__.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/lib/pkg/__init__.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/lib/pkg/mod.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/project/lib")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2519,7 +2940,8 @@ fn file_to_module_uses_first_containing_root_for_nested_first_party_paths() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     let source_path = Utf8PathBuf::from("/project/lib/pkg/mod.py");
 
     let module = file_to_module(&db, project, source_path.clone())
@@ -2527,9 +2949,12 @@ fn file_to_module_uses_first_containing_root_for_nested_first_party_paths() {
     assert_eq!(module.name().as_str(), "lib.pkg.mod");
     assert_eq!(module.path(), Utf8Path::new("/project/lib/pkg/mod.py"));
 
-    let later_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
-            .expect("later root should also derive a round-tripping module");
+    let later_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.mod").expect("test Python module name should be valid"),
+    )
+    .expect("later root should also derive a round-tripping module");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
         &FileModuleResolution::Candidates {
@@ -2542,8 +2967,10 @@ fn file_to_module_uses_first_containing_root_for_nested_first_party_paths() {
 #[test]
 fn file_to_module_does_not_rescue_not_found_first_candidate() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/lib.py", "");
-    db.add_file("/project/lib/pkg/mod.py", "");
+    db.add_file("/project/lib.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/lib/pkg/mod.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/project/lib")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2553,20 +2980,25 @@ fn file_to_module_does_not_rescue_not_found_first_candidate() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     let source_path = Utf8PathBuf::from("/project/lib/pkg/mod.py");
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let later_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
-            .expect("later candidate should resolve");
+    let later_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.mod").expect("test Python module name should be valid"),
+    )
+    .expect("later candidate should resolve");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
         &FileModuleResolution::Candidates {
             first: FileModuleCandidate::NotFound {
                 root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-                name: PythonModuleName::parse("lib.pkg.mod").unwrap(),
+                name: PythonModuleName::parse("lib.pkg.mod")
+                    .expect("test Python module name should be valid"),
             },
             rest: vec![FileModuleCandidate::Resolved(later_module)],
         }
@@ -2576,8 +3008,10 @@ fn file_to_module_does_not_rescue_not_found_first_candidate() {
 #[test]
 fn file_to_module_does_not_rescue_shadowed_first_candidate() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/src/lib/pkg/mod.py", "");
-    db.add_file("/project/lib/pkg/mod.py", "");
+    db.add_file("/project/src/lib/pkg/mod.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/lib/pkg/mod.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/project/lib")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2587,7 +3021,8 @@ fn file_to_module_does_not_rescue_shadowed_first_candidate() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     let source_path = Utf8PathBuf::from("/project/lib/pkg/mod.py");
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
@@ -2595,18 +3030,22 @@ fn file_to_module_does_not_rescue_shadowed_first_candidate() {
     let winner = PythonSourceModule::resolve(
         &db,
         project,
-        PythonModuleName::parse("lib.pkg.mod").unwrap(),
+        PythonModuleName::parse("lib.pkg.mod").expect("test Python module name should be valid"),
     )
     .expect("first candidate should resolve to the shadowing module");
-    let later_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
-            .expect("later candidate should resolve to the source");
+    let later_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.mod").expect("test Python module name should be valid"),
+    )
+    .expect("later candidate should resolve to the source");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
         &FileModuleResolution::Candidates {
             first: FileModuleCandidate::Shadowed {
                 root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-                name: PythonModuleName::parse("lib.pkg.mod").unwrap(),
+                name: PythonModuleName::parse("lib.pkg.mod")
+                    .expect("test Python module name should be valid"),
                 winner,
             },
             rest: vec![FileModuleCandidate::Resolved(later_module)],
@@ -2618,7 +3057,8 @@ fn file_to_module_does_not_rescue_shadowed_first_candidate() {
 fn file_to_module_identity_ignores_later_candidate_changes() {
     let event_log = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(event_log.clone());
-    db.add_file("/project/lib/pkg/mod.py", "");
+    db.add_file("/project/lib/pkg/mod.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/project/lib")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2628,14 +3068,18 @@ fn file_to_module_identity_ignores_later_candidate_changes() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     let source_path = Utf8PathBuf::from("/project/lib/pkg/mod.py");
 
     let module =
         file_to_module(&db, project, source_path.clone()).expect("first candidate should resolve");
-    let later_module =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
-            .expect("later candidate should initially resolve to the source");
+    let later_module = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.mod").expect("test Python module name should be valid"),
+    )
+    .expect("later candidate should initially resolve to the source");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path.clone()),
         &FileModuleResolution::Candidates {
@@ -2643,21 +3087,30 @@ fn file_to_module_identity_ignores_later_candidate_changes() {
             rest: vec![FileModuleCandidate::Resolved(later_module)],
         }
     );
-    let _ = event_log.take();
+    drop(
+        event_log
+            .take()
+            .expect("resolver event log should be readable"),
+    );
 
-    db.add_file("/project/pkg/mod.py", "");
+    db.add_file("/project/pkg/mod.py", "")
+        .expect("resolver test file should be added");
     File::sync_path(&mut db, Utf8Path::new("/project/pkg/mod.py"));
 
-    let winner =
-        PythonSourceModule::resolve(&db, project, PythonModuleName::parse("pkg.mod").unwrap())
-            .expect("new higher-priority module should shadow the later candidate");
+    let winner = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("pkg.mod").expect("test Python module name should be valid"),
+    )
+    .expect("new higher-priority module should shadow the later candidate");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path.clone()),
         &FileModuleResolution::Candidates {
             first: FileModuleCandidate::Resolved(module.clone()),
             rest: vec![FileModuleCandidate::Shadowed {
                 root: SearchPath::FirstParty(Utf8PathBuf::from("/project/lib")),
-                name: PythonModuleName::parse("pkg.mod").unwrap(),
+                name: PythonModuleName::parse("pkg.mod")
+                    .expect("test Python module name should be valid"),
                 winner,
             }],
         }
@@ -2668,7 +3121,9 @@ fn file_to_module_identity_ignores_later_candidate_changes() {
         "a later candidate must not affect file identity"
     );
 
-    let events = event_log.take();
+    let events = event_log
+        .take()
+        .expect("resolver event log should be readable");
     assert_eq!(
         will_execute_query_count(&db, &events, "file_to_module_resolution"),
         1,
@@ -2684,8 +3139,10 @@ fn file_to_module_identity_ignores_later_candidate_changes() {
 #[test]
 fn file_to_module_uses_src_layout_root_first() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/src/blog/__init__.py", "");
-    db.add_file("/project/src/blog/models.py", "");
+    db.add_file("/project/src/blog/__init__.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/project/src/blog/models.py", "")
+        .expect("resolver test file should be added");
 
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -2694,7 +3151,8 @@ fn file_to_module_uses_src_layout_root_first() {
         &[],
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     let source_path = Utf8PathBuf::from("/project/src/blog/models.py");
 
     let module = file_to_module(&db, project, source_path.clone())
@@ -2705,7 +3163,8 @@ fn file_to_module_uses_src_layout_root_first() {
     let project_relative_module = PythonSourceModule::resolve(
         &db,
         project,
-        PythonModuleName::parse("src.blog.models").unwrap(),
+        PythonModuleName::parse("src.blog.models")
+            .expect("test Python module name should be valid"),
     )
     .expect("project root should provide the later candidate");
     assert_eq!(
@@ -2720,8 +3179,10 @@ fn file_to_module_uses_src_layout_root_first() {
 #[test]
 fn file_to_module_reports_shadowed_cross_root_file() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/app.py", "");
-    db.add_file("/vendor/app.py", "");
+    db.add_file("/project/app.py", "")
+        .expect("resolver test file should be added");
+    db.add_file("/vendor/app.py", "")
+        .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from("/vendor")];
     let search_paths = SearchPaths::from_project_settings(
@@ -2731,19 +3192,25 @@ fn file_to_module_reports_shadowed_cross_root_file() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
     let source_path = Utf8PathBuf::from("/vendor/app.py");
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let winner = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
-        .expect("project app should shadow the vendor file");
+    let winner = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    )
+    .expect("project app should shadow the vendor file");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
         &FileModuleResolution::Candidates {
             first: FileModuleCandidate::Shadowed {
                 root: SearchPath::Extra(Utf8PathBuf::from("/vendor")),
-                name: PythonModuleName::parse("app").unwrap(),
+                name: PythonModuleName::parse("app")
+                    .expect("test Python module name should be valid"),
                 winner,
             },
             rest: Vec::new(),
@@ -2757,19 +3224,25 @@ fn file_to_module_reports_shadowed_sibling_precedence_file() {
     let project = ProjectFixture::new("/project")
         .file("/project/app.py", "")
         .file("/project/app/__init__.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("module-collision project fixture should build");
     let source_path = Utf8PathBuf::from("/project/app.py");
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
 
-    let winner = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("app").unwrap())
-        .expect("package should win sibling precedence");
+    let winner = PythonSourceModule::resolve(
+        &db,
+        project,
+        PythonModuleName::parse("app").expect("test Python module name should be valid"),
+    )
+    .expect("package should win sibling precedence");
     assert_eq!(
         file_to_module_resolution(&db, project, source_path),
         &FileModuleResolution::Candidates {
             first: FileModuleCandidate::Shadowed {
                 root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-                name: PythonModuleName::parse("app").unwrap(),
+                name: PythonModuleName::parse("app")
+                    .expect("test Python module name should be valid"),
                 winner,
             },
             rest: Vec::new(),
@@ -2780,7 +3253,9 @@ fn file_to_module_reports_shadowed_sibling_precedence_file() {
 #[test]
 fn file_to_module_reports_not_under_any_root() {
     let db = TestDatabase::new();
-    let project = ProjectFixture::new("/project").build(&db);
+    let project = ProjectFixture::new("/project")
+        .build(&db)
+        .expect("resolver project fixture should build");
     let source_path = Utf8PathBuf::from("/outside/app.py");
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
@@ -2796,7 +3271,8 @@ fn file_to_module_reports_invalid_module_name() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file("/project/app.txt", "")
-        .build(&db);
+        .build(&db)
+        .expect("non-Python project fixture should build");
     let source_path = Utf8PathBuf::from("/project/app.txt");
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
@@ -2810,7 +3286,9 @@ fn file_to_module_reports_invalid_module_name() {
 #[test]
 fn file_to_module_reports_not_found_for_missing_source_file() {
     let db = TestDatabase::new();
-    let project = ProjectFixture::new("/project").build(&db);
+    let project = ProjectFixture::new("/project")
+        .build(&db)
+        .expect("resolver project fixture should build");
     let source_path = Utf8PathBuf::from("/project/missing.py");
 
     assert_eq!(file_to_module(&db, project, source_path.clone()), None);
@@ -2820,7 +3298,8 @@ fn file_to_module_reports_not_found_for_missing_source_file() {
         &FileModuleResolution::Candidates {
             first: FileModuleCandidate::NotFound {
                 root: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
-                name: PythonModuleName::parse("missing").unwrap(),
+                name: PythonModuleName::parse("missing")
+                    .expect("test Python module name should be valid"),
             },
             rest: Vec::new(),
         }
@@ -2830,14 +3309,16 @@ fn file_to_module_reports_not_found_for_missing_source_file() {
 #[test]
 fn module_name_from_init_file() {
     let path = Utf8Path::new("myapp/models/__init__.py");
-    let module_name = PythonModuleName::from_relative_source_path(path).unwrap();
+    let module_name = PythonModuleName::from_relative_source_path(path)
+        .expect("test Python module name should be valid");
     assert_eq!(module_name.as_str(), "myapp.models");
 }
 
 #[test]
 fn module_name_from_submodule() {
     let path = Utf8Path::new("myapp/models/user.py");
-    let module_name = PythonModuleName::from_relative_source_path(path).unwrap();
+    let module_name = PythonModuleName::from_relative_source_path(path)
+        .expect("expected JSON value should be a string");
     assert_eq!(module_name.as_str(), "myapp.models.user");
 }
 
@@ -2851,7 +3332,7 @@ fn model_modules_finds_nested_models_package_files() {
             "/project/myapp/models/base/abstract.py",
             "from django.db import models\nclass BaseModel(models.Model):\n    class Meta:\n        abstract = True\n",
         )
-        .build(&db);
+        .build(&db).expect("resolver project fixture should build");
 
     let modules = model_modules(&db, project);
     let module_names: Vec<&str> = modules
@@ -2870,11 +3351,13 @@ fn project_model_discovery_skips_registered_non_first_party_paths() {
     db.add_file(
         "/project/app/models.py",
         "from django.db import models\nclass App(models.Model): pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
     db.add_file(
         "/project/venv/lib/python3.12/site-packages/somelib/models.py",
         "from django.db import models\nclass Lib(models.Model): pass\n",
-    );
+    )
+    .expect("resolver test file should be added");
 
     let pythonpath = vec![Utf8PathBuf::from(
         "/project/venv/lib/python3.12/site-packages",
@@ -2886,7 +3369,8 @@ fn project_model_discovery_skips_registered_non_first_party_paths() {
         &pythonpath,
     );
     search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths);
+    let project = project_for_search_paths(&mut db, "/project", search_paths)
+        .expect("search-path project fixture should build");
 
     let modules = model_modules(&db, project);
     let module_names: Vec<_> = modules

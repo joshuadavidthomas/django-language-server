@@ -144,10 +144,22 @@ impl PythonList {
         &mut self,
         incoming: Self,
         operation_origin: Option<Origin>,
-    ) {
-        self.sequence
-            .merge_semantically_equal(incoming.sequence, operation_origin);
-        self.allocation_sites.merge(incoming.allocation_sites);
+    ) -> bool {
+        if !self.same_semantic_value(&incoming) {
+            return false;
+        }
+        let Self {
+            sequence,
+            allocation_sites,
+        } = incoming;
+        if !self
+            .sequence
+            .merge_semantically_equal(sequence, operation_origin)
+        {
+            return false;
+        }
+        self.allocation_sites.merge(allocation_sites);
+        true
     }
 }
 
@@ -234,9 +246,12 @@ impl PythonTuple {
         &mut self,
         incoming: Self,
         operation_origin: Option<Origin>,
-    ) {
+    ) -> bool {
+        if !self.same_semantic_value(&incoming) {
+            return false;
+        }
         self.sequence
-            .merge_semantically_equal(incoming.sequence, operation_origin);
+            .merge_semantically_equal(incoming.sequence, operation_origin)
     }
 }
 
@@ -422,14 +437,23 @@ impl SequenceFacts {
         PythonSequenceItem::slices_same_semantic_value(&self.summary, &other.summary)
     }
 
-    fn merge_semantically_equal(&mut self, incoming: Self, operation_origin: Option<Origin>) {
-        debug_assert!(self.same_semantic_value(&incoming));
+    fn merge_semantically_equal(
+        &mut self,
+        incoming: Self,
+        operation_origin: Option<Origin>,
+    ) -> bool {
+        if !self.same_semantic_value(&incoming) {
+            return false;
+        }
         for (existing, incoming) in self.summary.iter_mut().zip(incoming.summary) {
-            existing.merge_semantically_equal(incoming, operation_origin);
+            if !existing.merge_semantically_equal(incoming, operation_origin) {
+                return false;
+            }
         }
         self.alternatives
             .merge(incoming.alternatives, operation_origin);
         self.debug_assert_semantic_equivalence();
+        true
     }
 }
 
@@ -665,10 +689,9 @@ impl SequenceAlternatives {
                     item.extend_origins(&mut origins);
                 }
             }
-            origins.insert(
-                operation_origin
-                    .expect("truncating sequence alternatives requires an operation origin"),
-            );
+            if let Some(operation_origin) = operation_origin {
+                origins.insert(operation_origin);
+            }
             self.remainder = constraints.map(|constraints| SequenceAlternativeRemainder {
                 origins,
                 constraints,
@@ -830,17 +853,27 @@ impl PythonSequenceItem {
         }
     }
 
-    fn merge_semantically_equal(&mut self, incoming: Self, operation_origin: Option<Origin>) {
-        debug_assert!(self.same_semantic_value(&incoming));
+    fn merge_semantically_equal(
+        &mut self,
+        incoming: Self,
+        operation_origin: Option<Origin>,
+    ) -> bool {
+        if !self.same_semantic_value(&incoming) {
+            return false;
+        }
         match (self, incoming) {
             (Self::Value(existing), Self::Value(incoming)) => {
-                existing.merge_semantically_equal(incoming, operation_origin);
+                existing.merge_semantically_equal(incoming, operation_origin)
             }
             (Self::UnknownElement(existing), Self::UnknownElement(incoming))
             | (Self::UnknownUnpack(existing), Self::UnknownUnpack(incoming)) => {
                 existing.merge_origins(&incoming);
+                true
             }
-            _ => unreachable!("semantic equality requires matching sequence item variants"),
+            (
+                Self::Value(_) | Self::UnknownElement(_) | Self::UnknownUnpack(_),
+                Self::Value(_) | Self::UnknownElement(_) | Self::UnknownUnpack(_),
+            ) => false,
         }
     }
 }
@@ -947,9 +980,11 @@ mod tests {
     }
 
     fn value_origin_start(item: &PythonSequenceItem) -> u32 {
-        let PythonSequenceItem::Value(value) = item else {
-            panic!("expected an exact value item");
-        };
+        let value = match item {
+            PythonSequenceItem::Value(value) => Some(value),
+            PythonSequenceItem::UnknownElement(_) | PythonSequenceItem::UnknownUnpack(_) => None,
+        }
+        .expect("expected an exact value item");
         value
             .origins()
             .next()
@@ -968,16 +1003,31 @@ mod tests {
     }
 
     fn assert_nested_added(items: &[PythonSequenceItem], mutation_origin: Origin) {
-        let PythonSequenceItem::Value(nested) = &items[0] else {
-            panic!("the mutated projection should keep an exact nested value");
-        };
+        let nested = items
+            .first()
+            .and_then(|item| match item {
+                PythonSequenceItem::Value(nested) => Some(nested),
+                PythonSequenceItem::UnknownElement(_) | PythonSequenceItem::UnknownUnpack(_) => {
+                    None
+                }
+            })
+            .expect("the mutated projection should keep an exact nested value");
         assert!(
             nested.origins().any(|origin| origin == mutation_origin),
             "the mutation origin should be recorded on the nested value",
         );
-        let PythonValueKind::List(list) = &nested.kind else {
-            panic!("the nested value should remain a list");
-        };
+        let list = match &nested.kind {
+            PythonValueKind::List(list) => Some(list),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_) => None,
+        }
+        .expect("the nested value should remain a list");
         assert!(matches!(
             list.semantic_items(),
             [PythonSequenceItem::Value(PythonValue {
@@ -1047,6 +1097,16 @@ mod tests {
             assert_ne!(&first_remainder, other);
             assert_ne!(first_remainder.structural_cmp(other), Ordering::Equal);
         }
+    }
+
+    #[test]
+    fn unequal_sequence_merge_returns_false_without_partial_mutation() {
+        let mut receiver = pair(10, 20);
+        let original = receiver.clone();
+        let incoming = SequenceFacts::new(vec![str_item("first", 30), str_item("different", 40)]);
+
+        assert!(!receiver.merge_semantically_equal(incoming, None));
+        assert_eq!(receiver, original);
     }
 
     #[test]
@@ -1300,9 +1360,11 @@ mod tests {
         merged.merge_semantically_equal(facts(20, 1), None);
         merged.normalize(None);
 
-        let [PythonSequenceItem::Value(summary)] = merged.semantic_items() else {
-            panic!("the summary should retain one unknown value");
-        };
+        let summary = match merged.semantic_items() {
+            [PythonSequenceItem::Value(summary)] => Some(summary),
+            _ => None,
+        }
+        .expect("the summary should retain one unknown value");
         assert_eq!(
             summary.origins().collect::<Vec<_>>(),
             [origin(10), origin(20)],
@@ -1325,9 +1387,11 @@ mod tests {
             .exact
             .iter()
             .map(|alternative| {
-                let [PythonSequenceItem::Value(value)] = alternative.items.as_slice() else {
-                    panic!("each exact row should retain one unknown value");
-                };
+                let value = match alternative.items.as_slice() {
+                    [PythonSequenceItem::Value(value)] => Some(value),
+                    _ => None,
+                }
+                .expect("each exact row should retain one unknown value");
                 let mut evidence = value.origins_with_constraints();
                 let (row_origin, evidence_constraints) = evidence
                     .next()
@@ -1361,25 +1425,23 @@ mod tests {
         let unknown = |offset| {
             PythonUnknown::new(PythonUnknownCause::UnsupportedExpression, [origin(offset)])
         };
-        for mut existing in [
-            PythonSequenceItem::UnknownElement(unknown(20)),
-            PythonSequenceItem::UnknownUnpack(unknown(20)),
+        for (mut existing, incoming) in [
+            (
+                PythonSequenceItem::UnknownElement(unknown(20)),
+                PythonSequenceItem::UnknownElement(unknown(10)),
+            ),
+            (
+                PythonSequenceItem::UnknownUnpack(unknown(20)),
+                PythonSequenceItem::UnknownUnpack(unknown(10)),
+            ),
         ] {
-            let incoming = match &existing {
-                PythonSequenceItem::UnknownElement(_) => {
-                    PythonSequenceItem::UnknownElement(unknown(10))
-                }
-                PythonSequenceItem::UnknownUnpack(_) => {
-                    PythonSequenceItem::UnknownUnpack(unknown(10))
-                }
-                PythonSequenceItem::Value(_) => unreachable!(),
-            };
-            existing.merge_semantically_equal(incoming, None);
+            assert!(existing.merge_semantically_equal(incoming, None));
             let unknown = match existing {
                 PythonSequenceItem::UnknownElement(unknown)
-                | PythonSequenceItem::UnknownUnpack(unknown) => unknown,
-                PythonSequenceItem::Value(_) => unreachable!(),
-            };
+                | PythonSequenceItem::UnknownUnpack(unknown) => Some(unknown),
+                PythonSequenceItem::Value(_) => None,
+            }
+            .expect("the typed unknown fixture should remain unknown after merging");
             assert_eq!(
                 unknown.origins().collect::<Vec<_>>(),
                 [origin(10), origin(20)]

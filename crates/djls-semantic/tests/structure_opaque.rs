@@ -12,12 +12,18 @@ use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::TestDatabase;
 
-fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {
+fn compute_regions(db: &TestDatabase, source: &str) -> anyhow::Result<OpaqueRegions> {
     let path = "test.html";
-    db.add_file(path, source);
-    let file = db.file(Utf8Path::new(path));
-    let nodelist = parse_template(db, file).expect("should parse");
-    compute_opaque_regions(db, file, nodelist)
+    db.add_file(path, source)?;
+    let file = db.file(Utf8Path::new(path))?;
+    let nodelist = match parse_template(db, file) {
+        djls_templates::TemplateParseResult::Parsed(nodelist) => nodelist,
+        djls_templates::TemplateParseResult::NotTemplate => {
+            anyhow::bail!("fixture file is not a template")
+        }
+        djls_templates::TemplateParseResult::Unreadable(error) => return Err(error.into()),
+    };
+    Ok(compute_opaque_regions(db, file, nodelist))
 }
 
 #[test]
@@ -41,14 +47,35 @@ fn opaque_opener_treats_intermediate_as_raw_content() {
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let path = "test.html";
     let source = "{% opaque_if %}first{% opaque_else %}second{% endopaque_if %}";
-    db.add_file(path, source);
-    let file = db.file(Utf8Path::new(path));
+    db.add_file(path, source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new(path))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let regions = compute_opaque_regions(&db, file, nodelist);
-    let first = u32::try_from(source.find("first").unwrap()).unwrap();
-    let opaque_else = u32::try_from(source.find("{% opaque_else %}").unwrap()).unwrap();
-    let opaque_else_last = opaque_else + u32::try_from("{% opaque_else %}".len()).unwrap() - 1;
-    let second = u32::try_from(source.find("second").unwrap()).unwrap();
+    let first = u32::try_from(
+        source
+            .find("first")
+            .expect("fixture should contain the first opaque body segment"),
+    )
+    .expect("first segment offset should fit in u32");
+    let opaque_else = u32::try_from(
+        source
+            .find("{% opaque_else %}")
+            .expect("fixture should contain the opaque intermediate tag"),
+    )
+    .expect("opaque intermediate offset should fit in u32");
+    let opaque_else_last = opaque_else
+        + u32::try_from("{% opaque_else %}".len())
+            .expect("opaque intermediate length should fit in u32")
+        - 1;
+    let second = u32::try_from(
+        source
+            .find("second")
+            .expect("fixture should contain the second opaque body segment"),
+    )
+    .expect("second segment offset should fit in u32");
 
     assert!(regions.is_opaque(first));
     assert!(regions.is_opaque(opaque_else));
@@ -103,7 +130,7 @@ fn test_opaque_regions_sorted() {
 fn test_verbatim_block_produces_opaque_region() {
     let db = TestDatabase::new();
     let source = "{% verbatim %}{% trans 'hello' %}{% endverbatim %}";
-    let regions = compute_regions(&db, source);
+    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
     assert!(
         !regions.is_empty(),
         "verbatim block should produce an opaque region"
@@ -118,7 +145,7 @@ fn test_verbatim_block_produces_opaque_region() {
 fn test_comment_block_produces_opaque_region() {
     let db = TestDatabase::new();
     let source = "{% comment %}inner content{% endcomment %}";
-    let regions = compute_regions(&db, source);
+    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
     assert!(!regions.is_empty());
     assert!(regions.is_opaque(13));
 }
@@ -127,7 +154,7 @@ fn test_comment_block_produces_opaque_region() {
 fn test_non_opaque_block_no_region() {
     let db = TestDatabase::new();
     let source = "{% if True %}content{% endif %}";
-    let regions = compute_regions(&db, source);
+    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
     assert!(
         regions.is_empty(),
         "if block should NOT produce an opaque region"
@@ -139,14 +166,22 @@ fn unclosed_opaque_block_creates_no_region() {
     let db = TestDatabase::new();
     let path = "test.html";
     let source = "{% verbatim %}body";
-    db.add_file(path, source);
-    let file = db.file(Utf8Path::new(path));
+    db.add_file(path, source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new(path))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let regions = compute_opaque_regions(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
         &db, file, nodelist,
     );
-    let body = u32::try_from(source.find("body").unwrap()).unwrap();
+    let body = u32::try_from(
+        source
+            .find("body")
+            .expect("fixture should contain the unclosed opaque body"),
+    )
+    .expect("opaque body offset should fit in u32");
 
     assert!(!regions.is_opaque(body));
     assert!(errors.iter().any(|error| matches!(
@@ -159,9 +194,19 @@ fn unclosed_opaque_block_creates_no_region() {
 fn outer_closer_inside_opaque_content_does_not_end_outer_block() {
     let db = TestDatabase::new();
     let source = "{% if outer %}{% verbatim %}{% endif %}body{% endverbatim %}{% endif %}";
-    let regions = compute_regions(&db, source);
-    let raw_closer = u32::try_from(source.find("{% endif %}").unwrap()).unwrap();
-    let body = u32::try_from(source.find("body").unwrap()).unwrap();
+    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
+    let raw_closer = u32::try_from(
+        source
+            .find("{% endif %}")
+            .expect("fixture should contain the closer inside opaque content"),
+    )
+    .expect("raw closer offset should fit in u32");
+    let body = u32::try_from(
+        source
+            .find("body")
+            .expect("fixture should contain opaque body text after the raw closer"),
+    )
+    .expect("opaque body offset should fit in u32");
 
     assert!(regions.is_opaque(raw_closer));
     assert!(regions.is_opaque(body));
@@ -171,7 +216,7 @@ fn outer_closer_inside_opaque_content_does_not_end_outer_block() {
 fn test_content_after_verbatim_not_opaque() {
     let db = TestDatabase::new();
     let source = "{% verbatim %}opaque{% endverbatim %}after";
-    let regions = compute_regions(&db, source);
+    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
     assert!(!regions.is_opaque(37));
 }
 
@@ -179,7 +224,7 @@ fn test_content_after_verbatim_not_opaque() {
 fn test_verbatim_opaque_boundaries() {
     let db = TestDatabase::new();
     let source = "{% verbatim %}opaque{% endverbatim %}";
-    let regions = compute_regions(&db, source);
+    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
 
     assert!(!regions.is_opaque(0), "start of opener tag");
     assert!(!regions.is_opaque(13), "end of opener tag");

@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::python::evaluation::StructuralOrd;
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Error)]
 pub enum InvalidModuleName {
     #[error("python module name cannot be empty")]
     Empty,
@@ -30,50 +30,36 @@ pub enum InvalidModuleName {
     SourcePathIsAbsolute(String),
 }
 
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum InvalidModuleNameOrder<'a> {
+    ContainsConsecutiveDots,
+    ContainsWhitespace,
+    Empty,
+    EndsWithDot,
+    InvalidSegment(&'a str),
+    MustHavePyExtension,
+    SourcePathIsAbsolute(&'a str),
+    StartsWithDot,
+}
+
 impl InvalidModuleName {
-    fn structural_rank(&self) -> u8 {
+    fn order(&self) -> InvalidModuleNameOrder<'_> {
         match self {
-            Self::ContainsConsecutiveDots => 0,
-            Self::ContainsWhitespace => 1,
-            Self::Empty => 2,
-            Self::EndsWithDot => 3,
-            Self::InvalidSegment(_) => 4,
-            Self::MustHavePyExtension => 5,
-            Self::SourcePathIsAbsolute(_) => 6,
-            Self::StartsWithDot => 7,
+            Self::ContainsConsecutiveDots => InvalidModuleNameOrder::ContainsConsecutiveDots,
+            Self::ContainsWhitespace => InvalidModuleNameOrder::ContainsWhitespace,
+            Self::Empty => InvalidModuleNameOrder::Empty,
+            Self::EndsWithDot => InvalidModuleNameOrder::EndsWithDot,
+            Self::InvalidSegment(segment) => InvalidModuleNameOrder::InvalidSegment(segment),
+            Self::MustHavePyExtension => InvalidModuleNameOrder::MustHavePyExtension,
+            Self::SourcePathIsAbsolute(path) => InvalidModuleNameOrder::SourcePathIsAbsolute(path),
+            Self::StartsWithDot => InvalidModuleNameOrder::StartsWithDot,
         }
     }
 }
 
 impl StructuralOrd for InvalidModuleName {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        let ordering = self.structural_rank().cmp(&other.structural_rank());
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-        match (self, other) {
-            (Self::Empty, Self::Empty)
-            | (Self::ContainsWhitespace, Self::ContainsWhitespace)
-            | (Self::StartsWithDot, Self::StartsWithDot)
-            | (Self::EndsWithDot, Self::EndsWithDot)
-            | (Self::ContainsConsecutiveDots, Self::ContainsConsecutiveDots)
-            | (Self::MustHavePyExtension, Self::MustHavePyExtension) => Ordering::Equal,
-            (Self::InvalidSegment(left), Self::InvalidSegment(right))
-            | (Self::SourcePathIsAbsolute(left), Self::SourcePathIsAbsolute(right)) => {
-                left.cmp(right)
-            }
-            (
-                Self::Empty
-                | Self::ContainsWhitespace
-                | Self::StartsWithDot
-                | Self::EndsWithDot
-                | Self::ContainsConsecutiveDots
-                | Self::InvalidSegment(_)
-                | Self::MustHavePyExtension
-                | Self::SourcePathIsAbsolute(_),
-                _,
-            ) => unreachable!("equal module-name-error ranks identify the same variant"),
-        }
+        self.order().cmp(&other.order())
     }
 }
 
@@ -81,6 +67,17 @@ impl StructuralOrd for InvalidModuleName {
 #[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct PythonModuleName(Arc<str>);
+
+macro_rules! python_module_name {
+    ($first:ident $(. $rest:ident)*) => {
+        $crate::python::PythonModuleName::from_literal_segments(&[
+            stringify!($first),
+            $(stringify!($rest),)*
+        ])
+    };
+}
+
+pub(crate) use python_module_name;
 
 impl PythonModuleName {
     pub fn parse(name: &str) -> Result<Self, InvalidModuleName> {
@@ -107,6 +104,11 @@ impl PythonModuleName {
         }
 
         Ok(Self(Arc::from(trimmed)))
+    }
+
+    /// Build a module name from identifier tokens accepted by [`python_module_name!`].
+    pub(crate) fn from_literal_segments(segments: &[&str]) -> Self {
+        Self(Arc::from(segments.join(".")))
     }
 
     pub(crate) fn from_relative_package_path(path: &Utf8Path) -> Result<Self, InvalidModuleName> {
@@ -162,6 +164,16 @@ impl PythonModuleName {
             .map(|(parent, _)| Self(Arc::from(parent)))
     }
 
+    pub(crate) fn prefixes(&self) -> Vec<Self> {
+        let mut prefixes = self
+            .as_str()
+            .match_indices('.')
+            .map(|(index, _)| Self(Arc::from(&self.as_str()[..index])))
+            .collect::<Vec<_>>();
+        prefixes.push(self.clone());
+        prefixes
+    }
+
     #[must_use]
     pub(crate) fn into_string(self) -> String {
         self.0.to_string()
@@ -215,7 +227,7 @@ mod tests {
     fn python_module_names_validate_and_normalize() {
         assert_eq!(
             PythonModuleName::from_relative_source_path(Utf8Path::new("pkg/__init__.py")),
-            Ok(PythonModuleName::parse("pkg").unwrap())
+            Ok(PythonModuleName::parse("pkg").expect("test Python module name should be valid"))
         );
         assert_eq!(
             PythonModuleName::parse("django..template"),
@@ -256,10 +268,25 @@ mod tests {
     }
 
     #[test]
-    fn exact_child_accepts_one_identifier_segment_only() {
-        let package = PythonModuleName::parse("pkg").unwrap();
+    fn literal_module_names_are_valid_by_construction() {
+        assert_eq!(
+            python_module_name!(django.template.defaulttags).as_str(),
+            "django.template.defaulttags"
+        );
+    }
 
-        assert_eq!(package.exact_child("child").unwrap().as_str(), "pkg.child");
+    #[test]
+    fn exact_child_accepts_one_identifier_segment_only() {
+        let package =
+            PythonModuleName::parse("pkg").expect("test Python module name should be valid");
+
+        assert_eq!(
+            package
+                .exact_child("child")
+                .expect("test Python module name should be valid")
+                .as_str(),
+            "pkg.child"
+        );
         assert!(package.exact_child("child.grandchild").is_none());
         assert!(package.exact_child("bad-name").is_none());
         assert!(package.exact_child(" child ").is_none());

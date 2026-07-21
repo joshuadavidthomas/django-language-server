@@ -176,8 +176,10 @@ impl PythonDict {
         &mut self,
         incoming: Self,
         operation_origin: Option<Origin>,
-    ) {
-        debug_assert!(self.same_semantic_value(&incoming));
+    ) -> bool {
+        if !self.same_semantic_value(&incoming) {
+            return false;
+        }
         for (existing, incoming) in self.items.iter_mut().zip(incoming.items) {
             match (existing, incoming) {
                 (DictItem::Entry(existing), DictItem::Entry(incoming)) => {
@@ -191,10 +193,14 @@ impl PythonDict {
                 (DictItem::UnknownUnpack(existing), DictItem::UnknownUnpack(incoming)) => {
                     existing.merge_origins(&incoming);
                 }
-                _ => unreachable!("semantic equality requires matching dictionary item variants"),
+                (
+                    DictItem::Entry(_) | DictItem::UnknownUnpack(_),
+                    DictItem::Entry(_) | DictItem::UnknownUnpack(_),
+                ) => return false,
             }
         }
         self.allocation_sites.merge(incoming.allocation_sites);
+        true
     }
 }
 
@@ -548,9 +554,11 @@ mod tests {
 
         first.merge_semantically_equal(second, None);
         let projection = first.mapping().projection().collect::<Vec<_>>();
-        let [MappingLogItem::Entry { key, value }] = projection.as_slice() else {
-            panic!("the merged dictionary should retain one entry")
-        };
+        let (key, value) = match projection.as_slice() {
+            [MappingLogItem::Entry { key, value }] => Some((*key, *value)),
+            _ => None,
+        }
+        .expect("the merged dictionary should retain one entry");
         assert_eq!(key.origins().collect::<Vec<_>>(), [origin(1), origin(3)]);
         assert_eq!(value.origins().collect::<Vec<_>>(), [origin(2), origin(4)]);
     }
@@ -620,10 +628,14 @@ mod tests {
         let mapping = dict.mapping();
         let entries = mapping.effective_string_entries();
         assert_eq!(entries.len(), 1);
-        let MappingEntryEvidence::Value { key, value } = &entries[0] else {
-            panic!("expected a resolved string entry");
-        };
-        assert_eq!(*key, "k");
+        let (key, value) = match &entries[0] {
+            MappingEntryEvidence::Value { key, value } => Some((*key, *value)),
+            MappingEntryEvidence::UnknownKey(_)
+            | MappingEntryEvidence::InvalidKey(_)
+            | MappingEntryEvidence::UnknownUnpack(_) => None,
+        }
+        .expect("expected a resolved string entry");
+        assert_eq!(key, "k");
         assert!(matches!(&value.kind, PythonValueKind::Str(text) if text == "new"));
     }
 
@@ -711,9 +723,11 @@ mod tests {
 
         first.merge_semantically_equal(second, None);
         let projection = first.mapping().projection().collect::<Vec<_>>();
-        let [MappingLogItem::UnknownUnpack(unknown)] = projection.as_slice() else {
-            panic!("equal dictionaries should retain one unknown unpack");
-        };
+        let unknown = match projection.as_slice() {
+            [MappingLogItem::UnknownUnpack(unknown)] => Some(*unknown),
+            _ => None,
+        }
+        .expect("equal dictionaries should retain one unknown unpack");
         assert_eq!(
             unknown.origins().collect::<Vec<_>>(),
             [origin(30), origin(40)]

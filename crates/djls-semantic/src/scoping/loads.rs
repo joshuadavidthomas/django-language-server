@@ -138,18 +138,9 @@ fn parse_load_bits(bits: &[TagBit]) -> Option<LoadKind> {
     }
 }
 
-/// Coordinates of one full or selective import in the ordered statement list.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct IndexedLoadEvent {
-    statement: usize,
-    argument: usize,
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 struct LoadIndex {
-    full_events: Vec<IndexedLoadEvent>,
     full_statements_by_library: BTreeMap<String, Vec<usize>>,
-    selective_events_by_symbol: BTreeMap<String, Vec<IndexedLoadEvent>>,
     selective_statements_by_library_symbol: BTreeMap<String, BTreeMap<String, Vec<usize>>>,
 }
 
@@ -159,11 +150,7 @@ impl LoadIndex {
         for (statement_index, statement) in statements.iter().enumerate() {
             match &statement.kind {
                 LoadKind::FullLoad { libraries } => {
-                    for (argument, library) in libraries.iter().enumerate() {
-                        index.full_events.push(IndexedLoadEvent {
-                            statement: statement_index,
-                            argument,
-                        });
+                    for library in libraries {
                         index
                             .full_statements_by_library
                             .entry(library.as_str().to_string())
@@ -172,16 +159,7 @@ impl LoadIndex {
                     }
                 }
                 LoadKind::SelectiveImport { symbols, library } => {
-                    for (argument, symbol) in symbols.iter().enumerate() {
-                        let event = IndexedLoadEvent {
-                            statement: statement_index,
-                            argument,
-                        };
-                        index
-                            .selective_events_by_symbol
-                            .entry(symbol.as_str().to_string())
-                            .or_default()
-                            .push(event);
+                    for symbol in symbols {
                         index
                             .selective_statements_by_library_symbol
                             .entry(library.as_str().to_string())
@@ -280,54 +258,22 @@ impl<'a> LoadState<'a> {
         libraries: &mut Vec<&'a str>,
     ) {
         libraries.clear();
-        let full_end = self
-            .loaded
-            .index
-            .full_events
-            .partition_point(|event| event.statement < self.statement_end);
-        let selective = self
-            .loaded
-            .index
-            .selective_events_by_symbol
-            .get(symbol)
-            .map_or(&[][..], Vec::as_slice);
-        let selective_end = selective.partition_point(|event| event.statement < self.statement_end);
-        let mut full = self.loaded.index.full_events[..full_end].iter().peekable();
-        let mut selective = selective[..selective_end].iter().peekable();
-        libraries.reserve(full_end + selective_end);
-
-        while full.peek().is_some() || selective.peek().is_some() {
-            if selective.peek().is_none_or(|selective_event| {
-                full.peek()
-                    .is_some_and(|full_event| *full_event <= *selective_event)
-            }) {
-                let event = full.next().expect("a full event was selected");
-                libraries.push(self.full_event_library(*event));
-                continue;
-            }
-
-            let event = *selective.next().expect("a selective event was selected");
-            let library = self.selective_event_library(event);
-            if libraries.last().copied() != Some(library) {
-                libraries.push(library);
+        for statement in self.statements() {
+            match &statement.kind {
+                LoadKind::FullLoad { libraries: loaded } => {
+                    libraries.extend(loaded.iter().map(LoadArgument::as_str));
+                }
+                LoadKind::SelectiveImport { symbols, library }
+                    if symbols.iter().any(|loaded| loaded.as_str() == symbol) =>
+                {
+                    let library = library.as_str();
+                    if libraries.last().copied() != Some(library) {
+                        libraries.push(library);
+                    }
+                }
+                LoadKind::SelectiveImport { .. } => {}
             }
         }
-    }
-
-    fn full_event_library(self, event: IndexedLoadEvent) -> &'a str {
-        let LoadKind::FullLoad { libraries } = &self.loaded.statements[event.statement].kind else {
-            unreachable!("the full-load index must address a full load")
-        };
-        libraries[event.argument].as_str()
-    }
-
-    fn selective_event_library(self, event: IndexedLoadEvent) -> &'a str {
-        let LoadKind::SelectiveImport { library, .. } =
-            &self.loaded.statements[event.statement].kind
-        else {
-            unreachable!("the selective-load index must address a selective import")
-        };
-        library.as_str()
     }
 
     fn statements(self) -> &'a [LoadStatement] {

@@ -116,18 +116,20 @@ impl Constraint for RequiredKeyword {
         message: Option<String>,
     ) -> Option<ValidationError> {
         let bits_index = resolve_position_index(&self.position, bits.len())?;
+        let bit = bits.get(bits_index)?;
 
-        if bits[bits_index] == self.value {
+        if bit == &self.value {
             None
         } else {
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
-                message: message.unwrap_or_else(|| {
-                    format!(
+                message: match message {
+                    Some(message) => message,
+                    None => format!(
                         "Tag '{tag_name}' expects '{}' at position {}",
                         self.value, self.position
-                    )
-                }),
+                    ),
+                },
                 span,
             })
         }
@@ -143,16 +145,18 @@ impl Constraint for ChoiceAt {
         message: Option<String>,
     ) -> Option<ValidationError> {
         let bits_index = resolve_position_index(&self.position, bits.len())?;
+        let bit = bits.get(bits_index)?;
 
-        if self.values.iter().any(|v| v == &bits[bits_index]) {
+        if self.values.iter().any(|value| value == bit) {
             None
         } else {
             let choices = self.values.join("', '");
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
-                message: message.unwrap_or_else(|| {
-                    format!("Tag '{tag_name}' argument must be one of: '{choices}'")
-                }),
+                message: match message {
+                    Some(message) => message,
+                    None => format!("Tag '{tag_name}' argument must be one of: '{choices}'"),
+                },
                 span,
             })
         }

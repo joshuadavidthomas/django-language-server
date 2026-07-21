@@ -100,7 +100,12 @@ mod tests {
         let (_, errors) = crate::parse_template_impl(source);
 
         assert_eq!(errors.len(), 1);
-        let error = TemplateError::from(errors.into_iter().next().unwrap());
+        let error = TemplateError::from(
+            errors
+                .into_iter()
+                .next()
+                .expect("malformed variable should produce one parse error"),
+        );
 
         assert_eq!(error.diagnostic_code(), "T100");
         assert_eq!(error.primary_span(), Some((6, 2)));

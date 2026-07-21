@@ -57,15 +57,8 @@ pub struct SortedExtractionResult {
 }
 
 /// Convert an extraction bundle into deterministic snapshot data.
-///
-/// # Panics
-///
-/// Panics if `BlockSpecs` serialization fails or does not produce a JSON map.
-/// The extraction types are serializable by construction, so this indicates a
-/// programming error.
-#[must_use]
-pub fn sorted_snapshot(bundle: &ExtractionBundle) -> SortedExtractionResult {
-    SortedExtractionResult {
+pub fn sorted_snapshot(bundle: &ExtractionBundle) -> serde_json::Result<SortedExtractionResult> {
+    Ok(SortedExtractionResult {
         tag_rules: bundle
             .tag_rules
             .iter()
@@ -76,12 +69,8 @@ pub fn sorted_snapshot(bundle: &ExtractionBundle) -> SortedExtractionResult {
             .iter()
             .map(|(key, arity)| (key_str(key), arity.clone()))
             .collect(),
-        block_specs: serde_json::from_value(
-            serde_json::to_value(&bundle.block_specs)
-                .expect("BlockSpecs serialization should succeed"),
-        )
-        .expect("serialized BlockSpecs should be a JSON object"),
-    }
+        block_specs: serde_json::from_value(serde_json::to_value(&bundle.block_specs)?)?,
+    })
 }
 
 fn key_str(key: &SymbolKey) -> String {

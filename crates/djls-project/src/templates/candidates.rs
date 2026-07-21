@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_source::FileError;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
 use djls_source::RootWalk;
@@ -33,10 +34,9 @@ impl TemplateTagCandidate {
         name: LibraryName,
         path: Utf8PathBuf,
     ) -> Result<Self, TemplateTagCandidateIssue> {
-        let module_name = templatetag_module(&app, &name)
-            .expect("recognized template tag candidate should have a valid module name");
-        let file =
-            path_to_file(db, &path).map_err(|_| TemplateTagCandidateIssue::FileConversion)?;
+        let module_name =
+            templatetag_module(&app, &name).ok_or(TemplateTagCandidateIssue::InvalidIdentifier)?;
+        let file = path_to_file(db, &path).map_err(TemplateTagCandidateIssue::FileConversion)?;
         let search_path = search_path_for_source(db, project, &path)
             .ok_or(TemplateTagCandidateIssue::RootAssociation)?;
         Ok(Self {
@@ -84,7 +84,7 @@ pub(crate) enum TemplateTagCandidateIssue {
     PackageResolution,
     Walk,
     InvalidIdentifier,
-    FileConversion,
+    FileConversion(FileError),
     RootAssociation,
 }
 
@@ -480,7 +480,8 @@ mod tests {
         );
 
         let path = Utf8PathBuf::from("/root/namespace_app/templatetags/tools.py");
-        let package = PythonModuleName::parse("namespace_app").unwrap();
+        let package = PythonModuleName::parse("namespace_app")
+            .expect("test Python module name should be valid");
         let active = recognize_candidate_source(
             &fs,
             Utf8Path::new("/root/namespace_app"),
@@ -490,9 +491,12 @@ mod tests {
         );
         let available = recognize_candidate_source(&fs, Utf8Path::new("/root"), path, &[], None);
 
-        let CandidateSourceRecognition::Candidate { app, name, .. } = active else {
-            panic!("active package scan should accept namespace package templatetags");
-        };
+        let (app, name) = match active {
+            CandidateSourceRecognition::Candidate { app, name, .. } => Some((app, name)),
+            CandidateSourceRecognition::InvalidIdentifier
+            | CandidateSourceRecognition::NotCandidate => None,
+        }
+        .expect("active package scan should accept namespace package templatetags");
         assert_eq!(app.as_str(), "namespace_app");
         assert_eq!(name.as_str(), "tools");
         assert!(matches!(

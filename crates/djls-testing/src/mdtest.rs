@@ -2,10 +2,10 @@
 //!
 //! See `resources/mdtest/README.md` for the authoring format.
 
-use std::fmt::Write as _;
 use std::ops::Range;
 use std::path::Path;
 
+use anyhow::Context as _;
 use pulldown_cmark::CodeBlockKind;
 use pulldown_cmark::Event;
 use pulldown_cmark::HeadingLevel;
@@ -37,32 +37,30 @@ pub struct ScenarioFile {
 
 impl Scenario {
     /// Return the primary file for this scenario.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the scenario has no files. The collector only emits scenarios
-    /// after seeing at least one template source block.
-    #[must_use]
-    pub fn primary_file(&self) -> &ScenarioFile {
-        self.files
-            .get(self.primary_file_index)
-            .expect("scenario should have at least one source file")
+    pub fn primary_file(&self) -> anyhow::Result<&ScenarioFile> {
+        self.files.get(self.primary_file_index).ok_or_else(|| {
+            anyhow::anyhow!(
+                "scenario `{}` has no primary source file at index {}",
+                self.name,
+                self.primary_file_index
+            )
+        })
     }
 
-    fn render_validation_snapshot(&self) -> String {
-        let primary = self.primary_file();
+    fn render_validation_snapshot(&self) -> anyhow::Result<String> {
+        let primary = self.primary_file()?;
         let rendered = snapshot_validate_files(
             primary.path.as_str(),
             primary.source.as_str(),
             self.files
                 .iter()
                 .map(|file| (file.path.as_str(), file.source.as_str())),
-        );
-        if rendered.trim().is_empty() {
+        )?;
+        Ok(if rendered.trim().is_empty() {
             NO_DIAGNOSTICS_SNAPSHOT.to_string()
         } else {
             rendered
-        }
+        })
     }
 
     fn snapshot_update(&self, actual: String) -> SnapshotUpdate {
@@ -97,41 +95,47 @@ impl SnapshotUpdate {
 
         for update in updates {
             for line in &lines[cursor..update.start] {
-                writeln!(&mut output, "{line}").unwrap();
+                output.push_str(line);
+                output.push('\n');
             }
             if !update.replacement.is_empty() {
                 for line in update.replacement.lines() {
-                    writeln!(&mut output, "{line}").unwrap();
+                    output.push_str(line);
+                    output.push('\n');
                 }
             }
             cursor = update.end;
         }
 
         for line in &lines[cursor..] {
-            writeln!(&mut output, "{line}").unwrap();
+            output.push_str(line);
+            output.push('\n');
         }
 
         output
     }
 }
 
-pub fn run_suite(dir: &Path) {
-    run_suite_with(dir, Scenario::render_validation_snapshot);
+pub fn run_suite(dir: &Path) -> anyhow::Result<()> {
+    run_suite_with(dir, Scenario::render_validation_snapshot)
 }
 
-pub fn run_suite_with(dir: &Path, render: fn(&Scenario) -> String) {
-    MdtestRun::new(dir.to_path_buf(), render).run();
+pub fn run_suite_with(
+    dir: &Path,
+    render: fn(&Scenario) -> anyhow::Result<String>,
+) -> anyhow::Result<()> {
+    MdtestRun::new(dir.to_path_buf(), render).run()
 }
 
 struct MdtestRun {
     root: std::path::PathBuf,
-    render: fn(&Scenario) -> String,
+    render: fn(&Scenario) -> anyhow::Result<String>,
     update: bool,
     failures: Vec<String>,
 }
 
 impl MdtestRun {
-    fn new(root: std::path::PathBuf, render: fn(&Scenario) -> String) -> Self {
+    fn new(root: std::path::PathBuf, render: fn(&Scenario) -> anyhow::Result<String>) -> Self {
         Self {
             root,
             render,
@@ -140,28 +144,41 @@ impl MdtestRun {
         }
     }
 
-    fn run(mut self) {
-        let files = self.files();
-        assert!(!files.is_empty(), "expected at least one mdtest file");
-
-        for path in files {
-            self.run_file(&path);
+    fn run(mut self) -> anyhow::Result<()> {
+        let files = self.files()?;
+        if files.is_empty() {
+            anyhow::bail!(
+                "expected at least one mdtest file in `{}`",
+                self.root.display()
+            );
         }
 
-        assert!(
-            self.failures.is_empty(),
-            "mdtest failures:\n\n{}",
-            self.failures.join("\n\n")
-        );
+        for path in files {
+            self.run_file(&path)?;
+        }
+
+        if !self.failures.is_empty() {
+            anyhow::bail!("mdtest failures:\n\n{}", self.failures.join("\n\n"));
+        }
+        Ok(())
     }
 
-    fn files(&self) -> Vec<std::path::PathBuf> {
+    fn files(&self) -> anyhow::Result<Vec<std::path::PathBuf>> {
         let mut dirs = vec![self.root.clone()];
         let mut files = Vec::new();
 
         while let Some(dir) = dirs.pop() {
-            for entry in std::fs::read_dir(&dir).expect("failed to read mdtest directory") {
-                let path = entry.expect("failed to read mdtest directory entry").path();
+            let entries = std::fs::read_dir(&dir)
+                .with_context(|| format!("failed to read mdtest directory `{}`", dir.display()))?;
+            for entry in entries {
+                let path = entry
+                    .with_context(|| {
+                        format!(
+                            "failed to read an entry in mdtest directory `{}`",
+                            dir.display()
+                        )
+                    })?
+                    .path();
                 if path.is_dir() {
                     dirs.push(path);
                 } else if path.extension().is_some_and(|ext| ext == "md")
@@ -173,44 +190,57 @@ impl MdtestRun {
         }
 
         files.sort();
-        files
+        Ok(files)
     }
 
-    fn run_file(&mut self, path: &Path) {
-        let markdown = std::fs::read_to_string(path).expect("failed to read mdtest file");
+    fn run_file(&mut self, path: &Path) -> anyhow::Result<()> {
+        let markdown = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read mdtest file `{}`", path.display()))?;
         let scenarios = match ScenarioCollector::new(&markdown).collect() {
             Ok(scenarios) => scenarios,
             Err(err) => {
                 self.failures
                     .push(format!("failed to parse {}: {err}", path.display()));
-                return;
+                return Ok(());
             }
         };
 
         if scenarios.is_empty() {
             self.failures
                 .push(format!("{} did not contain any scenarios", path.display()));
-            return;
+            return Ok(());
         }
 
         let mut updates = Vec::new();
         for scenario in scenarios {
-            let actual = (self.render)(&scenario);
+            let actual = (self.render)(&scenario)
+                .with_context(|| format!("failed to render mdtest scenario `{}`", scenario.name))?;
             if self.update {
                 updates.push(scenario.snapshot_update(actual));
             } else {
-                self.check_snapshot(path, &scenario, &actual);
+                self.check_snapshot(path, &scenario, &actual)?;
             }
         }
 
         if self.update {
             let rewritten_markdown = SnapshotUpdate::apply_all(&markdown, &updates);
-            std::fs::write(path, rewritten_markdown).expect("failed to update mdtest snapshots");
+            std::fs::write(path, rewritten_markdown).with_context(|| {
+                format!(
+                    "failed to update snapshots in mdtest file `{}`",
+                    path.display()
+                )
+            })?;
         }
+        Ok(())
     }
 
-    fn check_snapshot(&mut self, path: &Path, scenario: &Scenario, actual: &str) {
-        let primary_path = &scenario.primary_file().path;
+    fn check_snapshot(
+        &mut self,
+        path: &Path,
+        scenario: &Scenario,
+        actual: &str,
+    ) -> anyhow::Result<()> {
+        let primary_path = &scenario.primary_file()?.path;
         let Some(expected) = scenario.snapshot.as_deref() else {
             self.failures.push(format!(
                 "mdtest scenario missing snapshot: {} ({}) in {}. Set {UPDATE_ENV}=1 to insert snapshots.",
@@ -218,7 +248,7 @@ impl MdtestRun {
                 primary_path,
                 path.display(),
             ));
-            return;
+            return Ok(());
         };
 
         if expected.trim_end() != actual.trim_end() {
@@ -231,6 +261,7 @@ impl MdtestRun {
                 actual.trim_end(),
             ));
         }
+        Ok(())
     }
 }
 
@@ -378,7 +409,17 @@ impl<'a> ScenarioCollector<'a> {
                 Event::End(TagEnd::CodeBlock) => self.finish_code_block(range)?,
                 Event::Text(text) => self.push_text(&text, range),
                 Event::Code(text) => self.push_inline_code(&text),
-                _ => {}
+                Event::Start(_)
+                | Event::End(_)
+                | Event::InlineMath(_)
+                | Event::DisplayMath(_)
+                | Event::Html(_)
+                | Event::InlineHtml(_)
+                | Event::FootnoteReference(_)
+                | Event::SoftBreak
+                | Event::HardBreak
+                | Event::Rule
+                | Event::TaskListMarker(_) => {}
             }
         }
 
@@ -406,7 +447,9 @@ impl<'a> ScenarioCollector<'a> {
         if let Some(heading) = &mut self.active_heading {
             heading.name.push_str(text);
         } else if let Some(paragraph) = &mut self.active_paragraph {
-            write!(paragraph, "`{text}`").unwrap();
+            paragraph.push('`');
+            paragraph.push_str(text);
+            paragraph.push('`');
         }
     }
 
@@ -533,6 +576,12 @@ impl<'a> ScenarioCollector<'a> {
                     )
                 })?
             };
+            let snapshot_insert_at = current.snapshot_insert_at.ok_or_else(|| {
+                format!(
+                    "scenario '{}' source block has no snapshot insertion point",
+                    current.name
+                )
+            })?;
             self.scenarios.push(Scenario {
                 name: current.name,
                 files: current.files,
@@ -540,9 +589,7 @@ impl<'a> ScenarioCollector<'a> {
                 snapshot: current.snapshot,
                 snapshot_start: current.snapshot_start,
                 snapshot_end: current.snapshot_end,
-                snapshot_insert_at: current
-                    .snapshot_insert_at
-                    .expect("source block should have an insertion point"),
+                snapshot_insert_at,
             });
             Ok(())
         } else if current.snapshot.is_none() {
@@ -599,7 +646,9 @@ error[S102]: Orphaned tag
 ```
 ";
 
-        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("heading-path scenario should parse");
 
         assert_eq!(scenarios.len(), 1);
         assert_eq!(scenarios[0].name, "Diagnostics / else outside if");
@@ -634,7 +683,9 @@ error[S102]: Orphaned tag
 ```
 ";
 
-        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("single-file scenario should parse");
 
         assert_eq!(scenarios.len(), 1);
         assert_eq!(
@@ -671,7 +722,9 @@ error[S102]: Orphaned tag
 ```
 "#;
 
-        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("primary-first multi-file scenario should parse");
 
         assert_eq!(scenarios.len(), 1);
         assert_eq!(scenarios[0].name, "Inheritance / child and parent");
@@ -688,7 +741,13 @@ error[S102]: Orphaned tag
                 },
             ]
         );
-        assert_eq!(scenarios[0].primary_file().path, "test.html");
+        assert_eq!(
+            scenarios[0]
+                .primary_file()
+                .expect("scenario should have a primary file")
+                .path,
+            "test.html"
+        );
         assert_eq!(scenarios[0].snapshot.as_deref(), Some("✓ no diagnostics"));
     }
 
@@ -713,7 +772,9 @@ error[S102]: Orphaned tag
 ```
 "#;
 
-        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("support-first multi-file scenario should parse");
 
         assert_eq!(scenarios.len(), 1);
         assert_eq!(scenarios[0].name, "Inheritance / child and parent");
@@ -730,7 +791,13 @@ error[S102]: Orphaned tag
                 },
             ]
         );
-        assert_eq!(scenarios[0].primary_file().path, "test.html");
+        assert_eq!(
+            scenarios[0]
+                .primary_file()
+                .expect("scenario should have a primary file")
+                .path,
+            "test.html"
+        );
     }
 
     #[test]
@@ -752,7 +819,9 @@ error[S102]: Orphaned tag
 ```
 "#;
 
-        let error = ScenarioCollector::new(markdown).collect().unwrap_err();
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("multi-file scenario with no primary file should be rejected");
 
         assert_eq!(
             error,
@@ -781,7 +850,9 @@ error[S102]: Orphaned tag
 ```
 ";
 
-        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("group-heading scenarios should parse");
 
         assert_eq!(scenarios.len(), 2);
         assert_eq!(scenarios[0].name, "for / Valid / iterates over a sequence");
@@ -810,7 +881,9 @@ error[S102]: Orphaned tag
 ```
 "#;
 
-        let error = ScenarioCollector::new(markdown).collect().unwrap_err();
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("child heading after a source block should be rejected");
 
         assert_eq!(
             error,
@@ -842,7 +915,9 @@ error[S102]: Orphaned tag
 ```
 "#;
 
-        let error = ScenarioCollector::new(markdown).collect().unwrap_err();
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("second unlabeled source block should be rejected");
 
         assert_eq!(
             error,

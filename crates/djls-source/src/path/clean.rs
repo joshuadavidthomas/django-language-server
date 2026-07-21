@@ -20,8 +20,7 @@
 //! LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 //! OUT OF OR IN
 
-use std::path::Component;
-
+use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
@@ -44,27 +43,29 @@ impl Utf8PathClean for Utf8PathBuf {
 pub(super) fn clean_utf8_path(path: &Utf8Path) -> Utf8PathBuf {
     let mut out = Vec::new();
 
-    for comp in path.as_std_path().components() {
+    for comp in path.components() {
         match comp {
-            Component::CurDir => (),
-            Component::ParentDir => match out.last() {
-                Some(Component::RootDir) => (),
-                Some(Component::Normal(_)) => {
+            Utf8Component::CurDir => {}
+            Utf8Component::ParentDir => match out.last() {
+                Some(Utf8Component::RootDir) => {}
+                Some(Utf8Component::Normal(_)) => {
                     out.pop();
                 }
-                None | Some(Component::CurDir | Component::ParentDir | Component::Prefix(_)) => {
-                    out.push(comp);
-                }
+                None
+                | Some(
+                    Utf8Component::CurDir | Utf8Component::ParentDir | Utf8Component::Prefix(_),
+                ) => out.push(comp),
             },
-            comp => out.push(comp),
+            comp @ (Utf8Component::Prefix(_)
+            | Utf8Component::RootDir
+            | Utf8Component::Normal(_)) => out.push(comp),
         }
     }
 
     if out.is_empty() {
         Utf8PathBuf::from(".")
     } else {
-        let cleaned: std::path::PathBuf = out.iter().collect();
-        Utf8PathBuf::from_path_buf(cleaned).expect("Path should still be UTF-8")
+        out.into_iter().collect()
     }
 }
 

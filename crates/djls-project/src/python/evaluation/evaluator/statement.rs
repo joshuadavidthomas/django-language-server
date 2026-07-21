@@ -35,9 +35,8 @@ impl PythonModuleEvaluator<'_> {
             }
             ast::Stmt::AugAssign(assign) => self.walk_aug_assign(assign),
             ast::Stmt::Expr(expr) => self.evaluate_expression_statement(&expr.value),
-            ast::Stmt::Import(_) | ast::Stmt::ImportFrom(_) => {
-                self.evaluate_import_statement(stmt);
-            }
+            ast::Stmt::Import(statement) => self.evaluate_direct_import_statement(statement),
+            ast::Stmt::ImportFrom(statement) => self.evaluate_from_import(statement),
             ast::Stmt::If(stmt_if) => self.walk_if(stmt_if),
             ast::Stmt::For(stmt_for) => {
                 self.bind_for_target(&stmt_for.target);
@@ -242,11 +241,12 @@ impl PythonModuleEvaluator<'_> {
     fn walk_aug_assign(&mut self, assign: &ast::StmtAugAssign) {
         let origin = self.origin(assign);
         if assign.op == ast::Operator::Add
-            && let Some(name) = assign.target.name_target()
-            && let Some(left) = self.state.value_for_name(name)
+            && let Some(target) = MutationTarget::from_expr(&assign.target)
+            && assign.target.name_target().is_some()
+            && let Some(left) = self.state.value_for_name(target.binding)
         {
             let right = self.evaluate_value(&assign.value);
-            self.apply_name_augmented_add(name, left, &right, &assign.target, origin);
+            self.apply_name_augmented_add(target, left, &right, origin);
             return;
         }
 
@@ -275,17 +275,12 @@ impl PythonModuleEvaluator<'_> {
     ///   unsupported-mutation unknowns, and an `Extend` fact is recorded.
     fn apply_name_augmented_add(
         &mut self,
-        name: &str,
+        target: MutationTarget<'_>,
         left: PythonValue,
         right: &PythonValue,
-        target: &ast::Expr,
         origin: Origin,
     ) {
-        let extend_fact = || {
-            MutationTarget::from_expr(target)
-                .expect("a name target is a supported mutation target")
-                .into_fact(PythonMutationOperation::Extend, origin)
-        };
+        let name = target.binding;
         let mut left = left;
         match &mut left.kind {
             PythonValueKind::List(list) => {
@@ -298,7 +293,7 @@ impl PythonModuleEvaluator<'_> {
                     // A successful in-place list `+=` updates the binding
                     // without clearing prior mutation facts; the `Extend` fact
                     // below then accumulates onto them.
-                    self.state.update_bound_value(name, left);
+                    self.state.update_bound_value(name, left, origin);
                     self.state.invalidate_names(
                         stale_aliases,
                         &PythonUnknownCause::UnsupportedExpression,
@@ -324,7 +319,9 @@ impl PythonModuleEvaluator<'_> {
                         origin,
                     );
                 }
-                self.state.mutations.insert(extend_fact());
+                self.state
+                    .mutations
+                    .insert(target.into_fact(PythonMutationOperation::Extend, origin));
             }
             PythonValueKind::Tuple(_) | PythonValueKind::Str(_) => {
                 let value = left.add(right, origin);
@@ -349,7 +346,9 @@ impl PythonModuleEvaluator<'_> {
                     &PythonUnknownCause::UnsupportedMutation,
                     origin,
                 );
-                self.state.mutations.insert(extend_fact());
+                self.state
+                    .mutations
+                    .insert(target.into_fact(PythonMutationOperation::Extend, origin));
             }
         }
     }

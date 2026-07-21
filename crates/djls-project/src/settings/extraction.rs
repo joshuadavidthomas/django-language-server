@@ -593,33 +593,29 @@ fn template_settings_case(
     malformed: bool,
     constraints: BranchConstraints,
 ) -> ConstrainedTemplateCase {
+    let complete = evidence
+        .iter()
+        .map(|evidence| match evidence {
+            TemplateBackendEvidence::Backend(backend) if !backend.has_issues() => {
+                let known_backend = backend.backend.known.clone()?;
+                Some(TemplateBackend {
+                    backend: known_backend,
+                    dirs: backend.dirs.clone().into_known(),
+                    app_dirs: backend.app_dirs.known.clone(),
+                    libraries: backend.libraries.known.clone(),
+                    builtins: backend.builtins.known.clone(),
+                    context_processors: backend.context_processors.known.clone(),
+                })
+            }
+            TemplateBackendEvidence::Backend(_) | TemplateBackendEvidence::Issue(_) => None,
+        })
+        .collect::<Option<Vec<_>>>();
     let case = if malformed {
         SettingCase::Malformed(PartialTemplateBackends { evidence })
-    } else if evidence.iter().any(|evidence| match evidence {
-        TemplateBackendEvidence::Backend(backend) => backend.has_issues(),
-        TemplateBackendEvidence::Issue(_) => true,
-    }) {
-        SettingCase::Dynamic(PartialTemplateBackends { evidence })
+    } else if let Some(backends) = complete {
+        SettingCase::Known(TemplateBackends { backends })
     } else {
-        SettingCase::Known(TemplateBackends {
-            backends: evidence
-                .into_iter()
-                .filter_map(|evidence| match evidence {
-                    TemplateBackendEvidence::Backend(backend) => {
-                        let backend = *backend;
-                        Some(TemplateBackend {
-                            backend: backend.backend.known.expect("complete backend has BACKEND"),
-                            dirs: backend.dirs.into_known(),
-                            app_dirs: backend.app_dirs.known,
-                            libraries: backend.libraries.known,
-                            builtins: backend.builtins.known,
-                            context_processors: backend.context_processors.known,
-                        })
-                    }
-                    TemplateBackendEvidence::Issue(_) => None,
-                })
-                .collect(),
-        })
+        SettingCase::Dynamic(PartialTemplateBackends { evidence })
     };
     ConstrainedTemplateCase { case, constraints }
 }
@@ -1029,8 +1025,7 @@ fn path_list_alternative(
                     }
                     continue;
                 }
-                if evaluated.len() == 1 {
-                    let path = evaluated.into_iter().next().expect("one evaluated path");
+                if let [path] = evaluated.as_slice() {
                     for projection in &mut cases {
                         projection.paths.push_known(path.path.clone());
                         projection.constraints =
@@ -1214,10 +1209,10 @@ fn unknown_issue(unknown: &PythonUnknown) -> SettingIssue {
 }
 
 fn unknown_value_issue(value: &PythonValue) -> SettingIssue {
-    let unknown = value
-        .unknown_value()
-        .expect("unknown value issue requires an unknown value");
-    unknown_issue(unknown)
+    value.unknown_value().map_or_else(
+        || value_issue(SettingIssueKind::DynamicExpression, value),
+        unknown_issue,
+    )
 }
 
 fn unknown_issue_kind(unknown: &PythonUnknown) -> SettingIssueKind {

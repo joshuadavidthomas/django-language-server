@@ -13,7 +13,7 @@ pub struct VendorSpecFixturesOptions {
 }
 
 pub fn vendor_spec_fixtures(options: VendorSpecFixturesOptions) -> anyhow::Result<()> {
-    let corpus = Corpus::require();
+    let corpus = Corpus::require()?;
     let output_dir = options.output_dir.unwrap_or_else(default_spec_fixture_dir);
 
     if !options.check {
@@ -331,7 +331,8 @@ class Other:
     pass
 "#;
 
-        let extracted = extract_top_level_item(source.trim_start(), "do_demo").unwrap();
+        let extracted = extract_top_level_item(source.trim_start(), "do_demo")
+            .expect("decorated top-level function should be extracted");
         assert_eq!(
             extracted,
             "@register.tag(\"demo\")\ndef do_demo(parser, token):\n    bits = token.split_contents()\n    return bits"
@@ -350,7 +351,8 @@ class DialogNode(BlockInclusionNode):
 register.tag("dialog", DialogNode.handle)
 "#;
 
-        let extracted = extract_top_level_item(source.trim_start(), "DialogNode").unwrap();
+        let extracted = extract_top_level_item(source.trim_start(), "DialogNode")
+            .expect("top-level class should be extracted");
         assert_eq!(
             extracted,
             "class DialogNode(BlockInclusionNode):\n    template = \"dialog.html\"\n\n    def get_context_data(self, parent_context):\n        return {}"

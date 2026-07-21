@@ -154,7 +154,12 @@ fn analyze_case_pattern(pattern: &Pattern) -> PatternShape {
             pattern: Some(inner),
             ..
         }) => analyze_case_pattern(inner),
-        _ => PatternShape::Unknown,
+        Pattern::MatchValue(_)
+        | Pattern::MatchSingleton(_)
+        | Pattern::MatchMapping(_)
+        | Pattern::MatchClass(_)
+        | Pattern::MatchStar(_)
+        | Pattern::MatchOr(_) => PatternShape::Unknown,
     }
 }
 
@@ -221,7 +226,13 @@ fn pattern_literal(pattern: &Pattern) -> Option<String> {
                 None
             }
         }
-        _ => None,
+        Pattern::MatchSingleton(_)
+        | Pattern::MatchSequence(_)
+        | Pattern::MatchMapping(_)
+        | Pattern::MatchClass(_)
+        | Pattern::MatchStar(_)
+        | Pattern::MatchAs(_)
+        | Pattern::MatchOr(_) => None,
     }
 }
 

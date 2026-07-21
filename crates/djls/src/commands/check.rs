@@ -19,6 +19,8 @@ use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
 use djls_ide::prepare_project_template_analysis;
+use djls_project::EnvironmentAssemblyError;
+use djls_project::ProjectFactsData;
 use djls_project::run_django_discovery;
 use djls_source::CaseSensitivity;
 use djls_source::DiagnosticRenderer;
@@ -87,7 +89,9 @@ impl CheckInput {
 
     fn file_system(&self) -> Arc<dyn FileSystem> {
         match self {
-            Self::Files { file_system } | Self::Stdin { file_system, .. } => file_system.clone(),
+            Self::Files { file_system } | Self::Stdin { file_system, .. } => {
+                Arc::clone(file_system)
+            }
         }
     }
 
@@ -161,6 +165,14 @@ pub(crate) struct Check {
     color: ColorMode,
 }
 
+fn require_configured_discovery(
+    outcome: std::result::Result<Option<ProjectFactsData>, EnvironmentAssemblyError>,
+) -> Result<ProjectFactsData> {
+    outcome
+        .context("Failed to discover Django environment")?
+        .context("No Project configured for check")
+}
+
 impl Command for Check {
     fn execute(&self, args: &Args) -> Result<Exit> {
         let project_root = resolve_project_root()?;
@@ -173,7 +185,7 @@ impl Command for Check {
 
         let mut db = DjangoDatabase::new(input.file_system(), &settings, Some(&project_root));
         db.apply_project_settings(settings);
-        run_django_discovery(&mut db).context("No Project configured for check")?;
+        require_configured_discovery(run_django_discovery(&mut db))?;
 
         let walk_options = WalkOptions {
             hidden: self.hidden,
@@ -270,11 +282,11 @@ fn check_files_parallel(
                 };
                 match check_template(&db, file) {
                     Ok(result) if result.has_diagnostics() => {
-                        let _ = tx.send(Ok(result));
+                        drop(tx.send(Ok(result)));
                     }
                     Ok(_) => {}
                     Err(error) => {
-                        let _ = tx.send(Err(error.into()));
+                        drop(tx.send(Err(error.into())));
                     }
                 }
             });
@@ -357,5 +369,36 @@ fn pick_renderer(color: ColorMode) -> DiagnosticRenderer {
         DiagnosticRenderer::styled()
     } else {
         DiagnosticRenderer::plain()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use djls_project::EnvironmentPhase;
+
+    use super::*;
+
+    #[test]
+    fn environment_assembly_error_reaches_check_caller() {
+        let error = require_configured_discovery(Err(EnvironmentAssemblyError::Missing(
+            EnvironmentPhase::SearchPaths,
+        )))
+        .expect_err("malformed Django environment assembly should fail check");
+
+        assert_eq!(
+            error.chain().map(ToString::to_string).collect::<Vec<_>>(),
+            [
+                "Failed to discover Django environment",
+                "Django environment is missing the SearchPaths phase result",
+            ]
+        );
+    }
+
+    #[test]
+    fn missing_project_remains_distinct_from_environment_assembly_error() {
+        let error = require_configured_discovery(Ok(None))
+            .expect_err("check should require a configured Project");
+
+        assert_eq!(error.to_string(), "No Project configured for check");
     }
 }

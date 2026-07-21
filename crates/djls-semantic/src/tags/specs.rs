@@ -113,7 +113,7 @@ impl TagSpecs {
             }
 
             if let Some(spec) = self.0.get_mut(&key.name) {
-                spec.set_extracted_rules(tag_rule.clone());
+                spec.set_extracted_rules(Arc::clone(tag_rule));
             } else {
                 // Tag not yet in specs — create a minimal entry with extracted rules
                 self.0.insert(
@@ -124,7 +124,7 @@ impl TagSpecs {
                         Cow::Borrowed(&[]),
                         false,
                     )
-                    .with_extracted_rules(tag_rule.clone()),
+                    .with_extracted_rules(Arc::clone(tag_rule)),
                 );
             }
         }
@@ -281,7 +281,10 @@ impl TagSpecs {
                                         values,
                                     });
                                 }
-                                _ => {}
+                                TagArgumentKind::Variable
+                                | TagArgumentKind::Choice(_)
+                                | TagArgumentKind::VarArgs
+                                | TagArgumentKind::Keyword => {}
                             }
                         }
                     }
@@ -738,7 +741,9 @@ mod tests {
         assert!(specs.get("block").is_some());
         assert!(specs.get("nonexistent").is_none());
 
-        let if_spec = specs.get("if").unwrap();
+        let if_spec = specs
+            .get("if")
+            .expect("test specs should contain the if tag");
         assert!(if_spec.end_tag.is_some());
     }
 
@@ -798,8 +803,16 @@ mod tests {
         assert!(ptr::eq(result, ptr::from_ref(&specs1)));
 
         assert!(specs1.get("custom").is_some());
-        let if_spec = specs1.get("if").unwrap();
-        assert!(!if_spec.end_tag.as_ref().unwrap().required);
+        let if_spec = specs1
+            .get("if")
+            .expect("merged test specs should contain the if tag");
+        assert!(
+            !if_spec
+                .end_tag
+                .as_ref()
+                .expect("the merged if tag should retain its end tag")
+                .required
+        );
         assert!(if_spec.intermediate_tags.is_empty());
         assert!(specs1.get("for").is_some());
         assert!(specs1.get("csrf_token").is_some());
@@ -819,8 +832,11 @@ mod tests {
     fn test_merge_block_specs_overrides_existing() {
         let mut specs = create_test_specs();
 
-        assert!(specs.get("if").unwrap().end_tag.is_some());
-        assert_eq!(specs.get("if").unwrap().intermediate_tags.len(), 2);
+        let original_if = specs
+            .get("if")
+            .expect("test specs should contain the if tag before merging block specs");
+        assert!(original_if.end_tag.is_some());
+        assert_eq!(original_if.intermediate_tags.len(), 2);
 
         let mut block_specs = BlockSpecs::default();
         block_specs.insert(
@@ -834,8 +850,18 @@ mod tests {
 
         specs.merge_block_specs(&block_specs);
 
-        let if_spec = specs.get("if").unwrap();
-        assert_eq!(if_spec.end_tag.as_ref().unwrap().name.as_ref(), "endif");
+        let if_spec = specs
+            .get("if")
+            .expect("test specs should contain the if tag after merging block specs");
+        assert_eq!(
+            if_spec
+                .end_tag
+                .as_ref()
+                .expect("the merged if block spec should define an end tag")
+                .name
+                .as_ref(),
+            "endif"
+        );
         assert_eq!(if_spec.intermediate_tags.len(), 3);
         assert!(
             if_spec
@@ -865,7 +891,10 @@ mod tests {
             },
         );
         let mut specs = TagSpecs::new(spec_map);
-        let original = specs.get("guarded").unwrap().clone();
+        let original = specs
+            .get("guarded")
+            .expect("test specs should contain the guarded tag")
+            .clone();
 
         let mut block_specs = BlockSpecs::default();
         block_specs.insert(
@@ -879,7 +908,12 @@ mod tests {
 
         specs.merge_block_specs(&block_specs);
 
-        assert_eq!(specs.get("guarded").unwrap(), &original);
+        assert_eq!(
+            specs
+                .get("guarded")
+                .expect("the guarded tag should remain after merging block specs"),
+            &original
+        );
     }
 
     #[test]
@@ -900,7 +934,9 @@ mod tests {
         specs.merge_block_specs(&block_specs);
 
         assert_eq!(specs.len(), original_count + 1);
-        let unknownblock = specs.get("unknownblock").unwrap();
+        let unknownblock = specs
+            .get("unknownblock")
+            .expect("merging block specs should insert the unknownblock tag");
         assert_eq!(unknownblock.end_tag, None);
     }
 
@@ -922,9 +958,16 @@ mod tests {
         specs.merge_block_specs(&block_specs);
 
         assert_eq!(specs.len(), original_count + 1);
-        let myblock = specs.get("myblock").unwrap();
+        let myblock = specs
+            .get("myblock")
+            .expect("merging block specs should insert the myblock tag");
         assert_eq!(
-            myblock.end_tag.as_ref().unwrap().name.as_ref(),
+            myblock
+                .end_tag
+                .as_ref()
+                .expect("the merged myblock tag should define an end tag")
+                .name
+                .as_ref(),
             "endmyblock"
         );
         assert_eq!(myblock.intermediate_tags.len(), 1);
@@ -1001,8 +1044,13 @@ mod tests {
 
         specs.merge_tag_rules(&tag_rules);
 
-        let for_spec = specs.get("for").unwrap();
-        let rules = for_spec.extracted_rules.as_ref().unwrap();
+        let for_spec = specs
+            .get("for")
+            .expect("test specs should contain the for tag after merging rules");
+        let rules = for_spec
+            .extracted_rules
+            .as_ref()
+            .expect("the merged for tag should contain extracted rules");
         assert_eq!(rules.extracted_args.len(), 3);
         assert_eq!(rules.extracted_args[0].name, "item");
         assert!(rules.extracted_args[0].required);

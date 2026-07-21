@@ -35,7 +35,7 @@ fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
 
 #[test]
 fn model_extraction_snapshots() {
-    let corpus = Corpus::require();
+    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
     let targets = corpus.model_files();
     assert!(!targets.is_empty(), "No model files in corpus.");
 
@@ -43,9 +43,13 @@ fn model_extraction_snapshots() {
     let db = TestDatabase::new();
 
     for path in targets {
-        let source = std::fs::read_to_string(path.as_std_path()).unwrap();
-        db.add_file(path.as_str(), &source);
-        let file = db.file(&path);
+        let source = std::fs::read_to_string(path.as_std_path())
+            .expect("test fixture source should be readable");
+        db.add_file(path.as_str(), &source)
+            .expect("corpus model fixture should be added to the test database");
+        let file = db
+            .file(&path)
+            .expect("corpus model fixture should exist in the test database");
         let module_name = module_name_from_file(&path);
         let Ok(module_name) = PythonModuleName::parse(&module_name) else {
             continue;

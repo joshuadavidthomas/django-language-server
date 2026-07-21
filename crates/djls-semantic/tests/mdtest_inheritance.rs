@@ -1,4 +1,3 @@
-use std::fmt::Write as _;
 use std::path::Path;
 
 use camino::Utf8Path;
@@ -26,66 +25,70 @@ fn mdtest_inheritance() {
     djls_testing::run_suite_with(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/mdtest/inheritance"),
         render_inheritance,
-    );
+    )
+    .expect("inheritance mdtest suite should run");
 }
 
-fn render_inheritance(scenario: &Scenario) -> String {
+fn render_inheritance(scenario: &Scenario) -> anyhow::Result<String> {
     let db = TestDatabase::new();
-    let project = project_for_scenario(&db, scenario);
+    let project = project_for_scenario(&db, scenario)?;
 
-    let primary = scenario.primary_file();
+    let primary = scenario.primary_file()?;
     let primary_path = template_path(&primary.path);
-    let file = db.file(Utf8Path::new(&primary_path));
-    let nodelist = parse_template(&db, file).expect("should parse");
+    let file = db.file(Utf8Path::new(&primary_path))?;
+    let nodelist = match parse_template(&db, file) {
+        djls_templates::TemplateParseResult::Parsed(nodelist) => nodelist,
+        djls_templates::TemplateParseResult::NotTemplate => {
+            return Ok("file is not a template".to_string());
+        }
+        djls_templates::TemplateParseResult::Unreadable(error) => {
+            return Ok(format!("template could not be read: {error}"));
+        }
+    };
     let symbols = template_symbols(&db, file, nodelist);
     let inheritance = template_inheritance(&db, project, file);
 
-    let mut output = String::new();
-    writeln!(
-        &mut output,
-        "extends: {}",
-        render_extends(symbols.extends())
-    )
-    .unwrap();
-    writeln!(&mut output, "blocks:").unwrap();
+    let mut output = vec![
+        format!("extends: {}", render_extends(symbols.extends())),
+        "blocks:".to_string(),
+    ];
     if symbols.blocks().is_empty() {
-        writeln!(&mut output, "  none").unwrap();
+        output.push("  none".to_string());
     } else {
         for block in symbols.blocks() {
-            writeln!(
-                &mut output,
+            output.push(format!(
                 "  - {} name@{} full@{}",
                 block.name,
                 render_span(block.name_span),
                 render_span(block.full_span)
-            )
-            .unwrap();
+            ));
         }
     }
-    writeln!(&mut output, "partials:").unwrap();
+    output.push("partials:".to_string());
     if symbols.partials().is_empty() {
-        writeln!(&mut output, "  none").unwrap();
+        output.push("  none".to_string());
     } else {
         for partial in symbols.partials() {
-            writeln!(
-                &mut output,
+            output.push(format!(
                 "  - {} name@{} full@{}",
                 partial.name,
                 render_span(partial.name_span),
                 render_span(partial.full_span)
-            )
-            .unwrap();
+            ));
         }
     }
-    writeln!(&mut output, "chain:").unwrap();
+    output.push("chain:".to_string());
     render_chain(&mut output, &db, inheritance);
-    writeln!(&mut output, "block queries:").unwrap();
+    output.push("block queries:".to_string());
     render_block_queries(&mut output, &db, project, file, symbols.blocks());
 
-    output.trim_end().to_string()
+    Ok(output.join("\n"))
 }
 
-fn project_for_scenario(db: &TestDatabase, scenario: &Scenario) -> djls_project::Project {
+fn project_for_scenario(
+    db: &TestDatabase,
+    scenario: &Scenario,
+) -> anyhow::Result<djls_project::Project> {
     let settings_source = format!(
         "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{TEMPLATE_ROOT}'], 'APP_DIRS': False}}]\n"
     );
@@ -106,59 +109,59 @@ fn template_path(relative_path: &str) -> String {
     format!("{TEMPLATE_ROOT}/{relative_path}")
 }
 
-fn render_chain(output: &mut String, db: &TestDatabase, inheritance: TemplateInheritance<'_>) {
+fn render_chain(output: &mut Vec<String>, db: &TestDatabase, inheritance: TemplateInheritance<'_>) {
     if inheritance.ancestors(db).is_empty() {
-        writeln!(output, "  ancestors: none").unwrap();
+        output.push("  ancestors: none".to_string());
     } else {
-        writeln!(output, "  ancestors:").unwrap();
+        output.push("  ancestors:".to_string());
         for ancestor in inheritance.ancestors(db) {
             let name = ancestor.template_name(db).name(db);
-            writeln!(output, "    - {name}").unwrap();
+            output.push(format!("    - {name}"));
         }
     }
-    writeln!(output, "  end: {}", render_chain_end(inheritance.end(db))).unwrap();
+    output.push(format!("  end: {}", render_chain_end(inheritance.end(db))));
 }
 
 fn render_block_queries(
-    output: &mut String,
+    output: &mut Vec<String>,
     db: &TestDatabase,
     project: djls_project::Project,
     file: File,
     blocks: &[djls_semantic::BlockDef],
 ) {
-    writeln!(output, "  parent blocks:").unwrap();
+    output.push("  parent blocks:".to_string());
     if blocks.is_empty() {
-        writeln!(output, "    none").unwrap();
+        output.push("    none".to_string());
     } else {
         for block in blocks {
             let parent = parent_block(db, project, file, &block.name)
                 .map_or_else(|| "none".to_string(), |site| render_block_site(db, site));
-            writeln!(output, "    - {} -> {parent}", block.name).unwrap();
+            output.push(format!("    - {} -> {parent}", block.name));
         }
     }
 
-    writeln!(output, "  inherited blocks:").unwrap();
+    output.push("  inherited blocks:".to_string());
     let inherited = inherited_blocks(db, project, file);
     if inherited.is_empty() {
-        writeln!(output, "    none").unwrap();
+        output.push("    none".to_string());
     } else {
         for (name, site) in inherited {
-            writeln!(output, "    - {name} -> {}", render_block_site(db, site)).unwrap();
+            output.push(format!("    - {name} -> {}", render_block_site(db, site)));
         }
     }
 
-    writeln!(output, "  overrides:").unwrap();
+    output.push("  overrides:".to_string());
     if blocks.is_empty() {
-        writeln!(output, "    none").unwrap();
+        output.push("    none".to_string());
     } else {
         for block in blocks {
             let overrides = block_overrides(db, project, file, &block.name);
             if overrides.is_empty() {
-                writeln!(output, "    - {}: none", block.name).unwrap();
+                output.push(format!("    - {}: none", block.name));
             } else {
-                writeln!(output, "    - {}:", block.name).unwrap();
+                output.push(format!("    - {}:", block.name));
                 for site in overrides {
-                    writeln!(output, "      - {}", render_block_site(db, site)).unwrap();
+                    output.push(format!("      - {}", render_block_site(db, site)));
                 }
             }
         }

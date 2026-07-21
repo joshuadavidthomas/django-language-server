@@ -14,6 +14,7 @@ use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
 use djls_source::Db as SourceDb;
 use djls_source::File;
+use djls_source::FileError;
 use djls_source::FileSystem;
 use djls_source::FxDashMap;
 use djls_source::RootWalk;
@@ -32,11 +33,13 @@ struct SourceMapFileSystem {
 
 impl FileSystem for SourceMapFileSystem {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
-        Ok(self
-            .sources
-            .get(path)
-            .map(|entry| entry.value().clone())
-            .unwrap_or_default())
+        let Some(source) = self.sources.get(path) else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("benchmark source {path} is not registered"),
+            ));
+        };
+        Ok(source.value().clone())
     }
 
     fn exists(&self, path: &Utf8Path) -> bool {
@@ -177,14 +180,14 @@ impl Db {
     }
 
     /// Add source content and return the corresponding tracked file.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the inserted benchmark source is not visible through the filesystem.
-    pub fn file_with_contents(&mut self, path: impl Into<Utf8PathBuf>, contents: &str) -> File {
+    pub fn file_with_contents(
+        &mut self,
+        path: impl Into<Utf8PathBuf>,
+        contents: &str,
+    ) -> Result<File, FileError> {
         let path = path.into();
         self.add_fixture_source(path.clone(), contents);
-        path_to_file(self, &path).expect("inserted benchmark source should be visible")
+        path_to_file(self, &path)
     }
 
     pub fn set_file_contents(&mut self, file: File, contents: &str) {
@@ -267,13 +270,28 @@ mod tests {
     }
 
     fn walked_paths(db: &Db, options: &WalkOptions) -> Vec<Utf8PathBuf> {
-        let RootWalk::Directory { entries, issues } =
-            db.file_system().walk_root(Utf8Path::new("/root"), options)
-        else {
-            panic!("fixture root should be a directory");
+        let directory = match db.file_system().walk_root(Utf8Path::new("/root"), options) {
+            RootWalk::Directory { entries, issues } => Some((entries, issues)),
+            RootWalk::File(_) | RootWalk::Missing | RootWalk::Inaccessible(_) => None,
         };
+        let (entries, issues) = directory.expect("fixture root should be a directory");
         assert!(issues.is_empty());
         entries.into_iter().map(|entry| entry.path).collect()
+    }
+
+    #[test]
+    fn source_map_read_reports_unregistered_paths() {
+        let db = Db::new();
+        let error = db
+            .file_system()
+            .read_to_string(Utf8Path::new("/missing.html"))
+            .expect_err("an unregistered benchmark source should fail reads");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(
+            error.to_string(),
+            "benchmark source /missing.html is not registered"
+        );
     }
 
     #[test]

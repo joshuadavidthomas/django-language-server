@@ -56,7 +56,29 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
                     calls.push(info);
                 }
             }
-            _ => {}
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Return(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::AugAssign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::If(_)
+            | Stmt::With(_)
+            | Stmt::Match(_)
+            | Stmt::Raise(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::IpyEscapeCommand(_) => {}
         }
         ControlFlow::Continue(())
     });
@@ -138,22 +160,23 @@ fn classify_stop_tokens(
 
     // If flow analysis couldn't classify anything, try structural fallbacks
     if intermediates.is_empty() && end_tags.is_empty() {
-        if parse_calls.len() >= 2 {
-            let last_call = parse_calls.last().unwrap();
+        if let Some((last_call, earlier_calls)) = parse_calls.split_last()
+            && !earlier_calls.is_empty()
+        {
             for token in &last_call.stop_tokens {
                 if !end_tags.contains(token) {
                     end_tags.push(token.clone());
                 }
             }
-            for call in &parse_calls[..parse_calls.len() - 1] {
+            for call in earlier_calls {
                 for token in &call.stop_tokens {
                     if !end_tags.contains(token) && !intermediates.contains(token) {
                         intermediates.push(token.clone());
                     }
                 }
             }
-        } else if parse_calls.len() == 1 {
-            let tokens = &parse_calls[0].stop_tokens;
+        } else if let [call] = parse_calls {
+            let tokens = &call.stop_tokens;
             if tokens.len() == 1 {
                 end_tags.push(tokens[0].clone());
             } else {
@@ -298,14 +321,12 @@ fn classify_in_body(
             ));
         }
 
-        let has_parse_call = match stmt {
-            Stmt::Expr(expr_stmt) => {
-                extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
-            }
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                extract_parse_call_info(value, parser_var).is_some()
-            }
-            _ => false,
+        let has_parse_call = if let Stmt::Expr(expr_stmt) = stmt {
+            extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
+        } else if let Stmt::Assign(StmtAssign { value, .. }) = stmt {
+            extract_parse_call_info(value, parser_var).is_some()
+        } else {
+            false
         };
         if has_parse_call
             && let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2))
@@ -442,7 +463,29 @@ fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
             Stmt::Assign(StmtAssign { value, .. }) => {
                 extract_parse_call_info(value, parser_var).is_some()
             }
-            _ => false,
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Return(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::AugAssign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::If(_)
+            | Stmt::With(_)
+            | Stmt::Match(_)
+            | Stmt::Raise(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::IpyEscapeCommand(_) => false,
         };
         if has_parse_call {
             found = true;

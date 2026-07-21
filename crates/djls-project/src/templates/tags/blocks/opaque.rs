@@ -41,7 +41,29 @@ fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
         let token = match stmt {
             Stmt::Expr(expr_stmt) => extract_skip_past_token(&expr_stmt.value, parser_var),
             Stmt::Assign(StmtAssign { value, .. }) => extract_skip_past_token(value, parser_var),
-            _ => None,
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Return(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::AugAssign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::If(_)
+            | Stmt::With(_)
+            | Stmt::Match(_)
+            | Stmt::Raise(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::IpyEscapeCommand(_) => None,
         };
         if let Some(token) = token
             && !tokens.contains(&token)

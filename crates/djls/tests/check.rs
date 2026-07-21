@@ -11,7 +11,7 @@ fn djls_binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_djls"))
 }
 
-fn setup_project(dir: &Path) {
+fn setup_project(dir: &Path) -> std::io::Result<()> {
     std::fs::write(
         dir.join("djls.toml"),
         r#"
@@ -44,16 +44,14 @@ type = "block"
 name = "endfor"
 "#,
     )
-    .unwrap();
 }
 
-fn configure_template_directories(dir: &Path, directories: &[&Path]) {
-    let config = std::fs::read_to_string(dir.join("djls.toml")).unwrap();
+fn configure_template_directories(dir: &Path, directories: &[&Path]) -> std::io::Result<()> {
+    let config = std::fs::read_to_string(dir.join("djls.toml"))?;
     std::fs::write(
         dir.join("djls.toml"),
         format!("django_settings_module = \"settings\"\n{config}"),
-    )
-    .unwrap();
+    )?;
 
     let directories = directories
         .iter()
@@ -66,19 +64,17 @@ fn configure_template_directories(dir: &Path, directories: &[&Path]) {
             "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{directories}], 'APP_DIRS': False}}]\n"
         ),
     )
-    .unwrap();
 }
 
-fn setup_multi_backend_project(dir: &Path) {
+fn setup_multi_backend_project(dir: &Path) -> std::io::Result<()> {
     let alpha_templates = dir.join("alpha-templates");
     let beta_templates = dir.join("beta-templates");
-    fs::create_dir_all(&alpha_templates).unwrap();
-    fs::create_dir_all(&beta_templates).unwrap();
+    fs::create_dir_all(&alpha_templates)?;
+    fs::create_dir_all(&beta_templates)?;
     fs::write(
         dir.join("djls.toml"),
         "django_settings_module = \"settings\"\n",
-    )
-    .unwrap();
+    )?;
     fs::write(
         dir.join("settings.py"),
         format!(
@@ -86,38 +82,35 @@ fn setup_multi_backend_project(dir: &Path) {
             alpha_templates.display(),
             beta_templates.display()
         ),
-    )
-    .unwrap();
+    )?;
     fs::write(
         dir.join("alpha_tags.py"),
         "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha_tag(value): pass\n",
-    )
-    .unwrap();
+    )?;
     fs::write(
         dir.join("beta_tags.py"),
         "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef beta_tag(): pass\n",
     )
-    .unwrap();
 }
 
 #[test]
 fn check_clean_template_exits_zero() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let templates = dir.path().join("templates");
-    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::create_dir_all(&templates).expect("Template fixture directory should be created");
     std::fs::write(
         templates.join("good.html"),
         "{% block content %}<p>Hello</p>{% endblock %}\n",
     )
-    .unwrap();
+    .expect("clean Template fixture should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(
         output.status.success(),
@@ -132,22 +125,22 @@ fn check_clean_template_exits_zero() {
 
 #[test]
 fn check_quiet_clean_template_exits_zero_without_output() {
-    let dir = tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let templates = dir.path().join("templates");
-    fs::create_dir_all(&templates).unwrap();
+    fs::create_dir_all(&templates).expect("Template fixture directory should be created");
     fs::write(
         templates.join("good.html"),
         "{% block content %}<p>Hello</p>{% endblock %}\n",
     )
-    .unwrap();
+    .expect("clean Template fixture should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "--quiet", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(output.status.success());
     assert!(output.stdout.is_empty());
@@ -156,35 +149,36 @@ fn check_quiet_clean_template_exits_zero_without_output() {
 
 #[test]
 fn check_without_django_source_keeps_builtin_grammar_and_source_less_loads() {
-    let dir = tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
-    let config = fs::read_to_string(dir.path().join("djls.toml")).unwrap();
+    let config = fs::read_to_string(dir.path().join("djls.toml"))
+        .expect("test project configuration should be readable");
     fs::write(
         dir.path().join("djls.toml"),
         format!(
             "django_settings_module = \"settings\"\n{config}\n[[tagspecs.libraries]]\nmodule = \"missing.panel_tags\"\n\n[[tagspecs.libraries.tags]]\nname = \"panel\"\ntype = \"standalone\"\n"
         ),
     )
-    .unwrap();
+    .expect("source-less Template test configuration should be written");
     fs::write(
         dir.path().join("settings.py"),
         "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
     )
-    .unwrap();
+    .expect("source-less Template Django settings should be written");
     let templates = dir.path().join("templates");
-    fs::create_dir_all(&templates).unwrap();
+    fs::create_dir_all(&templates).expect("Template fixture directory should be created");
     fs::write(
         templates.join("source-less.html"),
         "{% load panels %}{% panel %}{% if condition %}{% for item in items %}{% comment %}{% endfor %}{% endif %}{% endcomment %}{% empty %}empty{% endfor %}{% else %}fallback{% endif %}\n",
     )
-    .unwrap();
+    .expect("source-less Template fixture should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "templates/source-less.html"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(
         output.status.success(),
@@ -196,23 +190,24 @@ fn check_without_django_source_keeps_builtin_grammar_and_source_less_loads() {
 
 #[test]
 fn check_pythonpath_custom_tag_is_discovered_before_parallel_validation() {
-    let dir = tempdir().unwrap();
+    let dir = tempdir().expect("temporary test directory should be created");
     let vendor = dir.path().join("vendor");
     let package = vendor.join("extras");
     let templates = dir.path().join("templates");
-    fs::create_dir_all(&package).unwrap();
-    fs::create_dir_all(&templates).unwrap();
-    fs::write(package.join("__init__.py"), "").unwrap();
+    fs::create_dir_all(&package).expect("vendor Python package should be created");
+    fs::create_dir_all(&templates).expect("Template fixture directory should be created");
+    fs::write(package.join("__init__.py"), "")
+        .expect("vendor Python package marker should be written");
     fs::write(
         package.join("tags.py"),
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom_tag(): pass\n",
     )
-    .unwrap();
+    .expect("custom Template tag module should be written");
     fs::write(
         dir.path().join("settings.py"),
         "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'extras.tags'}}}]\n",
     )
-    .unwrap();
+    .expect("custom Template tag Django settings should be written");
     fs::write(
         dir.path().join("djls.toml"),
         format!(
@@ -220,18 +215,18 @@ fn check_pythonpath_custom_tag_is_discovered_before_parallel_validation() {
             vendor.display()
         ),
     )
-    .unwrap();
+    .expect("custom Template tag project configuration should be written");
     fs::write(
         templates.join("custom.html"),
         "{% load custom %}{% custom_tag %}\n",
     )
-    .unwrap();
+    .expect("custom Template tag fixture should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "templates/custom.html"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(
         output.status.success(),
@@ -243,22 +238,22 @@ fn check_pythonpath_custom_tag_is_discovered_before_parallel_validation() {
 
 #[test]
 fn check_broken_template_exits_one() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let templates = dir.path().join("templates");
-    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::create_dir_all(&templates).expect("test fixture directory should be created");
     std::fs::write(
         templates.join("broken.html"),
         "{% block content %}\n<p>Hello</p>\n",
     )
-    .unwrap();
+    .expect("test fixture file should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -278,19 +273,21 @@ fn check_broken_template_exits_one() {
 
 #[test]
 fn check_plural_path_summary_reports_errors_and_files_exactly() {
-    let dir = tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let templates = dir.path().join("templates");
-    fs::create_dir_all(&templates).unwrap();
-    fs::write(templates.join("first.html"), "{% block first %}\n").unwrap();
-    fs::write(templates.join("second.html"), "{% block second %}\n").unwrap();
+    fs::create_dir_all(&templates).expect("test fixture directory should be created");
+    fs::write(templates.join("first.html"), "{% block first %}\n")
+        .expect("test fixture file should be written");
+    fs::write(templates.join("second.html"), "{% block second %}\n")
+        .expect("test fixture file should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
@@ -301,22 +298,22 @@ fn check_plural_path_summary_reports_errors_and_files_exactly() {
 
 #[test]
 fn check_plural_errors_with_singular_file_summary_exactly() {
-    let dir = tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let templates = dir.path().join("templates");
-    fs::create_dir_all(&templates).unwrap();
+    fs::create_dir_all(&templates).expect("test fixture directory should be created");
     fs::write(
         templates.join("broken.html"),
         "{% first_unknown %}\n{% second_unknown %}\n",
     )
-    .unwrap();
+    .expect("test fixture file should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
@@ -327,18 +324,19 @@ fn check_plural_errors_with_singular_file_summary_exactly() {
 
 #[test]
 fn check_quiet_counts_enabled_diagnostics_without_rendering() {
-    let dir = tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let templates = dir.path().join("templates");
-    fs::create_dir_all(&templates).unwrap();
-    fs::write(templates.join("broken.html"), "{% block content %}\n").unwrap();
+    fs::create_dir_all(&templates).expect("test fixture directory should be created");
+    fs::write(templates.join("broken.html"), "{% block content %}\n")
+        .expect("test fixture file should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "--quiet", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert_eq!(output.status.code(), Some(1));
     assert!(
@@ -355,22 +353,22 @@ fn check_quiet_counts_enabled_diagnostics_without_rendering() {
 
 #[test]
 fn check_ignore_suppresses_errors() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let templates = dir.path().join("templates");
-    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::create_dir_all(&templates).expect("test fixture directory should be created");
     std::fs::write(
         templates.join("broken.html"),
         "{% block content %}\n<p>Hello</p>\n",
     )
-    .unwrap();
+    .expect("test fixture file should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "--ignore", "S100", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(
         output.status.success(),
@@ -393,8 +391,8 @@ fn check_ignore_suppresses_errors() {
 
 #[test]
 fn check_stdin_detects_errors() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let mut child = Command::new(djls_binary())
         .args(["check", "-"])
@@ -403,16 +401,18 @@ fn check_stdin_detects_errors() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .unwrap();
+        .expect("djls check process should start");
 
     child
         .stdin
         .take()
-        .unwrap()
+        .expect("piped stdin should be available")
         .write_all(b"{% block content %}<p>Hello</p>\n")
-        .unwrap();
+        .expect("test template source should be written to djls stdin");
 
-    let output = child.wait_with_output().unwrap();
+    let output = child
+        .wait_with_output()
+        .expect("djls check process should finish");
 
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -425,8 +425,8 @@ fn check_stdin_detects_errors() {
 
 #[test]
 fn check_plural_stdin_summary_reports_errors_exactly() {
-    let dir = tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let mut child = Command::new(djls_binary())
         .args(["check", "-"])
@@ -435,16 +435,18 @@ fn check_plural_stdin_summary_reports_errors_exactly() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .unwrap();
+        .expect("djls check process should start");
 
     child
         .stdin
         .take()
-        .unwrap()
+        .expect("piped stdin should be available")
         .write_all(b"{% first_unknown %}\n{% second_unknown %}\n")
-        .unwrap();
+        .expect("test template source should be written to djls stdin");
 
-    let output = child.wait_with_output().unwrap();
+    let output = child
+        .wait_with_output()
+        .expect("djls check process should finish");
 
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(String::from_utf8_lossy(&output.stderr), "Found 2 errors.\n");
@@ -452,17 +454,18 @@ fn check_plural_stdin_summary_reports_errors_exactly() {
 
 #[test]
 fn check_multi_backend_stdin_uses_inventory_while_concrete_path_uses_backend() {
-    let dir = tempdir().unwrap();
-    setup_multi_backend_project(dir.path());
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_multi_backend_project(dir.path())
+        .expect("multi-backend test project should be configured");
     let alpha_template = dir.path().join("alpha-templates/page.html");
     let source = "{% load shared %}{% shared_tag %}\n";
-    fs::write(&alpha_template, source).unwrap();
+    fs::write(&alpha_template, source).expect("test fixture file should be written");
 
     let concrete = Command::new(djls_binary())
         .args(["check", "alpha-templates/page.html"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
     assert_eq!(
         concrete.status.code(),
         Some(1),
@@ -484,14 +487,16 @@ fn check_multi_backend_stdin_uses_inventory_while_concrete_path_uses_backend() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .unwrap();
+        .expect("djls check process should start");
     child
         .stdin
         .take()
-        .unwrap()
+        .expect("piped stdin should be available")
         .write_all(source.as_bytes())
-        .unwrap();
-    let stdin = child.wait_with_output().unwrap();
+        .expect("test template source should be written to djls stdin");
+    let stdin = child
+        .wait_with_output()
+        .expect("djls check process should finish");
 
     assert!(
         stdin.status.success(),
@@ -508,7 +513,7 @@ fn check_help_describes_generic_stdin_template() {
     let output = Command::new(djls_binary())
         .args(["check", "--help"])
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -525,14 +530,14 @@ fn check_help_describes_generic_stdin_template() {
 
 #[test]
 fn check_rejects_mixed_stdin_and_paths() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let output = Command::new(djls_binary())
         .args(["check", "-", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -544,14 +549,15 @@ fn check_rejects_mixed_stdin_and_paths() {
 
 #[test]
 fn check_invalid_settings_error_precedes_mixed_stdin_and_paths_error() {
-    let dir = tempdir().unwrap();
-    fs::write(dir.path().join("djls.toml"), "debug = not_a_boolean\n").unwrap();
+    let dir = tempdir().expect("temporary test directory should be created");
+    fs::write(dir.path().join("djls.toml"), "debug = not_a_boolean\n")
+        .expect("invalid test configuration should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "-", "template.html"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -567,24 +573,26 @@ fn check_invalid_settings_error_precedes_mixed_stdin_and_paths_error() {
 
 #[test]
 fn check_without_paths_scans_known_template_directories() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let templates = dir.path().join("configured");
-    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::create_dir_all(&templates).expect("test fixture directory should be created");
     std::fs::write(
         templates.join("configured-broken.html"),
         "{% block content %}\n",
     )
-    .unwrap();
-    std::fs::write(dir.path().join("root-broken.html"), "{% block content %}\n").unwrap();
-    configure_template_directories(dir.path(), &[&templates]);
+    .expect("test fixture file should be written");
+    std::fs::write(dir.path().join("root-broken.html"), "{% block content %}\n")
+        .expect("test fixture file should be written");
+    configure_template_directories(dir.path(), &[&templates])
+        .expect("test Template directories should be configured");
 
     let output = Command::new(djls_binary())
         .arg("check")
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -594,15 +602,16 @@ fn check_without_paths_scans_known_template_directories() {
 
 #[test]
 fn check_without_paths_falls_back_when_roots_may_be_omitted() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
-    std::fs::write(dir.path().join("broken.html"), "{% block content %}\n").unwrap();
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
+    std::fs::write(dir.path().join("broken.html"), "{% block content %}\n")
+        .expect("test fixture file should be written");
 
     let output = Command::new(djls_binary())
         .arg("check")
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert_eq!(
         output.status.code(),
@@ -620,16 +629,18 @@ fn check_without_paths_falls_back_when_roots_may_be_omitted() {
 
 #[test]
 fn check_without_paths_does_not_fallback_for_closed_known_empty_roots() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
-    std::fs::write(dir.path().join("broken.html"), "{% block content %}\n").unwrap();
-    configure_template_directories(dir.path(), &[]);
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
+    std::fs::write(dir.path().join("broken.html"), "{% block content %}\n")
+        .expect("test fixture file should be written");
+    configure_template_directories(dir.path(), &[])
+        .expect("empty test Template directory list should be configured");
 
     let output = Command::new(djls_binary())
         .arg("check")
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(
         output.status.success(),
@@ -641,21 +652,24 @@ fn check_without_paths_does_not_fallback_for_closed_known_empty_roots() {
 
 #[test]
 fn check_explicit_paths_take_precedence_over_known_roots() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let configured = dir.path().join("configured");
-    std::fs::create_dir_all(&configured).unwrap();
-    std::fs::write(configured.join("broken.html"), "{% block content %}\n").unwrap();
+    std::fs::create_dir_all(&configured).expect("test fixture directory should be created");
+    std::fs::write(configured.join("broken.html"), "{% block content %}\n")
+        .expect("test fixture file should be written");
     let explicit = dir.path().join("explicit.html");
-    std::fs::write(&explicit, "{% block content %}{% endblock %}\n").unwrap();
-    configure_template_directories(dir.path(), &[&configured]);
+    std::fs::write(&explicit, "{% block content %}{% endblock %}\n")
+        .expect("test fixture file should be written");
+    configure_template_directories(dir.path(), &[&configured])
+        .expect("configured test Template directory should be recorded");
 
     let output = Command::new(djls_binary())
         .args(["check", "explicit.html"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(
         output.status.success(),
@@ -667,17 +681,17 @@ fn check_explicit_paths_take_precedence_over_known_roots() {
 
 #[test]
 fn check_no_templates_exits_zero() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
 
     let empty_dir = dir.path().join("templates");
-    std::fs::create_dir_all(&empty_dir).unwrap();
+    std::fs::create_dir_all(&empty_dir).expect("test fixture directory should be created");
 
     let output = Command::new(djls_binary())
         .args(["check", "templates/"])
         .current_dir(dir.path())
         .output()
-        .unwrap();
+        .expect("djls check process should run");
 
     assert!(
         output.status.success(),

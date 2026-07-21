@@ -8,7 +8,8 @@
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use std::sync::Mutex as StdMutex;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering as AtomicOrdering;
 
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
@@ -52,6 +53,8 @@ use crate::document::TextDocument;
 use crate::ext::UriExt;
 use crate::progress::ProgressItem;
 use crate::progress::ProgressReporter;
+use crate::session::CancellationRetryAction;
+use crate::session::CancellationRetryState;
 use crate::session::IntrinsicReadinessState;
 use crate::session::ProjectWork;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
@@ -66,12 +69,12 @@ enum ReloadRunOutcome {
 
 /// Drives full Project reloads and intrinsic-only re-primes off the request path.
 ///
-/// The channel is only a wake-up edge. Pending work lives under a synchronous
-/// mutex, so a full reload can atomically dominate a queued re-prime and no
-/// wake-up can be lost while the single worker is running.
+/// The channel is only a wake-up edge. Pending work is one atomic state where
+/// a full reload dominates a queued re-prime and no wake-up can be lost while
+/// the single worker is running.
 pub(crate) struct ProjectReload {
     tx: mpsc::Sender<()>,
-    pending: Arc<StdMutex<Option<ProjectWork>>>,
+    pending: Arc<AtomicU8>,
     session: Option<Arc<Mutex<Session>>>,
 }
 
@@ -103,14 +106,11 @@ impl ProjectReload {
         Fut: Future<Output = ReloadRunOutcome> + Send + 'static,
     {
         let (tx, mut rx) = mpsc::channel(1);
-        let pending = Arc::new(StdMutex::new(None));
+        let pending = Arc::new(AtomicU8::new(PENDING_NONE));
         let worker_pending = Arc::clone(&pending);
         spawn_task(async move {
             while rx.recv().await.is_some() {
-                loop {
-                    let Some(job) = worker_pending.lock().unwrap().take() else {
-                        break;
-                    };
+                while let Some(job) = take_project_work(&worker_pending) {
                     if rx.is_closed() {
                         return;
                     }
@@ -158,21 +158,27 @@ impl ProjectReload {
     }
 }
 
-fn merge_project_work(pending: &StdMutex<Option<ProjectWork>>, requested: ProjectWork) {
-    let mut pending = pending.lock().unwrap();
-    *pending = Some(match (*pending, requested) {
-        (Some(ProjectWork::FullReload), _) | (_, ProjectWork::FullReload) => {
-            ProjectWork::FullReload
-        }
-        (Some(ProjectWork::Reprime) | None, ProjectWork::Reprime) => ProjectWork::Reprime,
-    });
+const PENDING_NONE: u8 = 0;
+const PENDING_REPRIME: u8 = 1;
+const PENDING_FULL_RELOAD: u8 = 2;
+
+fn merge_project_work(pending: &AtomicU8, requested: ProjectWork) {
+    let requested = match requested {
+        ProjectWork::Reprime => PENDING_REPRIME,
+        ProjectWork::FullReload => PENDING_FULL_RELOAD,
+    };
+    pending.fetch_max(requested, AtomicOrdering::Release);
 }
 
-fn enqueue_project_work(
-    pending: &StdMutex<Option<ProjectWork>>,
-    tx: &mpsc::Sender<()>,
-    requested: ProjectWork,
-) {
+fn take_project_work(pending: &AtomicU8) -> Option<ProjectWork> {
+    match pending.swap(PENDING_NONE, AtomicOrdering::AcqRel) {
+        PENDING_REPRIME => Some(ProjectWork::Reprime),
+        PENDING_FULL_RELOAD => Some(ProjectWork::FullReload),
+        PENDING_NONE | 3..=u8::MAX => None,
+    }
+}
+
+fn enqueue_project_work(pending: &AtomicU8, tx: &mpsc::Sender<()>, requested: ProjectWork) {
     merge_project_work(pending, requested);
     match tx.try_send(()) {
         Ok(()) | Err(TrySendError::Full(())) => {}
@@ -494,7 +500,8 @@ async fn compute_environment(
     reporter: &ProgressReporter,
     progress: &mut Option<ProgressItem>,
 ) -> StageOutcome<DjangoEnvironmentData> {
-    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+    let mut retry_state = CancellationRetryState::new();
+    loop {
         let Some((compute_db, project)) = capture_discovery_db(session).await else {
             finish_progress(progress, ProgressEnd::Skipped).await;
             return StageOutcome::Failed;
@@ -512,28 +519,29 @@ async fn compute_environment(
         let result = collect_environment_jobs(jobs, progress.as_ref()).await;
         match result {
             StageOutcome::Complete(environment) => return StageOutcome::Complete(environment),
-            StageOutcome::Cancelled if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                finish_progress(progress, ProgressEnd::Retrying).await;
-                debug!(
-                    attempt = attempt + 1,
-                    "Environment compute cancelled; retrying with fresh database clone"
-                );
-            }
-            StageOutcome::Cancelled => {
-                finish_progress(progress, ProgressEnd::Cancelled).await;
-                warn!(
-                    retries = SNAPSHOT_CANCEL_RETRIES,
-                    "Environment compute cancelled repeatedly; project reload cancelled"
-                );
-                return StageOutcome::Cancelled;
-            }
+            StageOutcome::Cancelled => match retry_state.after_cancellation() {
+                CancellationRetryAction::Retry { attempt } => {
+                    finish_progress(progress, ProgressEnd::Retrying).await;
+                    debug!(
+                        attempt,
+                        "Environment compute cancelled; retrying with fresh database clone"
+                    );
+                }
+                CancellationRetryAction::Exhausted => {
+                    finish_progress(progress, ProgressEnd::Cancelled).await;
+                    warn!(
+                        retries = SNAPSHOT_CANCEL_RETRIES,
+                        "Environment compute cancelled repeatedly; project reload cancelled"
+                    );
+                    return StageOutcome::Cancelled;
+                }
+            },
             StageOutcome::Failed => {
                 finish_progress(progress, ProgressEnd::Failed).await;
                 return StageOutcome::Failed;
             }
         }
     }
-    unreachable!("Environment retry loop must return")
 }
 
 async fn collect_environment_jobs(
@@ -575,7 +583,13 @@ async fn collect_environment_jobs(
     } else if cancellation.is_some() {
         StageOutcome::Cancelled
     } else {
-        StageOutcome::Complete(DjangoEnvironmentData::assemble(parts))
+        match DjangoEnvironmentData::assemble(parts) {
+            Ok(environment) => StageOutcome::Complete(environment),
+            Err(error) => {
+                error!(%error, "Django environment assembly failed");
+                StageOutcome::Failed
+            }
+        }
     }
 }
 
@@ -586,7 +600,8 @@ async fn compute_project_facts_data(
 ) -> StageOutcome<ProjectFactsData> {
     // Capture happens after Environment application, so every attempt observes
     // registered, rescanned roots and overlay-authoritative file contents.
-    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+    let mut retry_state = CancellationRetryState::new();
+    loop {
         let Some((compute_db, project)) = capture_discovery_db(session).await else {
             finish_progress(progress, ProgressEnd::Skipped).await;
             return StageOutcome::Failed;
@@ -604,28 +619,29 @@ async fn compute_project_facts_data(
         let result = collect_project_facts_jobs(jobs, progress.as_ref()).await;
         match result {
             StageOutcome::Complete(facts) => return StageOutcome::Complete(facts),
-            StageOutcome::Cancelled if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                finish_progress(progress, ProgressEnd::Retrying).await;
-                debug!(
-                    attempt = attempt + 1,
-                    "Project Facts compute cancelled; retrying with fresh database clone"
-                );
-            }
-            StageOutcome::Cancelled => {
-                finish_progress(progress, ProgressEnd::Cancelled).await;
-                warn!(
-                    retries = SNAPSHOT_CANCEL_RETRIES,
-                    "Project Facts compute cancelled repeatedly; project reload cancelled"
-                );
-                return StageOutcome::Cancelled;
-            }
+            StageOutcome::Cancelled => match retry_state.after_cancellation() {
+                CancellationRetryAction::Retry { attempt } => {
+                    finish_progress(progress, ProgressEnd::Retrying).await;
+                    debug!(
+                        attempt,
+                        "Project Facts compute cancelled; retrying with fresh database clone"
+                    );
+                }
+                CancellationRetryAction::Exhausted => {
+                    finish_progress(progress, ProgressEnd::Cancelled).await;
+                    warn!(
+                        retries = SNAPSHOT_CANCEL_RETRIES,
+                        "Project Facts compute cancelled repeatedly; project reload cancelled"
+                    );
+                    return StageOutcome::Cancelled;
+                }
+            },
             StageOutcome::Failed => {
                 finish_progress(progress, ProgressEnd::Failed).await;
                 return StageOutcome::Failed;
             }
         }
     }
-    unreachable!("Project Facts retry loop must return")
 }
 
 async fn collect_project_facts_jobs(
@@ -976,7 +992,8 @@ async fn collect_snapshot_diagnostics(
     snapshot: SessionSnapshot,
     path: Utf8PathBuf,
 ) -> Option<Vec<ls_types::Diagnostic>> {
-    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+    let mut retry_state = CancellationRetryState::new();
+    loop {
         let snapshot = snapshot.clone();
         let path = path.clone();
         let joined = spawn_blocking(move || {
@@ -989,25 +1006,24 @@ async fn collect_snapshot_diagnostics(
 
         match classify_diagnostics_task_join(joined) {
             Ok(diagnostics) => return diagnostics,
-            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                debug!(
-                    ?cancelled,
-                    attempt = attempt + 1,
-                    "Snapshot diagnostics cancelled; retrying with same snapshot"
-                );
-            }
-            Err(cancelled) => {
-                debug!(
-                    ?cancelled,
-                    retries = SNAPSHOT_CANCEL_RETRIES,
-                    "Snapshot diagnostics cancelled; skipping diagnostics republish"
-                );
-                return None;
-            }
+            Err(cancelled) => match retry_state.after_cancellation() {
+                CancellationRetryAction::Retry { attempt } => {
+                    debug!(
+                        ?cancelled,
+                        attempt, "Snapshot diagnostics cancelled; retrying with same snapshot"
+                    );
+                }
+                CancellationRetryAction::Exhausted => {
+                    debug!(
+                        ?cancelled,
+                        retries = SNAPSHOT_CANCEL_RETRIES,
+                        "Snapshot diagnostics cancelled; skipping diagnostics republish"
+                    );
+                    return None;
+                }
+            },
         }
     }
-
-    unreachable!("diagnostics retry loop must return")
 }
 
 #[cfg(test)]
@@ -1037,7 +1053,9 @@ mod tests {
     impl Drop for DropProbe {
         fn drop(&mut self) {
             if let Some(dropped) = self.dropped.take() {
-                dropped.send(()).ok();
+                match dropped.send(()) {
+                    Ok(()) | Err(()) => {}
+                }
             }
         }
     }
@@ -1090,10 +1108,10 @@ mod tests {
                         started.notify_one();
                         let release = release_rx
                             .lock()
-                            .unwrap()
+                            .expect("active reload release mutex should not be poisoned")
                             .take()
                             .expect("active reload owns release receiver");
-                        release.await.ok();
+                        drop(release.await);
                     }
                     ReloadRunOutcome::Complete
                 }
@@ -1108,7 +1126,9 @@ mod tests {
         drop(reload);
 
         assert!(matches!(dropped_rx.try_recv(), Err(TryRecvError::Empty)));
-        release_tx.send(()).unwrap();
+        release_tx
+            .send(())
+            .expect("active reload release receiver should remain live");
         timeout(Duration::from_secs(1), dropped_rx)
             .await
             .expect("reload worker should terminate after its active run completes")
@@ -1142,10 +1162,10 @@ mod tests {
                         started.notify_one();
                         let release = release_rx
                             .lock()
-                            .unwrap()
+                            .expect("cancelled reload release mutex should not be poisoned")
                             .take()
                             .expect("cancelled reload owns release receiver");
-                        release.await.ok();
+                        drop(release.await);
                         ReloadRunOutcome::Cancelled
                     } else {
                         ReloadRunOutcome::Complete
@@ -1161,7 +1181,9 @@ mod tests {
         drop(reload);
 
         assert!(matches!(dropped_rx.try_recv(), Err(TryRecvError::Empty)));
-        release_tx.send(()).unwrap();
+        release_tx
+            .send(())
+            .expect("cancelled reload release receiver should remain live");
         timeout(Duration::from_secs(1), dropped_rx)
             .await
             .expect("cancelled reload worker should terminate after owner drop")
@@ -1236,7 +1258,7 @@ mod tests {
 
         timeout(Duration::from_secs(1), completed.notified())
             .await
-            .unwrap();
+            .expect("reload should complete before the test timeout");
         assert_eq!(run_count.load(Ordering::SeqCst), 1);
     }
 
@@ -1268,7 +1290,9 @@ mod tests {
                         ));
                         fail_generation(&session, 0).await;
                     }
-                    completed_tx.send(run).unwrap();
+                    completed_tx
+                        .send(run)
+                        .expect("reload completion receiver should remain live");
                     // Critical child failures complete the run after publishing
                     // Failed; only Salsa cancellation is automatically retried.
                     ReloadRunOutcome::Complete
@@ -1280,10 +1304,13 @@ mod tests {
         assert_eq!(
             timeout(Duration::from_secs(1), completed_rx.recv())
                 .await
-                .unwrap(),
+                .expect("first reload should complete before the test timeout"),
             Some(1)
         );
-        readiness.changed().await.unwrap();
+        readiness
+            .changed()
+            .await
+            .expect("reload worker should publish a readiness update");
         assert_eq!(
             *readiness.borrow_and_update(),
             IntrinsicReadinessState::Failed(0)
@@ -1293,7 +1320,7 @@ mod tests {
         assert_eq!(
             timeout(Duration::from_secs(1), completed_rx.recv())
                 .await
-                .unwrap(),
+                .expect("second reload should complete before the test timeout"),
             Some(2)
         );
         assert_eq!(run_count.load(Ordering::SeqCst), 2);
@@ -1321,6 +1348,14 @@ mod tests {
 
         assert!(matches!(
             collect_environment_jobs(jobs, None).await,
+            StageOutcome::Failed
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_environment_phase_is_classified_as_failure() {
+        assert!(matches!(
+            collect_environment_jobs(JoinSet::new(), None).await,
             StageOutcome::Failed
         ));
     }
@@ -1430,10 +1465,10 @@ mod tests {
                         first_started.notify_one();
                         let release_rx = release_rx
                             .lock()
-                            .unwrap()
+                            .expect("first reload release mutex should not be poisoned")
                             .take()
                             .expect("first reload owns release receiver");
-                        release_rx.await.ok();
+                        drop(release_rx.await);
                     } else {
                         followup_completed.notify_one();
                     }
@@ -1445,16 +1480,18 @@ mod tests {
         reload.request();
         timeout(Duration::from_secs(1), first_started.notified())
             .await
-            .unwrap();
+            .expect("first reload should start before the test timeout");
 
         for _ in 0..5 {
             reload.request();
         }
 
-        release_tx.send(()).unwrap();
+        release_tx
+            .send(())
+            .expect("first reload release receiver should remain live");
         timeout(Duration::from_secs(1), followup_completed.notified())
             .await
-            .unwrap();
+            .expect("follow-up reload should complete before the test timeout");
         drop(reload);
         timeout(Duration::from_secs(1), dropped_rx)
             .await
@@ -1482,7 +1519,9 @@ mod tests {
                 async move {
                     let _runner_probe = runner_probe;
                     let run = {
-                        let mut jobs = jobs.lock().unwrap();
+                        let mut jobs = jobs
+                            .lock()
+                            .expect("recorded jobs mutex should not be poisoned");
                         jobs.push(job);
                         jobs.len()
                     };
@@ -1499,14 +1538,16 @@ mod tests {
         reload.request_current(ProjectWork::FullReload);
         timeout(Duration::from_secs(1), replacement_completed.notified())
             .await
-            .unwrap();
+            .expect("replacement reload should complete before the test timeout");
         drop(reload);
         timeout(Duration::from_secs(1), dropped_rx)
             .await
             .expect("reload worker should terminate after the cancellation retry")
             .expect("reload worker should drop its runner capture");
         assert_eq!(
-            *jobs.lock().unwrap(),
+            *jobs
+                .lock()
+                .expect("recorded jobs mutex should not be poisoned"),
             [ProjectWork::FullReload, ProjectWork::FullReload]
         );
     }
@@ -1548,18 +1589,19 @@ mod tests {
                         first_started.notify_one();
                         let release_rx = release_rx
                             .lock()
-                            .unwrap()
+                            .expect("first reload release mutex should not be poisoned")
                             .take()
                             .expect("first reload owns release receiver");
-                        release_rx.await.ok();
+                        drop(release_rx.await);
                     } else if run == 2 {
-                        second_started_tx
+                        let start_sender = second_started_tx
                             .lock()
-                            .unwrap()
+                            .expect("second reload start mutex should not be poisoned")
                             .take()
-                            .expect("second reload owns start sender")
-                            .send(())
-                            .ok();
+                            .expect("second reload owns start sender");
+                        match start_sender.send(()) {
+                            Ok(()) | Err(()) => {}
+                        }
                     }
 
                     active_count.fetch_sub(1, Ordering::SeqCst);
@@ -1574,7 +1616,7 @@ mod tests {
         reload.request();
         timeout(Duration::from_secs(1), first_started.notified())
             .await
-            .unwrap();
+            .expect("first reload should start before the test timeout");
         reload.request();
         yield_now().await;
 
@@ -1585,14 +1627,16 @@ mod tests {
         assert_eq!(run_count.load(Ordering::SeqCst), 1);
         assert!(!overlap_detected.load(Ordering::SeqCst));
 
-        release_tx.send(()).unwrap();
+        release_tx
+            .send(())
+            .expect("first reload release receiver should remain live");
         timeout(Duration::from_secs(1), second_started_rx)
             .await
             .expect("second reload should start after the first is released")
             .expect("second reload start sender should remain live");
         timeout(Duration::from_secs(1), second_completed.notified())
             .await
-            .unwrap();
+            .expect("second reload should complete before the test timeout");
 
         assert_eq!(run_count.load(Ordering::SeqCst), 2);
         assert!(!overlap_detected.load(Ordering::SeqCst));
@@ -1617,7 +1661,9 @@ mod tests {
                 let release_rx = Arc::clone(&release_rx);
                 async move {
                     let run = {
-                        let mut jobs = jobs.lock().unwrap();
+                        let mut jobs = jobs
+                            .lock()
+                            .expect("recorded jobs mutex should not be poisoned");
                         jobs.push(job);
                         jobs.len()
                     };
@@ -1625,10 +1671,10 @@ mod tests {
                         first_started.notify_one();
                         let release = release_rx
                             .lock()
-                            .unwrap()
+                            .expect("first job release mutex should not be poisoned")
                             .take()
                             .expect("first job owns release");
-                        release.await.ok();
+                        drop(release.await);
                         ReloadRunOutcome::Cancelled
                     } else {
                         second_completed.notify_one();
@@ -1641,29 +1687,36 @@ mod tests {
         reload.request_current(ProjectWork::Reprime);
         timeout(Duration::from_secs(1), first_started.notified())
             .await
-            .unwrap();
+            .expect("first job should start before the test timeout");
         reload.request_current(ProjectWork::Reprime);
         reload.request_full_reload().await;
-        release_tx.send(()).unwrap();
+        release_tx
+            .send(())
+            .expect("first job release receiver should remain live");
         timeout(Duration::from_secs(1), second_completed.notified())
             .await
-            .unwrap();
+            .expect("second job should complete before the test timeout");
 
         assert_eq!(
-            *jobs.lock().unwrap(),
+            *jobs
+                .lock()
+                .expect("recorded jobs mutex should not be poisoned"),
             [ProjectWork::Reprime, ProjectWork::FullReload]
         );
     }
 
     #[tokio::test]
     async fn project_facts_use_fresh_post_environment_clone() {
-        let tempdir = tempdir().unwrap();
-        let base = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary project directory should be created");
+        let base = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary project path should be valid UTF-8");
         let root = base.join("project");
         let vendor = base.join("vendor");
-        std::fs::create_dir_all(root.as_std_path()).unwrap();
-        std::fs::create_dir_all(vendor.join("blog").as_std_path()).unwrap();
-        std::fs::write(vendor.join("blog/models.py").as_std_path(), "").unwrap();
+        std::fs::create_dir_all(root.as_std_path()).expect("project root should be created");
+        std::fs::create_dir_all(vendor.join("blog").as_std_path())
+            .expect("vendor app directory should be created");
+        std::fs::write(vendor.join("blog/models.py").as_std_path(), "")
+            .expect("vendor model fixture should be written");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             format!(
@@ -1671,19 +1724,22 @@ mod tests {
                 root.join(".venv")
             ),
         )
-        .unwrap();
+        .expect("project settings fixture should be written");
 
         let params = ls_types::InitializeParams {
             workspace_folders: Some(vec![ls_types::WorkspaceFolder {
-                uri: ls_types::Uri::from_file_path(root.as_std_path()).unwrap(),
+                uri: ls_types::Uri::from_file_path(root.as_std_path())
+                    .expect("project root should convert to a file URI"),
                 name: "test_project".to_string(),
             }]),
             ..Default::default()
         };
         let session = Arc::new(Mutex::new(Session::new(&params)));
-        let StageOutcome::Complete(settings) = load_project_settings(&session).await else {
-            panic!("project settings should load");
-        };
+        let settings = match load_project_settings(&session).await {
+            StageOutcome::Complete(settings) => Some(settings),
+            StageOutcome::Cancelled | StageOutcome::Failed => None,
+        }
+        .expect("valid project settings should load");
         assert!(apply_project_settings(&session, settings).await);
 
         let (pre_environment_db, project) = capture_discovery_db(&session)
@@ -1697,7 +1753,8 @@ mod tests {
         );
         let environment = DjangoEnvironmentData::assemble(
             environment_phases().map(|phase| phase.run(&pre_environment_db, project)),
-        );
+        )
+        .expect("all Django environment phases should assemble");
         drop(pre_environment_db);
         assert!(apply_environment(&session, environment).await);
 
@@ -1718,17 +1775,19 @@ mod tests {
 
     #[tokio::test]
     async fn project_settings_load_error_skips_discovery_inputs() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary project directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary project path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "debug = not_a_boolean",
         )
-        .unwrap();
+        .expect("invalid project settings fixture should be written");
 
         let params = ls_types::InitializeParams {
             workspace_folders: Some(vec![ls_types::WorkspaceFolder {
-                uri: ls_types::Uri::from_file_path(root.as_std_path()).unwrap(),
+                uri: ls_types::Uri::from_file_path(root.as_std_path())
+                    .expect("project root should convert to a file URI"),
                 name: "test_project".to_string(),
             }]),
             ..Default::default()

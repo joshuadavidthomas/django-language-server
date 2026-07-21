@@ -84,7 +84,7 @@ impl Workspace {
     /// otherwise.
     #[must_use]
     pub(crate) fn overlay(&self) -> Arc<dyn FileSystem> {
-        self.overlay.clone()
+        Arc::clone(&self.overlay) as Arc<dyn FileSystem>
     }
 
     /// Return all currently open documents.
@@ -482,7 +482,9 @@ mod tests {
                     issues.push(io::ErrorKind::PermissionDenied);
                     RootWalk::Directory { entries, issues }
                 }
-                other => other,
+                other @ (RootWalk::Missing | RootWalk::File(_) | RootWalk::Inaccessible(_)) => {
+                    other
+                }
             }
         }
     }
@@ -498,7 +500,11 @@ mod tests {
         let db = TestDb::new(Arc::new(InMemoryFileSystem::new()));
         buffers.open(path.clone(), text_document(&db, &path, "buffer content"));
 
-        assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
+        assert_eq!(
+            fs.read_to_string(&path)
+                .expect("overlay buffer should be readable"),
+            "buffer content"
+        );
     }
 
     #[test]
@@ -510,11 +516,11 @@ mod tests {
         let path = Utf8PathBuf::from("/project/templates/buffer.html");
         buffers.open(path.clone(), text_document(&db, &path, "buffer"));
 
-        let RootWalk::Directory { entries, issues } =
-            fs.walk_root(root, &WalkOptions::unrestricted())
-        else {
-            panic!("expected a traversed directory");
-        };
+        let (entries, issues) = match fs.walk_root(root, &WalkOptions::unrestricted()) {
+            RootWalk::Directory { entries, issues } => Some((entries, issues)),
+            RootWalk::Missing | RootWalk::File(_) | RootWalk::Inaccessible(_) => None,
+        }
+        .expect("expected a traversed directory");
         let relatives: Vec<_> = entries
             .iter()
             .map(|entry| entry.relative.as_str())
@@ -543,11 +549,11 @@ mod tests {
             text_document(&db, &buffer_path, "buffer"),
         );
 
-        let RootWalk::Directory { entries, issues } =
-            fs.walk_root(root, &WalkOptions::unrestricted())
-        else {
-            panic!("expected a traversed directory");
-        };
+        let (entries, issues) = match fs.walk_root(root, &WalkOptions::unrestricted()) {
+            RootWalk::Directory { entries, issues } => Some((entries, issues)),
+            RootWalk::Missing | RootWalk::File(_) | RootWalk::Inaccessible(_) => None,
+        }
+        .expect("expected a traversed directory");
         let relatives: Vec<_> = entries
             .iter()
             .map(|entry| entry.relative.as_str())
@@ -588,10 +594,11 @@ mod tests {
             text_document(&db, &visible_path, "visible"),
         );
 
-        let RootWalk::Directory { entries, .. } = fs.walk_root(root, &WalkOptions::default())
-        else {
-            panic!("expected a traversed directory");
-        };
+        let entries = match fs.walk_root(root, &WalkOptions::default()) {
+            RootWalk::Directory { entries, .. } => Some(entries),
+            RootWalk::Missing | RootWalk::File(_) | RootWalk::Inaccessible(_) => None,
+        }
+        .expect("expected a traversed directory");
         let relatives: Vec<_> = entries
             .iter()
             .map(|entry| entry.relative.as_str())
@@ -602,10 +609,12 @@ mod tests {
 
     #[test]
     fn disk_backed_open_and_close_do_not_bump_root_revision() {
-        let temp_dir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
+        let temp_dir = tempdir().expect("temporary workspace directory should be created");
+        let root = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf())
+            .expect("temporary workspace path should be valid UTF-8");
         let file_path = root.join("template.html");
-        std::fs::write(file_path.as_std_path(), "disk template").unwrap();
+        std::fs::write(file_path.as_std_path(), "disk template")
+            .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
         let mut db = TestDb::new(workspace.overlay());
@@ -618,17 +627,21 @@ mod tests {
         SourceChanges::new([ChangeEvent::Opened(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 0);
 
-        workspace.close_document(&file_path).unwrap();
+        workspace
+            .close_document(&file_path)
+            .expect("open disk-backed document should close");
         SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 0);
     }
 
     #[test]
     fn untracked_disk_backed_open_bumps_root_revision() {
-        let temp_dir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
+        let temp_dir = tempdir().expect("temporary workspace directory should be created");
+        let root = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf())
+            .expect("temporary workspace path should be valid UTF-8");
         let file_path = root.join("template.html");
-        std::fs::write(file_path.as_std_path(), "disk template").unwrap();
+        std::fs::write(file_path.as_std_path(), "disk template")
+            .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
         let mut db = TestDb::new(workspace.overlay());
@@ -640,15 +653,18 @@ mod tests {
         SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 1);
 
-        workspace.close_document(&file_path).unwrap();
+        workspace
+            .close_document(&file_path)
+            .expect("open untracked document should close");
         SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 1);
     }
 
     #[test]
     fn buffer_only_open_and_close_bump_root_revision() {
-        let temp_dir = tempdir().unwrap();
-        let root_path = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
+        let temp_dir = tempdir().expect("temporary workspace directory should be created");
+        let root_path = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf())
+            .expect("temporary workspace path should be valid UTF-8");
         let file_path = root_path.join("template.html");
 
         let mut workspace = Workspace::new();
@@ -661,16 +677,20 @@ mod tests {
         SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 1);
 
-        workspace.close_document(&file_path).unwrap();
+        workspace
+            .close_document(&file_path)
+            .expect("open buffer-only document should close");
         SourceChanges::new([ChangeEvent::Deleted(file_path.clone())]).apply(&mut db);
         assert_eq!(root.revision(&db), 2);
     }
 
     #[test]
     fn workspace_open_update_and_close_flow_through_source_files() {
-        let temp_dir = tempdir().unwrap();
-        let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("template.html")).unwrap();
-        std::fs::write(file_path.as_std_path(), "disk template").unwrap();
+        let temp_dir = tempdir().expect("temporary workspace directory should be created");
+        let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("template.html"))
+            .expect("temporary template path should be valid UTF-8");
+        std::fs::write(file_path.as_std_path(), "disk template")
+            .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
         let mut db = TestDb::new(workspace.overlay());
@@ -684,7 +704,8 @@ mod tests {
             "buffer template"
         );
 
-        std::fs::write(file_path.as_std_path(), "changed disk template").unwrap();
+        std::fs::write(file_path.as_std_path(), "changed disk template")
+            .expect("changed disk template fixture should be written");
         SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
         assert_eq!(
             file.try_source(&db)
@@ -700,7 +721,7 @@ mod tests {
                 2,
                 PositionEncoding::Utf16,
             )
-            .unwrap();
+            .expect("open template document should update");
         SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
         assert_eq!(
             file.try_source(&db)
@@ -709,7 +730,9 @@ mod tests {
             "updated template"
         );
 
-        workspace.close_document(&file_path).unwrap();
+        workspace
+            .close_document(&file_path)
+            .expect("open template document should close");
         SourceChanges::new([ChangeEvent::ContentChanged(file_path.clone())]).apply(&mut db);
         assert_eq!(
             file.try_source(&db)

@@ -86,7 +86,29 @@ fn find_dynamic_end_parse_call(
             Stmt::Return(StmtReturn {
                 value: Some(val), ..
             }) => dynamic_end_parse_call_evidence(val, parser_var, assignments, env),
-            _ => None,
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Return(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::AugAssign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::If(_)
+            | Stmt::With(_)
+            | Stmt::Match(_)
+            | Stmt::Raise(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::IpyEscapeCommand(_) => None,
         };
         if let Some(evidence) = evidence {
             found = Some(evidence);
@@ -132,7 +154,37 @@ fn dynamic_end_parse_call_evidence(
     let elements = match seq {
         Expr::Tuple(t) => &t.elts,
         Expr::List(l) => &l.elts,
-        _ => return None,
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Compare(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => return None,
     };
 
     for elt in elements {
@@ -176,7 +228,29 @@ pub(super) fn dynamic_end_tag_format_evidence(
             Stmt::Return(StmtReturn {
                 value: Some(val), ..
             }) => direct_dynamic_end_expr_evidence(val, &env),
-            _ => None,
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Return(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::AugAssign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::If(_)
+            | Stmt::With(_)
+            | Stmt::Match(_)
+            | Stmt::Raise(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::IpyEscapeCommand(_) => None,
         };
         if let Some(evidence) = evidence {
             found = Some(evidence);

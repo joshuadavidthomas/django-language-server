@@ -30,7 +30,7 @@ fn project_with_templates(
     db: &TestDatabase,
     template_dirs: Vec<&str>,
     templates: Vec<(&str, &str)>,
-) -> Project {
+) -> anyhow::Result<Project> {
     let dirs_literal = template_dirs
         .into_iter()
         .map(|dir| format!("'{dir}'"))
@@ -61,11 +61,20 @@ fn project_with_templates(
         .build(db)
 }
 
-fn symbols_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db TemplateSymbols {
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
-    let nodelist = parse_template(db, file).expect("should parse");
-    template_symbols(db, file, nodelist)
+fn symbols_for_source<'db>(
+    db: &'db TestDatabase,
+    source: &str,
+) -> anyhow::Result<&'db TemplateSymbols> {
+    db.add_file("test.html", source)?;
+    let file = db.file(Utf8Path::new("test.html"))?;
+    let nodelist = match parse_template(db, file) {
+        djls_templates::TemplateParseResult::Parsed(nodelist) => nodelist,
+        djls_templates::TemplateParseResult::NotTemplate => {
+            anyhow::bail!("fixture file is not a template")
+        }
+        djls_templates::TemplateParseResult::Unreadable(error) => return Err(error.into()),
+    };
+    Ok(template_symbols(db, file, nodelist))
 }
 
 fn inheritance_summary(db: &TestDatabase, project: Project, file: File) -> (Vec<String>, ChainEnd) {
@@ -97,14 +106,19 @@ fn extracts_partial_defs_from_partial_role_specs() {
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% partialdef card %}Body{% endpartialdef %}";
-    let symbols = symbols_for_source(&db, source);
+    let symbols = symbols_for_source(&db, source).expect("template symbol fixture should build");
 
     assert!(symbols.blocks().is_empty());
     assert_eq!(
         symbols.partials(),
         &[PartialDef {
             name: "card".to_string(),
-            name_span: Span::saturating_from_parts_usize(source.find("card").unwrap(), 4),
+            name_span: Span::saturating_from_parts_usize(
+                source
+                    .find("card")
+                    .expect("fixture should contain the partial name"),
+                4
+            ),
             full_span: Span::saturating_from_bounds_usize(0, source.len()),
         }]
     );
@@ -135,8 +149,11 @@ fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
             "{% overextends 'base.html' %}",
         )
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
-    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("fixture file should exist in the test database");
 
     assert_eq!(inheritance_summary(&db, project, child).1, ChainEnd::Root);
 }
@@ -161,9 +178,12 @@ fn inheritance_is_inconclusive_when_effective_extends_definition_conflicts_by_ba
             "{% load shared %}{% extends 'base.html' %}",
         )
         .file("/test/project/templates/base.html", "base")
-        .build(&db);
+        .build(&db)
+        .expect("project fixture should build in the test database");
     db.set_project(project);
-    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("fixture file should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, child);
     assert!(ancestors.is_empty());
@@ -190,9 +210,12 @@ fn inheritance_keeps_child_backend_selection_when_resolving_parent() {
         .file("/test/project/a/child.html", "{% extends 'base.html' %}")
         .file("/test/project/a/base.html", "backend a")
         .file("/test/project/b/base.html", "backend b")
-        .build(&db);
+        .build(&db)
+        .expect("project fixture should build in the test database");
     db.set_project(project);
-    let child = db.file(Utf8Path::new("/test/project/a/child.html"));
+    let child = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("fixture file should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, child);
 
@@ -211,8 +234,11 @@ fn unreadable_current_template_does_not_create_an_empty_tree() {
             (child_path, "{% extends 'base.html' %}"),
             ("/test/project/templates/base.html", "base"),
         ],
-    );
-    let child = db.file(Utf8Path::new(child_path));
+    )
+    .expect("template project fixture should build");
+    let child = db
+        .file(Utf8Path::new(child_path))
+        .expect("fixture file should exist in the test database");
     assert_eq!(
         template_inheritance(&db, project, child)
             .ancestors(&db)
@@ -220,7 +246,8 @@ fn unreadable_current_template_does_not_create_an_empty_tree() {
         1
     );
 
-    db.remove_file(child_path);
+    db.remove_file(child_path)
+        .expect("child template should be removed from the test database");
     SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
 
     let inheritance = template_inheritance(&db, project, child);
@@ -240,11 +267,15 @@ fn unreadable_ancestor_template_contributes_no_inherited_symbols() {
             (child_path, "{% extends 'base.html' %}"),
             (base_path, "{% block title %}Base{% endblock %}"),
         ],
-    );
-    let child = db.file(Utf8Path::new(child_path));
+    )
+    .expect("template project fixture should build");
+    let child = db
+        .file(Utf8Path::new(child_path))
+        .expect("fixture file should exist in the test database");
     assert_eq!(inherited_blocks(&db, project, child).len(), 1);
 
-    db.remove_file(base_path);
+    db.remove_file(base_path)
+        .expect("base template should be removed from the test database");
     SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
 
     assert!(inherited_blocks(&db, project, child).is_empty());
@@ -269,10 +300,13 @@ fn self_extends_skips_visited_origin_and_uses_shadowed_template() {
                 "{% block content %}Default{% endblock %}",
             ),
         ],
-    );
-    let file = db.file(Utf8Path::new(
-        "/test/project/templates/admin/base_site.html",
-    ));
+    )
+    .expect("template project fixture should build");
+    let file = db
+        .file(Utf8Path::new(
+            "/test/project/templates/admin/base_site.html",
+        ))
+        .expect("admin base-site fixture should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, file);
 
@@ -300,8 +334,11 @@ fn originless_template_inheritance_resolves_absolute_extends_from_project_invent
             "/test/project/templates/base.html",
             "{% block content %}Base{% endblock %}",
         )
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let file = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("fixture file should exist in the test database");
 
     assert_eq!(
         inheritance_summary(&db, project, file),
@@ -322,8 +359,11 @@ fn originless_template_inheritance_preserves_project_resolution_alternatives() {
         .file("/test/project/scratch.html", "{% extends 'base.html' %}")
         .file("/test/project/a/base.html", "a")
         .file("/test/project/b/base.html", "b")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let file = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("fixture file should exist in the test database");
 
     assert_eq!(
         inheritance_summary(&db, project, file),
@@ -350,8 +390,11 @@ fn originless_template_inheritance_leaves_relative_extends_unresolved() {
             "{% extends './base.html' %}",
         )
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let file = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("fixture file should exist in the test database");
 
     assert_eq!(
         inheritance_summary(&db, project, file),
@@ -380,8 +423,11 @@ fn template_inheritance_resolves_relative_sibling_extends() {
                 "{% block content %}Parent{% endblock %}",
             ),
         ],
-    );
-    let file = db.file(Utf8Path::new("/test/project/templates/dir/child.html"));
+    )
+    .expect("template project fixture should build");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/dir/child.html"))
+        .expect("fixture file should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, file);
 
@@ -401,8 +447,11 @@ fn template_inheritance_joins_relative_targets_for_every_source_name() {
             "{% extends './parent.html' %}",
         )
         .file("/test/project/templates/alias/parent.html", "parent")
-        .install(&mut db);
-    let child = db.file(Utf8Path::new("/test/project/templates/alias/child.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/alias/child.html"))
+        .expect("fixture file should exist in the test database");
 
     assert_eq!(
         inheritance_summary(&db, project, child),
@@ -423,8 +472,11 @@ fn template_inheritance_treats_escaping_relative_extends_as_unresolved() {
             "/test/project/templates/page.html",
             "{% extends \"../../outside.html\" %}",
         )],
-    );
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+    )
+    .expect("template project fixture should build");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("fixture file should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, file);
 
@@ -453,9 +505,14 @@ fn block_overrides_accepts_relative_winning_extends_target() {
                 "{% extends \"./parent.html\" %}\n{% block content %}Child{% endblock %}",
             ),
         ],
-    );
-    let parent = db.file(Utf8Path::new("/test/project/templates/dir/parent.html"));
-    let child = db.file(Utf8Path::new("/test/project/templates/dir/child.html"));
+    )
+    .expect("template project fixture should build");
+    let parent = db
+        .file(Utf8Path::new("/test/project/templates/dir/parent.html"))
+        .expect("fixture file should exist in the test database");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/dir/child.html"))
+        .expect("fixture file should exist in the test database");
 
     let overrides = block_overrides(&db, project, parent, "content");
 
@@ -478,9 +535,14 @@ fn reverse_inheritance_starts_from_secondary_names_and_dedupes_physical_sites() 
             "/test/project/templates/alias/child.html",
             "{% extends './base.html' %}{% block content %}Child{% endblock %}",
         )
-        .install(&mut db);
-    let base = db.file(Utf8Path::new("/test/project/templates/alias/base.html"));
-    let child = db.file(Utf8Path::new("/test/project/templates/alias/child.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let base = db
+        .file(Utf8Path::new("/test/project/templates/alias/base.html"))
+        .expect("fixture file should exist in the test database");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/alias/child.html"))
+        .expect("fixture file should exist in the test database");
 
     let overrides = block_overrides(&db, project, base, "content");
 
@@ -505,8 +567,11 @@ fn originless_inheritance_keeps_the_exact_resolved_origin_for_relative_parents()
         )
         .file("/test/project/templates/alias/dir/base.html", "exact base")
         .file("/test/project/templates/dir/base.html", "alias base")
-        .install(&mut db);
-    let scratch = db.file(Utf8Path::new("/test/project/scratch.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let scratch = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("fixture file should exist in the test database");
 
     assert_eq!(
         inheritance_summary(&db, project, scratch),
@@ -551,9 +616,14 @@ fn template_inheritance_follows_extends_role_not_builtin_name() {
                 "{% block content %}Base{% endblock %}",
             ),
         ],
-    );
-    let custom_file = db.file(Utf8Path::new("/test/project/templates/custom_child.html"));
-    let builtin_file = db.file(Utf8Path::new("/test/project/templates/builtin_child.html"));
+    )
+    .expect("template project fixture should build");
+    let custom_file = db
+        .file(Utf8Path::new("/test/project/templates/custom_child.html"))
+        .expect("fixture file should exist in the test database");
+    let builtin_file = db
+        .file(Utf8Path::new("/test/project/templates/builtin_child.html"))
+        .expect("fixture file should exist in the test database");
 
     let custom = inheritance_summary(&db, project, custom_file);
     let builtin = inheritance_summary(&db, project, builtin_file);
@@ -570,8 +640,11 @@ fn scoped_parent_miss_is_unresolved_when_name_exists_only_in_another_backend() {
         .file("/test/project/testproject/settings.py", settings)
         .file("/test/project/a/child.html", "{% extends 'other.html' %}")
         .file("/test/project/b/other.html", "other backend")
-        .install(&mut db);
-    let child = db.file(Utf8Path::new("/test/project/a/child.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let child = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("fixture file should exist in the test database");
 
     assert_eq!(
         inheritance_summary(&db, project, child),
@@ -600,8 +673,11 @@ fn inherited_symbols_use_the_child_backend_scope() {
             "/test/project/shared/base.html",
             "{% block content %}Base{% endblock %}",
         )
-        .install(&mut db);
-    let child = db.file(Utf8Path::new("/test/project/a/child.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let child = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("fixture file should exist in the test database");
 
     let inherited = inherited_blocks(&db, project, child);
     assert_eq!(inherited.len(), 1);
@@ -627,10 +703,17 @@ fn reverse_inheritance_follows_the_exact_backend_origin() {
             "/test/project/b/child.html",
             "{% extends 'base.html' %}{% block content %}Child{% endblock %}",
         )
-        .install(&mut db);
-    let a_base = db.file(Utf8Path::new("/test/project/a/base.html"));
-    let b_base = db.file(Utf8Path::new("/test/project/b/base.html"));
-    let child = db.file(Utf8Path::new("/test/project/b/child.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let a_base = db
+        .file(Utf8Path::new("/test/project/a/base.html"))
+        .expect("fixture file should exist in the test database");
+    let b_base = db
+        .file(Utf8Path::new("/test/project/b/base.html"))
+        .expect("fixture file should exist in the test database");
+    let child = db
+        .file(Utf8Path::new("/test/project/b/child.html"))
+        .expect("fixture file should exist in the test database");
 
     assert!(block_overrides(&db, project, a_base, "content").is_empty());
     assert_eq!(
@@ -649,8 +732,11 @@ fn template_inheritance_reports_missing_parent_as_unresolved() {
             "/test/project/templates/child.html",
             "{% extends 'missing.html' %}",
         )],
-    );
-    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+    )
+    .expect("template project fixture should build");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("fixture file should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, child);
 
@@ -677,8 +763,11 @@ fn template_inheritance_reports_inconclusive_parent_search() {
             "{% extends 'base.html' %}",
         )
         .file("/test/project/templates/base.html", "base")
-        .build(&db);
-    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+        .build(&db)
+        .expect("project fixture should build in the test database");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("fixture file should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, child);
 
@@ -688,6 +777,45 @@ fn template_inheritance_reports_inconclusive_parent_search() {
         ChainEnd::InconclusiveParent {
             name: "base.html".to_string()
         }
+    );
+}
+
+#[test]
+fn template_inheritance_preserves_resolved_prefix_before_inconclusive_parent() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', UNKNOWN], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/test/project/templates/child.html",
+            "{% extends 'parent.html' %}",
+        )
+        .file(
+            "/test/project/templates/parent.html",
+            "{% extends 'missing.html' %}",
+        )
+        .build(&db);
+    assert!(project.is_ok(), "project fixture should build");
+    let Some(project) = project.ok() else {
+        return;
+    };
+    let child = db.file(Utf8Path::new("/test/project/templates/child.html"));
+    assert!(child.is_ok(), "fixture file should exist");
+    let Some(child) = child.ok() else {
+        return;
+    };
+
+    assert_eq!(
+        inheritance_summary(&db, project, child),
+        (
+            vec!["/test/project/templates/parent.html".to_string()],
+            ChainEnd::InconclusiveParent {
+                name: "missing.html".to_string(),
+            },
+        )
     );
 }
 
@@ -707,8 +835,11 @@ fn template_inheritance_preserves_cycle_detection() {
                 "{% extends 'first.html' %}",
             ),
         ],
-    );
-    let first = db.file(Utf8Path::new("/test/project/templates/first.html"));
+    )
+    .expect("template project fixture should build");
+    let first = db
+        .file(Utf8Path::new("/test/project/templates/first.html"))
+        .expect("fixture file should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, first);
 
@@ -736,8 +867,11 @@ fn template_inheritance_detects_a_cycle_through_a_template_name_alias() {
                 "{% extends 'b.html' %}",
             ),
         ],
-    );
-    let start = db.file(Utf8Path::new("/test/project/templates/start.html"));
+    )
+    .expect("template project fixture should build");
+    let start = db
+        .file(Utf8Path::new("/test/project/templates/start.html"))
+        .expect("fixture file should exist in the test database");
 
     let (ancestors, end) = inheritance_summary(&db, project, start);
 
@@ -782,22 +916,34 @@ fn extracts_blocks_and_extends_by_role_not_builtin_names() {
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = r#"{% overextends "base.html" %}
 {% section content %}Body{% endsection %}"#;
-    let symbols = symbols_for_source(&db, source);
+    let symbols = symbols_for_source(&db, source).expect("template symbol fixture should build");
 
     assert_eq!(
         symbols.extends(),
         Some(&ExtendsTarget::Literal {
             name: "base.html".to_string(),
-            span: Span::saturating_from_parts_usize(source.find("base.html").unwrap(), 9),
+            span: Span::saturating_from_parts_usize(
+                source
+                    .find("base.html")
+                    .expect("fixture should contain the parent template name"),
+                9
+            ),
         })
     );
     assert_eq!(
         symbols.blocks(),
         &[BlockDef {
             name: "content".to_string(),
-            name_span: Span::saturating_from_parts_usize(source.find("content").unwrap(), 7),
+            name_span: Span::saturating_from_parts_usize(
+                source
+                    .find("content")
+                    .expect("fixture should contain the block name"),
+                7
+            ),
             full_span: Span::saturating_from_bounds_usize(
-                source.find("{% section").unwrap(),
+                source
+                    .find("{% section")
+                    .expect("fixture should contain the section opening tag"),
                 source.len(),
             ),
         }]

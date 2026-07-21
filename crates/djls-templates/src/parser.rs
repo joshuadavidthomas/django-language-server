@@ -52,8 +52,8 @@ impl Parser {
                     });
 
                     if !self.is_at_end() {
-                        // Continue parsing even if synchronization fails
-                        let _ = self.synchronize();
+                        // Continue parsing even if synchronization fails.
+                        drop(self.synchronize());
                     }
                 }
             }
@@ -154,7 +154,13 @@ impl Parser {
                     content: error_text,
                 })
             }
-            _ => Err(ParseError::UnexpectedTokenKind {
+            Token::Block { .. }
+            | Token::Comment { .. }
+            | Token::Eof
+            | Token::Newline { .. }
+            | Token::Text { .. }
+            | Token::Variable { .. }
+            | Token::Whitespace { .. } => Err(ParseError::UnexpectedTokenKind {
                 position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Error token".to_string(),
             }),
@@ -283,7 +289,10 @@ impl Parser {
                 | Token::Eof => {
                     return Ok(());
                 }
-                _ => {}
+                Token::Error { .. }
+                | Token::Newline { .. }
+                | Token::Text { .. }
+                | Token::Whitespace { .. } => {}
             }
             self.consume()?;
         }

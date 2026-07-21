@@ -135,7 +135,7 @@ impl SearchPaths {
             );
             let site_packages = match &search_path {
                 SearchPath::SitePackages(path) => Some(path.clone()),
-                _ => None,
+                SearchPath::FirstParty(_) | SearchPath::Extra(_) | SearchPath::Editable(_) => None,
             };
             search_paths.paths.push(search_path);
             if let Some(site_packages) = site_packages {

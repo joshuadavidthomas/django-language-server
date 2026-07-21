@@ -104,7 +104,8 @@ mod tests {
 
     #[test]
     fn serde_deserialization_enforces_invariants() {
-        let valid: LibraryName = serde_json::from_str("\"humanize\"").unwrap();
+        let valid: LibraryName =
+            serde_json::from_str("\"humanize\"").expect("test library name should be valid");
         assert_eq!(valid.as_str(), "humanize");
 
         let invalid: Result<LibraryName, _> = serde_json::from_str("\"\"");

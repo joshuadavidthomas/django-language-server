@@ -107,7 +107,29 @@ fn body_has_next_token_call(body: &[Stmt], parser_var: &str) -> bool {
         let has_next_token_call = match stmt {
             Stmt::Assign(StmtAssign { value, .. }) => is_next_token_call(value, parser_var),
             Stmt::Expr(expr_stmt) => is_next_token_call(&expr_stmt.value, parser_var),
-            _ => false,
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Return(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::AugAssign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::If(_)
+            | Stmt::With(_)
+            | Stmt::Match(_)
+            | Stmt::Raise(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::IpyEscapeCommand(_) => false,
         };
         if has_next_token_call {
             found = true;
@@ -172,7 +194,29 @@ fn collect_token_content_comparisons(body: &[Stmt], token_var: &str) -> Vec<Stri
                     }
                 }
             }
-            _ => {}
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Return(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::Assign(_)
+            | Stmt::AugAssign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::For(_)
+            | Stmt::With(_)
+            | Stmt::Match(_)
+            | Stmt::Raise(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Expr(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::IpyEscapeCommand(_) => {}
         }
         ControlFlow::Continue(())
     });

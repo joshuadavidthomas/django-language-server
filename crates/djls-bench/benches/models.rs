@@ -1,72 +1,146 @@
+use std::io;
 use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use divan::Bencher;
 use djls_bench::Db;
+use djls_bench::FixtureLoadError;
 use djls_bench::REPEATED_INNER_ITERS;
+use djls_bench::corpus_or_skip;
 use djls_bench::model_fixtures;
+use djls_bench::require;
+use djls_bench::require_some;
 use djls_conf::Settings;
+use djls_project::InvalidModuleName;
 use djls_project::ModelGraph;
 use djls_project::ModelId;
 use djls_project::Project;
 use djls_project::PythonModuleName;
 use djls_project::testing::extract_model_graph;
 use djls_project::testing::resolve_model_graph_from_modules;
+use djls_source::File;
+use djls_source::FileError;
 
 fn main() {
     divan::main();
 }
 
-fn module_name(path: &str) -> PythonModuleName {
-    PythonModuleName::parse(path).unwrap()
+#[derive(Debug, thiserror::Error)]
+enum ModelSetupError {
+    #[error(transparent)]
+    Fixtures(#[from] FixtureLoadError),
+    #[error("invalid model benchmark module name {value:?}: {source}")]
+    Module {
+        value: String,
+        #[source]
+        source: InvalidModuleName,
+    },
+    #[error("failed to register model benchmark source {path}: {source}")]
+    Register {
+        path: Utf8PathBuf,
+        #[source]
+        source: FileError,
+    },
+    #[error("model benchmark fixture {label:?} is missing")]
+    MissingFixture { label: &'static str },
+    #[error("resolved model graph is missing {module}.{name}")]
+    MissingModel {
+        module: &'static str,
+        name: &'static str,
+    },
+    #[error("resolved model graph has no forward relation {model}.{field}")]
+    MissingForwardRelation {
+        model: &'static str,
+        field: &'static str,
+    },
+    #[error("resolved model graph has no reverse relation {model}.{relation}")]
+    MissingReverseRelation {
+        model: &'static str,
+        relation: &'static str,
+    },
+    #[error("benchmark corpus is invalid or stale: {message}")]
+    InvalidCorpus { message: String },
+    #[error("Django package is missing from the synchronized benchmark corpus at {root}")]
+    MissingDjangoPackage { root: Utf8PathBuf },
+    #[error("failed to read corpus model source {path}: {source}")]
+    ReadCorpusModel {
+        path: Utf8PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("no model files were found in the synchronized {selection} corpus")]
+    EmptyCorpus { selection: &'static str },
 }
 
-fn model_graph_from_source(
+fn parse_module(value: &str) -> Result<PythonModuleName, ModelSetupError> {
+    PythonModuleName::parse(value).map_err(|source| ModelSetupError::Module {
+        value: value.to_string(),
+        source,
+    })
+}
+
+fn register_model_source(
     db: &mut Db,
-    path: impl Into<Utf8PathBuf>,
+    path: Utf8PathBuf,
     source: &str,
-    module_name: PythonModuleName,
-) -> ModelGraph {
-    let file = db.file_with_contents(path, source);
-    extract_model_graph(db, file, module_name).clone()
+) -> Result<File, ModelSetupError> {
+    db.file_with_contents(path.clone(), source)
+        .map_err(|source| ModelSetupError::Register { path, source })
+}
+
+struct ModelExtractionInput {
+    db: Db,
+    files: Vec<(File, PythonModuleName)>,
+}
+
+fn fixture_extraction_input(prefix: &str) -> Result<ModelExtractionInput, ModelSetupError> {
+    let fixtures = model_fixtures()?;
+    let module = parse_module("bench.models")?;
+    let mut db = Db::new();
+    let mut files = Vec::with_capacity(fixtures.len());
+    for (index, fixture) in fixtures.iter().enumerate() {
+        let path = Utf8PathBuf::from(format!("/bench/models/{prefix}/{index}.py"));
+        let file = register_model_source(&mut db, path, &fixture.source)?;
+        files.push((file, module.clone()));
+    }
+    Ok(ModelExtractionInput { db, files })
 }
 
 // Batch extraction: all fixtures in one iteration
 
 #[divan::bench]
 fn extract(bencher: Bencher) {
-    let fixtures = model_fixtures();
-    bencher.bench_local(move || {
-        let mut db = Db::new();
-        for (index, fixture) in fixtures.iter().enumerate() {
-            divan::black_box(model_graph_from_source(
-                &mut db,
-                format!("/bench/models/extract/{index}.py"),
-                &fixture.source,
-                module_name("bench.models"),
-            ));
-        }
-    });
+    bencher
+        .with_inputs(|| {
+            require(
+                "prepare model extraction benchmark input",
+                fixture_extraction_input("extract"),
+            )
+        })
+        .bench_local_values(|input| {
+            let mut extracted_models = 0;
+            for (file, module) in input.files {
+                let graph = extract_model_graph(&input.db, file, module);
+                extracted_models += graph.len();
+                divan::black_box(graph);
+            }
+            divan::black_box(extracted_models);
+        });
 }
 
 // Merge: extract graphs then merge them (the hot path in compute_model_graph)
 
 #[divan::bench]
 fn merge(bencher: Bencher) {
-    let fixtures = model_fixtures();
-    let mut db = Db::new();
-    let graphs: Vec<ModelGraph> = fixtures
-        .iter()
-        .enumerate()
-        .map(|(index, fixture)| {
-            model_graph_from_source(
-                &mut db,
-                format!("/bench/models/merge/{index}.py"),
-                &fixture.source,
-                module_name("bench.models"),
-            )
-        })
+    let input = require(
+        "prepare model merge benchmark input",
+        fixture_extraction_input("merge"),
+    );
+    let graphs: Vec<_> = input
+        .files
+        .into_iter()
+        .map(|(file, module)| extract_model_graph(&input.db, file, module).clone())
         .collect();
 
     bencher.bench_local(move || {
@@ -84,50 +158,79 @@ fn merge(bencher: Bencher) {
 
 // Resolution: forward and field-based relation lookups on a populated graph
 
-fn auth_graph() -> &'static ModelGraph {
-    static GRAPH: OnceLock<ModelGraph> = OnceLock::new();
-    GRAPH.get_or_init(|| {
-        let fixtures = model_fixtures();
-        let auth = fixtures
-            .iter()
-            .find(|f| f.label == "medium_auth.py")
-            .expect("medium_auth fixture missing");
-        let mut db = Db::new();
-        let project = Project::initial(&db, Utf8Path::new("/bench"), &Settings::default());
-        let auth_file = db.file_with_contents("/bench/django/contrib/auth/models.py", &auth.source);
-        let content_type_file = db.file_with_contents(
-            "/bench/django/contrib/contenttypes/models.py",
-            "from django.db import models\n\nclass ContentType(models.Model):\n    pass\n",
-        );
+fn build_auth_graph() -> Result<ModelGraph, ModelSetupError> {
+    let fixtures = model_fixtures()?;
+    let auth = fixtures
+        .iter()
+        .find(|fixture| fixture.label == "medium_auth.py")
+        .ok_or(ModelSetupError::MissingFixture {
+            label: "medium_auth.py",
+        })?;
+    let mut db = Db::new();
+    let project = Project::initial(&db, Utf8Path::new("/bench"), &Settings::default());
+    let auth_file = register_model_source(
+        &mut db,
+        Utf8PathBuf::from("/bench/django/contrib/auth/models.py"),
+        &auth.source,
+    )?;
+    let content_type_file = register_model_source(
+        &mut db,
+        Utf8PathBuf::from("/bench/django/contrib/contenttypes/models.py"),
+        "from django.db import models\n\nclass ContentType(models.Model):\n    pass\n",
+    )?;
 
-        resolve_model_graph_from_modules(
-            &db,
-            project,
-            [
-                (auth_file, module_name("django.contrib.auth.models")),
-                (
-                    content_type_file,
-                    module_name("django.contrib.contenttypes.models"),
-                ),
-            ],
-        )
-    })
+    Ok(resolve_model_graph_from_modules(
+        &db,
+        project,
+        [
+            (auth_file, parse_module("django.contrib.auth.models")?),
+            (
+                content_type_file,
+                parse_module("django.contrib.contenttypes.models")?,
+            ),
+        ],
+    ))
 }
 
-fn model_id<'a>(graph: &'a ModelGraph, name: &'a str, module_name: &str) -> &'a ModelId {
-    let (id, _model) = graph.models_named(name).next().expect("model should exist");
-    assert_eq!(id.name(), name);
-    assert_eq!(id.module_name().as_str(), module_name);
-    assert!(graph.get_by_id(id).is_some());
-    id
+fn auth_graph() -> Result<&'static ModelGraph, &'static ModelSetupError> {
+    static GRAPH: OnceLock<Result<ModelGraph, ModelSetupError>> = OnceLock::new();
+    match GRAPH.get_or_init(build_auth_graph) {
+        Ok(graph) => Ok(graph),
+        Err(error) => Err(error),
+    }
+}
+
+fn model_id<'a>(
+    graph: &'a ModelGraph,
+    name: &'static str,
+    module: &'static str,
+) -> Result<&'a ModelId, ModelSetupError> {
+    let id = graph
+        .models_named(name)
+        .map(|(id, _model)| id)
+        .find(|id| id.module_name().as_str() == module)
+        .ok_or(ModelSetupError::MissingModel { module, name })?;
+    if graph.get_by_id(id).is_none() {
+        return Err(ModelSetupError::MissingModel { module, name });
+    }
+    Ok(id)
 }
 
 #[divan::bench]
 fn resolve_relations(bencher: Bencher) {
-    let graph = auth_graph();
-    let permission = model_id(graph, "Permission", "django.contrib.auth.models");
-    let group = model_id(graph, "Group", "django.contrib.auth.models");
-    let user = model_id(graph, "User", "django.contrib.auth.models");
+    let graph = require("prepare auth model graph", auth_graph());
+    let permission = require(
+        "find Permission in auth model graph",
+        model_id(graph, "Permission", "django.contrib.auth.models"),
+    );
+    let group = require(
+        "find Group in auth model graph",
+        model_id(graph, "Group", "django.contrib.auth.models"),
+    );
+    let user = require(
+        "find User in auth model graph",
+        model_id(graph, "User", "django.contrib.auth.models"),
+    );
 
     let lookup_queries = [("auth", "Permission"), ("auth", "Group"), ("auth", "User")];
     let forward_queries = [
@@ -141,18 +244,22 @@ fn resolve_relations(bencher: Bencher) {
         (permission, "user_set"),
     ];
 
-    for (model, field) in forward_queries {
-        assert!(
-            graph.resolve_forward(model, field).is_some(),
-            "forward relation should resolve: {}.{field}",
-            model.name()
+    for &(model, field) in &forward_queries {
+        require_some(
+            ModelSetupError::MissingForwardRelation {
+                model: model.name(),
+                field,
+            },
+            graph.resolve_forward(model, field),
         );
     }
-    for (model, relation) in relation_queries {
-        assert!(
-            graph.resolve_relation(model, relation).is_some(),
-            "relation should resolve: {}.{relation}",
-            model.name()
+    for &(model, relation) in &relation_queries {
+        require_some(
+            ModelSetupError::MissingReverseRelation {
+                model: model.name(),
+                relation,
+            },
+            graph.resolve_relation(model, relation),
         );
     }
 
@@ -180,61 +287,83 @@ struct CorpusModels {
 }
 
 fn load_corpus_models_inner(
-    get_paths: impl FnOnce(&djls_testing::Corpus) -> Option<Vec<Utf8PathBuf>>,
-) -> Option<CorpusModels> {
+    selection: &'static str,
+    get_paths: impl FnOnce(&djls_testing::Corpus) -> Result<Vec<Utf8PathBuf>, ModelSetupError>,
+) -> Result<Option<CorpusModels>, ModelSetupError> {
     if !djls_testing::Corpus::is_available() {
-        return None;
+        return Ok(None);
     }
 
-    let corpus = djls_testing::Corpus::require();
+    let corpus =
+        djls_testing::Corpus::require().map_err(|error| ModelSetupError::InvalidCorpus {
+            message: error.to_string(),
+        })?;
     let mut paths = get_paths(&corpus)?;
     paths.sort();
-
-    let files: Vec<(String, PythonModuleName)> = paths
-        .into_iter()
-        .filter_map(|path| {
-            let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-            let module_name = djls_testing::module_name_from_file(&path);
-            let module_name = PythonModuleName::parse(&module_name).ok()?;
-            Some((source, module_name))
-        })
-        .collect();
-
-    if files.is_empty() {
-        return None;
+    if paths.is_empty() {
+        return Err(ModelSetupError::EmptyCorpus { selection });
     }
 
-    Some(CorpusModels { files })
+    let mut files = Vec::with_capacity(paths.len());
+    for path in paths {
+        let source = std::fs::read_to_string(path.as_std_path()).map_err(|source| {
+            ModelSetupError::ReadCorpusModel {
+                path: path.clone(),
+                source,
+            }
+        })?;
+        let module_name = djls_testing::module_name_from_file(&path);
+        let module_name = parse_module(&module_name)?;
+        files.push((source, module_name));
+    }
+
+    Ok(Some(CorpusModels { files }))
 }
 
-fn load_django_models() -> Option<&'static CorpusModels> {
-    static CORPUS: OnceLock<Option<CorpusModels>> = OnceLock::new();
-    CORPUS
-        .get_or_init(|| {
-            load_corpus_models_inner(|corpus| {
-                let django_dir = corpus.latest_package("django")?;
-                Some(corpus.model_files_in(&django_dir))
-            })
+fn load_django_models() -> Result<Option<&'static CorpusModels>, &'static ModelSetupError> {
+    static CORPUS: OnceLock<Result<Option<CorpusModels>, ModelSetupError>> = OnceLock::new();
+    match CORPUS.get_or_init(|| {
+        load_corpus_models_inner("Django", |corpus| {
+            let django_dir = corpus.latest_package("django").ok_or_else(|| {
+                ModelSetupError::MissingDjangoPackage {
+                    root: corpus.root().to_path_buf(),
+                }
+            })?;
+            Ok(corpus.model_files_in(&django_dir))
         })
-        .as_ref()
+    }) {
+        Ok(corpus) => Ok(corpus.as_ref()),
+        Err(error) => Err(error),
+    }
 }
 
-fn load_all_corpus_models() -> Option<&'static CorpusModels> {
-    static CORPUS: OnceLock<Option<CorpusModels>> = OnceLock::new();
-    CORPUS
-        .get_or_init(|| {
-            load_corpus_models_inner(|corpus| Some(corpus.model_files_in(corpus.root())))
-        })
-        .as_ref()
+fn load_all_corpus_models() -> Result<Option<&'static CorpusModels>, &'static ModelSetupError> {
+    static CORPUS: OnceLock<Result<Option<CorpusModels>, ModelSetupError>> = OnceLock::new();
+    match CORPUS.get_or_init(|| {
+        load_corpus_models_inner("full", |corpus| Ok(corpus.model_files_in(corpus.root())))
+    }) {
+        Ok(corpus) => Ok(corpus.as_ref()),
+        Err(error) => Err(error),
+    }
 }
 
-fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
-    let Some(corpus) = corpus else {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "corpus not synced; run `just corpus sync` before benchmarks",
-        );
-        eprintln!("corpus not synced, skipping");
+fn corpus_extraction_input(corpus: &CorpusModels) -> Result<ModelExtractionInput, ModelSetupError> {
+    let mut db = Db::new();
+    let mut files = Vec::with_capacity(corpus.files.len());
+    for (index, (source, module_name)) in corpus.files.iter().enumerate() {
+        let path = Utf8PathBuf::from(format!("/bench/models/corpus/{index}.py"));
+        let file = register_model_source(&mut db, path, source)?;
+        files.push((file, module_name.clone()));
+    }
+    Ok(ModelExtractionInput { db, files })
+}
+
+fn bench_corpus(
+    bencher: Bencher,
+    corpus: Result<Option<&'static CorpusModels>, &'static ModelSetupError>,
+    selection: &'static str,
+) {
+    let Some(corpus) = corpus_or_skip(format_args!("{selection} model benchmark"), corpus) else {
         return;
     };
 
@@ -242,17 +371,17 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
 
     bencher
         .counter(divan::counter::ItemsCount::new(file_count))
-        .bench_local(move || {
-            let mut db = Db::new();
+        .with_inputs(move || {
+            require(
+                format_args!("register {selection} corpus model inputs"),
+                corpus_extraction_input(corpus),
+            )
+        })
+        .bench_local_values(|input| {
             let mut merged = ModelGraph::new();
-            for (index, (source, module_name)) in corpus.files.iter().enumerate() {
-                let graph = model_graph_from_source(
-                    &mut db,
-                    format!("/bench/models/corpus/{index}.py"),
-                    source,
-                    module_name.clone(),
-                );
-                merged.merge(graph);
+            for (file, module_name) in input.files {
+                let graph = extract_model_graph(&input.db, file, module_name);
+                merged.merge(graph.clone());
             }
             divan::black_box(merged);
         });
@@ -260,10 +389,10 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
 
 #[divan::bench]
 fn corpus_django(bencher: Bencher) {
-    bench_corpus(bencher, load_django_models());
+    bench_corpus(bencher, load_django_models(), "Django");
 }
 
 #[divan::bench]
 fn corpus_all(bencher: Bencher) {
-    bench_corpus(bencher, load_all_corpus_models());
+    bench_corpus(bencher, load_all_corpus_models(), "full");
 }

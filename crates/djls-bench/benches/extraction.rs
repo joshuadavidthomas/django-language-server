@@ -1,10 +1,14 @@
+use camino::Utf8PathBuf;
 use divan::Bencher;
 use djls_bench::Db;
 use djls_bench::Fixture;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::python_fixtures;
+use djls_bench::require;
+use djls_project::InvalidModuleName;
 use djls_project::PythonModuleName;
 use djls_source::File;
+use djls_source::FileError;
 use djls_testing::extract_bundle;
 
 struct ExtractionFile {
@@ -17,28 +21,47 @@ struct ExtractionInput {
     files: Vec<ExtractionFile>,
 }
 
+#[derive(Debug, thiserror::Error)]
+enum ExtractionSetupError {
+    #[error("invalid extraction benchmark module name: {0}")]
+    Module(#[from] InvalidModuleName),
+    #[error("failed to register extraction fixture {path}: {source}")]
+    Register {
+        path: Utf8PathBuf,
+        #[source]
+        source: FileError,
+    },
+}
+
 fn main() {
     divan::main();
 }
 
-fn extraction_input(fixtures: &[Fixture]) -> ExtractionInput {
+fn extraction_input(fixtures: &[Fixture]) -> Result<ExtractionInput, ExtractionSetupError> {
     let mut db = Db::new();
-    let files = fixtures
-        .iter()
-        .map(|fixture| ExtractionFile {
-            file: db.file_with_contents(fixture.path.clone(), &fixture.source),
-            module: PythonModuleName::parse("bench.module").unwrap(),
-        })
-        .collect();
+    let module = PythonModuleName::parse("bench.module")?;
+    let mut files = Vec::with_capacity(fixtures.len());
+    for fixture in fixtures {
+        let file = db
+            .file_with_contents(fixture.path.clone(), &fixture.source)
+            .map_err(|source| ExtractionSetupError::Register {
+                path: fixture.path.clone(),
+                source,
+            })?;
+        files.push(ExtractionFile {
+            file,
+            module: module.clone(),
+        });
+    }
 
-    ExtractionInput { db, files }
+    Ok(ExtractionInput { db, files })
 }
 
 #[divan::bench]
 fn tags(bencher: Bencher) {
-    let fixtures = python_fixtures();
+    let fixtures = require("load Python extraction fixtures", python_fixtures());
     bencher
-        .with_inputs(|| extraction_input(fixtures))
+        .with_inputs(|| require("prepare tag extraction input", extraction_input(fixtures)))
         .bench_local_values(|input| {
             let mut extracted = 0;
             for extraction_file in input.files {
@@ -55,7 +78,8 @@ fn tags(bencher: Bencher) {
 
 #[divan::bench]
 fn merge_tags(bencher: Bencher) {
-    let input = extraction_input(python_fixtures());
+    let fixtures = require("load Python extraction fixtures", python_fixtures());
+    let input = require("prepare tag merge input", extraction_input(fixtures));
     let bundles: Vec<_> = input
         .files
         .iter()

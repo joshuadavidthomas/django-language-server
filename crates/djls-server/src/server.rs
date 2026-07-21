@@ -18,6 +18,8 @@ use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
 use crate::reload::ProjectReload;
+use crate::session::CancellationRetryAction;
+use crate::session::CancellationRetryState;
 use crate::session::DocumentMutation;
 use crate::session::IntrinsicReadinessState;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
@@ -137,7 +139,8 @@ where
     F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
     R: Default + Send + 'static,
 {
-    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+    let mut retry_state = CancellationRetryState::new();
+    loop {
         let snapshot = { session.lock().await.snapshot() };
         let f = Arc::clone(&f);
         let result =
@@ -154,16 +157,17 @@ where
             };
         match result {
             Ok(result) => return result,
-            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                debug!(?cancelled, "Syntax snapshot cancelled; retrying");
-            }
-            Err(cancelled) => {
-                debug!(?cancelled, "Syntax snapshot cancelled; returning fallback");
-                return R::default();
-            }
+            Err(cancelled) => match retry_state.after_cancellation() {
+                CancellationRetryAction::Retry { attempt } => {
+                    debug!(?cancelled, attempt, "Syntax snapshot cancelled; retrying");
+                }
+                CancellationRetryAction::Exhausted => {
+                    debug!(?cancelled, "Syntax snapshot cancelled; returning fallback");
+                    return R::default();
+                }
+            },
         }
     }
-    unreachable!("snapshot retry loop must return")
 }
 
 async fn with_ready_session_snapshot<F, R>(session: &Arc<Mutex<Session>>, f: Arc<F>) -> R
@@ -171,7 +175,8 @@ where
     F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
     R: Default + Send + 'static,
 {
-    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+    let mut retry_state = CancellationRetryState::new();
+    loop {
         let Some(snapshot) = await_ready_session_snapshot(session).await else {
             return R::default();
         };
@@ -191,25 +196,24 @@ where
 
         match result {
             Ok(result) => return result,
-            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
-                debug!(
-                    ?cancelled,
-                    attempt = attempt + 1,
-                    "Snapshot request cancelled; retrying from intrinsic readiness"
-                );
-            }
-            Err(cancelled) => {
-                debug!(
-                    ?cancelled,
-                    retries = SNAPSHOT_CANCEL_RETRIES,
-                    "Snapshot request cancelled; returning fallback"
-                );
-                return R::default();
-            }
+            Err(cancelled) => match retry_state.after_cancellation() {
+                CancellationRetryAction::Retry { attempt } => {
+                    debug!(
+                        ?cancelled,
+                        attempt, "Snapshot request cancelled; retrying from intrinsic readiness"
+                    );
+                }
+                CancellationRetryAction::Exhausted => {
+                    debug!(
+                        ?cancelled,
+                        retries = SNAPSHOT_CANCEL_RETRIES,
+                        "Snapshot request cancelled; returning fallback"
+                    );
+                    return R::default();
+                }
+            },
         }
     }
-
-    unreachable!("snapshot retry loop must return")
 }
 
 async fn await_ready_session_snapshot(session: &Arc<Mutex<Session>>) -> Option<SessionSnapshot> {
@@ -380,7 +384,7 @@ impl LanguageServer for DjangoLanguageServer {
         let mutation = self
             .with_session_mut(|session| session.close_document(&params.text_document))
             .await;
-        let _ = self.schedule_document_mutation(mutation);
+        drop(self.schedule_document_mutation(mutation));
     }
 
     async fn code_action(
@@ -741,14 +745,15 @@ mod tests {
 
         let primed = {
             let session = session.lock().await;
-            prime_template_library_products(session.db()).unwrap()
+            prime_template_library_products(session.db())
+                .expect("default session should have a project")
         };
         assert!(session.lock().await.publish_intrinsic_readiness(0, &primed));
 
         let response: usize = timeout(Duration::from_secs(1), request)
             .await
-            .unwrap()
-            .unwrap();
+            .expect("project-aware request should finish before the test timeout")
+            .expect("project-aware request task should finish successfully");
         assert_eq!(response, usize::default());
         assert_eq!(executions.load(Ordering::SeqCst), 1);
     }
@@ -757,27 +762,27 @@ mod tests {
     async fn cancellation_restarts_at_barrier_and_waits_for_reprime() {
         let session = Arc::new(Mutex::new(Session::default()));
         let path = Utf8PathBuf::from("/tmp/retry.py");
-        let uri = ls_types::Uri::from_file_path(path.as_std_path()).unwrap();
+        let uri: ls_types::Uri = "file:///tmp/retry.py".parse().expect("valid test URI");
         let generation = {
             let mut session = session.lock().await;
-            let DocumentMutation::Applied { .. } =
-                session.open_document(&ls_types::TextDocumentItem {
-                    uri: uri.clone(),
-                    language_id: "python".to_string(),
-                    version: 1,
-                    text: "initial".to_string(),
-                })
-            else {
-                panic!("Python open should be applied");
-            };
-            let file = path_to_file(session.db(), &path).unwrap();
+            match session.open_document(&ls_types::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "python".to_string(),
+                version: 1,
+                text: "initial".to_string(),
+            }) {
+                DocumentMutation::Applied { .. } => Some(()),
+                DocumentMutation::Ignored => None,
+            }
+            .expect("Python test document should open");
+            let file = path_to_file(session.db(), &path).expect("open document should be interned");
             let generation = session.desired_generation();
-            let primed = prime_template_library_products(session.db()).unwrap();
+            let primed = prime_template_library_products(session.db())
+                .expect("session should have a project");
             assert!(session.publish_intrinsic_readiness(generation, &primed));
             session.install_ready_coverage_for_test(vec![file], Vec::new());
             generation
         };
-
         let attempts = Arc::new(AtomicUsize::new(0));
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
@@ -793,14 +798,15 @@ mod tests {
                     Arc::new(move |snapshot: &SessionSnapshot| {
                         let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
                         if attempt == 1 {
-                            started_tx.send(()).unwrap();
-                            release_rx.lock().unwrap().recv().unwrap();
+                            started_tx.send(()).expect("start receiver dropped");
+                            let release = release_rx.lock().expect("release mutex poisoned");
+                            release.recv().expect("release sender dropped");
                             sleep_thread(Duration::from_millis(50));
                         }
                         path_to_file(snapshot.db(), &path)
-                            .unwrap()
+                            .expect("snapshot should contain the open Python document")
                             .try_source(snapshot.db())
-                            .unwrap()
+                            .expect("snapshot Python source should be readable")
                             .as_str()
                             .to_string()
                     }),
@@ -808,23 +814,24 @@ mod tests {
                 .await
             }
         });
-        spawn_blocking(move || started_rx.recv().unwrap())
+        spawn_blocking(move || started_rx.recv().expect("start signal should arrive"))
             .await
-            .unwrap();
-
-        release_tx.send(()).unwrap();
+            .expect("start waiter should finish successfully");
+        release_tx.send(()).expect("release receiver dropped");
         let replacement_generation = {
             let mut session = session.lock().await;
-            let DocumentMutation::Applied { project_work, .. } = session.update_document(
+            let project_work = match session.update_document(
                 &ls_types::VersionedTextDocumentIdentifier { uri, version: 2 },
                 vec![ls_types::TextDocumentContentChangeEvent {
                     range: None,
                     range_length: None,
                     text: "updated".to_string(),
                 }],
-            ) else {
-                panic!("open Python document should update");
-            };
+            ) {
+                DocumentMutation::Applied { project_work, .. } => Some(project_work),
+                DocumentMutation::Ignored => None,
+            }
+            .expect("open Python test document should update");
             assert_eq!(project_work, Some(ProjectWork::Reprime));
             session.desired_generation()
         };
@@ -836,10 +843,9 @@ mod tests {
             "cancelled request must wait at the new generation barrier"
         );
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
-
         let current_prime = {
             let session = session.lock().await;
-            prime_template_library_products(session.db()).unwrap()
+            prime_template_library_products(session.db()).expect("session should have a project")
         };
         assert!(
             session
@@ -847,13 +853,11 @@ mod tests {
                 .await
                 .publish_intrinsic_readiness(replacement_generation, &current_prime)
         );
-        assert_eq!(
-            timeout(Duration::from_secs(1), request)
-                .await
-                .unwrap()
-                .unwrap(),
-            "updated"
-        );
+        let response = timeout(Duration::from_secs(1), request)
+            .await
+            .expect("retried request should finish before the test timeout")
+            .expect("retried request task should finish successfully");
+        assert_eq!(response, "updated");
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 
@@ -873,7 +877,8 @@ mod tests {
 
         let initial_prime = {
             let session = session.lock().await;
-            prime_template_library_products(session.db()).unwrap()
+            prime_template_library_products(session.db())
+                .expect("default session should have a project")
         };
         assert!(
             session
@@ -884,9 +889,9 @@ mod tests {
         assert_eq!(
             timeout(Duration::from_secs(1), initial_waiter)
                 .await
-                .unwrap()
-                .unwrap()
-                .unwrap()
+                .expect("initial readiness waiter should finish before the test timeout")
+                .expect("initial readiness waiter task should finish successfully")
+                .expect("initial ready snapshot should be available")
                 .intrinsic_generation(),
             Some(0)
         );
@@ -911,7 +916,8 @@ mod tests {
 
         let current_prime = {
             let session = session.lock().await;
-            prime_template_library_products(session.db()).unwrap()
+            prime_template_library_products(session.db())
+                .expect("default session should have a project")
         };
         assert!(
             session
@@ -922,9 +928,9 @@ mod tests {
         assert_eq!(
             timeout(Duration::from_secs(1), replacement_waiter)
                 .await
-                .unwrap()
-                .unwrap()
-                .unwrap()
+                .expect("replacement readiness waiter should finish before the test timeout")
+                .expect("replacement readiness waiter task should finish successfully")
+                .expect("replacement ready snapshot should be available")
                 .intrinsic_generation(),
             Some(generation)
         );

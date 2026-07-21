@@ -210,8 +210,12 @@ mod tests {
     #[test]
     fn two_annotations_same_line() {
         let source = "{% if user.is_authenticated and and user.is_staff %}\n{% endif %}\n";
-        let second_and = source.find("and user").unwrap();
-        let first_and = source[..second_and].rfind("and").unwrap();
+        let second_and = source
+            .find("and user")
+            .expect("test source should contain the second and operator");
+        let first_and = source[..second_and]
+            .rfind("and")
+            .expect("test source should contain the first and operator");
         let diag = Diagnostic::new(
             source,
             "templates/admin.html",
@@ -232,7 +236,10 @@ mod tests {
     #[test]
     fn warning_severity() {
         let source = "{% load i18n %}\n{% load i18n %}\n";
-        let second_load = source[1..].find("{% load i18n %}").unwrap() + 1;
+        let second_load = source[1..]
+            .find("{% load i18n %}")
+            .expect("test source should contain a second load tag")
+            + 1;
         let diag = Diagnostic::new(
             source,
             "templates/dupes.html",

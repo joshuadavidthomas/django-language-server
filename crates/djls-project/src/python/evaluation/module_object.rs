@@ -603,7 +603,7 @@ mod tests {
 
     fn source(name: &str, id: u64) -> PythonModule {
         let module = PythonSourceModule::file_module(
-            PythonModuleName::parse(name).unwrap(),
+            PythonModuleName::parse(name).expect("test Python module name should be valid"),
             Utf8PathBuf::from(format!("/project/{name}.py")),
             File::from_id(Id::from_bits(id)),
             SearchPath::FirstParty(Utf8PathBuf::from("/project")),
@@ -613,7 +613,7 @@ mod tests {
 
     fn namespace(name: &str) -> PythonModule {
         PythonModule::Namespace(PythonNamespacePackage::new(
-            PythonModuleName::parse(name).unwrap(),
+            PythonModuleName::parse(name).expect("test Python module name should be valid"),
             Vec::new(),
         ))
     }
@@ -713,7 +713,9 @@ mod tests {
             origin(3),
         );
 
-        let binding = objects.read_child(&parent, "child").unwrap();
+        let binding = objects
+            .read_child(&parent, "child")
+            .expect("expected module child binding should exist");
         let mut module_constraints = None;
         let mut unknown_constraints = None;
         let mut unbound_constraints = None;
@@ -1142,9 +1144,14 @@ mod tests {
         binding.rebase_cycle_unknowns(read_origin);
 
         assert!(has_cycle_unknown(&binding));
-        let PythonBindingState::Bound(bound) = binding.alternatives().next().unwrap() else {
-            panic!("a cycle unknown is bound");
-        };
+        let bound = binding
+            .alternatives()
+            .next()
+            .and_then(|alternative| match alternative {
+                PythonBindingState::Bound(bound) => Some(bound),
+                PythonBindingState::Unbound => None,
+            })
+            .expect("a cycle unknown is bound");
         assert!(
             bound.value.origins().all(|origin| origin == read_origin),
             "cycle evidence is rebased to the read origin",
@@ -1173,7 +1180,7 @@ mod tests {
         };
         let package = |portions: Vec<NamespacePortion>| {
             PythonModule::Namespace(PythonNamespacePackage::new(
-                PythonModuleName::parse("ns").unwrap(),
+                PythonModuleName::parse("ns").expect("test Python module name should be valid"),
                 portions,
             ))
         };

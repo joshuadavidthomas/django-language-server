@@ -229,7 +229,38 @@ fn condition_checks_manual_as_var(expr: &Expr, name: &str) -> bool {
             .iter()
             .any(|value| condition_checks_manual_as_var(value, name)),
         Expr::Compare(compare) => comparison_is_as_keyword_check(compare, name),
-        _ => false,
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => false,
     }
 }
 
@@ -301,7 +332,7 @@ fn extract_arg_names(
         .iter()
         .filter_map(|rk| match rk.position {
             SplitPosition::Forward(n) if n > 0 => Some(n),
-            _ => None,
+            SplitPosition::Forward(_) | SplitPosition::Backward(_) => None,
         })
         .max()
         .unwrap_or(0);
@@ -316,11 +347,9 @@ fn extract_arg_names(
     }
 
     let mut args = Vec::new();
-    for pos in 1..=max_pos {
+    for arg_index in 0..max_pos {
+        let pos = arg_index + 1;
         let pos_split = SplitPosition::Forward(pos);
-        let arg_index = pos_split
-            .arg_index()
-            .expect("Forward(pos) with pos >= 1 always has an arg_index");
 
         // Check if there's a required keyword at this position
         if let Some(rk) = required_keywords.iter().find(|rk| rk.position == pos_split) {
