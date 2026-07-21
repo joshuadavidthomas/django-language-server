@@ -17,6 +17,10 @@ repos:
       - id: trailing-whitespace
       - id: no-commit-to-branch
         args: ["--branch", "main"]
+  - repo: https://github.com/joshuadavidthomas/ast-grep-rules
+    rev: v0.1.0
+    hooks:
+      - id: ast-grep-rules
   - repo: local
     hooks:
       - id: ast-grep
