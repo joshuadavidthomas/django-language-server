@@ -34,7 +34,7 @@ impl DjangoSettingsSources {
     }
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSettingsSources {
     let Some(module) = settings_module(db, project) else {
         return DjangoSettingsSources(Vec::new());

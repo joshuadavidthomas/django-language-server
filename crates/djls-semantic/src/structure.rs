@@ -52,7 +52,7 @@ pub use crate::structure::tree::TemplateNode;
 pub use crate::structure::tree::TemplateRegion;
 pub use crate::structure::tree::TemplateTree;
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub(crate) fn build_template_tree_for_file_in_scope<'db>(
     db: &'db dyn Db,
     file: File,
@@ -62,7 +62,7 @@ pub(crate) fn build_template_tree_for_file_in_scope<'db>(
     template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file).tree(db)
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub fn build_template_tree_for_file<'db>(
     db: &'db dyn Db,
     file: File,

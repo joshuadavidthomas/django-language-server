@@ -5,6 +5,7 @@ use serde::Serialize;
 
 #[salsa::tracked]
 pub struct TemplateTree<'db> {
+    #[returns(copy)]
     pub root: RegionId,
     #[returns(ref)]
     pub regions: Regions,

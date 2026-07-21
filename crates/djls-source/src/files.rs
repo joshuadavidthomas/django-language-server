@@ -24,7 +24,9 @@ pub struct File {
     #[returns(ref)]
     pub path: Utf8PathBuf,
     /// The revision number for invalidation tracking
+    #[returns(copy)]
     pub revision: u64,
+    #[returns(copy)]
     pub status: FileStatus,
 }
 
@@ -85,7 +87,9 @@ pub fn path_to_file(db: &dyn Db, path: &Utf8Path) -> Result<File, FileError> {
 pub struct FileRoot {
     #[returns(ref)]
     pub path: Utf8PathBuf,
+    #[returns(copy)]
     pub kind: FileRootKind,
+    #[returns(copy)]
     pub revision: u64,
 }
 
@@ -115,13 +119,13 @@ impl FileReadError {
 
 #[salsa::tracked]
 impl File {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn try_source(self, db: &dyn Db) -> Result<SourceText, FileReadError> {
         let _ = self.revision(db);
         db.files().source(db, self)
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub(crate) fn source_or_empty(self, db: &dyn Db) -> SourceText {
         self.try_source(db)
             .unwrap_or_else(|_| SourceText::new(self.path(db), String::new()))

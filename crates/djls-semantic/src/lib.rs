@@ -86,7 +86,7 @@ use crate::validation::TemplateValidator;
 /// This is a semantic convenience entrypoint: parsing still lives in
 /// `djls-templates`, while this function triggers validation for callers that
 /// need Django meaning for a file.
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub fn validate_template_file(db: &dyn Db, file: File) {
     let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return;

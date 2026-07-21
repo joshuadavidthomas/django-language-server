@@ -18,6 +18,7 @@ use crate::python::RecoveredPythonModule;
 // Salsa tracked-query keys are by-value; `module` is a key, not a borrow.
 #[allow(clippy::needless_pass_by_value)]
 #[salsa::tracked(
+    returns(clone),
     cycle_initial=evaluate_python_module_cycle_initial,
     cycle_fn=evaluate_python_module_cycle_recover,
 )]

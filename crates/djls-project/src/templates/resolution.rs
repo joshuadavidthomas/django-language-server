@@ -273,7 +273,9 @@ fn is_relative_template_name(target: &str) -> bool {
 #[salsa::tracked]
 #[derive(Debug)]
 pub struct TemplateOrigin<'db> {
+    #[returns(copy)]
     resolved_template_name: TemplateName<'db>,
+    #[returns(copy)]
     template_file: File,
 }
 
@@ -293,6 +295,7 @@ impl<'db> TemplateOrigin<'db> {
 
 #[salsa::tracked]
 pub struct TemplateResolution<'db> {
+    #[returns(copy)]
     project: Project,
 }
 
@@ -592,7 +595,7 @@ impl<'db> TemplateResolution<'db> {
 }
 
 #[cfg(test)]
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 fn test_template_origin<'db>(
     db: &'db dyn ProjectDb,
     name: TemplateName<'db>,
@@ -851,7 +854,7 @@ impl TemplateBackendScope {
     }
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub fn template_resolution(db: &dyn ProjectDb, project: Project) -> TemplateResolution<'_> {
     let _ = template_directories(db, project);
     TemplateResolution::new(db, project)
@@ -884,13 +887,13 @@ struct TemplateDirectoryIndex<'db> {
     searches: Vec<TemplateSettingsCaseSearch<'db>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
 struct TemplateSettingsCaseSearch<'db> {
     settings_case: TemplateSettingsCaseId,
     evidence: Vec<TemplateSearchEvidence<'db>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
 enum TemplateSearchEvidence<'db> {
     Origin {
         origin: TemplateOrigin<'db>,
@@ -930,7 +933,7 @@ impl TemplateSearchEvidence<'_> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum TemplateSearchIssue {
     Walk {
         root: Utf8PathBuf,
@@ -943,7 +946,7 @@ enum TemplateSearchIssue {
     },
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 fn template_directory_index<'db>(
     db: &'db dyn ProjectDb,
     resolution: TemplateResolution<'db>,

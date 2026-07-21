@@ -23,7 +23,7 @@ enum LookupOutcome {
     NotFound,
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 fn lookup_outcome(db: &dyn djls_source::Db, lookup: LookupPath) -> LookupOutcome {
     match path_to_file(db, Utf8Path::new(lookup.path(db))) {
         Ok(_) => LookupOutcome::Ok,

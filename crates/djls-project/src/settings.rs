@@ -16,7 +16,7 @@ fn settings_module(db: &dyn ProjectDb, project: Project) -> Option<PythonSourceM
     PythonSourceModule::resolve(db, project, django_settings_module)
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 pub(crate) fn settings_module_file(db: &dyn ProjectDb, project: Project) -> Option<File> {
     settings_module(db, project).map(|module| module.file())
 }

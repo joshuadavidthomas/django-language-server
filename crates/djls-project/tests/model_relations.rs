@@ -95,7 +95,7 @@ fn assert_relation_location(
     assert_eq!(actual.3, target_span);
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(copy))]
 #[allow(clippy::needless_pass_by_value)]
 fn model_graph_span_probe(
     db: &dyn djls_project::Db,
