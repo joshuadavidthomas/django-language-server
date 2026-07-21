@@ -1,76 +1,43 @@
 use std::fmt::Write as _;
 
-use djls_project::FindTemplateResult;
+use djls_project::EffectiveDefinitionLibrary;
+use djls_project::LibraryName;
 use djls_project::LoadableLibraryLookup;
-use djls_project::TemplateLibraries;
+use djls_project::PythonModuleName;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::TemplateLibrary;
+use djls_project::TemplateName;
+use djls_project::TemplateResolutionResult;
+use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
+use djls_semantic::Db as SemanticDb;
 use djls_semantic::SemanticOffsetContext;
-use djls_semantic::resolve_reference_name;
+use djls_semantic::TemplateReferenceKind;
+use djls_semantic::resolve_reference_for_file;
+use djls_semantic::scoped_template_libraries_for_file;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
 
 use crate::ext::SpanExt;
 
-pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
+pub fn hover(db: &dyn SemanticDb, file: File, offset: Offset) -> Option<ls_types::Hover> {
+    let scoped_libraries = scoped_template_libraries_for_file(db, file);
     let (markdown, span) = match SemanticOffsetContext::from_offset(db, file, offset) {
         SemanticOffsetContext::TemplateReference {
             name: template_name,
             kind,
             span,
-        } => {
-            let project = db.project()?;
-            let name = template_name.name(db);
-            let resolution = template_resolution(db, project);
-            let resolved_template_name =
-                resolve_reference_name(db, resolution, file, template_name, kind)?;
-
-            let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
-
-            match resolution.resolve(db, resolved_template_name) {
-                FindTemplateResult::Found(origin) => {
-                    let path = origin.path_buf(db);
-                    sections.push(format!("Resolved to `{path}`"));
-                }
-                FindTemplateResult::DoesNotExist(error) => {
-                    // No tried paths means the project did not provide template loader
-                    // locations, so there is nothing useful to show.
-                    if error.tried.is_empty() {
-                        return None;
-                    }
-
-                    let tried = error
-                        .tried
-                        .iter()
-                        .map(|path| format!("- `{path}`"))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    sections.push(format!("Template not found.\n\nTried:\n\n{tried}"));
-                }
-                FindTemplateResult::Inconclusive(search) => {
-                    // An incomplete search must not claim the template is missing; report what
-                    // the search did establish instead.
-                    let mut message = "Template search is incomplete.".to_string();
-                    if !search.possible_origins.is_empty() {
-                        let possible = search
-                            .possible_origins
-                            .iter()
-                            .map(|origin| format!("- `{}`", origin.path_buf(db)))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        let _ = write!(message, "\n\nPossible matches:\n\n{possible}");
-                    }
-                    sections.push(message);
-                }
-            }
-            Some((sections.join("\n---\n"), span))
-        }
+        } => Some((
+            render_template_reference_hover(db, file, template_name, kind)?,
+            span,
+        )),
         SemanticOffsetContext::LoadLibrary { name, span } => {
             let LoadableLibraryLookup::Found(library) =
-                db.template_libraries().loadable_library_str(&name)
+                scoped_libraries.loadable_library_str(&name)
             else {
                 return None;
             };
@@ -82,23 +49,37 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                 span,
             ))
         }
-        SemanticOffsetContext::LoadSymbol { name, span } => Some((
-            render_symbol_hover(db.template_libraries(), &name, None)?,
+        SemanticOffsetContext::LoadSymbol {
+            name,
+            library,
+            span,
+        } => Some((
+            render_library_symbol_hover(scoped_libraries, &name, &library, None)?,
             span,
         )),
-        SemanticOffsetContext::Tag { name, span } => Some((
-            render_symbol_hover(
-                db.template_libraries(),
+        SemanticOffsetContext::Tag {
+            name,
+            loaded_libraries,
+            span,
+        } => Some((
+            render_effective_symbol_hover(
+                scoped_libraries,
                 &name,
-                Some(TemplateSymbolKind::Tag),
+                TemplateSymbolKind::Tag,
+                &loaded_libraries,
             )?,
             span,
         )),
-        SemanticOffsetContext::Filter { name, span } => Some((
-            render_symbol_hover(
-                db.template_libraries(),
+        SemanticOffsetContext::Filter {
+            name,
+            loaded_libraries,
+            span,
+        } => Some((
+            render_effective_symbol_hover(
+                scoped_libraries,
                 &name,
-                Some(TemplateSymbolKind::Filter),
+                TemplateSymbolKind::Filter,
+                &loaded_libraries,
             )?,
             span,
         )),
@@ -114,28 +95,150 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
     })
 }
 
-fn render_symbol_hover(
-    libraries: &TemplateLibraries,
+fn render_template_reference_hover(
+    db: &dyn SemanticDb,
+    file: File,
+    template_name: TemplateName<'_>,
+    kind: TemplateReferenceKind,
+) -> Option<String> {
+    let project = db.project()?;
+    let name = template_name.name(db);
+    let resolution = template_resolution(db, project);
+    let resolution_result = resolve_reference_for_file(db, resolution, file, template_name, kind)?;
+    let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
+
+    match resolution_result {
+        TemplateResolutionResult::Found(origin) => {
+            sections.push(format!("Resolved to `{}`", origin.path_buf(db)));
+        }
+        TemplateResolutionResult::DoesNotExist(error) => {
+            if error.tried.is_empty() {
+                return None;
+            }
+            let tried = error
+                .tried
+                .iter()
+                .map(|path| format!("- `{path}`"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            sections.push(format!("Template not found.\n\nTried:\n\n{tried}"));
+        }
+        TemplateResolutionResult::Inconclusive(search) => {
+            let mut message = "Template search is incomplete.".to_string();
+            if !search.possible_origins.is_empty() {
+                let possible = search
+                    .possible_origins
+                    .iter()
+                    .map(|origin| format!("- `{}`", origin.path_buf(db)))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let _ = write!(message, "\n\nPossible matches:\n\n{possible}");
+            }
+            sections.push(message);
+        }
+    }
+    Some(sections.join("\n---\n"))
+}
+
+fn render_effective_symbol_hover(
+    scoped_libraries: ScopedTemplateLibraries<'_>,
+    name: &str,
+    kind: TemplateSymbolKind,
+    loaded_libraries: &[String],
+) -> Option<String> {
+    let loaded_libraries = loaded_libraries
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let definitions =
+        scoped_libraries.effective_definition_libraries(name, kind, &loaded_libraries);
+    let candidates = definitions
+        .into_iter()
+        .map(|definition| {
+            let EffectiveDefinitionLibrary::Known(Some(library)) = definition else {
+                return None;
+            };
+            let symbol = library
+                .symbols()
+                .iter()
+                .find(|symbol| symbol.kind == kind && symbol.name() == name)?;
+            Some((library, symbol))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let (_, first_symbol) = candidates.first()?;
+    if !candidates
+        .iter()
+        .all(|(_, symbol)| symbol.has_same_definition(first_symbol))
+    {
+        return None;
+    }
+
+    // The same definition may be exposed as a builtin in one backend and through a loaded
+    // library in another. Select presentation metadata independently of that exposure.
+    let (library, symbol) = candidates.into_iter().max_by_key(|(library, symbol)| {
+        (
+            symbol
+                .doc()
+                .filter(|doc| !doc.trim().is_empty())
+                .map(str::trim),
+            library.module_name_str(),
+            library.load_name().map(LibraryName::as_str),
+        )
+    })?;
+    render_symbol_hover(symbol, library.module_name(), None)
+}
+
+fn render_library_symbol_hover(
+    scoped_libraries: ScopedTemplateLibraries<'_>,
+    name: &str,
+    library: &str,
+    kind: Option<TemplateSymbolKind>,
+) -> Option<String> {
+    let LoadableLibraryLookup::Found(library) = scoped_libraries.loadable_library_str(library)
+    else {
+        return None;
+    };
+    render_symbol_from_library(library, name, kind)
+}
+
+fn render_symbol_from_library(
+    library: &TemplateLibrary,
     name: &str,
     kind: Option<TemplateSymbolKind>,
 ) -> Option<String> {
-    let kinds: &[TemplateSymbolKind] = match kind {
-        Some(TemplateSymbolKind::Tag) => &[TemplateSymbolKind::Tag],
-        Some(TemplateSymbolKind::Filter) => &[TemplateSymbolKind::Filter],
-        None => &[TemplateSymbolKind::Tag, TemplateSymbolKind::Filter],
-    };
-
-    let candidates: Vec<_> = kinds
+    let symbol = library
+        .symbols()
         .iter()
-        .flat_map(|kind| libraries.template_symbol_candidates(*kind))
-        .filter(|candidate| candidate.symbol.name() == name)
-        .collect();
+        .filter(|symbol| symbol.name() == name && kind.is_none_or(|kind| symbol.kind == kind))
+        .max_by_key(|symbol| {
+            symbol
+                .doc()
+                .filter(|doc| !doc.trim().is_empty())
+                .map(str::trim)
+        })?;
+    let availability =
+        library
+            .load_name()
+            .map(|load_name| TemplateSymbolAvailability::RequiresLoad {
+                load_name: load_name.clone(),
+            });
+    render_symbol_hover(symbol, library.module_name(), availability)
+}
 
-    if !candidates.is_empty() {
-        return render_template_symbol_hover(&candidates);
-    }
-
-    None
+fn render_symbol_hover(
+    symbol: &TemplateSymbol,
+    module_name: &PythonModuleName,
+    availability: Option<TemplateSymbolAvailability>,
+) -> Option<String> {
+    let candidates = [TemplateSymbolCandidate {
+        symbol: symbol.clone(),
+        availability: availability.unwrap_or_else(|| TemplateSymbolAvailability::Builtin {
+            module: module_name.clone(),
+        }),
+    }];
+    let mut markdown = render_template_symbol_hover(&candidates)?;
+    let _ = write!(markdown, "\n---\nDefined in `{module_name}`.");
+    Some(markdown)
 }
 
 fn render_template_symbol_hover(candidates: &[TemplateSymbolCandidate]) -> Option<String> {
@@ -261,7 +364,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum TestOrigin {
         Builtin(&'static str),
-        Installed(&'static str),
+        Loadable(&'static str),
     }
 
     fn candidate(
@@ -281,12 +384,12 @@ mod tests {
                 builtins.push(module.to_string());
                 djls_testing::builtin_filter(name, module)
             }
-            (TemplateSymbolKind::Tag, TestOrigin::Installed(load_name)) => {
+            (TemplateSymbolKind::Tag, TestOrigin::Loadable(load_name)) => {
                 let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
                 libraries.insert(load_name.to_string(), module.clone());
                 djls_testing::library_tag(name, load_name, &module)
             }
-            (TemplateSymbolKind::Filter, TestOrigin::Installed(load_name)) => {
+            (TemplateSymbolKind::Filter, TestOrigin::Loadable(load_name)) => {
                 let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
                 libraries.insert(load_name.to_string(), module.clone());
                 djls_testing::library_filter(name, load_name, &module)
@@ -301,13 +404,14 @@ mod tests {
             TemplateSymbolKind::Filter => (Vec::new(), vec![fixture]),
         };
         let db = djls_testing::TestDatabase::new();
-        let libraries =
-            djls_testing::make_template_libraries(&db, &tags, &filters, &libraries, &builtins);
+        let libraries = djls_testing::make_template_library_catalog(
+            &db, &tags, &filters, &libraries, &builtins,
+        );
 
-        libraries
-            .template_symbol_candidates(kind)
+        ScopedTemplateLibraries::from_project_inventory(&libraries)
+            .scoped_symbol_candidates(name, kind)
             .into_iter()
-            .find(|candidate| candidate.symbol.name() == name)
+            .next()
             .expect("candidate should exist")
     }
 
@@ -334,7 +438,7 @@ mod tests {
             TemplateSymbolKind::Filter,
             "intcomma",
             None,
-            TestOrigin::Installed("humanize"),
+            TestOrigin::Loadable("humanize"),
         )];
 
         let markdown = render_template_symbol_hover(&candidates);

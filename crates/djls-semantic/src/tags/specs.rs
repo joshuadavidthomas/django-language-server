@@ -5,6 +5,11 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
+use djls_conf::ArgKindDef;
+use djls_conf::ArgTypeDef;
+use djls_conf::TagLibraryDef;
+use djls_conf::TagSpecDef;
+use djls_conf::TagTypeDef;
 use djls_project::BlockSpecs;
 use djls_project::TagArgument;
 use djls_project::TagArgumentKind;
@@ -57,9 +62,9 @@ impl TagSpecs {
                 });
                 // Override intermediates from extraction
                 spec.intermediate_tags = if block_spec.intermediates.is_empty() {
-                    std::borrow::Cow::Borrowed(&[])
+                    Cow::Borrowed(&[])
                 } else {
-                    std::borrow::Cow::Owned(
+                    Cow::Owned(
                         block_spec
                             .intermediates
                             .iter()
@@ -89,7 +94,7 @@ impl TagSpecs {
                     TagSpec {
                         module: key.registration_module.clone().into(),
                         end_tag,
-                        intermediate_tags: std::borrow::Cow::Owned(intermediate_tags),
+                        intermediate_tags: Cow::Owned(intermediate_tags),
                         opaque: block_spec.opaque,
                         role: None,
                         extracted_rules: None,
@@ -116,7 +121,7 @@ impl TagSpecs {
                     TagSpec::new(
                         key.registration_module.clone().into(),
                         None,
-                        std::borrow::Cow::Borrowed(&[]),
+                        Cow::Borrowed(&[]),
                         false,
                     )
                     .with_extracted_rules(tag_rule.clone()),
@@ -162,14 +167,21 @@ impl TagSpecs {
     }
 
     #[must_use]
+    pub(crate) fn from_tagspec_library(library: &TagLibraryDef) -> TagSpecs {
+        let mut doc = TagSpecDef::default();
+        doc.libraries.push(library.clone());
+        Self::from_tagspec_def(&doc)
+    }
+
+    #[must_use]
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn from_tagspec_def(doc: &djls_conf::TagSpecDef) -> TagSpecs {
+    fn from_tagspec_def(doc: &TagSpecDef) -> TagSpecs {
         let mut specs = FxHashMap::default();
 
         for library in &doc.libraries {
             for tag_def in &library.tags {
                 let end_tag = match tag_def.tag_type.clone() {
-                    djls_conf::TagTypeDef::Block => tag_def.end.as_ref().map_or_else(
+                    TagTypeDef::Block => tag_def.end.as_ref().map_or_else(
                         || {
                             Some(EndTag {
                                 name: format!("end{}", tag_def.name).into(),
@@ -183,11 +195,11 @@ impl TagSpecs {
                             })
                         },
                     ),
-                    djls_conf::TagTypeDef::Loader => tag_def.end.as_ref().map(|end| EndTag {
+                    TagTypeDef::Loader => tag_def.end.as_ref().map(|end| EndTag {
                         name: end.name.clone().into(),
                         required: end.required,
                     }),
-                    djls_conf::TagTypeDef::Standalone => None,
+                    TagTypeDef::Standalone => None,
                 };
 
                 let intermediate_tags: Vec<IntermediateTag> = tag_def
@@ -218,12 +230,10 @@ impl TagSpecs {
 
                     for (pos, arg) in tag_def.args.iter().enumerate() {
                         let mut kind = match arg.kind.clone() {
-                            djls_conf::ArgKindDef::Syntax
-                            | djls_conf::ArgKindDef::Literal
-                            | djls_conf::ArgKindDef::Modifier => {
+                            ArgKindDef::Syntax | ArgKindDef::Literal | ArgKindDef::Modifier => {
                                 TagArgumentKind::Literal(arg.name.clone())
                             }
-                            djls_conf::ArgKindDef::Choice => {
+                            ArgKindDef::Choice => {
                                 let choices: Vec<String> = arg
                                     .extra
                                     .as_ref()
@@ -239,12 +249,12 @@ impl TagSpecs {
 
                                 TagArgumentKind::Choice(choices)
                             }
-                            djls_conf::ArgKindDef::Variable
-                            | djls_conf::ArgKindDef::Any
-                            | djls_conf::ArgKindDef::Assignment => TagArgumentKind::Variable,
+                            ArgKindDef::Variable | ArgKindDef::Any | ArgKindDef::Assignment => {
+                                TagArgumentKind::Variable
+                            }
                         };
 
-                        if matches!(arg.arg_type, djls_conf::ArgTypeDef::Keyword)
+                        if matches!(arg.arg_type, ArgTypeDef::Keyword)
                             && matches!(kind, TagArgumentKind::Variable)
                         {
                             kind = TagArgumentKind::Keyword;
@@ -367,6 +377,11 @@ impl TagSpec {
             role: None,
             extracted_rules: None,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn module(&self) -> &str {
+        self.module.as_ref()
     }
 
     #[must_use]
@@ -622,8 +637,12 @@ pub fn builtin_tag_specs() -> TagSpecs {
 
 #[cfg(test)]
 mod tests {
+    use std::ptr;
+    use std::string::ToString;
+
     use djls_project::ArgumentCountConstraint;
     use djls_project::BlockSpec;
+    use djls_project::SymbolKey;
 
     use super::*;
 
@@ -738,7 +757,7 @@ mod tests {
             found_keys,
             expected_keys
                 .iter()
-                .map(std::string::ToString::to_string)
+                .map(ToString::to_string)
                 .collect::<Vec<_>>()
         );
     }
@@ -776,7 +795,7 @@ mod tests {
 
         let specs2 = TagSpecs::new(specs2_map);
         let result = specs1.merge(specs2);
-        assert!(std::ptr::eq(result, std::ptr::from_ref(&specs1)));
+        assert!(ptr::eq(result, ptr::from_ref(&specs1)));
 
         assert!(specs1.get("custom").is_some());
         let if_spec = specs1.get("if").unwrap();
@@ -805,7 +824,7 @@ mod tests {
 
         let mut block_specs = BlockSpecs::default();
         block_specs.insert(
-            djls_project::SymbolKey::tag("django.template.defaulttags", "if"),
+            SymbolKey::tag("django.template.defaulttags", "if"),
             BlockSpec {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
@@ -850,7 +869,7 @@ mod tests {
 
         let mut block_specs = BlockSpecs::default();
         block_specs.insert(
-            djls_project::SymbolKey::tag("django.template.defaulttags", "guarded"),
+            SymbolKey::tag("django.template.defaulttags", "guarded"),
             BlockSpec {
                 end_tag: None,
                 intermediates: vec![],
@@ -870,7 +889,7 @@ mod tests {
 
         let mut block_specs = BlockSpecs::default();
         block_specs.insert(
-            djls_project::SymbolKey::tag("myapp.templatetags.custom", "unknownblock"),
+            SymbolKey::tag("myapp.templatetags.custom", "unknownblock"),
             BlockSpec {
                 end_tag: None,
                 intermediates: vec![],
@@ -892,7 +911,7 @@ mod tests {
 
         let mut block_specs = BlockSpecs::default();
         block_specs.insert(
-            djls_project::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
+            SymbolKey::tag("myapp.templatetags.custom", "myblock"),
             BlockSpec {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
@@ -921,7 +940,7 @@ mod tests {
 
         let mut block_specs = BlockSpecs::default();
         block_specs.insert(
-            djls_project::SymbolKey::filter("module", "lower"),
+            SymbolKey::filter("module", "lower"),
             BlockSpec {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
@@ -952,7 +971,7 @@ mod tests {
 
         let mut tag_rules = TagRuleMap::default();
         tag_rules.insert(
-            djls_project::SymbolKey::tag("django.template.defaulttags", "for"),
+            SymbolKey::tag("django.template.defaulttags", "for"),
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Min(4)],
                 extracted_args: vec![

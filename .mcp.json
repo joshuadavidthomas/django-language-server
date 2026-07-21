@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "codspeed": {
+      "url": "https://mcp.codspeed.io/mcp",
+      "auth": "oauth"
+    }
+  }
+}

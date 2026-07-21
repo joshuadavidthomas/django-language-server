@@ -38,6 +38,9 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Changed Django settings analysis to keep mutually exclusive configuration branches separate instead of combining their values into one partial result.
+- Changed Django settings analysis to treat closed unsupported Python literals as malformed rather than unresolved.
+- Changed template semantics and IDE features to use each file's feasible backends and the Template Library definitions active at each source position.
 - Changed template-library completion and installed-app guidance to retain known results through unrelated discovery problems, while unknown-library and unknown-symbol diagnostics now require an exhaustive miss.
 - Changed template navigation to avoid reporting templates as missing when configuration or filesystem search is incomplete, while retaining known possible destinations.
 - Changed unreadable files to be skipped instead of analyzed as empty source.
@@ -55,7 +58,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Moved the project model and static source recognizers into `djls-project`.
 - **Internal**: Moved Python spec extraction and template-origin resolution into `djls-project`, leaving `djls-semantic` as the project-meaning layer.
 - **Internal**: Refactored template semantics around `TemplateTree` for validation, references, outlines, folding, and opaque-region handling.
+- **Internal**: Reworked template analysis around per-library semantic products, sparse per-Template projections, and generation-gated production priming.
+- **Internal**: Updated realistic template benchmarks to use project-backed source extraction, canonical builtin roles, and snapshot-backed workload contracts.
 - **Internal**: Moved corpus tooling and shared test fixtures into `djls-testing`.
+- **Internal**: Reworked Python settings evaluation around module identities, typed import outcomes, invariant-preserving collections, and correlated list alternatives.
 
 ### Removed
 
@@ -66,6 +72,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed static path evaluation to follow imported helper aliases without mistaking shadowed `Path`, `str`, or `os` bindings for standard-library helpers.
+- Fixed static Django settings evaluation through ordinary and `from` imports, including dotted module chains, module attributes, named package children, and `__all__`-controlled star exports.
+- Fixed Python settings evaluation to distinguish list and tuple concatenation while preserving known collection facts through supported iterable extensions.
+- Fixed relative imports in Django settings modules, including package aliases and overlapping Python search roots.
+- Fixed project reloads so an analysis task panic no longer prevents later reloads.
 - Fixed Django relative template paths (`./`, `../`) in `{% extends %}` and `{% include %}` resolution, including inheritance chains, document links, goto definition, and find references.
 - Fixed false tag argument errors for manually parsed tags that strip trailing assignment clauses, such as `{% now ... as var %}` and `{% url ... as var %}`.
 

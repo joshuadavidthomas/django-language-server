@@ -3,6 +3,99 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
+  wagtail.search.models.AbstractMySQLIndexEntry:
+    name:
+      value: AbstractMySQLIndexEntry
+      span:
+        start: 5319
+        length: 23
+    module_name: wagtail.search.models
+    relations:
+      - field_name:
+          value: content_type
+          span:
+            start: 1762
+            length: 12
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 1804
+            length: 11
+        related_name: +
+      - field_name:
+          value: content_object
+          span:
+            start: 1998
+            length: 14
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_id
+    kind: abstract
+  wagtail.search.models.AbstractPostgresIndexEntry:
+    name:
+      value: AbstractPostgresIndexEntry
+      span:
+        start: 3236
+        length: 26
+    module_name: wagtail.search.models
+    relations:
+      - field_name:
+          value: content_type
+          span:
+            start: 1762
+            length: 12
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 1804
+            length: 11
+        related_name: +
+      - field_name:
+          value: content_object
+          span:
+            start: 1998
+            length: 14
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_id
+    kind: abstract
+  wagtail.search.models.AbstractSQLiteIndexEntry:
+    name:
+      value: AbstractSQLiteIndexEntry
+      span:
+        start: 4325
+        length: 24
+    module_name: wagtail.search.models
+    relations:
+      - field_name:
+          value: content_type
+          span:
+            start: 1762
+            length: 12
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 1804
+            length: 11
+        related_name: +
+      - field_name:
+          value: content_object
+          span:
+            start: 1998
+            length: 14
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_id
+    kind: abstract
   wagtail.search.models.BaseIndexEntry:
     name:
       value: BaseIndexEntry
@@ -34,3 +127,12 @@ models:
         ct_field: content_type
         fk_field: object_id
     kind: abstract
+  wagtail.search.models.SQLiteFTSIndexEntry:
+    name:
+      value: SQLiteFTSIndexEntry
+      span:
+        start: 4811
+        length: 19
+    module_name: wagtail.search.models
+    relations: []
+    kind: concrete

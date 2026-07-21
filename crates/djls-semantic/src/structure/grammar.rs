@@ -1,90 +1,157 @@
+use std::collections::BTreeMap;
+
+use djls_project::EffectiveDefinitionLibrary;
+use djls_project::Project;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::TemplateLibraryId;
+use djls_project::TemplateSymbolKind;
+use djls_project::template_library_catalog;
+use djls_source::Span;
+use djls_templates::Node;
+use djls_templates::NodeList;
 use djls_templates::TagBit;
-use rustc_hash::FxHashMap;
 
 use crate::db::Db;
-use crate::tags::TagSpecs;
+use crate::scoping::LoadState;
+use crate::scoping::LoadedLibraries;
+use crate::tags::TagSpec;
+use crate::tags::effective_tag_spec_in_scope;
+use crate::tags::library_tag_specs;
 
-/// Compute the tag grammar index from tag specifications.
-#[salsa::tracked(returns(ref))]
-pub fn compute_tag_index(db: &dyn Db) -> TagIndex {
-    TagIndex::from_tag_specs(db.tag_specs())
-}
-
-/// Index for tag grammar lookups.
+/// Identity of an opening Tag Definition contributing semantic grammar.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TagIndex {
-    openers: FxHashMap<String, OpenerMeta>,
-    closers: FxHashMap<String, Vec<String>>,
-    intermediates: FxHashMap<String, Vec<String>>,
+pub struct GrammarOpeningDefinition {
+    library: TemplateLibraryId,
+    name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OpenerMeta {
-    required: bool,
-    opaque: bool,
-    closer: String,
-}
-
-impl TagIndex {
+impl GrammarOpeningDefinition {
     #[must_use]
-    pub fn classify(&self, tag_name: &str) -> TagClass<'_> {
-        if self.openers.contains_key(tag_name) {
-            TagClass::Opener
-        } else if let Some(possible_openers) = self.closers.get(tag_name) {
-            TagClass::Closer {
-                possible_openers: possible_openers.as_slice(),
+    pub fn library(&self) -> &TemplateLibraryId {
+        &self.library
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// Project vocabulary used only to prime orphan closer/intermediate candidates.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SemanticGrammarVocabulary {
+    closers: BTreeMap<String, Vec<GrammarOpeningDefinition>>,
+    intermediates: BTreeMap<String, Vec<GrammarOpeningDefinition>>,
+    open: bool,
+}
+
+impl SemanticGrammarVocabulary {
+    #[must_use]
+    pub fn closer_candidates(&self, name: &str) -> &[GrammarOpeningDefinition] {
+        self.closers.get(name).map_or(&[], Vec::as_slice)
+    }
+
+    #[must_use]
+    pub fn intermediate_candidates(&self, name: &str) -> &[GrammarOpeningDefinition] {
+        self.intermediates.get(name).map_or(&[], Vec::as_slice)
+    }
+
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+}
+
+/// Build the cheap spelling-to-opening-identity vocabulary for a Project.
+#[salsa::tracked(returns(ref))]
+pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGrammarVocabulary {
+    let libraries = template_library_catalog(db, project);
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
+    let mut vocabulary = SemanticGrammarVocabulary {
+        open: scoped_libraries.definition_names_are_open(),
+        ..SemanticGrammarVocabulary::default()
+    };
+    for library in scoped_libraries.resolved_libraries() {
+        let specs = library_tag_specs(db, project, library.id());
+        for (name, spec) in specs.iter() {
+            if library.symbol(TemplateSymbolKind::Tag, name).is_none()
+                && !library.symbols_are_unobserved()
+            {
+                continue;
             }
-        } else if let Some(possible_openers) = self.intermediates.get(tag_name) {
-            TagClass::Intermediate {
-                possible_openers: possible_openers.as_slice(),
+            let Some(end_tag) = &spec.end_tag else {
+                continue;
+            };
+            let definition = GrammarOpeningDefinition {
+                library: library.id(),
+                name: name.clone(),
+            };
+            push_candidate(
+                vocabulary
+                    .closers
+                    .entry(end_tag.name.as_ref().to_string())
+                    .or_default(),
+                definition.clone(),
+            );
+            if !spec.opaque {
+                for intermediate in spec.intermediate_tags.iter() {
+                    push_candidate(
+                        vocabulary
+                            .intermediates
+                            .entry(intermediate.name.as_ref().to_string())
+                            .or_default(),
+                        definition.clone(),
+                    );
+                }
             }
-        } else {
-            TagClass::Unknown
         }
     }
+    vocabulary
+}
 
-    pub fn closer_openers(&self, closer_name: &str) -> Option<&[String]> {
-        self.closers.get(closer_name).map(Vec::as_slice)
+fn push_candidate(
+    candidates: &mut Vec<GrammarOpeningDefinition>,
+    candidate: GrammarOpeningDefinition,
+) {
+    if !candidates.contains(&candidate) {
+        candidates.push(candidate);
     }
+}
 
-    pub(crate) fn intermediate_openers(&self, intermediate_name: &str) -> Option<&[String]> {
-        self.intermediates.get(intermediate_name).map(Vec::as_slice)
-    }
+/// The structural contract captured when an opening occurrence is classified.
+///
+/// Frames retain this value for their entire lifetime. A later load can therefore
+/// change later occurrences without rewriting a Branch that is already open.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OpeningContract {
+    pub(crate) closer: String,
+    pub(crate) intermediates: Vec<String>,
+    pub(crate) end_required: bool,
+    pub(crate) opaque: bool,
+}
 
-    pub(crate) fn is_end_required(&self, opener_name: &str) -> bool {
-        matches!(
-            self.openers.get(opener_name),
-            Some(OpenerMeta { required: true, .. })
-        )
-    }
-
-    #[must_use]
-    pub fn is_opaque(&self, opener_name: &str) -> bool {
-        matches!(
-            self.openers.get(opener_name),
-            Some(OpenerMeta { opaque: true, .. })
-        )
-    }
-
-    #[must_use]
-    pub fn closer_name(&self, opener_name: &str) -> Option<&str> {
-        self.openers
-            .get(opener_name)
-            .map(|OpenerMeta { closer, .. }| closer.as_str())
+impl OpeningContract {
+    fn from_spec(spec: &TagSpec) -> Option<Self> {
+        let end = spec.end_tag.as_ref()?;
+        Some(Self {
+            closer: end.name.as_ref().to_string(),
+            intermediates: if spec.opaque {
+                Vec::new()
+            } else {
+                spec.intermediate_tags
+                    .iter()
+                    .map(|tag| tag.name.as_ref().to_string())
+                    .collect()
+            },
+            end_required: end.required,
+            opaque: spec.opaque,
+        })
     }
 
     pub(crate) fn validate_close(
-        &self,
-        opener_name: &str,
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],
     ) -> CloseValidation {
-        if !self.openers.contains_key(opener_name) {
-            return CloseValidation::NotABlock;
-        }
-
-        // If the closer supplies a name argument, it must match the opener's.
-        // e.g. `{% endblock content %}` must match `{% block content %}`
         if let Some(closer_arg) = closer_bits.first()
             && let Some(opener_arg) = opener_bits.first()
             && closer_arg.as_str() != opener_arg.as_str()
@@ -95,277 +162,315 @@ impl TagIndex {
                 got_span: closer_arg.span,
             };
         }
-
         CloseValidation::Valid
-    }
-
-    /// Build a `TagIndex` from an explicit `TagSpecs` value.
-    #[must_use]
-    fn from_tag_specs(specs: &TagSpecs) -> Self {
-        let mut openers: FxHashMap<String, OpenerMeta> = FxHashMap::default();
-        let mut closers: FxHashMap<String, Vec<String>> = FxHashMap::default();
-        let mut intermediates: FxHashMap<String, Vec<String>> = FxHashMap::default();
-
-        for (name, spec) in specs {
-            if let Some(end_tag) = &spec.end_tag {
-                let closer = end_tag.name.as_ref().to_owned();
-                let meta = OpenerMeta {
-                    required: end_tag.required,
-                    opaque: spec.opaque,
-                    closer: closer.clone(),
-                };
-
-                openers.insert(name.clone(), meta);
-                closers
-                    .entry(closer)
-                    .and_modify(|possible_openers| possible_openers.push(name.clone()))
-                    .or_insert_with(|| vec![name.clone()]);
-
-                if !spec.opaque {
-                    for inter in spec.intermediate_tags.iter() {
-                        intermediates
-                            .entry(inter.name.as_ref().to_owned())
-                            .and_modify(|possible_openers| possible_openers.push(name.clone()))
-                            .or_insert_with(|| vec![name.clone()]);
-                    }
-                }
-            }
-        }
-
-        Self {
-            openers,
-            closers,
-            intermediates,
-        }
     }
 }
 
-/// Classification of a tag based on its role.
-///
-/// Borrows data from the [`TagIndex`]'s Salsa-tracked storage, avoiding
-/// clones of opener names and possible-opener lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TagClass<'a> {
-    /// This tag opens a block
-    Opener,
-    /// This tag closes one or more blocks
-    Closer { possible_openers: &'a [String] },
-    /// This tag is an intermediate (elif, else, etc.)
-    Intermediate { possible_openers: &'a [String] },
-    /// Unknown tag - treat as leaf
+pub(crate) enum TagClassification {
+    Opener(OpeningContract),
+    Standalone,
+    Closer {
+        possible_openers: Vec<String>,
+    },
+    Intermediate {
+        possible_openers: Vec<String>,
+    },
+    /// The Project grammar vocabulary is open or feasible backends disagree.
+    /// Treating this as a definite orphan would be unsound.
+    Inconclusive,
     Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TagGrammarFact {
+    pub(crate) spec: Option<TagSpec>,
+    pub(crate) classification: TagClassification,
+}
+
+/// Per-pass grammar containing only source occurrences.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct GrammarOccurrenceKey(u32);
+
+impl GrammarOccurrenceKey {
+    fn from_name_span(span: Span) -> Self {
+        Self(span.start())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ProjectFactCacheKey {
+    load_prefix_statement_count: usize,
+    name: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TagGrammarFactIndex(usize);
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct SparseTagGrammar {
+    facts: Vec<TagGrammarFact>,
+    occurrences: BTreeMap<GrammarOccurrenceKey, TagGrammarFactIndex>,
+}
+
+impl SparseTagGrammar {
+    pub(crate) fn projectless(db: &dyn Db, nodelist: NodeList<'_>) -> Self {
+        Self::build_occurrences(
+            db,
+            nodelist,
+            |name, _span| (name.to_string(), ()),
+            |name, ()| {
+                let spec = db.projectless_tag_specs().get(name).cloned();
+                fact_from_spec(spec, || classify_projectless_orphan(db, name))
+            },
+        )
+    }
+
+    pub(crate) fn project_pass(
+        db: &dyn Db,
+        project: Project,
+        nodelist: NodeList<'_>,
+        loaded: &LoadedLibraries,
+        scoped_libraries: ScopedTemplateLibraries<'_>,
+    ) -> Self {
+        let mut loaded_names = Vec::new();
+        let mut load_cursor = loaded.cursor();
+        Self::build_occurrences(
+            db,
+            nodelist,
+            |name, span| {
+                let load_state = load_cursor.advance_to(span.start());
+                (
+                    ProjectFactCacheKey {
+                        load_prefix_statement_count: load_state.visible_statement_count(),
+                        name: name.to_string(),
+                    },
+                    load_state,
+                )
+            },
+            |name, load_state| {
+                if load_state.unknown_load_can_shadow_symbol(
+                    name,
+                    TemplateSymbolKind::Tag,
+                    scoped_libraries,
+                ) {
+                    return TagGrammarFact {
+                        spec: None,
+                        classification: TagClassification::Inconclusive,
+                    };
+                }
+
+                load_state.write_libraries_loading_symbol(name, &mut loaded_names);
+                let spec =
+                    effective_tag_spec_in_scope(db, project, scoped_libraries, name, &loaded_names);
+                fact_from_spec(spec, || {
+                    classify_project_orphan(db, project, name, &load_state, scoped_libraries)
+                })
+            },
+        )
+    }
+
+    fn build_occurrences<K, C>(
+        db: &dyn Db,
+        nodelist: NodeList<'_>,
+        mut prepare: impl FnMut(&str, Span) -> (K, C),
+        mut resolve: impl FnMut(&str, C) -> TagGrammarFact,
+    ) -> Self
+    where
+        K: Ord,
+    {
+        let mut facts = Vec::new();
+        let mut fact_cache = BTreeMap::new();
+        let mut occurrences = BTreeMap::new();
+        for node in nodelist.nodelist(db) {
+            let Node::Tag {
+                name,
+                name_span,
+                span,
+                ..
+            } = node
+            else {
+                continue;
+            };
+            let (cache_key, context) = prepare(name, *span);
+            let fact_index = if let Some(index) = fact_cache.get(&cache_key) {
+                *index
+            } else {
+                let index = TagGrammarFactIndex(facts.len());
+                facts.push(resolve(name, context));
+                fact_cache.insert(cache_key, index);
+                index
+            };
+            occurrences.insert(GrammarOccurrenceKey::from_name_span(*name_span), fact_index);
+        }
+        Self { facts, occurrences }
+    }
+
+    #[must_use]
+    pub(crate) fn for_name_span(&self, name_span: Span) -> Option<&TagGrammarFact> {
+        let index = self
+            .occurrences
+            .get(&GrammarOccurrenceKey::from_name_span(name_span))?;
+        self.facts.get(index.0)
+    }
+}
+
+fn fact_from_spec(
+    spec: Option<TagSpec>,
+    classify_orphan: impl FnOnce() -> TagClassification,
+) -> TagGrammarFact {
+    let classification = spec.as_ref().map_or_else(classify_orphan, |spec| {
+        OpeningContract::from_spec(spec)
+            .map_or(TagClassification::Standalone, TagClassification::Opener)
+    });
+    TagGrammarFact {
+        spec,
+        classification,
+    }
+}
+
+fn classify_project_orphan(
+    db: &dyn Db,
+    project: Project,
+    spelling: &str,
+    load_state: &LoadState<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
+) -> TagClassification {
+    let vocabulary = semantic_grammar_vocabulary(db, project);
+
+    let (closers, closer_uncertain) = resolve_orphan_candidates(
+        db,
+        project,
+        scoped_libraries,
+        vocabulary.closer_candidates(spelling),
+        load_state,
+        |spec| {
+            spec.end_tag
+                .as_ref()
+                .is_some_and(|end| end.name == spelling)
+        },
+    );
+    if !closers.is_empty() {
+        return TagClassification::Closer {
+            possible_openers: closers,
+        };
+    }
+
+    let (intermediates, intermediate_uncertain) = resolve_orphan_candidates(
+        db,
+        project,
+        scoped_libraries,
+        vocabulary.intermediate_candidates(spelling),
+        load_state,
+        |spec| {
+            !spec.opaque
+                && spec
+                    .intermediate_tags
+                    .iter()
+                    .any(|intermediate| intermediate.name == spelling)
+        },
+    );
+    if !intermediates.is_empty() {
+        return TagClassification::Intermediate {
+            possible_openers: intermediates,
+        };
+    }
+
+    if vocabulary.is_open() || closer_uncertain || intermediate_uncertain {
+        TagClassification::Inconclusive
+    } else {
+        TagClassification::Unknown
+    }
+}
+
+fn resolve_orphan_candidates(
+    db: &dyn Db,
+    project: Project,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
+    candidates: &[GrammarOpeningDefinition],
+    load_state: &LoadState<'_>,
+    matches_spelling: impl Fn(&TagSpec) -> bool,
+) -> (Vec<String>, bool) {
+    let mut openers = Vec::new();
+    let mut uncertain = false;
+    for candidate in candidates {
+        let loaded = load_state.libraries_loading_symbol(candidate.name());
+        let mut alternatives = 0;
+        let mut matching = 0;
+        let mut unknown = false;
+        scoped_libraries.for_each_effective_definition_library(
+            candidate.name(),
+            TemplateSymbolKind::Tag,
+            &loaded,
+            |definition| {
+                alternatives += 1;
+                match definition {
+                    EffectiveDefinitionLibrary::Known(Some(library))
+                        if library.id() == *candidate.library() =>
+                    {
+                        matching += 1;
+                    }
+                    EffectiveDefinitionLibrary::Known(_) => {}
+                    EffectiveDefinitionLibrary::Unknown
+                    | EffectiveDefinitionLibrary::Unobserved(_) => unknown = true,
+                }
+            },
+        );
+        if unknown || (matching > 0 && matching != alternatives) {
+            uncertain = true;
+            continue;
+        }
+        if matching == alternatives
+            && matching > 0
+            && library_tag_specs(db, project, *candidate.library())
+                .get(candidate.name())
+                .is_some_and(&matches_spelling)
+            && !openers.iter().any(|name| name == candidate.name())
+        {
+            openers.push(candidate.name().to_string());
+        }
+    }
+    openers.sort();
+    (openers, uncertain)
+}
+
+fn classify_projectless_orphan(db: &dyn Db, spelling: &str) -> TagClassification {
+    let mut closers = Vec::new();
+    let mut intermediates = Vec::new();
+    for (name, spec) in db.projectless_tag_specs() {
+        let Some(contract) = OpeningContract::from_spec(spec) else {
+            continue;
+        };
+        if contract.closer == spelling {
+            closers.push(name.clone());
+        }
+        if contract.intermediates.iter().any(|item| item == spelling) {
+            intermediates.push(name.clone());
+        }
+    }
+    closers.sort();
+    closers.dedup();
+    intermediates.sort();
+    intermediates.dedup();
+    if !closers.is_empty() {
+        TagClassification::Closer {
+            possible_openers: closers,
+        }
+    } else if !intermediates.is_empty() {
+        TagClassification::Intermediate {
+            possible_openers: intermediates,
+        }
+    } else {
+        TagClassification::Unknown
+    }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) enum CloseValidation {
     Valid,
-    NotABlock,
     ArgumentMismatch {
         expected: String,
         got: String,
-        got_span: djls_source::Span,
+        got_span: Span,
     },
-}
-
-#[cfg(test)]
-mod tests {
-    use std::borrow::Cow;
-
-    use rustc_hash::FxHashMap;
-
-    use super::*;
-    use crate::tags::EndTag;
-    use crate::tags::IntermediateTag;
-    use crate::tags::TagSpec;
-    use crate::tags::TagSpecs;
-
-    fn create_test_specs() -> TagSpecs {
-        let mut specs = FxHashMap::default();
-
-        let block = |end_tag: &'static str, intermediates: Vec<&'static str>| {
-            let intermediate_tags: Cow<'static, [IntermediateTag]> = if intermediates.is_empty() {
-                Cow::Borrowed(&[])
-            } else {
-                Cow::Owned(
-                    intermediates
-                        .into_iter()
-                        .map(|name| IntermediateTag { name: name.into() })
-                        .collect(),
-                )
-            };
-
-            TagSpec::new(
-                "django.template.defaulttags".into(),
-                Some(EndTag {
-                    name: end_tag.into(),
-                    required: true,
-                }),
-                intermediate_tags,
-                false,
-            )
-        };
-
-        specs.insert(
-            "csrf_token".to_string(),
-            TagSpec::new(
-                "django.template.defaulttags".into(),
-                None,
-                Cow::Borrowed(&[]),
-                false,
-            ),
-        );
-        specs.insert("if".to_string(), block("endif", vec!["elif", "else"]));
-        specs.insert("for".to_string(), block("endfor", vec!["empty", "else"]));
-        specs.insert("block".to_string(), block("endblock", vec![]));
-
-        TagSpecs::new(specs)
-    }
-
-    #[test]
-    fn classifies_opening_tags() {
-        let specs = create_test_specs();
-        let index = TagIndex::from_tag_specs(&specs);
-
-        assert_eq!(index.classify("if"), TagClass::Opener);
-        assert_eq!(index.classify("for"), TagClass::Opener);
-        assert_eq!(index.classify("block"), TagClass::Opener);
-    }
-
-    #[test]
-    fn classifies_closing_tags_with_their_openers() {
-        let specs = create_test_specs();
-        let index = TagIndex::from_tag_specs(&specs);
-
-        match index.classify("endif") {
-            TagClass::Closer { possible_openers } => assert_eq!(possible_openers, ["if"]),
-            tag_class => panic!("expected endif to classify as closer, got {tag_class:?}"),
-        }
-        match index.classify("endfor") {
-            TagClass::Closer { possible_openers } => assert_eq!(possible_openers, ["for"]),
-            tag_class => panic!("expected endfor to classify as closer, got {tag_class:?}"),
-        }
-        match index.classify("endblock") {
-            TagClass::Closer { possible_openers } => assert_eq!(possible_openers, ["block"]),
-            tag_class => panic!("expected endblock to classify as closer, got {tag_class:?}"),
-        }
-        assert_eq!(index.classify("endnonexistent"), TagClass::Unknown);
-    }
-
-    #[test]
-    fn classifies_intermediate_tags_with_possible_openers() {
-        let specs = create_test_specs();
-        let index = TagIndex::from_tag_specs(&specs);
-
-        match index.classify("elif") {
-            TagClass::Intermediate { possible_openers } => assert_eq!(possible_openers, ["if"]),
-            tag_class => panic!("expected elif to classify as intermediate, got {tag_class:?}"),
-        }
-
-        match index.classify("else") {
-            TagClass::Intermediate { possible_openers } => {
-                let mut possible_openers = possible_openers.to_vec();
-                possible_openers.sort();
-                assert_eq!(possible_openers, ["for", "if"]);
-            }
-            tag_class => panic!("expected else to classify as intermediate, got {tag_class:?}"),
-        }
-
-        match index.classify("empty") {
-            TagClass::Intermediate { possible_openers } => assert_eq!(possible_openers, ["for"]),
-            tag_class => panic!("expected empty to classify as intermediate, got {tag_class:?}"),
-        }
-    }
-
-    #[test]
-    fn classifies_standalone_and_unknown_tags_as_unknown() {
-        let specs = create_test_specs();
-        let index = TagIndex::from_tag_specs(&specs);
-
-        assert_eq!(index.classify("csrf_token"), TagClass::Unknown);
-        assert_eq!(index.classify("nonexistent"), TagClass::Unknown);
-    }
-
-    #[test]
-    fn tracks_required_end_tags() {
-        let specs = create_test_specs();
-        let index = TagIndex::from_tag_specs(&specs);
-
-        assert!(index.is_end_required("if"));
-        assert!(index.is_end_required("for"));
-        assert!(index.is_end_required("block"));
-        assert!(!index.is_end_required("csrf_token"));
-        assert!(!index.is_end_required("nonexistent"));
-    }
-
-    #[test]
-    fn tracks_opaque_openers() {
-        let mut specs = FxHashMap::default();
-        specs.insert(
-            "opaque_if".to_string(),
-            TagSpec::new(
-                "test".into(),
-                Some(EndTag {
-                    name: "endopaque_if".into(),
-                    required: true,
-                }),
-                vec![IntermediateTag {
-                    name: "opaque_else".into(),
-                }]
-                .into(),
-                true,
-            ),
-        );
-
-        let index = TagIndex::from_tag_specs(&TagSpecs::new(specs));
-
-        assert_eq!(index.classify("opaque_if"), TagClass::Opener);
-        assert_eq!(index.classify("opaque_else"), TagClass::Unknown);
-        assert!(index.is_opaque("opaque_if"));
-    }
-
-    #[test]
-    fn opaque_openers_do_not_contribute_shared_intermediates() {
-        let mut specs = FxHashMap::default();
-        specs.insert(
-            "opaque_if".to_string(),
-            TagSpec::new(
-                "test".into(),
-                Some(EndTag {
-                    name: "endopaque_if".into(),
-                    required: true,
-                }),
-                vec![IntermediateTag {
-                    name: "shared_else".into(),
-                }]
-                .into(),
-                true,
-            ),
-        );
-        specs.insert(
-            "plain_if".to_string(),
-            TagSpec::new(
-                "test".into(),
-                Some(EndTag {
-                    name: "endplain_if".into(),
-                    required: true,
-                }),
-                vec![IntermediateTag {
-                    name: "shared_else".into(),
-                }]
-                .into(),
-                false,
-            ),
-        );
-
-        let index = TagIndex::from_tag_specs(&TagSpecs::new(specs));
-
-        match index.classify("shared_else") {
-            TagClass::Intermediate { possible_openers } => {
-                assert_eq!(possible_openers, ["plain_if"]);
-            }
-            tag_class => {
-                panic!("expected shared_else to classify as intermediate, got {tag_class:?}")
-            }
-        }
-    }
 }

@@ -105,7 +105,7 @@ fn discovery_roots(
         .known_roots()
         .map(Utf8Path::to_path_buf)
         .collect();
-    if directories.configuration_may_omit_roots() && !roots.iter().any(|root| root == project_root)
+    if directories.settings_cases_may_omit_roots() && !roots.iter().any(|root| root == project_root)
     {
         roots.push(project_root.to_owned());
     }

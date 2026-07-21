@@ -1,35 +1,53 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io;
+use std::mem;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::Settings;
+use djls_project::Db as ProjectDb;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::compute_django_environment;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::django_settings;
 use djls_project::testing::python_syntax_errors;
 use djls_project::*;
-use djls_source::Db as _;
+use djls_source::CaseSensitivity;
+use djls_source::ChangeEvent;
+use djls_source::Db as SourceDb;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
 use djls_source::RootWalk;
+use djls_source::SourceChanges;
+use djls_source::SourceFiles;
 use djls_source::WalkOptions;
 use djls_testing::Corpus;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use salsa::Database;
+use salsa::Event;
+use salsa::EventKind;
+use salsa::Storage;
 use serde::Deserialize;
+use serde_json::Value;
+use serde_json::to_value;
 
 #[derive(Deserialize)]
 struct DjangoFactsGolden {
     template_dirs: Vec<String>,
-    template_libraries: GoldenTemplateLibraries,
+    template_library_catalog: GoldenTemplateLibraryCatalog,
 }
 
 #[derive(Deserialize)]
-struct GoldenTemplateLibraries {
+struct GoldenTemplateLibraryCatalog {
     builtins: Vec<String>,
     libraries: BTreeMap<String, String>,
     symbols: Vec<GoldenTemplateSymbol>,
@@ -48,16 +66,46 @@ fn library_name(name: &str) -> LibraryName {
     LibraryName::parse(name).unwrap()
 }
 
-fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
-    libraries
+fn active_builtin_modules(libraries: &TemplateLibraryCatalog) -> Vec<String> {
+    ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .filter(|&library| library.load_name().is_none())
         .map(|library| library.module_name().as_str().to_string())
         .collect()
 }
 
+fn has_case(value: &Value, kind: &str) -> bool {
+    value["cases"].as_array().is_some_and(|cases| {
+        cases
+            .iter()
+            .any(|case| case.as_str() == Some(kind) || case.get(kind).is_some())
+    })
+}
+
+fn execution_count(db: &(impl Database + ?Sized), events: &[Event], query_name: &str) -> usize {
+    events
+        .iter()
+        .filter(|event| match &event.kind {
+            EventKind::WillExecute { database_key } => db
+                .ingredient_debug_name(database_key.ingredient_index())
+                .contains(query_name),
+            _ => false,
+        })
+        .count()
+}
+
+fn update_project_file(db: &mut TestDatabase, path: &str, source: &str) {
+    db.add_file(path, source);
+    SourceChanges::new([ChangeEvent::ContentChanged(path.into())]).apply(db);
+}
+
+fn update_settings_file(db: &mut TestDatabase, source: &str) {
+    update_project_file(db, "/proj/myproject/settings.py", source);
+}
+
 #[test]
-fn settings_remain_fail_closed_after_recovered_syntax_error() {
+fn unrelated_recovered_syntax_error_does_not_degrade_settings() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -69,16 +117,14 @@ fn settings_remain_fail_closed_after_recovered_syntax_error() {
         .install(&mut db);
 
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert_eq!(settings["parse_status"], "unparseable");
-    assert_eq!(settings["installed_apps"]["values"], serde_json::json!([]));
-    assert_eq!(settings["installed_apps"]["extraction"], "partial");
-    assert_eq!(settings["templates"]["backends"], serde_json::json!([]));
-    assert_eq!(settings["templates"]["extraction"], "partial");
+    let app_cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    assert_eq!(app_cases.len(), 1);
+    assert!(app_cases[0].get("known").is_some());
+    assert!(settings.get("parse_status").is_none());
 }
 
 #[test]
-fn imported_settings_remain_fail_closed_after_recovered_syntax_error() {
+fn named_imported_syntax_impact_only_weakens_affected_setting() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings.local")
@@ -86,7 +132,7 @@ fn imported_settings_remain_fail_closed_after_recovered_syntax_error() {
         .file("/proj/myproject/settings/__init__.py", "")
         .file(
             "/proj/myproject/settings/base.py",
-            "INSTALLED_APPS = ['blog']\ndef broken(",
+            "TEMPLATES = []\nif FLAG:\n    INSTALLED_APPS = ['blog']\n    broken(\n",
         )
         .file(
             "/proj/myproject/settings/local.py",
@@ -95,12 +141,171 @@ fn imported_settings_remain_fail_closed_after_recovered_syntax_error() {
         .install(&mut db);
 
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    let app_cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    assert_eq!(app_cases.len(), 3);
+    assert!(!app_cases.iter().any(|case| case == "unset"));
+    assert_eq!(
+        app_cases
+            .iter()
+            .filter(|case| case.get("known").is_some())
+            .count(),
+        1
+    );
+    assert_eq!(
+        app_cases
+            .iter()
+            .filter(|case| case.get("dynamic").is_some())
+            .count(),
+        2
+    );
 
-    assert_eq!(settings["parse_status"], "unparseable");
-    assert_eq!(settings["installed_apps"]["values"], serde_json::json!([]));
-    assert_eq!(settings["installed_apps"]["extraction"], "partial");
-    assert_eq!(settings["templates"]["backends"], serde_json::json!([]));
-    assert_eq!(settings["templates"]["extraction"], "partial");
+    let template_cases = settings["templates"]["cases"].as_array().unwrap();
+    assert_eq!(template_cases.len(), 1);
+    assert!(template_cases[0].get("known").is_some());
+    assert!(settings.get("parse_status").is_none());
+}
+
+#[test]
+fn star_imported_name_scoped_syntax_impact_does_not_open_namespace() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings.local")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings/__init__.py", "")
+        .file(
+            "/proj/myproject/settings/base.py",
+            "TEMPLATES = []\nif FLAG:\n    INSTALLED_APPS = ['blog']\n    broken(\n",
+        )
+        .file("/proj/myproject/settings/local.py", "from .base import *\n")
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let app_cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    assert_eq!(app_cases.len(), 3);
+    assert!(app_cases.iter().any(|case| case == "unset"));
+    assert_eq!(
+        app_cases
+            .iter()
+            .filter(|case| case.get("known").is_some())
+            .count(),
+        1
+    );
+    assert_eq!(
+        app_cases
+            .iter()
+            .filter(|case| case.get("dynamic").is_some())
+            .count(),
+        1
+    );
+
+    let template_cases = settings["templates"]["cases"].as_array().unwrap();
+    assert_eq!(template_cases.len(), 1);
+    assert!(template_cases[0].get("known").is_some());
+}
+
+#[test]
+fn later_exact_assignment_dominates_syntax_impact_through_named_import() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings.local")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings/__init__.py", "")
+        .file(
+            "/proj/myproject/settings/base.py",
+            "INSTALLED_APPS = [\n    'stale',\n    @\n]\nINSTALLED_APPS = ['base']\n",
+        )
+        .file(
+            "/proj/myproject/settings/local.py",
+            "from .base import INSTALLED_APPS\n",
+        )
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
+}
+
+#[test]
+fn later_exact_assignment_dominates_syntax_impact_through_star_import() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings.local")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings/__init__.py", "")
+        .file(
+            "/proj/myproject/settings/base.py",
+            "INSTALLED_APPS = [\n    'stale',\n    @\n]\nINSTALLED_APPS = ['base']\n",
+        )
+        .file("/proj/myproject/settings/local.py", "from .base import *\n")
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
+}
+
+#[test]
+fn later_named_import_dominates_namespace_wide_syntax_exclusion() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/clean.py", "")
+        .file("/proj/myproject/apps.py", "APPS = ['base']\n")
+        .file(
+            "/proj/myproject/base.py",
+            "if FLAG:\n    from .clean import *\n    broken(]\nfrom .apps import APPS as INSTALLED_APPS\n",
+        )
+        .file(
+            "/proj/myproject/settings.py",
+            "from .base import INSTALLED_APPS\n",
+        )
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0]["known"]["apps"][0]["value"], "base");
+}
+
+#[test]
+fn star_import_preserves_namespace_wide_syntax_uncertainty() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/clean.py", "")
+        .file("/proj/myproject/apps.py", "APPS = ['base']\n")
+        .file(
+            "/proj/myproject/base.py",
+            "if FLAG:\n    from .clean import *\n    broken(]\nfrom .apps import APPS as INSTALLED_APPS\n",
+        )
+        .file("/proj/myproject/settings.py", "from .base import *\n")
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+
+    assert!(
+        has_case(&settings["installed_apps"], "known"),
+        "{settings:#}"
+    );
+    assert!(
+        has_case(&settings["installed_apps"], "dynamic"),
+        "{settings:#}"
+    );
+    assert!(
+        has_case(&settings["installed_apps"], "unset"),
+        "{settings:#}"
+    );
+    assert!(cases.iter().any(|case| {
+        case.pointer("/known/apps/0/value").and_then(Value::as_str) == Some("base")
+    }));
 }
 
 #[test]
@@ -129,11 +334,691 @@ fn settings_accept_supported_python_newer_than_ruff_default_target() {
             .iter()
             .all(|error| error.class != PythonSyntaxErrorClass::Ordinary)
     );
-    assert_eq!(settings["parse_status"], "parsed");
+    assert!(settings.get("parse_status").is_none());
     assert_eq!(
-        settings["installed_apps"]["values"],
-        serde_json::json!(["blog"])
+        settings["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "blog"
     );
+}
+
+#[test]
+fn settings_consumers_share_one_core_evaluation_without_mutation() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']")
+        .install(&mut db);
+
+    let _ = django_settings(&db, project);
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
+}
+
+#[test]
+fn comment_only_leaf_edit_backdates_before_evaluation_root_and_sibling() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "from .leaf import *\nfrom .sibling import *\n",
+        )
+        .file("/proj/myproject/leaf.py", "INSTALLED_APPS = ['a']\n")
+        .file("/proj/myproject/sibling.py", "TEMPLATES = []\n")
+        .install(&mut db);
+
+    let _ = django_settings(&db, project);
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_project_file(
+        &mut db,
+        "/proj/myproject/leaf.py",
+        "INSTALLED_APPS = ['a']\n# comment only\n",
+    );
+    let _ = django_settings(&db, project);
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+}
+
+#[test]
+fn value_change_backdates_dependency_projection() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']")
+        .install(&mut db);
+
+    let _ = django_settings(&db, project);
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_settings_file(&mut db, "INSTALLED_APPS = ['b']");
+    let _ = django_settings(&db, project);
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+}
+
+#[test]
+fn dependency_change_backdates_value_projection() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/extra.py", "")
+        .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']")
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_settings_file(&mut db, "INSTALLED_APPS = ['a']\nfrom .extra import *");
+    let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let events = event_log.take();
+
+    assert_eq!(after, before);
+    // The `from .extra import *` edit makes settings.py load its parent package
+    // `myproject/__init__.py` (a distinct file) plus `myproject.extra`, so three
+    // modules evaluate and all three files are dependency sources.
+    assert_eq!(sources.count(), 3);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 3);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+}
+
+#[test]
+fn origin_shift_changes_values_but_backdates_dependency_projection() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings.py", "INSTALLED_APPS = ['a']\n")
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_settings_file(&mut db, "\nINSTALLED_APPS = ['a']\n");
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    assert_ne!(after, before);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+}
+
+#[test]
+fn unreachable_import_edit_keeps_root_paths_cold() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "if False:\n    from .unreachable import *\nINSTALLED_APPS = ['a']\n",
+        )
+        .file("/proj/myproject/unreachable.py", "VALUE = 'old'\n")
+        .install(&mut db);
+    let _unreachable = db.file(Utf8Path::new("/proj/myproject/unreachable.py"));
+
+    let _ = django_settings(&db, project);
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_project_file(&mut db, "/proj/myproject/unreachable.py", "VALUE = 'new'\n");
+    let _ = django_settings(&db, project);
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+}
+
+#[test]
+fn direct_settings_cycle_is_bounded_and_retains_local_values() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "from .settings import *\nINSTALLED_APPS = ['local']\n",
+        )
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    assert_eq!(
+        settings["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "local"
+    );
+    // The self-cycle settings module also loads its distinct parent package
+    // `myproject/__init__.py`, which becomes a second dependency source and is
+    // projected once.
+    assert_eq!(sources.count(), 2);
+    let evaluations = execution_count(&db, &events, "evaluate_python_module");
+    assert!((1..=12).contains(&evaluations));
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+}
+
+#[test]
+fn imported_uncertain_namespace_preserves_local_setting_alternatives() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "if FLAG:\n    INSTALLED_APPS = ['first']\nelse:\n    INSTALLED_APPS = ['second']\nfrom .plugins import *\n",
+        )
+        .file("/proj/myproject/plugins.py", "from .missing import *\n")
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let known = cases
+        .iter()
+        .filter_map(|case| case.get("known"))
+        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(known, ["first", "second"].into_iter().collect());
+    assert!(has_case(&settings["installed_apps"], "dynamic"));
+}
+
+#[test]
+fn named_import_of_absent_open_setting_is_dynamic_without_domain_absence() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "from .plugins import TEMPLATES\n",
+        )
+        .file(
+            "/proj/myproject/plugins.py",
+            "if ENABLED:\n    from .missing import *\n",
+        )
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    assert!(!has_case(&settings["templates"], "unset"), "{settings:#}");
+    assert!(has_case(&settings["templates"], "dynamic"), "{settings:#}");
+}
+
+#[test]
+fn conditional_star_binding_falls_back_to_the_pre_import_local_value() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = ['local']\nfrom .plugins import *\n",
+        )
+        .file(
+            "/proj/myproject/plugins.py",
+            "if ENABLED:\n    INSTALLED_APPS = ['imported']\n",
+        )
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let known = cases
+        .iter()
+        .filter_map(|case| case.get("known"))
+        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(known, ["imported", "local"].into_iter().collect());
+    assert!(!cases.iter().any(|case| case == "unset"));
+}
+
+#[test]
+fn exact_all_conditional_setting_preserves_local_setting_alternative() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = ['local']\nfrom .plugins import *\n",
+        )
+        .file(
+            "/proj/myproject/plugins.py",
+            "if ENABLED:\n    INSTALLED_APPS = ['imported']\n__all__ = ['INSTALLED_APPS']\n",
+        )
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let cases = settings["installed_apps"]["cases"].as_array().unwrap();
+    let known = cases
+        .iter()
+        .filter_map(|case| case.get("known"))
+        .map(|known| known["apps"][0]["value"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(known, ["imported", "local"].into_iter().collect());
+    assert!(!has_case(&settings["installed_apps"], "dynamic"));
+    assert!(!has_case(&settings["installed_apps"], "unset"));
+}
+
+#[test]
+fn two_file_settings_cycle_is_bounded_and_retains_local_values() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            "from .base import *\nINSTALLED_APPS = ['local']\n",
+        )
+        .file(
+            "/proj/myproject/base.py",
+            "from .settings import *\nTEMPLATES = []\n",
+        )
+        .install(&mut db);
+
+    let settings = to_value(django_settings(&db, project)).unwrap();
+    let sources = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    assert_eq!(
+        settings["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "local"
+    );
+    assert!(has_case(&settings["templates"], "known"));
+    // The two-file cycle also loads its distinct parent package
+    // `myproject/__init__.py`, a third dependency source.
+    assert_eq!(sources.count(), 3);
+    let evaluations = execution_count(&db, &events, "evaluate_python_module");
+    assert!((2..=24).contains(&evaluations));
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+}
+
+#[test]
+fn child_topology_change_backdates_values_projection() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/child.py", "X = 'v1'\n")
+        .file("/proj/myproject/other.py", "Y = 'y'\n")
+        .file(
+            "/proj/myproject/settings.py",
+            "import myproject.child\nINSTALLED_APPS = ['a']\n",
+        )
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    // Adding an import to the loaded child changes the recursive object/topology
+    // effect (a new attached coordinate and a new source edge) without touching
+    // any lexical settings the root module exposes.
+    update_project_file(
+        &mut db,
+        "/proj/myproject/child.py",
+        "X = 'v1'\nimport myproject.other\n",
+    );
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    // The root module's exposed settings never change, so `django_settings`
+    // backdates even though the recursive core and its dependency projection
+    // both recompute against the new child topology.
+    assert_eq!(after, before);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 3);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
+    // `python_module_facts` recomputes but produces an equal projection, so it
+    // backdates and `django_settings` never re-runs.
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+}
+
+#[test]
+fn parent_package_init_edit_invalidates_dotted_consumer() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/pkg/__init__.py", "APPS = ['blog']\n")
+        .file("/proj/myproject/pkg/sub.py", "X = 1\n")
+        .file(
+            "/proj/myproject/settings.py",
+            "import myproject.pkg.sub\nINSTALLED_APPS = myproject.pkg.APPS\n",
+        )
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_project_file(
+        &mut db,
+        "/proj/myproject/pkg/__init__.py",
+        "APPS = ['news']\n",
+    );
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    // Editing the dotted parent package `myproject/pkg/__init__.py` invalidates
+    // the settings consumer that reads `myproject.pkg.APPS`: the parent and the
+    // consumer recompute and the changed lexical value flows to settings.
+    assert_ne!(after, before);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+}
+
+#[test]
+fn external_module_body_edit_never_reaches_the_consumer() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/.venv/lib/python3.12/site-packages/ext/__init__.py",
+            "VALUE = 'old'\n",
+        )
+        .file(
+            "/proj/myproject/settings.py",
+            "import ext\nINSTALLED_APPS = ['a']\n",
+        )
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    update_project_file(
+        &mut db,
+        "/proj/.venv/lib/python3.12/site-packages/ext/__init__.py",
+        "VALUE = 'new'\n",
+    );
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let events = event_log.take();
+
+    // The external body is never parsed, evaluated, or recorded as a dependency,
+    // so editing it leaves every projection cold and the settings unchanged.
+    assert_eq!(after, before);
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 0);
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
+    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+}
+
+#[test]
+fn search_path_winner_change_recomputes_module_reads() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    // `/extra` is a separate project-code root registered alongside `/proj`; the
+    // first-party `/proj` root outranks it, so a later `/proj/mod.py` becomes the
+    // resolution winner and changes the imported module's object identity.
+    db.add_file("/extra/keep.py", "");
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/proj"),
+        &Interpreter::Auto,
+        &[Utf8PathBuf::from("/extra")],
+    );
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .search_paths(search_paths)
+        .file("/proj/myproject/__init__.py", "")
+        .file("/extra/mod.py", "APPS = ['extra']\n")
+        .file(
+            "/proj/myproject/settings.py",
+            "import mod\nINSTALLED_APPS = mod.APPS\n",
+        )
+        .install(&mut db);
+
+    let before = to_value(django_settings(&db, project)).unwrap();
+    let _ = ProjectFactsPhase::SettingsSources.run(&db, project);
+    let _ = event_log.take();
+
+    db.add_file("/proj/mod.py", "APPS = ['root']\n");
+    SourceChanges::new([ChangeEvent::BecameVisible("/proj/mod.py".into())]).apply(&mut db);
+
+    let after = to_value(django_settings(&db, project)).unwrap();
+    let events = event_log.take();
+
+    // The new first-party `/proj/mod.py` outranks `/extra/mod.py`, so the
+    // imported module's object identity changes and the module-attribute read
+    // recomputes from `extra` to `root`.
+    assert_eq!(
+        before["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "extra"
+    );
+    assert_eq!(
+        after["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "root"
+    );
+    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
+    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+}
+
+struct ToggleReadFileSystem {
+    inner: InMemoryFileSystem,
+    toggled_path: Utf8PathBuf,
+    readable: Arc<AtomicBool>,
+}
+
+impl FileSystem for ToggleReadFileSystem {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        if path == self.toggled_path && !self.readable.load(Ordering::SeqCst) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "test file is unreadable",
+            ));
+        }
+        self.inner.read_to_string(path)
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        self.inner.exists(path)
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        self.inner.is_dir(path)
+    }
+
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        self.inner.case_sensitivity()
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        self.inner.path_exists_case_sensitive(path, prefix)
+    }
+
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        self.inner.walk_root(root, options)
+    }
+}
+
+#[salsa::db]
+#[derive(Clone)]
+struct EventTestDatabase {
+    storage: Storage<Self>,
+    fs: Arc<dyn FileSystem>,
+    files: SourceFiles,
+    project: Option<Project>,
+}
+
+#[salsa::db]
+impl Database for EventTestDatabase {}
+
+#[salsa::db]
+impl SourceDb for EventTestDatabase {
+    fn files(&self) -> &SourceFiles {
+        &self.files
+    }
+
+    fn file_system(&self) -> &dyn FileSystem {
+        self.fs.as_ref()
+    }
+}
+
+#[salsa::db]
+impl ProjectDb for EventTestDatabase {
+    fn project(&self) -> Option<Project> {
+        self.project
+    }
+}
+
+#[test]
+fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let readable = Arc::new(AtomicBool::new(true));
+    let leaf_path = Utf8PathBuf::from("/proj/myproject/leaf.py");
+    let mut inner = InMemoryFileSystem::new();
+    inner.add_file(
+        Utf8PathBuf::from("/proj/myproject/__init__.py"),
+        String::new(),
+    );
+    inner.add_file(
+        Utf8PathBuf::from("/proj/myproject/settings.py"),
+        "from .leaf import *\nINSTALLED_APPS = ['local']\n".to_string(),
+    );
+    inner.add_file(leaf_path.clone(), "TEMPLATES = []\n".to_string());
+    let mut db = EventTestDatabase {
+        storage: Storage::new(Some(Box::new({
+            let events = events.clone();
+            move |event| events.lock().unwrap().push(event)
+        }))),
+        fs: Arc::new(ToggleReadFileSystem {
+            inner,
+            toggled_path: leaf_path,
+            readable: readable.clone(),
+        }),
+        files: SourceFiles::default(),
+        project: None,
+    };
+    let root = Utf8PathBuf::from("/proj");
+    let interpreter = Interpreter::Auto;
+    let pythonpath = Vec::new();
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        root.as_path(),
+        &interpreter,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let project = Project::new(
+        &db,
+        root,
+        search_paths,
+        interpreter,
+        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        pythonpath,
+        Vec::new(),
+        Settings::default().tagspecs().clone(),
+    );
+    db.project = Some(project);
+
+    let _ = django_settings(&db, project);
+    // settings.py loads `.leaf` and its distinct parent package
+    // `myproject/__init__.py`, so three files are dependency sources.
+    assert_eq!(
+        ProjectFactsPhase::SettingsSources.run(&db, project).count(),
+        3
+    );
+    events.lock().unwrap().clear();
+
+    for next_readable in [false, true] {
+        readable.store(next_readable, Ordering::SeqCst);
+        SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+        let _ = django_settings(&db, project);
+        assert_eq!(
+            ProjectFactsPhase::SettingsSources.run(&db, project).count(),
+            3
+        );
+        let transition_events = mem::take(&mut *events.lock().unwrap());
+
+        assert_eq!(
+            execution_count(&db, &transition_events, "evaluate_python_module"),
+            2
+        );
+        assert_eq!(
+            execution_count(&db, &transition_events, "python_module_facts"),
+            1
+        );
+        assert_eq!(
+            execution_count(&db, &transition_events, "python_import_trace"),
+            1
+        );
+        assert_eq!(
+            execution_count(&db, &transition_events, "django_settings"),
+            1
+        );
+        assert_eq!(
+            execution_count(&db, &transition_events, "settings_sources"),
+            1
+        );
+    }
 }
 
 enum FileSystemFailure {
@@ -255,9 +1140,9 @@ fn project_with_file_system_failure(
     (db, project)
 }
 
-fn complete_template_dirs(db: &dyn djls_project::Db, project: Project) -> Vec<Utf8PathBuf> {
+fn complete_template_dirs(db: &dyn ProjectDb, project: Project) -> Vec<Utf8PathBuf> {
     let directories = template_directories(db, project);
-    assert!(!directories.configuration_may_omit_roots());
+    assert!(!directories.settings_cases_may_omit_roots());
     directories
         .known_roots()
         .map(Utf8Path::to_path_buf)
@@ -265,10 +1150,148 @@ fn complete_template_dirs(db: &dyn djls_project::Db, project: Project) -> Vec<Ut
 }
 
 fn apply_project_discovery(db: &mut TestDatabase) {
-    let project = db.project().expect("project should be configured");
-    let environment = compute_django_environment(db, project);
-    apply_django_environment(db, environment);
-    let _facts = compute_project_facts(db, project);
+    let _facts = run_django_discovery(db).expect("project should be configured");
+}
+
+fn project_requiring_environment_application(db: &mut TestDatabase) -> Project {
+    db.add_file(
+        "/proj/settings.py",
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'extras.tags'}}}]\n",
+    );
+    db.add_file("/vendor/extras/__init__.py", "");
+    db.add_file(
+        "/vendor/extras/tags.py",
+        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(): pass\n",
+    );
+
+    let project = Project::new(
+        db,
+        Utf8PathBuf::from("/proj"),
+        SearchPaths::default(),
+        Interpreter::Auto,
+        Some(PythonModuleName::parse("settings").unwrap()),
+        vec![Utf8PathBuf::from("/vendor")],
+        Vec::new(),
+        Settings::default().tagspecs().clone(),
+    );
+    db.set_project(project);
+    project
+}
+
+#[test]
+fn django_discovery_run_matches_explicit_phase_sequence() {
+    let library_path = Utf8Path::new("/vendor/extras/tags.py");
+    let original_source = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(): pass\n";
+    let updated_source = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(value): pass\n";
+
+    let mut sequenced = TestDatabase::new();
+    let sequenced_project = project_requiring_environment_application(&mut sequenced);
+    let sequenced_library = sequenced.file(library_path);
+    assert_eq!(
+        sequenced_library.try_source(&sequenced).unwrap().as_str(),
+        original_source
+    );
+    let sequenced_revision_before = sequenced_library.revision(&sequenced);
+    sequenced.add_file(library_path.as_str(), updated_source);
+
+    let scoped_libraries = compute_django_environment(&sequenced, sequenced_project);
+    apply_django_environment(&mut sequenced, scoped_libraries);
+    let expected = compute_project_facts(&sequenced, sequenced_project);
+    apply_project_facts(&mut sequenced, &expected);
+
+    assert_eq!(
+        sequenced_library.try_source(&sequenced).unwrap().as_str(),
+        updated_source
+    );
+    assert_eq!(
+        sequenced_library.revision(&sequenced),
+        sequenced_revision_before + 1
+    );
+
+    let mut synchronous = TestDatabase::new();
+    let synchronous_project = project_requiring_environment_application(&mut synchronous);
+    let synchronous_library = synchronous.file(library_path);
+    assert_eq!(
+        synchronous_library
+            .try_source(&synchronous)
+            .unwrap()
+            .as_str(),
+        original_source
+    );
+    let synchronous_revision_before = synchronous_library.revision(&synchronous);
+    synchronous.add_file(library_path.as_str(), updated_source);
+
+    let actual = run_django_discovery(&mut synchronous).expect("project should be configured");
+
+    assert_eq!(
+        synchronous_library
+            .try_source(&synchronous)
+            .unwrap()
+            .as_str(),
+        updated_source
+    );
+    assert_eq!(
+        synchronous_library.revision(&synchronous),
+        synchronous_revision_before + 1
+    );
+    assert_eq!(actual, expected);
+    assert_eq!(actual.file_paths(), expected.file_paths());
+    assert_eq!(
+        synchronous_project.search_paths(&synchronous),
+        sequenced_project.search_paths(&sequenced)
+    );
+    for path in actual.file_paths() {
+        assert_eq!(
+            synchronous.file(path).try_source(&synchronous),
+            sequenced.file(path).try_source(&sequenced),
+            "synchronized source outcome differs for {path}"
+        );
+    }
+}
+
+#[test]
+fn django_discovery_run_applies_environment_before_computing_facts() {
+    let mut db = TestDatabase::new();
+    let project = project_requiring_environment_application(&mut db);
+
+    assert!(project.search_paths(&db).iter().next().is_none());
+
+    let facts = run_django_discovery(&mut db).expect("project should be configured");
+
+    assert_eq!(
+        project
+            .search_paths(&db)
+            .iter()
+            .map(SearchPath::path)
+            .collect::<Vec<_>>(),
+        [Utf8Path::new("/proj"), Utf8Path::new("/vendor")]
+    );
+    assert!(
+        facts
+            .file_paths()
+            .contains(&Utf8PathBuf::from("/proj/settings.py"))
+    );
+    assert!(
+        facts
+            .file_paths()
+            .contains(&Utf8PathBuf::from("/vendor/extras/tags.py"))
+    );
+}
+
+#[test]
+fn django_discovery_run_without_project_returns_none_without_mutating_sources() {
+    let mut db = TestDatabase::new();
+    let path = Utf8Path::new("/proj/preexisting.py");
+    db.add_file(path.as_str(), "before\n");
+    let file = db.file(path);
+    let source_before = file.try_source(&db);
+    let revision_before = file.revision(&db);
+
+    db.add_file(path.as_str(), "after\n");
+
+    assert_eq!(run_django_discovery(&mut db), None);
+    assert_eq!(file.revision(&db), revision_before);
+    assert_eq!(file.try_source(&db), source_before);
 }
 
 #[test]
@@ -466,152 +1489,45 @@ fn settings_sources_dedupes_duplicate_import_edges() {
 }
 
 #[test]
-fn imported_unsupported_mutation_marks_setting_partial() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/myproject/settings.py", "from .base import *\n"),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
+fn unreadable_root_settings_are_dynamic_never_unset() {
+    let settings_path = Utf8PathBuf::from("/proj/myproject/settings.py");
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file(settings_path.clone(), "INSTALLED_APPS = []\n".to_string());
+
+    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingFileSystem {
+        inner: fs,
+        failure: FileSystemFailure::Read(settings_path),
+    }));
+    let root = Utf8PathBuf::from("/proj");
+    let interpreter = Interpreter::Auto;
+    let pythonpath = Vec::new();
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        root.as_path(),
+        &interpreter,
+        &pythonpath,
     );
+    search_paths.register_roots(&db);
+    let project = Project::new(
+        &db,
+        root,
+        search_paths,
+        interpreter,
+        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        pythonpath,
+        Vec::new(),
+        Settings::default().tagspecs().clone(),
+    );
+    db.set_project(project);
 
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
+    let settings = to_value(django_settings(&db, project)).unwrap();
     assert_eq!(
-        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
-        "partial"
+        settings["installed_apps"]["cases"][0]["dynamic"]["evidence"][0]["issue"]["kind"],
+        "unreadable"
     );
-}
-
-#[test]
-fn cyclic_star_import_marks_imported_setting_partial() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/myproject/settings.py", "from .base import *\n"),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nfrom .settings import *\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
     assert_eq!(
-        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
-        "partial"
-    );
-}
-
-#[test]
-fn local_assignment_clears_imported_unsupported_mutation() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import *\nSTATICFILES_DIRS = []\n",
-            ),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert_eq!(
-        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
-        "complete"
-    );
-}
-
-#[test]
-fn named_imported_unsupported_mutation_marks_setting_partial() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import STATICFILES_DIRS\n",
-            ),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert_eq!(
-        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
-        "partial"
-    );
-}
-
-#[test]
-fn aliased_imported_unsupported_mutation_survives_assignment() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import STATICFILES_DIRS as BASE_STATICFILES_DIRS\nSTATICFILES_DIRS = BASE_STATICFILES_DIRS\n",
-            ),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert_eq!(
-        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
-        "partial"
-    );
-}
-
-#[test]
-fn same_name_assignment_preserves_imported_unsupported_mutation() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import STATICFILES_DIRS\nSTATICFILES_DIRS = STATICFILES_DIRS\n",
-            ),
-            (
-                "/proj/myproject/base.py",
-                "STATICFILES_DIRS = ['static']\nSTATICFILES_DIRS.append('extra')\n",
-            ),
-        ],
-    );
-
-    let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-
-    assert_eq!(
-        settings["staticfiles"]["staticfiles_dirs"]["extraction"],
-        "partial"
+        settings["templates"]["cases"][0]["dynamic"]["evidence"][0]["issue"]["kind"],
+        "unreadable"
     );
 }
 
@@ -687,6 +1603,31 @@ fn template_dirs_resolve_settings_module_file() {
 }
 
 #[test]
+fn template_dirs_follow_supported_nested_insert_and_remove_mutations() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[(
+            "/proj/myproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/first', '/proj/removed'], 'APP_DIRS': False}]
+TEMPLATES[0]['DIRS'].insert(1, '/proj/inserted')
+TEMPLATES[0]['DIRS'].remove('/proj/removed')",
+        )],
+    );
+
+    let dirs = complete_template_dirs(&db, project);
+
+    assert_eq!(
+        dirs,
+        [
+            Utf8PathBuf::from("/proj/first"),
+            Utf8PathBuf::from("/proj/inserted"),
+        ]
+    );
+}
+
+#[test]
 fn template_dirs_merge_equivalent_explicit_backend_branches() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
@@ -702,24 +1643,20 @@ fn template_dirs_merge_equivalent_explicit_backend_branches() {
     );
 
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
+    assert_eq!(settings["templates"]["cases"].as_array().unwrap().len(), 1);
     assert_eq!(
-        settings["templates"]["backends"].as_array().unwrap().len(),
+        settings["templates"]["cases"][0]["known"]["backends"]
+            .as_array()
+            .unwrap()
+            .len(),
         1
     );
-    assert_eq!(settings["templates"]["extraction"], "partial");
 
     let origins: Vec<_> = template_resolution(&db, project)
         .origins(&db)
         .map(|origin| origin.path_buf(&db).clone())
         .collect();
     assert_eq!(origins, [Utf8PathBuf::from("/proj/templates/index.html")]);
-
-    let processors = template_context_processors(&db, project);
-    assert_eq!(processors.processors().len(), 2);
-    assert_ne!(
-        processors.processors()[0].origin(),
-        processors.processors()[1].origin()
-    );
 }
 
 #[test]
@@ -735,7 +1672,7 @@ fn template_resolution_earlier_walk_failure_weakens_later_candidate() {
     );
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the earlier walk failure to make resolution inconclusive");
@@ -763,7 +1700,7 @@ fn template_resolution_retains_candidate_from_partial_walk_as_possible_origin() 
 
     let resolution = template_resolution(&db, project);
     assert_eq!(resolution.origins(&db).count(), 1);
-    let FindTemplateResult::Inconclusive(search) = resolution.resolve(&db, name) else {
+    let TemplateResolutionResult::Inconclusive(search) = resolution.resolve(&db, name) else {
         panic!("expected the partial walk to make its retained candidate uncertain");
     };
 
@@ -787,7 +1724,8 @@ fn template_resolution_definite_earlier_candidate_wins_before_later_walk_failure
     );
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let FindTemplateResult::Found(origin) = template_resolution(&db, project).resolve(&db, name)
+    let TemplateResolutionResult::Found(origin) =
+        template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the definite earlier candidate to win");
     };
@@ -807,7 +1745,7 @@ fn template_resolution_no_candidate_with_walk_failure_is_inconclusive() {
     );
     let name = TemplateName::new(&db, "missing.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the failed walk to make a missing result inconclusive");
@@ -830,7 +1768,7 @@ fn template_resolution_target_path_conversion_failure_is_inconclusive() {
     );
     let name = TemplateName::new(&db, "base.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the target indexing failure to make resolution inconclusive");
@@ -852,7 +1790,7 @@ fn template_resolution_app_dirs_candidate_walk_failure_is_inconclusive() {
     );
     let name = TemplateName::new(&db, "missing.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected the APP_DIRS metadata failure to make resolution inconclusive");
@@ -884,22 +1822,24 @@ fn template_dirs_keep_different_explicit_backend_alternatives() {
     );
 
     let directories = template_directories(&db, project);
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 
     let origins: Vec<_> = template_resolution(&db, project)
         .origins(&db)
         .map(|origin| origin.path_buf(&db).clone())
         .collect();
     assert_eq!(
-        origins,
+        origins.into_iter().collect::<BTreeSet<_>>(),
         [
             Utf8PathBuf::from("/proj/a/index.html"),
             Utf8PathBuf::from("/proj/b/index.html"),
         ]
+        .into_iter()
+        .collect()
     );
 
     let name = TemplateName::new(&db, "index.html".to_string());
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected alternative backend ordering to precede known roots");
@@ -923,7 +1863,7 @@ fn unknown_backend_before_known_backend_weakens_known_candidate() {
     );
     let name = TemplateName::new(&db, "index.html".to_string());
 
-    let FindTemplateResult::Inconclusive(search) =
+    let TemplateResolutionResult::Inconclusive(search) =
         template_resolution(&db, project).resolve(&db, name)
     else {
         panic!("expected unknown backend ordering to precede the known root");
@@ -932,7 +1872,37 @@ fn unknown_backend_before_known_backend_weakens_known_candidate() {
 }
 
 #[test]
-fn missing_template_backend_is_partial_and_contributes_no_backend_facts() {
+fn uncertain_backend_dictionary_before_known_backend_keeps_library_identity_aligned() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/templates/index.html", "{% load custom %}"),
+            (
+                "/proj/custom_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': UNKNOWN}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+            ),
+        ],
+    );
+    let file = db.file(Utf8Path::new("/proj/templates/index.html"));
+
+    assert!(
+        matches!(
+            scoped_template_libraries(&db, project, file).loadable_library_str("custom"),
+            LoadableLibraryLookup::Inconclusive(candidates)
+                if candidates.iter().any(|library| library.module_name_str() == "custom_tags")
+        ),
+        "the known second backend should retain its library slot"
+    );
+}
+
+#[test]
+fn missing_template_backend_excludes_directory_and_library_consumers() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -945,32 +1915,19 @@ fn missing_template_backend_is_partial_and_contributes_no_backend_facts() {
             ),
             (
                 "/proj/myproject/settings.py",
-                "INSTALLED_APPS = []\nTEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site'], 'libraries': {'custom': 'custom_tags'}}}]\n",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
             ),
         ],
     );
 
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-    assert_eq!(settings["templates"]["extraction"], "partial");
-    assert_eq!(
-        settings["templates"]["backends"][0]["extraction"],
-        "partial"
-    );
-    assert_eq!(
-        settings["templates"]["backends"][0]["backend"],
-        serde_json::Value::Null
-    );
+    assert!(has_case(&settings["templates"], "malformed"));
 
     let directories = template_directories(&db, project);
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
     assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
     assert!(
-        template_context_processors(&db, project)
-            .processors()
-            .is_empty()
-    );
-    assert!(
-        template_libraries(&db, project)
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .loadable_library_str("custom")
             .found()
             .is_none()
@@ -978,7 +1935,7 @@ fn missing_template_backend_is_partial_and_contributes_no_backend_facts() {
 }
 
 #[test]
-fn non_string_template_backend_is_partial_and_contributes_no_backend_facts() {
+fn dynamic_template_backend_excludes_directory_and_library_consumers() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -991,32 +1948,19 @@ fn non_string_template_backend_is_partial_and_contributes_no_backend_facts() {
             ),
             (
                 "/proj/myproject/settings.py",
-                "INSTALLED_APPS = []\nBACKEND = object()\nTEMPLATES = [{'BACKEND': BACKEND, 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site'], 'libraries': {'custom': 'custom_tags'}}}]\n",
+                "INSTALLED_APPS = []\nBACKEND = object()\nTEMPLATES = [{'BACKEND': BACKEND, 'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
             ),
         ],
     );
 
     let settings = serde_json::to_value(django_settings(&db, project)).unwrap();
-    assert_eq!(settings["templates"]["extraction"], "partial");
-    assert_eq!(
-        settings["templates"]["backends"][0]["extraction"],
-        "partial"
-    );
-    assert_eq!(
-        settings["templates"]["backends"][0]["backend"],
-        serde_json::Value::Null
-    );
+    assert!(has_case(&settings["templates"], "dynamic"));
 
     let directories = template_directories(&db, project);
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
     assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
     assert!(
-        template_context_processors(&db, project)
-            .processors()
-            .is_empty()
-    );
-    assert!(
-        template_libraries(&db, project)
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .loadable_library_str("custom")
             .found()
             .is_none()
@@ -1024,13 +1968,27 @@ fn non_string_template_backend_is_partial_and_contributes_no_backend_facts() {
 }
 
 #[test]
-fn template_dirs_return_unknown_for_missing_settings_module() {
+fn template_dirs_treat_unset_templates_as_exact_absence() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[("/proj/myproject/settings.py", "INSTALLED_APPS = []\n")],
+    );
+
+    let directories = template_directories(&db, project);
+
+    assert!(!directories.settings_cases_may_omit_roots());
+}
+
+#[test]
+fn template_dirs_treat_unresolved_configured_settings_as_unknown() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(&mut db, "myproject.settings", &[]);
 
     let directories = template_directories(&db, project);
 
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 }
 
 #[test]
@@ -1138,7 +2096,7 @@ fn template_dirs_include_dirs_entries_before_app_dirs() {
             ("/proj/blog/templates/blog/detail.html", "detail"),
             (
                 "/proj/myproject/settings.py",
-                "from pathlib import Path\nBASE_DIR = Path(__file__).resolve().parent.parent\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True}]\n",
+                "from pathlib import Path\nBASE_DIR = Path(__file__).parent.parent\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True}]\n",
             ),
         ],
     );
@@ -1214,134 +2172,7 @@ fn template_dirs_demote_broken_app_config_entry_to_partial() {
 
     let directories = template_directories(&db, project);
 
-    assert!(directories.configuration_may_omit_roots());
-}
-
-#[test]
-fn template_context_processors_retain_known_processor_from_complete_settings() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/django/template/__init__.py", ""),
-            ("/proj/django/template/context_processors.py", ""),
-            (
-                "/proj/myproject/settings.py",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
-            ),
-        ],
-    );
-
-    let processors = template_context_processors(&db, project);
-
-    assert_eq!(processors.processors().len(), 1);
-}
-
-#[test]
-fn template_context_processors_retain_known_processor_beside_invalid_entry() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[(
-            "/proj/myproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request', object()]}}]\n",
-        )],
-    );
-
-    let processors = template_context_processors(&db, project);
-
-    assert_eq!(processors.processors().len(), 1);
-}
-
-#[test]
-fn template_context_processors_without_usable_settings_are_not_discovered() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj").install(&mut db);
-
-    let processors = template_context_processors(&db, project);
-
-    assert!(processors.processors().is_empty());
-}
-
-#[test]
-fn template_context_processors_resolve_module_prefix_and_callable_tail() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/django/template/__init__.py", ""),
-            ("/proj/django/template/context_processors.py", ""),
-            (
-                "/proj/myproject/settings.py",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
-            ),
-        ],
-    );
-
-    let processors = template_context_processors(&db, project);
-    let processor = processors.processors().first().unwrap();
-
-    assert_eq!(
-        processor.path_str(),
-        "django.template.context_processors.request"
-    );
-    assert_eq!(
-        processor.module().map(|module| module.name().as_str()),
-        Some("django.template.context_processors")
-    );
-    assert_eq!(processor.unresolved_tail(), ["request"]);
-}
-
-#[test]
-fn template_context_processors_keep_imported_origin_file() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings.local",
-        &[
-            ("/proj/myproject/settings/__init__.py", ""),
-            (
-                "/proj/myproject/settings/base.py",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['django.template.context_processors.request']}}]\n",
-            ),
-            (
-                "/proj/myproject/settings/local.py",
-                "from .base import TEMPLATES\n",
-            ),
-        ],
-    );
-
-    let processors = template_context_processors(&db, project);
-    let processor = processors.processors().first().unwrap();
-    let (file, _) = processor.origin();
-
-    assert_eq!(file.path(&db).as_str(), "/proj/myproject/settings/base.py");
-}
-
-#[test]
-fn template_context_processors_keep_unresolved_facts_with_tail() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[(
-            "/proj/myproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'context_processors': ['missing.context.processor']}}]\n",
-        )],
-    );
-
-    let processors = template_context_processors(&db, project);
-    let processor = processors.processors().first().unwrap();
-
-    assert_eq!(processor.path_str(), "missing.context.processor");
-    assert!(processor.module().is_none());
-    assert_eq!(
-        processor.unresolved_tail(),
-        ["missing", "context", "processor"]
-    );
+    assert!(directories.settings_cases_may_omit_roots());
 }
 
 #[test]
@@ -1440,7 +2271,7 @@ fn template_dirs_demote_file_module_app_to_partial() {
 
     let directories = template_directories(&db, project);
 
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 }
 
 #[test]
@@ -1457,11 +2288,11 @@ fn template_dirs_demote_unresolved_app_to_partial() {
 
     let directories = template_directories(&db, project);
 
-    assert!(directories.configuration_may_omit_roots());
+    assert!(directories.settings_cases_may_omit_roots());
 }
 
 #[test]
-fn template_libraries_discover_app_templatetags_and_builtins() {
+fn template_library_catalog_discover_app_templatetags_and_builtins() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1492,9 +2323,9 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = libraries
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("custom library should be discovered");
@@ -1516,7 +2347,156 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
 }
 
 #[test]
-fn template_libraries_discover_package_templatetags() {
+fn template_library_catalog_cross_product_divergent_installed_apps_with_templates() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/first/templatetags/__init__.py", ""),
+            (
+                "/proj/first/templatetags/shared.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            ("/proj/second/templatetags/__init__.py", ""),
+            (
+                "/proj/second/templatetags/shared.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "if APP_FLAG:\n    INSTALLED_APPS = ['first']\nelse:\n    INSTALLED_APPS = ['second']\nif TEMPLATE_FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/other'], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let LoadableLibraryLookup::Ambiguous(candidates) =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .loadable_library_str("shared")
+    else {
+        panic!("divergent app alternatives must retain both library outcomes");
+    };
+    let modules = candidates
+        .iter()
+        .map(|library| library.module_name_str())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        modules,
+        ["first.templatetags.shared", "second.templatetags.shared",]
+            .into_iter()
+            .collect()
+    );
+}
+
+#[test]
+fn unset_templates_is_closed_absence_for_app_libraries() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/django/__init__.py", ""),
+            ("/proj/blog/__init__.py", ""),
+            ("/proj/blog/templatetags/__init__.py", ""),
+            (
+                "/proj/blog/templatetags/custom.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            ("/proj/myproject/settings.py", "INSTALLED_APPS = ['blog']\n"),
+        ],
+    );
+
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .loadable_library_str("custom"),
+        LoadableLibraryLookup::Absent
+    );
+}
+
+#[test]
+fn dynamic_installed_apps_keep_guidance_open_without_template_backends() {
+    for templates in ["TEMPLATES = []\n", ""] {
+        let mut db = TestDatabase::new();
+        let settings = format!("INSTALLED_APPS = [UNKNOWN]\n{templates}");
+        let project = project_with_settings(
+            &mut db,
+            "myproject.settings",
+            &[
+                ("/proj/crispy/__init__.py", ""),
+                ("/proj/crispy/templatetags/__init__.py", ""),
+                (
+                    "/proj/crispy/templatetags/crispy.py",
+                    "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag(): pass\n@register.filter\ndef crispy_filter(value): return value\n",
+                ),
+                ("/proj/myproject/settings.py", settings.as_str()),
+            ],
+        );
+
+        let libraries = template_library_catalog(&db, project);
+        assert_eq!(
+            ScopedTemplateLibraries::from_project_inventory(libraries)
+                .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
+            AppTemplateSymbolLookup::Inconclusive,
+            "dynamic apps with {templates:?} must not produce definitive tag guidance"
+        );
+        assert_eq!(
+            ScopedTemplateLibraries::from_project_inventory(libraries)
+                .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
+            AppTemplateSymbolLookup::Inconclusive,
+            "dynamic apps with {templates:?} must not produce definitive filter guidance"
+        );
+        assert_eq!(
+            ScopedTemplateLibraries::from_project_inventory(libraries)
+                .missing_library(&library_name("crispy")),
+            MissingTemplateLibraryLookup::Inconclusive,
+            "dynamic apps with {templates:?} must not produce definitive library guidance"
+        );
+    }
+}
+
+#[test]
+fn template_symbol_lookup_uses_later_definite_available_candidate() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/alpha/__init__.py", ""),
+            ("/proj/alpha/templatetags/__init__.py", ""),
+            (
+                "/proj/alpha/templatetags/alpha.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef shared_tag(): pass\n",
+            ),
+            ("/proj/zeta/__init__.py", ""),
+            ("/proj/zeta/templatetags/__init__.py", ""),
+            (
+                "/proj/zeta/templatetags/zeta.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef shared_tag(): pass\n",
+            ),
+            (
+                "/proj/project_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'alpha': 'project_tags'}}}]\n",
+            ),
+        ],
+    );
+
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .available_in_app_symbol("shared_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::FoundInApp {
+            app: PythonModuleName::parse("zeta").unwrap(),
+            load_name: library_name("zeta"),
+        },
+        "a shadowed earlier candidate must not hide a later definite candidate"
+    );
+}
+
+#[test]
+fn template_library_catalog_discover_package_templatetags() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1535,9 +2515,9 @@ fn template_libraries_discover_package_templatetags() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = libraries
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("package templatetag should be discovered");
@@ -1551,7 +2531,7 @@ fn template_libraries_discover_package_templatetags() {
 }
 
 #[test]
-fn template_libraries_discover_namespace_package_templatetags() {
+fn template_library_catalog_discover_namespace_package_templatetags() {
     let mut db = TestDatabase::new();
     db.add_file("/proj/nsapp/other.py", "");
     db.add_file("/vendor/nsapp/templatetags/__init__.py", "");
@@ -1561,7 +2541,7 @@ fn template_libraries_discover_namespace_package_templatetags() {
     );
     db.add_file(
         "/proj/myproject/settings.py",
-        "INSTALLED_APPS = ['nsapp']\nTEMPLATES = []\n",
+        "INSTALLED_APPS = ['nsapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
     );
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -1575,9 +2555,9 @@ fn template_libraries_discover_namespace_package_templatetags() {
         .search_paths(search_paths)
         .install(&mut db);
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = libraries
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("custom")
         .found()
         .expect("namespace package templatetag should be discovered");
@@ -1591,7 +2571,7 @@ fn template_libraries_discover_namespace_package_templatetags() {
 }
 
 #[test]
-fn template_libraries_include_empty_registered_modules() {
+fn template_library_catalog_include_empty_registered_modules() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1622,15 +2602,18 @@ fn template_libraries_include_empty_registered_modules() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let empty = libraries.loadable_library_str("empty").found().unwrap();
+    let empty = ScopedTemplateLibraries::from_project_inventory(libraries)
+        .loadable_library_str("empty")
+        .found()
+        .unwrap();
     assert_eq!(empty.module_name_str(), "blog.templatetags.empty");
     assert!(empty.symbols().is_empty());
 }
 
 #[test]
-fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
+fn template_library_catalog_skip_discovered_helpers_without_demoting_inventory() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1646,15 +2629,20 @@ fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
             ),
             (
                 "/proj/myproject/settings.py",
-                "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+                "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    assert!(libraries.loadable_library_str("helpers").found().is_none());
-    let orphan = libraries
+    assert!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .loadable_library_str("helpers")
+            .found()
+            .is_none()
+    );
+    let orphan = ScopedTemplateLibraries::from_project_inventory(libraries)
         .loadable_library_str("orphan")
         .found()
         .expect("symbol-bearing modules are template libraries even without register assignment");
@@ -1667,7 +2655,142 @@ fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
 }
 
 #[test]
-fn template_libraries_retain_recovered_symbols_with_source_uncertainty() {
+fn template_library_catalog_preserve_installed_app_discovery_order_across_failures() {
+    let settings = "INSTALLED_APPS = ['first', 'second']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n";
+    let files = [
+        ("/proj/myproject/settings.py", settings),
+        ("/proj/first/__init__.py", ""),
+        ("/proj/first/templatetags/__init__.py", ""),
+        (
+            "/proj/first/templatetags/shared.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef from_first(): pass\n",
+        ),
+        ("/proj/second/__init__.py", ""),
+        ("/proj/second/templatetags/__init__.py", ""),
+        (
+            "/proj/second/templatetags/shared.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef from_second(): pass\n",
+        ),
+    ];
+
+    let (db, project) = project_with_file_system_failure(
+        &files,
+        FileSystemFailure::Walk(Utf8PathBuf::from("/proj/first/templatetags")),
+    );
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "second.templatetags.shared"
+    ));
+
+    let (db, project) = project_with_file_system_failure(
+        &files,
+        FileSystemFailure::Walk(Utf8PathBuf::from("/proj/second/templatetags")),
+    );
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
+        LoadableLibraryLookup::Inconclusive(candidates)
+            if candidates.iter().any(|library| {
+                library.module_name_str() == "first.templatetags.shared"
+            })
+    ));
+}
+
+#[test]
+fn template_library_catalog_preserve_installed_app_order_across_source_analysis_failures() {
+    let valid_library = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known(): pass\n";
+    let backend = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n";
+
+    let earlier_settings = format!("INSTALLED_APPS = ['first', 'second']\n{backend}");
+    let (db, project) = project_with_file_system_failure(
+        &[
+            ("/proj/myproject/settings.py", &earlier_settings),
+            ("/proj/first/__init__.py", ""),
+            ("/proj/first/templatetags/__init__.py", ""),
+            ("/proj/first/templatetags/shared.py", valid_library),
+            ("/proj/second/__init__.py", ""),
+            ("/proj/second/templatetags/__init__.py", ""),
+            ("/proj/second/templatetags/shared.py", valid_library),
+        ],
+        FileSystemFailure::Read(Utf8PathBuf::from("/proj/second/templatetags/shared.py")),
+    );
+    let LoadableLibraryLookup::Inconclusive(candidates) =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .loadable_library_str("shared")
+    else {
+        panic!("the unreadable later candidate should leave the earlier library feasible");
+    };
+    assert!(matches!(
+        candidates.as_slice(),
+        [library] if library.module_name_str() == "first.templatetags.shared"
+    ));
+
+    let later_settings = format!("INSTALLED_APPS = ['second', 'first']\n{backend}");
+    let (db, project) = project_with_file_system_failure(
+        &[
+            ("/proj/myproject/settings.py", &later_settings),
+            ("/proj/first/__init__.py", ""),
+            ("/proj/first/templatetags/__init__.py", ""),
+            ("/proj/first/templatetags/shared.py", valid_library),
+            ("/proj/second/__init__.py", ""),
+            ("/proj/second/templatetags/__init__.py", ""),
+            ("/proj/second/templatetags/shared.py", valid_library),
+        ],
+        FileSystemFailure::Read(Utf8PathBuf::from("/proj/second/templatetags/shared.py")),
+    );
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("shared"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "first.templatetags.shared"
+    ));
+}
+
+#[test]
+fn template_library_catalog_recovered_positive_candidate_remains_resolved() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/first/templatetags/__init__.py", ""),
+            (
+                "/proj/first/templatetags/shared.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            ("/proj/second/templatetags/__init__.py", ""),
+            (
+                "/proj/second/templatetags/shared.py",
+                "from django import template\nregister = template.Library()\n@register.filter\ndef known(value):\n    return value\ndef broken(",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['first', 'second']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let libraries = template_library_catalog(&db, project);
+    let LoadableLibraryLookup::Found(library) =
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("shared")
+    else {
+        panic!("the recovered later candidate should remain a known library");
+    };
+    assert_eq!(library.module_name_str(), "second.templatetags.shared");
+    assert!(
+        library
+            .symbols()
+            .iter()
+            .any(|symbol| symbol.name() == "known")
+    );
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("possibly_hidden", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Inconclusive
+    );
+}
+
+#[test]
+fn template_library_catalog_retain_recovered_symbols_with_source_uncertainty() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1681,14 +2804,16 @@ fn template_libraries_retain_recovered_symbols_with_source_uncertainty() {
             ),
             (
                 "/proj/myproject/settings.py",
-                "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+                "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let LoadableLibraryLookup::Found(library) = libraries.loadable_library_str("broken") else {
+    let LoadableLibraryLookup::Found(library) =
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("broken")
+    else {
         panic!("the recovered module still identifies the same loadable library");
     };
     assert!(
@@ -1698,13 +2823,14 @@ fn template_libraries_retain_recovered_symbols_with_source_uncertainty() {
             .any(|symbol| symbol.name() == "known")
     );
     assert_eq!(
-        libraries.template_symbol_lookup("possibly_hidden", TemplateSymbolKind::Filter),
-        TemplateSymbolLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("possibly_hidden", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Inconclusive
     );
 }
 
 #[test]
-fn template_libraries_accept_supported_python_newer_than_ruff_default_target() {
+fn template_library_catalog_accept_supported_python_newer_than_ruff_default_target() {
     let mut db = TestDatabase::new();
     let path = Utf8Path::new("/proj/blog/templatetags/modern.py");
     let project = project_with_settings(
@@ -1719,15 +2845,20 @@ fn template_libraries_accept_supported_python_newer_than_ruff_default_target() {
             ),
             (
                 "/proj/myproject/settings.py",
-                "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+                "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
             ),
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     let errors = python_syntax_errors(&db, db.file(path)).expect("file should be Python");
 
-    assert!(libraries.loadable_library_str("modern").found().is_some());
+    assert!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .loadable_library_str("modern")
+            .found()
+            .is_some()
+    );
     assert!(
         errors
             .iter()
@@ -1758,10 +2889,11 @@ fn invalid_available_identifier_makes_missing_library_inconclusive() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     assert!(matches!(
-        libraries.missing_library_lookup(&library_name("missing")),
-        MissingLibraryLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .missing_library(&library_name("missing")),
+        MissingTemplateLibraryLookup::Inconclusive
     ));
 }
 
@@ -1800,15 +2932,16 @@ fn failed_available_candidate_walk_makes_missing_library_inconclusive() {
     );
     db.set_project(project);
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     assert!(matches!(
-        libraries.missing_library_lookup(&library_name("missing")),
-        MissingLibraryLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .missing_library(&library_name("missing")),
+        MissingTemplateLibraryLookup::Inconclusive
     ));
 }
 
 #[test]
-fn template_libraries_collect_available_uninstalled_templatetags() {
+fn template_library_catalog_collects_templatetags_available_outside_installed_apps() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1845,12 +2978,13 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let MissingLibraryLookup::FoundInApps(apps) =
-        libraries.missing_library_lookup(&library_name("crispy"))
+    let MissingTemplateLibraryLookup::FoundInApps(apps) =
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .missing_library(&library_name("crispy"))
     else {
-        panic!("crispy should be reported as an available-app library candidate");
+        panic!("crispy should be reported as an available-in-app library candidate");
     };
     assert_eq!(apps.primary().as_str(), "crispy");
     assert_eq!(
@@ -1861,31 +2995,34 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
         vec!["crispy"]
     );
 
-    let TemplateSymbolLookup::FoundInApp { app, load_name } =
-        libraries.template_symbol_lookup("crispy_tag", TemplateSymbolKind::Tag)
+    let AppTemplateSymbolLookup::FoundInApp { app, load_name } =
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag)
     else {
-        panic!("crispy_tag should be reported as an available-app tag candidate");
+        panic!("crispy_tag should be reported as an available-in-app tag candidate");
     };
     assert_eq!(app.as_str(), "crispy");
     assert_eq!(load_name.as_str(), "crispy");
 
-    let TemplateSymbolLookup::FoundInApp { app, load_name } =
-        libraries.template_symbol_lookup("crispy_filter", TemplateSymbolKind::Filter)
+    let AppTemplateSymbolLookup::FoundInApp { app, load_name } =
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter)
     else {
-        panic!("crispy_filter should be reported as an available-app filter candidate");
+        panic!("crispy_filter should be reported as an available-in-app filter candidate");
     };
     assert_eq!(app.as_str(), "crispy");
     assert_eq!(load_name.as_str(), "crispy");
 
     assert_eq!(
-        libraries.missing_library_lookup(&library_name("myapp_tags")),
-        MissingLibraryLookup::Inconclusive,
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .missing_library(&library_name("myapp_tags")),
+        MissingTemplateLibraryLookup::Inconclusive,
         "installed app libraries must be subtracted from available candidates"
     );
 }
 
 #[test]
-fn template_libraries_available_candidates_rerun_after_search_root_revision_bump() {
+fn template_library_catalog_available_candidates_rerun_after_search_root_revision_bump() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1917,8 +3054,9 @@ fn template_libraries_available_candidates_rerun_after_search_root_revision_bump
     );
 
     assert_eq!(
-        template_libraries(&db, project).missing_library_lookup(&library_name("crispy")),
-        MissingLibraryLookup::Absent
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .missing_library(&library_name("crispy")),
+        MissingTemplateLibraryLookup::Absent
     );
 
     db.add_file("/proj/crispy/__init__.py", "");
@@ -1932,11 +3070,12 @@ fn template_libraries_available_candidates_rerun_after_search_root_revision_bump
         .expect_root(&db, Utf8Path::new("/proj/crispy/templatetags/crispy.py"));
     db.bump_file_root_revision(root);
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert!(matches!(
-        libraries.missing_library_lookup(&library_name("crispy")),
-        MissingLibraryLookup::FoundInApps(_)
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .missing_library(&library_name("crispy")),
+        MissingTemplateLibraryLookup::FoundInApps(_)
     ));
 }
 
@@ -1979,8 +3118,9 @@ fn django_discovery_updates_available_template_library_symbols() {
     );
 
     assert_eq!(
-        template_libraries(&db, project).template_symbol_lookup("new_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::Absent
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .available_in_app_symbol("new_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Absent
     );
 
     db.add_file(
@@ -1990,13 +3130,14 @@ fn django_discovery_updates_available_template_library_symbols() {
     apply_project_discovery(&mut db);
 
     assert!(matches!(
-        template_libraries(&db, project).template_symbol_lookup("new_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::FoundInApp { .. }
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .available_in_app_symbol("new_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::FoundInApp { .. }
     ));
 }
 
 #[test]
-fn template_libraries_demote_unresolved_app_to_partial() {
+fn template_library_catalog_demote_unresolved_app_to_partial() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2007,15 +3148,16 @@ fn template_libraries_demote_unresolved_app_to_partial() {
         )],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     assert!(matches!(
-        libraries.missing_library_lookup(&library_name("missing")),
-        MissingLibraryLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .missing_library(&library_name("missing")),
+        MissingTemplateLibraryLookup::Inconclusive
     ));
 }
 
 #[test]
-fn template_libraries_include_options_libraries_and_builtins() {
+fn template_library_catalog_include_options_libraries_and_builtins() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2048,9 +3190,12 @@ fn template_libraries_include_options_libraries_and_builtins() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = libraries.loadable_library_str("custom").found().unwrap();
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
+        .loadable_library_str("custom")
+        .found()
+        .unwrap();
     assert_eq!(custom.module_name_str(), "custom_tags");
     assert!(
         custom
@@ -2058,23 +3203,74 @@ fn template_libraries_include_options_libraries_and_builtins() {
             .iter()
             .any(|symbol| symbol.name() == "configured")
     );
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
     assert!(
-        libraries
-            .template_symbol_candidates(TemplateSymbolKind::Filter)
+        scoped_libraries
+            .scoped_symbol_candidates("configured_filter", TemplateSymbolKind::Filter)
             .iter()
             .any(|candidate| {
-                candidate.symbol.name() == "configured_filter"
-                    && matches!(
-                        &candidate.availability,
-                        TemplateSymbolAvailability::Builtin { module }
-                            if module.as_str() == "custom_builtin"
-                    )
+                matches!(
+                    &candidate.availability,
+                    TemplateSymbolAvailability::Builtin { module }
+                        if module.as_str() == "custom_builtin"
+                )
             })
     );
 }
 
 #[test]
-fn template_libraries_keep_configured_libraries_when_installed_apps_unknown() {
+fn partial_django_backend_keeps_alias_definitive_until_open_backend_selection() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/custom_tags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef configured():\n    pass\n",
+            ),
+            ("/proj/templates/page.html", "{% load custom %}"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}, unknown_key: 'maybe'}]\n",
+            ),
+        ],
+    );
+    let file = db.file(Utf8Path::new("/proj/templates/page.html"));
+
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project)).loadable_library_str("custom"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "custom_tags"
+    ));
+    assert!(matches!(
+        scoped_template_libraries(&db, project, file).loadable_library_str("custom"),
+        LoadableLibraryLookup::Inconclusive(candidates)
+            if candidates.iter().any(|library| library.module_name_str() == "custom_tags")
+    ));
+}
+
+#[test]
+fn partial_non_django_backend_contributes_open_library_alternative() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'project.backends.CustomTemplates', unknown_key: 'maybe'}]\n",
+        )],
+    );
+
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .loadable_library_str("missing"),
+        LoadableLibraryLookup::Inconclusive(Vec::new())
+    );
+}
+
+#[test]
+fn template_library_catalog_keep_candidate_with_later_backend_uncertainty() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2098,18 +3294,22 @@ fn template_libraries_keep_configured_libraries_when_installed_apps_unknown() {
             ),
             (
                 "/proj/myproject/settings.py",
-                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'project_tags'}}}]\n",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'project_tags'}}}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': UNKNOWN}]\n",
             ),
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let LoadableLibraryLookup::Inconclusive(candidates) = libraries.loadable_library_str("custom")
+    let LoadableLibraryLookup::Inconclusive(candidates) =
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("custom")
     else {
-        panic!("partial settings should retain a possible configured library");
+        panic!("the open backend alternative should keep lookup inconclusive");
     };
-    let custom = candidates.first().unwrap();
+    let custom = candidates
+        .into_iter()
+        .find(|library| library.module_name_str() == "project_tags")
+        .expect("the concrete configured candidate should be retained");
     assert_eq!(custom.module_name_str(), "project_tags");
     assert!(
         custom
@@ -2120,7 +3320,7 @@ fn template_libraries_keep_configured_libraries_when_installed_apps_unknown() {
 }
 
 #[test]
-fn template_libraries_options_override_app_library_load_name() {
+fn template_library_catalog_options_override_app_library_load_name() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2155,9 +3355,12 @@ fn template_libraries_options_override_app_library_load_name() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    let custom = libraries.loadable_library_str("custom").found().unwrap();
+    let custom = ScopedTemplateLibraries::from_project_inventory(libraries)
+        .loadable_library_str("custom")
+        .found()
+        .unwrap();
     assert_eq!(custom.module_name_str(), "project_tags");
     assert!(
         custom
@@ -2172,8 +3375,9 @@ fn template_libraries_options_override_app_library_load_name() {
             .any(|symbol| symbol.name() == "old_tag")
     );
     assert_eq!(
-        libraries.template_symbol_lookup("old_tag", TemplateSymbolKind::Tag),
-        TemplateSymbolLookup::Absent,
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("old_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Absent,
         "a configured alias can shadow an installed app library without making that app available"
     );
 }
@@ -2205,13 +3409,97 @@ fn failed_configured_library_is_inconclusive() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    assert!(libraries.loadable_library_str("broken").found().is_none());
+    assert!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .loadable_library_str("broken")
+            .found()
+            .is_none()
+    );
 }
 
 #[test]
-fn unresolved_configured_alias_shadows_available_app_guidance() {
+fn unknown_configured_alias_keys_suppress_available_in_app_guidance() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/crispy/__init__.py", ""),
+            ("/proj/crispy/templatetags/__init__.py", ""),
+            (
+                "/proj/crispy/templatetags/shared.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag():\n    pass\n@register.filter\ndef crispy_filter(value):\n    return value\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]\n",
+            ),
+        ],
+    );
+    let libraries = template_library_catalog(&db, project);
+
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Inconclusive
+    );
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Inconclusive
+    );
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .missing_library(&library_name("shared")),
+        MissingTemplateLibraryLookup::Inconclusive
+    );
+}
+
+#[test]
+fn exact_alias_after_unknown_keys_remains_authoritative() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/crispy/__init__.py", ""),
+            ("/proj/crispy/templatetags/__init__.py", ""),
+            (
+                "/proj/crispy/templatetags/shared.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag():\n    pass\n@register.filter\ndef crispy_filter(value):\n    return value\n",
+            ),
+            (
+                "/proj/project_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN, 'shared': 'project_tags'}}}]\n",
+            ),
+        ],
+    );
+    let libraries = template_library_catalog(&db, project);
+
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_tag", TemplateSymbolKind::Tag),
+        AppTemplateSymbolLookup::Absent
+    );
+    assert_eq!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .available_in_app_symbol("crispy_filter", TemplateSymbolKind::Filter),
+        AppTemplateSymbolLookup::Absent
+    );
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("shared"),
+        LoadableLibraryLookup::Found(library) if library.module_name_str() == "project_tags"
+    ));
+}
+
+#[test]
+fn unresolved_configured_alias_shadows_available_in_app_guidance() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2230,16 +3518,17 @@ fn unresolved_configured_alias_shadows_available_app_guidance() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
     assert_eq!(
-        libraries.missing_library_lookup(&library_name("shared")),
-        MissingLibraryLookup::Inconclusive
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .missing_library(&library_name("shared")),
+        MissingTemplateLibraryLookup::Inconclusive
     );
 }
 
 #[test]
-fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
+fn template_library_catalog_omit_invalid_configured_alias_and_demote_knowledge() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2250,13 +3539,18 @@ fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
         )],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    assert!(libraries.loadable_library_str("broken").found().is_none());
+    assert!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .loadable_library_str("broken")
+            .found()
+            .is_none()
+    );
 }
 
 #[test]
-fn template_libraries_omit_missing_configured_alias_and_demote_knowledge() {
+fn template_library_catalog_retain_missing_configured_alias_without_source() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2267,13 +3561,17 @@ fn template_libraries_omit_missing_configured_alias_and_demote_knowledge() {
         )],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    assert!(libraries.loadable_library_str("missing").found().is_none());
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("missing"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "missing_tags" && library.source_file().is_none()
+    ));
 }
 
 #[test]
-fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() {
+fn template_library_catalog_omit_configured_non_library_module_and_demote_knowledge() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2299,13 +3597,18 @@ fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() 
         ],
     );
 
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
 
-    assert!(libraries.loadable_library_str("custom").found().is_none());
+    assert!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .loadable_library_str("custom")
+            .found()
+            .is_none()
+    );
 }
 
 #[test]
-fn template_libraries_active_libraries_include_only_resolved_libraries() {
+fn template_library_catalog_include_resolved_and_configured_only_libraries() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -2323,20 +3626,39 @@ fn template_libraries_active_libraries_include_only_resolved_libraries() {
         ],
     );
 
-    let libraries = template_libraries(&db, project);
-    let active_modules: Vec<_> = libraries
+    let libraries = template_library_catalog(&db, project);
+    let active_modules: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
         .resolved_libraries()
+        .into_iter()
         .map(|library| library.module_name_str().to_string())
         .collect();
 
-    assert_eq!(active_modules, vec!["good_tags"]);
+    assert_eq!(
+        active_modules,
+        vec![
+            "good_tags",
+            "missing_tags",
+            "django.template.defaulttags",
+            "django.template.defaultfilters",
+            "django.template.loader_tags",
+        ]
+    );
     assert!(matches!(
-        libraries.loadable_library_str("good"),
-        LoadableLibraryLookup::Inconclusive(candidates)
-            if candidates.iter().any(|library| library.module_name_str() == "good_tags")
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("good"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "good_tags"
     ));
-    assert!(libraries.loadable_library_str("missing").found().is_none());
-    assert!(libraries.loadable_library_str("invalid").found().is_none());
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("missing"),
+        LoadableLibraryLookup::Found(library)
+            if library.module_name_str() == "missing_tags" && library.source_file().is_none()
+    ));
+    assert!(
+        ScopedTemplateLibraries::from_project_inventory(libraries)
+            .loadable_library_str("invalid")
+            .found()
+            .is_none()
+    );
 }
 
 fn django_facts_golden_fixture() -> (
@@ -2413,36 +3735,37 @@ fn django_facts_golden_template_dirs_match() {
 }
 
 #[test]
-fn django_facts_golden_template_libraries_match() {
+fn django_facts_golden_template_library_catalog_matches() {
     let (db, project, _, _, golden) = django_facts_golden_fixture();
-    let libraries = template_libraries(&db, project);
+    let libraries = template_library_catalog(&db, project);
     let actual_builtins = active_builtin_modules(libraries);
-    assert_eq!(actual_builtins, golden.template_libraries.builtins);
+    assert_eq!(actual_builtins, golden.template_library_catalog.builtins);
 
-    let actual_libraries: BTreeMap<_, _> = libraries
+    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
+    let actual_libraries: BTreeMap<_, _> = scoped_libraries
         .completion_library_names()
         .into_iter()
         .filter_map(|name| {
-            let library = libraries.loadable_library(&name).found()?;
+            let library = scoped_libraries.loadable_library(&name).found()?;
             Some((
                 name.as_str().to_string(),
                 library.module_name_str().to_string(),
             ))
         })
         .collect();
-    assert_eq!(actual_libraries, golden.template_libraries.libraries);
+    assert_eq!(actual_libraries, golden.template_library_catalog.libraries);
 
     let mut actual_symbols = comparable_symbols(libraries);
-    let mut expected_symbols = golden.template_libraries.symbols;
+    let mut expected_symbols = golden.template_library_catalog.symbols;
     actual_symbols.sort();
     expected_symbols.sort();
     assert_eq!(actual_symbols, expected_symbols);
 }
 
-fn comparable_symbols(libraries: &TemplateLibraries) -> Vec<GoldenTemplateSymbol> {
+fn comparable_symbols(libraries: &TemplateLibraryCatalog) -> Vec<GoldenTemplateSymbol> {
     let mut symbols = Vec::new();
 
-    for library in libraries.resolved_libraries() {
+    for library in ScopedTemplateLibraries::from_project_inventory(libraries).resolved_libraries() {
         let load_name = library.load_name().map(|name| name.as_str().to_string());
 
         for symbol in library.symbols() {

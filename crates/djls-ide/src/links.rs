@@ -1,7 +1,7 @@
-use djls_project::FindTemplateResult;
-use djls_project::LoadableLibraryLookup;
+use djls_project::TemplateResolutionResult;
 use djls_project::template_resolution;
-use djls_semantic::resolve_reference_name;
+use djls_semantic::resolve_reference_for_file;
+use djls_semantic::scoped_template_libraries_for_file;
 use djls_semantic::template_library_references_in_file;
 use djls_semantic::template_references_in_file;
 use djls_source::File;
@@ -12,6 +12,7 @@ use crate::ext::Utf8PathExt;
 
 pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
     let line_index = file.line_index(db);
+    let scoped_libraries = scoped_template_libraries_for_file(db, file);
     let mut links = Vec::new();
 
     if let Some(project) = db.project() {
@@ -21,21 +22,20 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
                 .as_slice(db)
                 .iter()
                 .filter_map(|reference| {
-                    let template_name = resolve_reference_name(
+                    match resolve_reference_for_file(
                         db,
                         resolution,
                         file,
                         reference.target_template_name(),
                         reference.kind(),
-                    )?;
-                    match resolution.resolve(db, template_name) {
-                        FindTemplateResult::Found(origin) => Some(ls_types::DocumentLink {
+                    )? {
+                        TemplateResolutionResult::Found(origin) => Some(ls_types::DocumentLink {
                             range: reference.span().to_lsp_range(line_index),
                             target: Some(origin.path_buf(db).to_lsp_uri()?),
                             tooltip: None,
                             data: None,
                         }),
-                        FindTemplateResult::DoesNotExist(error) => {
+                        TemplateResolutionResult::DoesNotExist(error) => {
                             tracing::debug!(
                                 "Skipping unresolved template document link for '{}': {:?}",
                                 error.name.name(db),
@@ -43,7 +43,7 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
                             );
                             None
                         }
-                        FindTemplateResult::Inconclusive(search) => {
+                        TemplateResolutionResult::Inconclusive(search) => {
                             // Document links render persistently in the buffer, so a link that
                             // might target the wrong shadow is worse than no link; only
                             // definitive resolutions are linked.
@@ -63,15 +63,10 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
             .as_slice(db)
             .iter()
             .filter_map(|reference| {
-                let LoadableLibraryLookup::Found(library) = db
-                    .template_libraries()
-                    .loadable_library(reference.load_name())
-                else {
-                    return None;
-                };
+                let target = scoped_libraries.library_link(reference.load_name())?;
                 Some(ls_types::DocumentLink {
                     range: reference.span().to_lsp_range(line_index),
-                    target: Some(library.file().path(db).to_lsp_uri()?),
+                    target: Some(target.path(db).to_lsp_uri()?),
                     tooltip: None,
                     data: None,
                 })

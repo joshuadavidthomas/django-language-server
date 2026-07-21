@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -92,17 +93,22 @@ pub struct FileRoot {
 #[error("failed to read {path}: {kind:?}")]
 pub struct FileReadError {
     path: Utf8PathBuf,
-    kind: std::io::ErrorKind,
+    kind: ErrorKind,
 }
 
 impl FileReadError {
+    #[must_use]
+    pub fn new(path: Utf8PathBuf, kind: ErrorKind) -> Self {
+        Self { path, kind }
+    }
+
     #[must_use]
     pub fn path(&self) -> &Utf8Path {
         &self.path
     }
 
     #[must_use]
-    pub const fn kind(&self) -> std::io::ErrorKind {
+    pub const fn kind(&self) -> ErrorKind {
         self.kind
     }
 }
@@ -473,10 +479,7 @@ pub(crate) fn sync_known_paths(db: &mut dyn Db) {
 fn read_source(db: &dyn Db, path: &Utf8Path) -> Result<SourceText, FileReadError> {
     db.read_file(path)
         .map(|source| SourceText::new(path, source))
-        .map_err(|error| FileReadError {
-            path: path.to_owned(),
-            kind: error.kind(),
-        })
+        .map_err(|error| FileReadError::new(path.to_owned(), error.kind()))
 }
 
 fn sync_file(db: &mut dyn Db, path: &Utf8Path) {

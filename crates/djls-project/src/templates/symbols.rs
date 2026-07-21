@@ -81,4 +81,16 @@ impl TemplateSymbol {
     pub fn doc(&self) -> Option<&str> {
         self.doc.as_deref()
     }
+
+    /// Return whether both symbols identify the same known definition.
+    ///
+    /// Presentation metadata such as documentation and library availability does not establish
+    /// identity. Unknown provenance cannot prove that two otherwise identical symbols agree.
+    #[must_use]
+    pub fn has_same_definition(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.name == other.name
+            && !matches!(self.definition, SymbolDefinition::Unknown)
+            && self.definition == other.definition
+    }
 }

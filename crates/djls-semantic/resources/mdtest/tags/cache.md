@@ -46,6 +46,11 @@ error[S109]: Tag 'cache' requires the 'cache' tag library
   |
 1 | {% cache 500 before_load %}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+error[S108]: Unknown tag 'endcache'
+ --> test.html:3:1
+  |
+3 | {% endcache %}
+  | ^^^^^^^^^^^^^^
 ```
 
 ### reports unclosed cache block

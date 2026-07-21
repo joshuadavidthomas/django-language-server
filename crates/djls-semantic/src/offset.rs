@@ -2,18 +2,23 @@ use djls_project::TemplateName;
 use djls_source::File;
 use djls_source::Offset;
 use djls_source::Span;
+use djls_templates::TemplateParseResult;
 use djls_templates::parse_template;
 
+use crate::TagSpec;
 use crate::db::Db as SemanticDb;
 use crate::references::LiteralTemplateReference;
 use crate::references::TemplateReferenceKind;
 use crate::scoping::LoadKind;
+use crate::scoping::LoadedLibraries;
+use crate::scoping::ScopedTagFacts;
+use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
+use crate::structure::StructuralOccurrenceMeaning;
 use crate::structure::active_template_nodes;
-use crate::structure::build_template_tree;
-use crate::tags::TagSpecs;
+use crate::tags::TagRole;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SemanticOffsetContext<'db> {
@@ -28,14 +33,17 @@ pub enum SemanticOffsetContext<'db> {
     },
     LoadSymbol {
         name: String,
+        library: String,
         span: Span,
     },
     Tag {
         name: String,
+        loaded_libraries: Vec<String>,
         span: Span,
     },
     Filter {
         name: String,
+        loaded_libraries: Vec<String>,
         span: Span,
     },
     Variable {
@@ -47,20 +55,22 @@ pub enum SemanticOffsetContext<'db> {
 
 impl<'db> SemanticOffsetContext<'db> {
     pub fn from_offset(db: &'db dyn SemanticDb, file: File, offset: Offset) -> Self {
-        let djls_templates::TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
+        let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
             return Self::None;
         };
 
-        let tree = build_template_tree(db, nodelist);
-        let tag_specs = db.tag_specs();
+        let projection = template_analysis_projection_for_file(db, file, nodelist);
+        let tree = projection.tree(db);
+        let loaded = projection.loaded_libraries(db);
+        let tag_facts = projection.scoped_tag_facts(db);
 
         for node in active_template_nodes(tree.regions(db), tree.root(db)) {
             let context = match node {
                 ActiveTemplateNode::Tag(tag) if tag.full_span.contains(offset) => {
-                    Self::from_tag(db, tag_specs, tag, offset)
+                    Self::from_tag(db, loaded, tag_facts, tag, offset)
                 }
                 ActiveTemplateNode::Variable(variable) if variable.span.contains(offset) => {
-                    Self::from_variable(variable, offset)
+                    Self::from_variable(loaded, variable, offset)
                 }
                 ActiveTemplateNode::Tag(_) | ActiveTemplateNode::Variable(_) => Self::None,
             };
@@ -73,12 +83,23 @@ impl<'db> SemanticOffsetContext<'db> {
         Self::None
     }
 
-    fn from_variable(variable: ActiveTemplateVariable<'_>, offset: Offset) -> Self {
+    fn from_variable(
+        loaded: &LoadedLibraries,
+        variable: ActiveTemplateVariable<'_>,
+        offset: Offset,
+    ) -> Self {
         for filter in variable.filters {
             let span = filter.span.with_length_usize_saturating(filter.name.len());
             if span.contains(offset) {
+                let loaded_libraries = loaded
+                    .available_at(span.start())
+                    .libraries_loading_symbol(&filter.name)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect();
                 return Self::Filter {
                     name: filter.name.clone(),
+                    loaded_libraries,
                     span,
                 };
             }
@@ -96,57 +117,72 @@ impl<'db> SemanticOffsetContext<'db> {
 
     fn from_tag(
         db: &'db dyn SemanticDb,
-        tag_specs: &TagSpecs,
+        loaded: &LoadedLibraries,
+        tag_facts: &ScopedTagFacts,
         tag: ActiveTemplateTag<'_>,
         offset: Offset,
     ) -> Self {
+        let load_state = loaded.available_at(tag.span.start());
         if tag.name_span.contains(offset) {
-            return Self::Tag {
-                name: tag.tag.to_string(),
-                span: tag.name_span,
+            return match tag.structural_meaning {
+                StructuralOccurrenceMeaning::Definition => {
+                    let loaded_libraries = load_state
+                        .libraries_loading_symbol(tag.tag)
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect();
+                    Self::Tag {
+                        name: tag.tag.to_string(),
+                        loaded_libraries,
+                        span: tag.name_span,
+                    }
+                }
+                StructuralOccurrenceMeaning::CapturedIntermediate
+                | StructuralOccurrenceMeaning::CapturedCloser => Self::None,
             };
         }
 
-        match tag.tag {
-            "load" => {
-                let Some(load_kind) = LoadKind::from_tag(tag.tag, tag.bits) else {
-                    return Self::None;
-                };
+        let spec = tag_facts.for_tag(tag).and_then(|facts| facts.spec.as_ref());
 
-                match load_kind {
-                    LoadKind::FullLoad { libraries } => libraries
-                        .into_iter()
-                        .find(|library| library.span().contains(offset))
-                        .map_or(Self::None, |library| Self::LoadLibrary {
+        if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
+            let Some(load_kind) = LoadKind::from_loader_bits(tag.bits) else {
+                return Self::None;
+            };
+
+            match load_kind {
+                LoadKind::FullLoad { libraries } => libraries
+                    .into_iter()
+                    .find(|library| library.span().contains(offset))
+                    .map_or(Self::None, |library| Self::LoadLibrary {
+                        name: library.as_str().to_string(),
+                        span: library.span(),
+                    }),
+                LoadKind::SelectiveImport { symbols, library } => {
+                    if library.span().contains(offset) {
+                        return Self::LoadLibrary {
                             name: library.as_str().to_string(),
                             span: library.span(),
-                        }),
-                    LoadKind::SelectiveImport { symbols, library } => {
-                        if library.span().contains(offset) {
-                            return Self::LoadLibrary {
-                                name: library.as_str().to_string(),
-                                span: library.span(),
-                            };
-                        }
-
-                        symbols
-                            .into_iter()
-                            .find(|symbol| symbol.span().contains(offset))
-                            .map_or(Self::None, |symbol| Self::LoadSymbol {
-                                name: symbol.as_str().to_string(),
-                                span: symbol.span(),
-                            })
+                        };
                     }
+
+                    symbols
+                        .into_iter()
+                        .find(|symbol| symbol.span().contains(offset))
+                        .map_or(Self::None, |symbol| Self::LoadSymbol {
+                            name: symbol.as_str().to_string(),
+                            library: library.as_str().to_string(),
+                            span: symbol.span(),
+                        })
                 }
             }
-
-            _ => LiteralTemplateReference::from_tag(tag_specs, tag.tag, tag.bits)
+        } else {
+            spec.and_then(|spec| LiteralTemplateReference::from_spec(spec, tag.bits))
                 .filter(|reference| reference.bit_span.contains(offset))
                 .map_or(Self::None, |reference| Self::TemplateReference {
                     name: TemplateName::new(db, reference.template_name.to_string()),
                     kind: reference.kind,
                     span: reference.span,
-                }),
+                })
         }
     }
 }

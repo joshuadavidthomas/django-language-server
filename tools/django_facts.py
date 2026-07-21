@@ -23,7 +23,7 @@ def main() -> None:
 
     facts = {
         "template_dirs": collect_template_dirs(project, site_packages),
-        "template_libraries": collect_template_libraries(),
+        "template_library_catalog": collect_template_library_catalog(),
     }
     json.dump(facts, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
@@ -69,7 +69,7 @@ def collect_template_dirs(project: Path, site_packages: Path) -> list[str]:
     return [normalize_path(path, project, site_packages) for path in dirs]
 
 
-def collect_template_libraries() -> dict[str, Any]:
+def collect_template_library_catalog() -> dict[str, Any]:
     from django.template.engine import Engine
     from django.template.library import import_library
 

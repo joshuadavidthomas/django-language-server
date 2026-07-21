@@ -1,8 +1,9 @@
-use djls_project::FindTemplateResult;
+use djls_project::TemplateResolutionResult;
 use djls_project::template_resolution;
 use djls_semantic::SemanticOffsetContext;
 use djls_semantic::references_to_template_name;
-use djls_semantic::resolve_reference_name;
+use djls_semantic::resolve_reference_for_file;
+use djls_semantic::resolve_reference_origins;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
@@ -26,10 +27,8 @@ pub fn goto_definition(
 
             let project = db.project()?;
             let resolution = template_resolution(db, project);
-            let template_name = resolve_reference_name(db, resolution, file, template_name, kind)?;
-
-            match resolution.resolve(db, template_name) {
-                FindTemplateResult::Found(origin) => {
+            match resolve_reference_for_file(db, resolution, file, template_name, kind)? {
+                TemplateResolutionResult::Found(origin) => {
                     let path = origin.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);
 
@@ -55,7 +54,7 @@ pub fn goto_definition(
                         ))
                     }
                 }
-                FindTemplateResult::Inconclusive(search) => {
+                TemplateResolutionResult::Inconclusive(search) => {
                     // Jumping to a probable origin beats refusing to navigate; with several
                     // candidates the editor presents the list and the user picks.
                     if supports_location_links {
@@ -91,7 +90,7 @@ pub fn goto_definition(
                             .then_some(ls_types::GotoDefinitionResponse::Array(locations))
                     }
                 }
-                FindTemplateResult::DoesNotExist(error) => {
+                TemplateResolutionResult::DoesNotExist(error) => {
                     tracing::warn!(
                         "Template '{}' not found. Tried: {:?}",
                         error.name.name(db),
@@ -123,21 +122,49 @@ pub fn find_references(
 
             let project = db.project()?;
             let resolution = template_resolution(db, project);
-            let template_name = resolve_reference_name(db, resolution, file, template_name, kind)?;
-            let references = references_to_template_name(db, project, template_name);
+            let TemplateResolutionResult::Found(target_origin) =
+                resolve_reference_for_file(db, resolution, file, template_name, kind)?
+            else {
+                return None;
+            };
+            let origin_outcomes =
+                resolve_reference_origins(db, resolution, file, template_name, kind);
+            let target_names = if origin_outcomes.is_empty() {
+                // A successful originless resolution can only be for an absolute name, which is
+                // already normalized and can be used directly for reverse lookup.
+                vec![template_name]
+            } else {
+                origin_outcomes
+                    .into_iter()
+                    .map(|outcome| outcome.target_name)
+                    .collect()
+            };
 
-            let locations: Vec<ls_types::Location> = references
-                .iter()
-                .filter_map(|reference| {
+            let mut locations: Vec<ls_types::Location> = Vec::new();
+            for target_name in target_names {
+                for reference in references_to_template_name(db, project, target_name) {
                     let ref_file = reference.source_file(db);
-                    let line_index = ref_file.line_index(db);
-
-                    Some(ls_types::Location {
-                        uri: ref_file.path(db).to_lsp_uri()?,
-                        range: reference.span(db).to_lsp_range(line_index),
-                    })
-                })
-                .collect();
+                    let Some(outcome) = reference.resolve(db, resolution) else {
+                        continue;
+                    };
+                    if !matches!(
+                        outcome.result,
+                        TemplateResolutionResult::Found(origin) if origin.file(db) == target_origin.file(db)
+                    ) {
+                        continue;
+                    }
+                    let Some(uri) = ref_file.path(db).to_lsp_uri() else {
+                        continue;
+                    };
+                    let location = ls_types::Location {
+                        uri,
+                        range: reference.span(db).to_lsp_range(ref_file.line_index(db)),
+                    };
+                    if !locations.contains(&location) {
+                        locations.push(location);
+                    }
+                }
+            }
 
             if locations.is_empty() {
                 None

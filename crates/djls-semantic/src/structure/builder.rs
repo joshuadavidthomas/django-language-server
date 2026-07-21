@@ -5,14 +5,14 @@ use djls_templates::ParseError;
 use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
 use djls_templates::Visitor;
-use salsa::Accumulator;
 
 use crate::db::Db;
-use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
+use crate::structure::active::CapturedClosingTag;
 use crate::structure::grammar::CloseValidation;
-use crate::structure::grammar::TagClass;
-use crate::structure::grammar::TagIndex;
+use crate::structure::grammar::OpeningContract;
+use crate::structure::grammar::SparseTagGrammar;
+use crate::structure::grammar::TagClassification;
 use crate::structure::tree::BlockRole;
 use crate::structure::tree::RegionId;
 use crate::structure::tree::Regions;
@@ -36,30 +36,43 @@ enum TreeOp {
     AccumulateDiagnostic(ValidationError),
 }
 
-pub(crate) struct TemplateTreeBuilder<'db> {
-    db: &'db dyn Db,
-    index: &'db TagIndex,
+pub(crate) struct TemplateTreeData {
+    pub(crate) root: RegionId,
+    pub(crate) regions: Regions,
+    pub(crate) captured_closers: Vec<CapturedClosingTag>,
+    pub(crate) diagnostics: Vec<ValidationError>,
+}
+
+impl TemplateTreeData {
+    pub(crate) fn into_tree(self, db: &dyn Db) -> TemplateTree<'_> {
+        TemplateTree::new(db, self.root, self.regions)
+    }
+}
+
+pub(crate) struct TemplateTreeBuilder<'grammar> {
+    grammar: &'grammar SparseTagGrammar,
     root: RegionId,
     stack: Vec<TreeFrame>,
     region_allocs: Vec<(Span, Option<RegionId>)>,
+    captured_closers: Vec<CapturedClosingTag>,
     ops: Vec<TreeOp>,
 }
 
-impl<'db> TemplateTreeBuilder<'db> {
-    pub(crate) fn new(db: &'db dyn Db, index: &'db TagIndex) -> Self {
+impl<'grammar> TemplateTreeBuilder<'grammar> {
+    pub(crate) fn new(_db: &dyn Db, grammar: &'grammar SparseTagGrammar) -> Self {
         let mut builder = Self {
-            db,
-            index,
+            grammar,
             root: RegionId::new(0),
             stack: Vec::new(),
             region_allocs: Vec::new(),
+            captured_closers: Vec::new(),
             ops: Vec::new(),
         };
         builder.root = builder.alloc_region_id(Span::new(0, 0), None);
         builder
     }
 
-    pub(crate) fn model(mut self, db: &'db dyn Db, nodelist: NodeList<'db>) -> TemplateTree<'db> {
+    pub(crate) fn model_data(mut self, db: &dyn Db, nodelist: NodeList<'_>) -> TemplateTreeData {
         for node in nodelist.nodelist(db) {
             self.visit_node(node);
         }
@@ -75,16 +88,17 @@ impl<'db> TemplateTreeBuilder<'db> {
         id
     }
 
-    fn apply_operations(self) -> TemplateTree<'db> {
+    fn apply_operations(self) -> TemplateTreeData {
         let TemplateTreeBuilder {
-            db,
             root,
             region_allocs,
+            captured_closers,
             ops,
             ..
         } = self;
 
         let mut regions = Regions::default();
+        let mut diagnostics = Vec::new();
 
         for (span, parent) in region_allocs {
             regions.alloc(span, parent);
@@ -101,13 +115,16 @@ impl<'db> TemplateTreeBuilder<'db> {
                 TreeOp::FinalizeSpanTo { id, end } => {
                     regions.finalize_region_span(id, end);
                 }
-                TreeOp::AccumulateDiagnostic(error) => {
-                    ValidationErrorAccumulator(error).accumulate(db);
-                }
+                TreeOp::AccumulateDiagnostic(error) => diagnostics.push(error),
             }
         }
 
-        TemplateTree::new(db, root, regions)
+        TemplateTreeData {
+            root,
+            regions,
+            captured_closers,
+            diagnostics,
+        }
     }
 
     fn active_region(&self) -> RegionId {
@@ -123,48 +140,36 @@ impl<'db> TemplateTreeBuilder<'db> {
 
     fn handle_tag(&mut self, name: &str, name_span: Span, bits: &[TagBit], span: Span) {
         let full_span = span.expand_template_tag_marker();
-        if self.close_active_opaque_if_closer(name, bits, span, full_span) {
+        if self.close_active_opaque_if_closer(name, name_span, bits, span, full_span) {
             return;
         }
         if self.in_opaque_content() {
             return;
         }
 
-        let matching_opener = self
-            .index
-            .closer_openers(name)
-            .and_then(|possible_openers| {
-                self.stack.iter().rev().find_map(|frame| {
-                    possible_openers
-                        .iter()
-                        .any(|opener| opener == frame.opener_name())
-                        .then(|| frame.opener_name().to_string())
-                })
-            });
-        if let Some(opener_name) = matching_opener {
-            self.close_block(name, &[opener_name], bits, span);
-            return;
-        }
-
-        if let Some(possible_openers) = self.index.intermediate_openers(name)
-            && self.active_block_accepts_intermediate(possible_openers)
+        let grammar = self.grammar.for_name_span(name_span);
+        if let Some(frame_idx) = self
+            .stack
+            .iter()
+            .rposition(|frame| frame.closer_name() == name)
         {
-            self.add_intermediate(name, possible_openers, name_span, bits, span);
+            self.close_block_at(name, name_span, frame_idx, bits, span);
             return;
         }
 
-        match self.index.classify(name) {
-            TagClass::Opener => {
+        if matches!(self.stack.last(), Some(frame) if frame.accepts_intermediate(name)) {
+            self.add_intermediate(name, name_span, bits, span);
+            return;
+        }
+
+        match grammar.map(|fact| &fact.classification) {
+            Some(TagClassification::Opener(contract)) => {
                 let parent = self.active_region();
 
-                if self.index.is_opaque(name) {
+                if contract.opaque {
                     self.stack.push(TreeFrame::Opaque(OpaqueFrame {
                         opener_name: name.to_string(),
-                        closer_name: self
-                            .index
-                            .closer_name(name)
-                            .expect("opaque opener should have closer")
-                            .to_string(),
+                        contract: contract.clone(),
                         name_span,
                         bits: bits.to_vec(),
                         opener_span: full_span,
@@ -205,6 +210,7 @@ impl<'db> TemplateTreeBuilder<'db> {
 
                 self.stack.push(TreeFrame::Block(BlockFrame {
                     opener_name: name.to_string(),
+                    contract: contract.clone(),
                     opener_bits: bits.to_vec(),
                     opener_span: full_span,
                     container_body: container,
@@ -212,13 +218,18 @@ impl<'db> TemplateTreeBuilder<'db> {
                     segment_body: segment,
                 }));
             }
-            TagClass::Closer { possible_openers } => {
-                self.close_block(name, possible_openers, bits, span);
+            Some(TagClassification::Closer { possible_openers }) => {
+                self.accumulate_orphaned_closer(name, possible_openers, full_span);
             }
-            TagClass::Intermediate { possible_openers } => {
-                self.add_intermediate(name, possible_openers, name_span, bits, span);
+            Some(TagClassification::Intermediate { possible_openers }) => {
+                self.accumulate_orphaned_intermediate(name, possible_openers, full_span);
             }
-            TagClass::Unknown => {
+            Some(
+                TagClassification::Standalone
+                | TagClassification::Inconclusive
+                | TagClassification::Unknown,
+            )
+            | None => {
                 self.add_standalone_tag(name, name_span, bits, full_span);
             }
         }
@@ -227,13 +238,14 @@ impl<'db> TemplateTreeBuilder<'db> {
     fn close_active_opaque_if_closer(
         &mut self,
         closer_name: &str,
+        name_span: Span,
         closer_bits: &[TagBit],
         span: Span,
         full_span: Span,
     ) -> bool {
         let should_close = matches!(
             self.stack.last(),
-            Some(TreeFrame::Opaque(frame)) if frame.closer_name == closer_name
+            Some(TreeFrame::Opaque(frame)) if frame.contract.closer == closer_name
         );
         if !should_close {
             return false;
@@ -242,11 +254,8 @@ impl<'db> TemplateTreeBuilder<'db> {
         let Some(TreeFrame::Opaque(frame)) = self.stack.pop() else {
             unreachable!("checked active opaque frame before pop")
         };
-        let opener_name = frame.opener_name.clone();
-        match self
-            .index
-            .validate_close(&opener_name, &frame.bits, closer_bits)
-        {
+        self.capture_closer(closer_name, name_span, closer_bits, full_span);
+        match OpeningContract::validate_close(&frame.bits, closer_bits) {
             CloseValidation::Valid => {
                 self.finalize_frame(TreeFrame::Opaque(frame), span, full_span);
             }
@@ -266,27 +275,9 @@ impl<'db> TemplateTreeBuilder<'db> {
                 ));
                 self.finalize_frame(TreeFrame::Opaque(frame), span, full_span);
             }
-            CloseValidation::NotABlock => {
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnbalancedStructure {
-                        opening_tag: opener_name.clone(),
-                        expected_closing: opener_name,
-                        opening_span: frame.opener_span,
-                        closing_span: Some(full_span),
-                    },
-                ));
-                self.stack.push(TreeFrame::Opaque(frame));
-            }
         }
 
         true
-    }
-
-    fn active_block_accepts_intermediate(&self, possible_openers: &[String]) -> bool {
-        matches!(
-            self.stack.last(),
-            Some(TreeFrame::Block(frame)) if possible_openers.contains(&frame.opener_name)
-        )
     }
 
     fn add_standalone_tag(
@@ -307,35 +298,33 @@ impl<'db> TemplateTreeBuilder<'db> {
         });
     }
 
-    fn close_block(
+    fn accumulate_orphaned_closer(
         &mut self,
         closer_name: &str,
         possible_openers: &[String],
+        span: Span,
+    ) {
+        self.ops.push(TreeOp::AccumulateDiagnostic(
+            ValidationError::OrphanedClosingTag {
+                tag: closer_name.to_string(),
+                expected_opener: possible_openers
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "matching opener".to_string()),
+                span,
+            },
+        ));
+    }
+
+    fn close_block_at(
+        &mut self,
+        closer_name: &str,
+        name_span: Span,
+        frame_idx: usize,
         closer_bits: &[TagBit],
         span: Span,
     ) {
         let full_span = span.expand_template_tag_marker();
-
-        let Some(frame_idx) = self.stack.iter().rposition(|frame| {
-            possible_openers
-                .iter()
-                .any(|opener| opener == frame.opener_name())
-        }) else {
-            self.ops.push(TreeOp::AccumulateDiagnostic(
-                ValidationError::OrphanedClosingTag {
-                    tag: closer_name.to_string(),
-                    expected_opener: possible_openers
-                        .first()
-                        .cloned()
-                        .unwrap_or_else(|| "matching opener".to_string()),
-                    span: full_span,
-                },
-            ));
-            return;
-        };
-
-        let opener_name = self.stack[frame_idx].opener_name().to_string();
-
         while self.stack.len() > frame_idx + 1 {
             if let Some(unclosed) = self.stack.pop() {
                 self.accumulate_unclosed(unclosed);
@@ -343,10 +332,8 @@ impl<'db> TemplateTreeBuilder<'db> {
         }
 
         let frame = self.stack.pop().unwrap();
-        match self
-            .index
-            .validate_close(&opener_name, frame.opener_bits(), closer_bits)
-        {
+        self.capture_closer(closer_name, name_span, closer_bits, full_span);
+        match OpeningContract::validate_close(frame.opener_bits(), closer_bits) {
             CloseValidation::Valid => {
                 self.finalize_frame(frame, span, full_span);
             }
@@ -366,18 +353,16 @@ impl<'db> TemplateTreeBuilder<'db> {
                 ));
                 self.finalize_frame(frame, span, full_span);
             }
-            CloseValidation::NotABlock => {
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnbalancedStructure {
-                        opening_tag: opener_name.clone(),
-                        expected_closing: opener_name,
-                        opening_span: frame.opener_span(),
-                        closing_span: Some(full_span),
-                    },
-                ));
-                self.stack.push(frame);
-            }
         }
+    }
+
+    fn capture_closer(&mut self, tag: &str, name_span: Span, bits: &[TagBit], full_span: Span) {
+        self.captured_closers.push(CapturedClosingTag {
+            tag: tag.to_string(),
+            name_span,
+            bits: bits.to_vec(),
+            full_span,
+        });
     }
 
     fn finalize_frame(&mut self, frame: TreeFrame, closer_span: Span, closer_full_span: Span) {
@@ -421,51 +406,43 @@ impl<'db> TemplateTreeBuilder<'db> {
         }
     }
 
-    fn add_intermediate(
-        &mut self,
-        tag_name: &str,
-        possible_openers: &[String],
-        name_span: Span,
-        bits: &[TagBit],
-        span: Span,
-    ) {
+    fn add_intermediate(&mut self, tag_name: &str, name_span: Span, bits: &[TagBit], span: Span) {
         let full_span = span.expand_template_tag_marker();
 
-        if let Some(TreeFrame::Block(frame)) = self.stack.last() {
-            if possible_openers.contains(&frame.opener_name) {
-                let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
-                let segment_to_finalize = frame.segment_body;
-                let container = frame.container_body;
+        if let Some(TreeFrame::Block(frame)) = self.stack.last()
+            && frame
+                .contract
+                .intermediates
+                .iter()
+                .any(|name| name == tag_name)
+        {
+            let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
+            let segment_to_finalize = frame.segment_body;
+            let container = frame.container_body;
 
-                self.ops.push(TreeOp::FinalizeSpanTo {
-                    id: segment_to_finalize,
-                    end: content_end,
-                });
+            self.ops.push(TreeOp::FinalizeSpanTo {
+                id: segment_to_finalize,
+                end: content_end,
+            });
 
-                let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-                let new_segment_id =
-                    self.alloc_region_id(Span::new(body_start, 0), Some(container));
+            let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+            let new_segment_id = self.alloc_region_id(Span::new(body_start, 0), Some(container));
 
-                self.ops.push(TreeOp::AddNode {
-                    target: container,
-                    node: TemplateNode::Block {
-                        tag: tag_name.to_string(),
-                        name_span,
-                        bits: bits.to_vec(),
-                        full_span,
-                        body: new_segment_id,
-                        role: BlockRole::Segment,
-                    },
-                });
+            self.ops.push(TreeOp::AddNode {
+                target: container,
+                node: TemplateNode::Block {
+                    tag: tag_name.to_string(),
+                    name_span,
+                    bits: bits.to_vec(),
+                    full_span,
+                    body: new_segment_id,
+                    role: BlockRole::Segment,
+                },
+            });
 
-                if let Some(TreeFrame::Block(frame)) = self.stack.last_mut() {
-                    frame.segment_body = new_segment_id;
-                }
-            } else {
-                self.accumulate_orphaned_intermediate(tag_name, possible_openers, full_span);
+            if let Some(TreeFrame::Block(frame)) = self.stack.last_mut() {
+                frame.segment_body = new_segment_id;
             }
-        } else {
-            self.accumulate_orphaned_intermediate(tag_name, possible_openers, full_span);
         }
     }
 
@@ -487,7 +464,7 @@ impl<'db> TemplateTreeBuilder<'db> {
         while let Some(frame) = self.stack.pop() {
             match frame {
                 TreeFrame::Opaque(_) => self.accumulate_unclosed(frame),
-                TreeFrame::Block(frame) if self.index.is_end_required(&frame.opener_name) => {
+                TreeFrame::Block(frame) if frame.contract.end_required => {
                     self.accumulate_unclosed(TreeFrame::Block(frame));
                 }
                 TreeFrame::Block(frame) => {
@@ -546,10 +523,18 @@ enum TreeFrame {
 }
 
 impl TreeFrame {
-    fn opener_name(&self) -> &str {
+    fn closer_name(&self) -> &str {
+        &self.contract().closer
+    }
+
+    fn accepts_intermediate(&self, name: &str) -> bool {
+        matches!(self, TreeFrame::Block(frame) if frame.contract.intermediates.iter().any(|candidate| candidate == name))
+    }
+
+    fn contract(&self) -> &OpeningContract {
         match self {
-            TreeFrame::Block(frame) => &frame.opener_name,
-            TreeFrame::Opaque(frame) => &frame.opener_name,
+            TreeFrame::Block(frame) => &frame.contract,
+            TreeFrame::Opaque(frame) => &frame.contract,
         }
     }
 
@@ -577,6 +562,7 @@ impl TreeFrame {
 
 struct BlockFrame {
     opener_name: String,
+    contract: OpeningContract,
     opener_bits: Vec<TagBit>,
     opener_span: Span,
     container_body: RegionId,
@@ -586,7 +572,7 @@ struct BlockFrame {
 
 struct OpaqueFrame {
     opener_name: String,
-    closer_name: String,
+    contract: OpeningContract,
     name_span: Span,
     bits: Vec<TagBit>,
     opener_span: Span,

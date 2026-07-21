@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::VecDeque;
-use std::ops::ControlFlow;
+use std::mem::take;
 
 use djls_source::File;
 use djls_source::Spanned;
@@ -11,8 +11,6 @@ use ruff_python_ast::StmtClassDef;
 
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
-use crate::ast::Recurse;
-use crate::ast::walk_stmts;
 use crate::models::graph::FieldName;
 use crate::models::graph::ModelDef;
 use crate::models::graph::ModelGraph;
@@ -21,10 +19,12 @@ use crate::models::graph::ModelName;
 use crate::models::graph::Relation;
 use crate::models::graph::RelationTarget;
 use crate::models::graph::RelationType;
-use crate::python::ImportBindings;
-#[cfg(test)]
-use crate::python::ModuleKind;
+use crate::models::imports::ModelImportPathResolutionError;
+use crate::models::imports::ModelImportState;
 use crate::python::PythonModuleName;
+use crate::python::import::DirectImportClause;
+use crate::python::import::FromImportSyntax;
+use crate::python::import::ModuleKind;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ModelExtraction {
@@ -51,140 +51,259 @@ pub(super) enum DeferredBaseRef {
     SameModule(ModelName),
 }
 
-struct DeferredCandidate<'a> {
-    class: &'a StmtClassDef,
+/// A class whose bases are not yet known to be Django models.
+///
+/// Its body and bases are lowered at the source occurrence. Deferred resolution
+/// therefore never consults a later alias table or re-evaluates source syntax.
+#[derive(Clone)]
+struct DeferredCandidate {
+    model: ModelDef,
     bases: Vec<DeferredBaseRef>,
 }
 
-impl<'a> DeferredCandidate<'a> {
-    fn from_class(class: &'a StmtClassDef, imports: &ImportBindings) -> Option<Self> {
-        let args = class.arguments.as_ref()?;
-        let bases: Vec<_> = args
-            .args
-            .iter()
-            .filter_map(|arg| DeferredBaseRef::from_expr(arg, imports))
-            .collect();
-
-        if bases.is_empty() {
-            return None;
-        }
-
-        Some(Self { class, bases })
-    }
-}
-
-struct ModelCollector<'a> {
-    module_name: PythonModuleName,
+#[derive(Clone, Copy)]
+struct ModelExtractionContext<'a> {
+    module_name: &'a PythonModuleName,
     file: File,
-    imports: &'a ImportBindings,
-    graph: ModelGraph,
-    children: Vec<&'a StmtClassDef>,
+    module_kind: ModuleKind,
 }
 
-impl<'a> ModelCollector<'a> {
-    fn new(module_name: PythonModuleName, file: File, imports: &'a ImportBindings) -> Self {
-        Self {
-            module_name,
-            file,
-            imports,
-            graph: ModelGraph::new(),
-            children: Vec::new(),
-        }
+enum ModelExtractionTarget<'out> {
+    Module {
+        graph: &'out mut ModelGraph,
+        deferred: &'out mut Vec<DeferredCandidate>,
+    },
+    Class {
+        model: &'out mut ModelDef,
+    },
+}
+
+fn invalidate_names(state: &mut ModelImportState, names: &BTreeSet<String>) {
+    for name in names {
+        state.invalidate_root(name);
+    }
+}
+
+fn scan_class(
+    class: &StmtClassDef,
+    aliases: &ModelImportState,
+    target: &mut ModelExtractionTarget<'_>,
+    context: ModelExtractionContext<'_>,
+) {
+    let ModelExtractionTarget::Module { graph, deferred } = target else {
+        return;
+    };
+    let Some(args) = class.arguments.as_ref() else {
+        return;
+    };
+
+    let mut model = ModelDef::new(
+        class.name.to_string(),
+        context.module_name.clone(),
+        context.file,
+        class.name.span(),
+    );
+    let mut class_state = aliases.clone();
+    let mut class_target = ModelExtractionTarget::Class { model: &mut model };
+    scan_statements(&class.body, &mut class_state, &mut class_target, context);
+
+    if is_django_model(args.args.iter(), aliases) {
+        graph.add_model(model);
+        return;
     }
 
-    fn scan_stmt(&mut self, stmt: &'a Stmt) {
-        if let Stmt::ClassDef(class) = stmt {
-            let Some(ref args) = class.arguments else {
-                return;
-            };
+    let bases: Vec<_> = args
+        .args
+        .iter()
+        .filter_map(|arg| DeferredBaseRef::from_expr(arg, aliases))
+        .collect();
+    if !bases.is_empty() {
+        deferred.push(DeferredCandidate { model, bases });
+    }
+}
 
-            if is_django_model(args.args.iter(), self.imports) {
-                let mut model = ModelDef::new(
-                    class.name.to_string(),
-                    self.module_name.clone(),
-                    self.file,
-                    class.name.span(),
-                );
-
-                walk_stmts(&class.body, Recurse::Flat, |stmt| {
-                    process_class_body(stmt, self.file, &mut model);
-                    ControlFlow::Continue(())
-                });
-
-                self.graph.add_model(model);
-            } else if !args.args.is_empty() {
-                self.children.push(class);
+/// Scan Model-relevant occurrences in source order.
+///
+/// Module scans collect model classes. Class scans collect relation and `Meta`
+/// facts. Compound bodies share this transition engine but receive independent
+/// alias clones, so contained facts see their branch's exact source order while
+/// no branch-local alias leaks into the following statement.
+fn scan_statements(
+    stmts: &[Stmt],
+    state: &mut ModelImportState,
+    target: &mut ModelExtractionTarget<'_>,
+    context: ModelExtractionContext<'_>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Import(import) => state.apply_direct_import(&DirectImportClause::lower(import)),
+            Stmt::ImportFrom(import) => state.apply_from_import(
+                &FromImportSyntax::lower(import),
+                context.module_name,
+                context.module_kind,
+            ),
+            Stmt::ClassDef(class) => match target {
+                ModelExtractionTarget::Module { .. } => {
+                    scan_class(class, state, target, context);
+                    state.bind_local_class(class.name.as_str());
+                }
+                ModelExtractionTarget::Class { model } => {
+                    process_class_body(stmt, context.file, model, state);
+                    state.invalidate_root(class.name.as_str());
+                }
+            },
+            Stmt::FunctionDef(function) => state.invalidate_root(function.name.as_str()),
+            Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::If(_)
+            | Stmt::With(_)
+            | Stmt::Try(_)
+            | Stmt::Match(_) => {
+                scan_compound(stmt, state, target, context);
+                let mut roots = BTreeSet::new();
+                collect_touched_roots(stmt, &mut roots);
+                invalidate_names(state, &roots);
+            }
+            _ => {
+                if let ModelExtractionTarget::Class { model } = target {
+                    process_class_body(stmt, context.file, model, state);
+                }
+                let mut roots = BTreeSet::new();
+                collect_touched_roots(stmt, &mut roots);
+                invalidate_names(state, &roots);
             }
         }
     }
 }
 
-fn resolve_children<'a>(
+fn scan_compound(
+    stmt: &Stmt,
+    entry: &ModelImportState,
+    target: &mut ModelExtractionTarget<'_>,
+    context: ModelExtractionContext<'_>,
+) {
+    let mut scan = |body: &[Stmt], invalidated: &BTreeSet<String>| {
+        let mut state = entry.clone();
+        invalidate_names(&mut state, invalidated);
+        scan_statements(body, &mut state, target, context);
+    };
+    let none = BTreeSet::new();
+
+    match stmt {
+        Stmt::For(statement) => {
+            let mut targets = BTreeSet::new();
+            push_name_targets(&statement.target, &mut targets);
+            scan(&statement.body, &targets);
+            scan(&statement.orelse, &none);
+        }
+        Stmt::While(statement) => {
+            scan(&statement.body, &none);
+            scan(&statement.orelse, &none);
+        }
+        Stmt::If(statement) => {
+            scan(&statement.body, &none);
+            for clause in &statement.elif_else_clauses {
+                scan(&clause.body, &none);
+            }
+        }
+        Stmt::With(statement) => {
+            let mut optional_variables = BTreeSet::new();
+            for item in &statement.items {
+                if let Some(variables) = &item.optional_vars {
+                    push_name_targets(variables, &mut optional_variables);
+                }
+            }
+            scan(&statement.body, &optional_variables);
+        }
+        Stmt::Try(statement) => {
+            scan(&statement.body, &none);
+            for handler in &statement.handlers {
+                let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+                let mut exception_name = BTreeSet::new();
+                if let Some(name) = &handler.name {
+                    exception_name.insert(name.to_string());
+                }
+                scan(&handler.body, &exception_name);
+            }
+            scan(&statement.orelse, &none);
+            scan(&statement.finalbody, &none);
+        }
+        Stmt::Match(statement) => {
+            for case in &statement.cases {
+                let mut pattern_names = BTreeSet::new();
+                collect_pattern_names(&case.pattern, &mut pattern_names);
+                scan(&case.body, &pattern_names);
+            }
+        }
+        Stmt::Import(_)
+        | Stmt::ImportFrom(_)
+        | Stmt::ClassDef(_)
+        | Stmt::FunctionDef(_)
+        | Stmt::Assign(_)
+        | Stmt::AnnAssign(_)
+        | Stmt::AugAssign(_)
+        | Stmt::Delete(_)
+        | Stmt::TypeAlias(_)
+        | Stmt::Expr(_)
+        | Stmt::Return(_)
+        | Stmt::Raise(_)
+        | Stmt::Assert(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::Pass(_)
+        | Stmt::Break(_)
+        | Stmt::Continue(_)
+        | Stmt::IpyEscapeCommand(_) => unreachable!("caller passes only compound statements"),
+    }
+}
+
+fn resolve_children(
     graph: &mut ModelGraph,
-    children: &[&'a StmtClassDef],
-    module_name: &PythonModuleName,
-    file: File,
-) -> Vec<&'a StmtClassDef> {
-    let mut remaining: Vec<&StmtClassDef> = children.to_vec();
+    children: &[DeferredCandidate],
+) -> Vec<DeferredCandidate> {
+    let mut remaining = children.to_vec();
 
     // Fixed-point loop: each iteration may resolve new models, which in turn
-    // unblock children that inherit from them (e.g., User -> AbstractUser ->
-    // PermissionsMixin). Converges when no progress is made.
+    // unblock children that inherit from them. Converges when no progress is
+    // made.
     loop {
         let before = remaining.len();
         let mut unresolved = Vec::new();
-
-        // Snapshot model state at the start of each iteration so newly resolved
-        // models become visible to the next iteration.
         let abstract_data: Vec<(ModelName, Vec<Relation>)> = graph
             .models()
-            .filter(|m| m.kind == ModelKind::Abstract)
-            .map(|m| (m.name.value().clone(), m.relations.clone()))
+            .filter(|model| model.kind == ModelKind::Abstract)
+            .map(|model| (model.name.value().clone(), model.relations.clone()))
             .collect();
-        let known_names: Vec<ModelName> = graph.models().map(|m| m.name.value().clone()).collect();
+        let known_names: Vec<ModelName> = graph
+            .models()
+            .map(|model| model.name.value().clone())
+            .collect();
 
-        for class in &remaining {
-            let Some(ref args) = class.arguments else {
-                continue;
-            };
-
-            let has_model_parent = args.args.iter().any(|arg| {
-                let Some(name) = base_class_name(arg) else {
+        for candidate in &remaining {
+            let has_model_parent = candidate.bases.iter().any(|base| {
+                let DeferredBaseRef::SameModule(name) = base else {
                     return false;
                 };
-                known_names.iter().any(|m| m.as_str() == name)
+                known_names.iter().any(|known| known == name)
             });
-
             if !has_model_parent {
-                unresolved.push(*class);
+                unresolved.push(candidate.clone());
                 continue;
             }
 
-            let mut model = ModelDef::new(
-                class.name.to_string(),
-                module_name.clone(),
-                file,
-                class.name.span(),
-            );
-
-            // Copy relations from ALL abstract parents
-            for arg in &args.args {
-                let Some(parent_name) = base_class_name(arg) else {
+            let mut model = candidate.model.clone();
+            let own_relations = take(&mut model.relations);
+            for base in &candidate.bases {
+                let DeferredBaseRef::SameModule(parent_name) = base else {
                     continue;
                 };
-                if let Some((_, relations)) = abstract_data
-                    .iter()
-                    .find(|(name, _)| name.as_str() == parent_name)
+                if let Some((_, relations)) =
+                    abstract_data.iter().find(|(name, _)| name == parent_name)
                 {
                     model.relations.extend(relations.iter().cloned());
                 }
             }
-
-            walk_stmts(&class.body, Recurse::Flat, |stmt| {
-                process_class_body(stmt, file, &mut model);
-                ControlFlow::Continue(())
-            });
-
+            model.relations.extend(own_relations);
             graph.add_model(model);
         }
 
@@ -199,53 +318,47 @@ fn resolve_children<'a>(
 
 pub(super) fn extract_models_impl(
     stmts: &[Stmt],
-    module_name: PythonModuleName,
+    module_name: &PythonModuleName,
     file: File,
-    imports: &ImportBindings,
+    module_kind: ModuleKind,
 ) -> ModelExtraction {
-    let mut collector = ModelCollector::new(module_name, file, imports);
-    walk_stmts(stmts, Recurse::Flat, |stmt| {
-        collector.scan_stmt(stmt);
-        ControlFlow::Continue(())
-    });
-    let remaining = resolve_children(
-        &mut collector.graph,
-        &collector.children,
-        &collector.module_name,
+    let mut graph = ModelGraph::new();
+    let mut deferred = Vec::new();
+    let mut state = ModelImportState::default();
+    let context = ModelExtractionContext {
+        module_name,
         file,
-    );
-    let candidates: Vec<_> = remaining
+        module_kind,
+    };
+    let mut target = ModelExtractionTarget::Module {
+        graph: &mut graph,
+        deferred: &mut deferred,
+    };
+    scan_statements(stmts, &mut state, &mut target, context);
+
+    let deferred = viable_deferred_candidates(resolve_children(&mut graph, &deferred))
         .into_iter()
-        .filter_map(|class| DeferredCandidate::from_class(class, imports))
+        .map(DeferredModel::from_candidate)
         .collect();
-    let deferred = viable_deferred_candidates(candidates)
-        .into_iter()
-        .map(|candidate| DeferredModel::from_candidate(candidate, &collector.module_name, file))
-        .collect();
-    ModelExtraction {
-        graph: collector.graph,
-        deferred,
-    }
+    ModelExtraction { graph, deferred }
 }
 
-fn viable_deferred_candidates(
-    candidates: Vec<DeferredCandidate<'_>>,
-) -> Vec<DeferredCandidate<'_>> {
+fn viable_deferred_candidates(candidates: Vec<DeferredCandidate>) -> Vec<DeferredCandidate> {
     let mut viable_names = BTreeSet::new();
     let mut queue = VecDeque::new();
-    let mut children_by_base: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+    let mut children_by_base: BTreeMap<ModelName, Vec<usize>> = BTreeMap::new();
 
     // Same-module models can only come from this file, so a deferred child that
     // reaches no qualified base through the same-file deferred graph can never
     // resolve during the project pass. Build the reverse same-file inheritance
     // graph once, then mark viability from qualified-base roots in one walk.
     for (index, candidate) in candidates.iter().enumerate() {
-        let candidate_name = candidate.class.name.as_str();
+        let candidate_name = candidate.model.name.value().clone();
         if candidate
             .bases
             .iter()
             .any(|base| matches!(base, DeferredBaseRef::Qualified(_)))
-            && viable_names.insert(candidate_name)
+            && viable_names.insert(candidate_name.clone())
         {
             queue.push_back(candidate_name);
         }
@@ -253,7 +366,7 @@ fn viable_deferred_candidates(
         for base in &candidate.bases {
             if let DeferredBaseRef::SameModule(name) = base {
                 children_by_base
-                    .entry(name.as_str())
+                    .entry(name.clone())
                     .or_default()
                     .push(index);
             }
@@ -261,13 +374,13 @@ fn viable_deferred_candidates(
     }
 
     while let Some(base_name) = queue.pop_front() {
-        let Some(children) = children_by_base.get(base_name) else {
+        let Some(children) = children_by_base.get(&base_name) else {
             continue;
         };
 
         for &index in children {
-            let candidate_name = candidates[index].class.name.as_str();
-            if viable_names.insert(candidate_name) {
+            let candidate_name = candidates[index].model.name.value().clone();
+            if viable_names.insert(candidate_name.clone()) {
                 queue.push_back(candidate_name);
             }
         }
@@ -275,67 +388,43 @@ fn viable_deferred_candidates(
 
     candidates
         .into_iter()
-        .filter(|candidate| viable_names.contains(candidate.class.name.as_str()))
+        .filter(|candidate| viable_names.contains(candidate.model.name.value()))
         .collect()
 }
 
 impl DeferredModel {
-    fn from_candidate(
-        candidate: DeferredCandidate<'_>,
-        module_name: &PythonModuleName,
-        file: File,
-    ) -> Self {
-        let mut model = ModelDef::new(
-            candidate.class.name.to_string(),
-            module_name.clone(),
-            file,
-            candidate.class.name.span(),
-        );
-        walk_stmts(&candidate.class.body, Recurse::Flat, |stmt| {
-            process_class_body(stmt, file, &mut model);
-            ControlFlow::Continue(())
-        });
-
+    fn from_candidate(candidate: DeferredCandidate) -> Self {
         Self {
-            model,
+            model: candidate.model,
             bases: candidate.bases,
         }
     }
 }
 
 impl DeferredBaseRef {
-    fn from_expr(expr: &Expr, imports: &ImportBindings) -> Option<Self> {
+    fn from_expr(expr: &Expr, aliases: &ModelImportState) -> Option<Self> {
         let path = expr.path_segments()?;
-        if let Ok(path) = imports.resolve_qualified_path(path.iter().map(String::as_str)) {
-            return Some(Self::Qualified(path));
+        let (root, tail) = path.split_first()?;
+        match aliases.resolve_qualified_path(root, tail) {
+            Ok(path) => Some(Self::Qualified(path)),
+            Err(ModelImportPathResolutionError::MissingBinding) if path.len() == 1 => {
+                Some(Self::SameModule(ModelName::new(path[0].clone())))
+            }
+            Err(
+                ModelImportPathResolutionError::MissingBinding
+                | ModelImportPathResolutionError::ShadowedBinding
+                | ModelImportPathResolutionError::InvalidTarget(_),
+            ) => None,
         }
-
-        base_class_name(expr).map(|name| Self::SameModule(ModelName::new(name)))
     }
 }
 
-/// Extract the simple class name from a base class expression.
-///
-/// Handles both bare names (`Parent`) and qualified names (`mod.Parent`),
-/// returning the rightmost identifier.
-fn base_class_name(expr: &Expr) -> Option<&str> {
-    if let Some(name) = expr.name_target() {
-        return Some(name);
-    }
-
-    match expr {
-        Expr::Attribute(attr) => Some(attr.attr.as_str()),
-        _ => None,
-    }
-}
-
-fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, imports: &ImportBindings) -> bool {
+fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ModelImportState) -> bool {
     bases
         .filter_map(ExprExt::path_segments)
         .filter_map(|path| {
-            imports
-                .resolve_qualified_path(path.iter().map(String::as_str))
-                .ok()
+            let (root, tail) = path.split_first()?;
+            aliases.resolve_qualified_path(root, tail).ok()
         })
         .any(|path| {
             matches!(
@@ -345,7 +434,7 @@ fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, imports: &ImportBi
         })
 }
 
-fn process_class_body(stmt: &Stmt, file: File, model: &mut ModelDef) {
+fn process_class_body(stmt: &Stmt, file: File, model: &mut ModelDef, aliases: &ModelImportState) {
     // Check for Meta.abstract
     if let Stmt::ClassDef(meta) = stmt
         && meta.name.as_str() == "Meta"
@@ -359,7 +448,7 @@ fn process_class_body(stmt: &Stmt, file: File, model: &mut ModelDef) {
     }
 
     // Extract relation fields (FK, O2O, M2M)
-    if let Some(relation) = extract_relation(stmt, file) {
+    if let Some(relation) = extract_relation(stmt, file, aliases) {
         model.relations.push(relation);
         return;
     }
@@ -383,7 +472,7 @@ fn is_abstract_assignment(stmt: &Stmt) -> bool {
     matches!(assign.value.as_ref(), Expr::BooleanLiteral(b) if b.value)
 }
 
-fn extract_relation(stmt: &Stmt, file: File) -> Option<Relation> {
+fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportState) -> Option<Relation> {
     let Stmt::Assign(assign) = stmt else {
         return None;
     };
@@ -404,8 +493,8 @@ fn extract_relation(stmt: &Stmt, file: File) -> Option<Relation> {
 
     let first_arg = call.arguments.args.first()?;
     let target = match first_arg {
-        Expr::StringLiteral(s) => {
-            let value = s.value.to_string();
+        Expr::StringLiteral(string) => {
+            let value = string.value.to_string();
             if value == "self" {
                 RelationTarget::SelfRef
             } else if let Some((app_label, name)) = value.rsplit_once('.') {
@@ -416,17 +505,24 @@ fn extract_relation(stmt: &Stmt, file: File) -> Option<Relation> {
             } else {
                 RelationTarget::Bare {
                     name: ModelName::new(value),
+                    import_reference: None,
                 }
             }
         }
-        expr => {
-            let path = expr.path_segments()?;
+        expression => {
+            let path = expression.path_segments()?;
+            let (root, tail) = path.split_first()?;
+            let import_reference = aliases.resolve_reference(root, tail);
             if path.len() == 1 {
                 RelationTarget::Bare {
                     name: ModelName::new(path[0].clone()),
+                    import_reference: Some(import_reference),
                 }
             } else {
-                RelationTarget::Attribute { path }
+                RelationTarget::Attribute {
+                    path,
+                    import_reference,
+                }
             }
         }
     };
@@ -446,6 +542,178 @@ fn extract_relation(stmt: &Stmt, file: File) -> Option<Relation> {
         ),
         relation_type,
     ))
+}
+
+fn push_name_targets(target: &Expr, out: &mut BTreeSet<String>) {
+    match target {
+        Expr::Name(name) => {
+            out.insert(name.id.to_string());
+        }
+        Expr::Tuple(tuple) => {
+            for element in &tuple.elts {
+                push_name_targets(element, out);
+            }
+        }
+        Expr::List(list) => {
+            for element in &list.elts {
+                push_name_targets(element, out);
+            }
+        }
+        Expr::Starred(starred) => push_name_targets(&starred.value, out),
+        _ => {}
+    }
+}
+
+fn collect_pattern_names(pattern: &ruff_python_ast::Pattern, out: &mut BTreeSet<String>) {
+    use ruff_python_ast::Pattern;
+    match pattern {
+        Pattern::MatchValue(_) | Pattern::MatchSingleton(_) => {}
+        Pattern::MatchSequence(sequence) => {
+            for pattern in &sequence.patterns {
+                collect_pattern_names(pattern, out);
+            }
+        }
+        Pattern::MatchMapping(mapping) => {
+            if let Some(rest) = &mapping.rest {
+                out.insert(rest.to_string());
+            }
+            for pattern in &mapping.patterns {
+                collect_pattern_names(pattern, out);
+            }
+        }
+        Pattern::MatchClass(class) => {
+            for pattern in &class.arguments.patterns {
+                collect_pattern_names(pattern, out);
+            }
+            for keyword in &class.arguments.keywords {
+                collect_pattern_names(&keyword.pattern, out);
+            }
+        }
+        Pattern::MatchStar(star) => {
+            if let Some(name) = &star.name {
+                out.insert(name.to_string());
+            }
+        }
+        Pattern::MatchAs(match_as) => {
+            if let Some(name) = &match_as.name {
+                out.insert(name.to_string());
+            }
+            if let Some(pattern) = &match_as.pattern {
+                collect_pattern_names(pattern, out);
+            }
+        }
+        Pattern::MatchOr(match_or) => {
+            for pattern in &match_or.patterns {
+                collect_pattern_names(pattern, out);
+            }
+        }
+    }
+}
+
+/// Collect every root name bound, written, imported, or deleted by `stmt`,
+/// recursing through compound statement bodies. Used to conservatively
+/// invalidate occurrence-local aliases; over-approximation is safe.
+fn collect_touched_roots(stmt: &Stmt, out: &mut BTreeSet<String>) {
+    match stmt {
+        Stmt::Import(import) => {
+            for clause in DirectImportClause::lower(import) {
+                out.insert(clause.bound().to_string());
+            }
+        }
+        Stmt::ImportFrom(import) => {
+            for clause in FromImportSyntax::lower(import).named_members() {
+                out.insert(clause.bound().to_string());
+            }
+        }
+        Stmt::Assign(assign) => {
+            for target in &assign.targets {
+                push_name_targets(target, out);
+            }
+        }
+        Stmt::AnnAssign(assign) => push_name_targets(&assign.target, out),
+        Stmt::AugAssign(assign) => push_name_targets(&assign.target, out),
+        Stmt::Delete(delete) => {
+            for target in &delete.targets {
+                push_name_targets(target, out);
+            }
+        }
+        Stmt::TypeAlias(alias) => push_name_targets(&alias.name, out),
+        Stmt::FunctionDef(function) => {
+            out.insert(function.name.to_string());
+        }
+        Stmt::ClassDef(class) => {
+            out.insert(class.name.to_string());
+        }
+        Stmt::For(_)
+        | Stmt::While(_)
+        | Stmt::If(_)
+        | Stmt::With(_)
+        | Stmt::Try(_)
+        | Stmt::Match(_) => collect_compound_touched_roots(stmt, out),
+        Stmt::Expr(_)
+        | Stmt::Return(_)
+        | Stmt::Raise(_)
+        | Stmt::Assert(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::Pass(_)
+        | Stmt::Break(_)
+        | Stmt::Continue(_)
+        | Stmt::IpyEscapeCommand(_) => {}
+    }
+}
+
+/// Collect touched roots from a compound statement's targets and nested bodies.
+fn collect_compound_touched_roots(stmt: &Stmt, out: &mut BTreeSet<String>) {
+    fn recurse(body: &[Stmt], out: &mut BTreeSet<String>) {
+        for stmt in body {
+            collect_touched_roots(stmt, out);
+        }
+    }
+    match stmt {
+        Stmt::For(statement) => {
+            push_name_targets(&statement.target, out);
+            recurse(&statement.body, out);
+            recurse(&statement.orelse, out);
+        }
+        Stmt::While(statement) => {
+            recurse(&statement.body, out);
+            recurse(&statement.orelse, out);
+        }
+        Stmt::If(statement) => {
+            recurse(&statement.body, out);
+            for clause in &statement.elif_else_clauses {
+                recurse(&clause.body, out);
+            }
+        }
+        Stmt::With(statement) => {
+            for item in &statement.items {
+                if let Some(vars) = &item.optional_vars {
+                    push_name_targets(vars, out);
+                }
+            }
+            recurse(&statement.body, out);
+        }
+        Stmt::Try(statement) => {
+            recurse(&statement.body, out);
+            for handler in &statement.handlers {
+                let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+                if let Some(name) = &handler.name {
+                    out.insert(name.to_string());
+                }
+                recurse(&handler.body, out);
+            }
+            recurse(&statement.orelse, out);
+            recurse(&statement.finalbody, out);
+        }
+        Stmt::Match(statement) => {
+            for case in &statement.cases {
+                collect_pattern_names(&case.pattern, out);
+                recurse(&case.body, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn extract_related_name(call: &ruff_python_ast::ExprCall) -> Option<String> {
@@ -533,6 +801,7 @@ mod tests {
     use djls_source::Span;
     use djls_testing::TestDatabase;
 
+    use super::extract_models_impl;
     use super::*;
     use crate::models::graph::ModelId;
 
@@ -541,16 +810,11 @@ mod tests {
         db.add_file("/test.py", source);
         let file = db.file(Utf8Path::new("/test.py"));
         let module_name = PythonModuleName::parse(module_name).unwrap();
-        let imports = crate::python::extract_import_bindings_for_source(
-            source,
-            &module_name,
-            ModuleKind::Module,
-        );
         let Ok(parsed) = ruff_python_parser::parse_module(source) else {
             return ModelGraph::default();
         };
         let module = parsed.into_syntax();
-        super::extract_models_impl(&module.body, module_name, file, &imports).graph
+        extract_models_impl(&module.body, &module_name, file, ModuleKind::Module).graph
     }
 
     fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {
@@ -575,7 +839,7 @@ mod tests {
 
     fn bare_target_name(relation: &Relation) -> Option<&str> {
         match relation.target_model()? {
-            RelationTarget::Bare { name } => Some(name.as_str()),
+            RelationTarget::Bare { name, .. } => Some(name.as_str()),
             RelationTarget::SelfRef
             | RelationTarget::Qualified { .. }
             | RelationTarget::Attribute { .. } => None,
@@ -1077,7 +1341,7 @@ class Restaurant(Place):
     }
 
     #[test]
-    fn qualified_base_class_inheritance() {
+    fn unresolved_qualified_base_is_not_treated_as_same_module() {
         let source = r"
 from django.db import models
 
@@ -1095,9 +1359,7 @@ class ConcreteOrder(some_module.BaseOrder):
 ";
         let graph = extract_model_graph(source, "shop.models");
 
-        let concrete = model(&graph, "ConcreteOrder");
-        assert_eq!(concrete.relations.len(), 1);
-        assert_eq!(bare_target_name(&concrete.relations[0]), Some("User"));
+        assert!(!has_model(&graph, "ConcreteOrder"));
     }
 
     #[test]

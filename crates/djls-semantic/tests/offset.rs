@@ -4,6 +4,7 @@ use djls_semantic::SemanticOffsetContext;
 use djls_semantic::TemplateReferenceKind;
 use djls_source::Offset;
 use djls_source::Span;
+use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
 fn offset_of(source: &str, needle: &str) -> Offset {
@@ -35,6 +36,35 @@ fn identifies_template_reference_context() {
             kind: TemplateReferenceKind::Extends,
             span: Span::saturating_from_parts_usize(12, 9),
         }
+    );
+}
+
+#[test]
+fn template_reference_context_follows_load_position() {
+    let mut db = TestDatabase::new();
+    let source = "{% include 'before.html' %}{% load custom %}{% include 'after.html' %}";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/test/project/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='include')\ndef custom_include(value):\n    pass\n",
+        )
+        .file("/test/project/templates/page.html", source)
+        .install(&mut db);
+    db.set_project(project);
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+
+    assert!(matches!(
+        SemanticOffsetContext::from_offset(&db, file, offset_of(source, "before.html")),
+        SemanticOffsetContext::TemplateReference { .. }
+    ));
+    assert_eq!(
+        SemanticOffsetContext::from_offset(&db, file, offset_of(source, "after.html")),
+        SemanticOffsetContext::None
     );
 }
 
@@ -92,6 +122,7 @@ fn identifies_selective_load_symbol_context() {
         context,
         SemanticOffsetContext::LoadSymbol {
             name: "blocktrans".to_string(),
+            library: "i18n".to_string(),
             span: Span::saturating_from_parts_usize(14, 10),
         }
     );
@@ -124,9 +155,20 @@ fn identifies_tag_name_context() {
         context,
         SemanticOffsetContext::Tag {
             name: "if".to_string(),
+            loaded_libraries: Vec::new(),
             span: Span::saturating_from_parts_usize(3, 2),
         }
     );
+}
+
+#[test]
+fn captured_intermediate_has_no_tag_definition_context() {
+    let db = TestDatabase::new();
+    let source = "{% if user %}{% else %}{% endif %}";
+
+    let context = context_for_source(&db, source, offset_of(source, "else"));
+
+    assert_eq!(context, SemanticOffsetContext::None);
 }
 
 #[test]
@@ -140,6 +182,7 @@ fn identifies_opaque_opener_tag_context() {
         context,
         SemanticOffsetContext::Tag {
             name: "verbatim".to_string(),
+            loaded_libraries: Vec::new(),
             span: Span::new(3, 8),
         }
     );
@@ -186,6 +229,7 @@ fn identifies_filter_context() {
         context,
         SemanticOffsetContext::Filter {
             name: "title".to_string(),
+            loaded_libraries: Vec::new(),
             span: Span::new(13, 5),
         }
     );

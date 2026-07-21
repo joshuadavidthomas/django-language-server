@@ -1,12 +1,17 @@
+use std::sync::LazyLock;
+
+use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
-use djls_project::Project;
+use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolKey;
-use djls_project::extract_filter_arities;
-use djls_project::template_libraries;
+use djls_project::TemplateLibraryId;
+use djls_project::TemplateSymbolKind;
+use djls_project::template_library_filter_facts;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
+use crate::scoping::LoadState;
 
 /// Map from filter name → `FilterArity`, resolved for the current project.
 ///
@@ -23,8 +28,7 @@ pub struct FilterAritySpecs {
 impl FilterAritySpecs {
     #[must_use]
     pub fn empty_ref() -> &'static Self {
-        static EMPTY: std::sync::LazyLock<FilterAritySpecs> =
-            std::sync::LazyLock::new(FilterAritySpecs::new);
+        static EMPTY: LazyLock<FilterAritySpecs> = LazyLock::new(FilterAritySpecs::new);
         &EMPTY
     }
 
@@ -54,21 +58,66 @@ impl FilterAritySpecs {
     }
 }
 
-/// Compute `FilterAritySpecs` from a project's extraction results.
-///
-/// Merges filter arity data from discovered template tag modules, with
-/// last-wins semantics for name collisions.
-#[salsa::tracked(returns(ref))]
-pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterAritySpecs {
-    let mut specs = FilterAritySpecs::new();
+/// Independently backdatable semantic Filter facts for one Template Library.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LibraryFilterSpecs(FilterAritySpecs);
 
-    for library in template_libraries(db, project).resolved_libraries() {
-        let extraction = extract_filter_arities(db, library.file(), library.module_name().clone());
-        let filter_arities = extraction.arities();
-        if !filter_arities.is_empty() {
-            specs.merge_filter_arities(filter_arities);
-        }
+impl LibraryFilterSpecs {
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&FilterArity> {
+        self.0.get(name)
     }
+}
 
-    specs
+#[salsa::tracked(returns(ref))]
+pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryId) -> LibraryFilterSpecs {
+    let facts = template_library_filter_facts(db, key);
+    let mut specs = FilterAritySpecs::new();
+    specs.merge_filter_arities(facts.filter_arities());
+    LibraryFilterSpecs(specs)
+}
+
+/// Return the effective filter arity at one occurrence when every feasible backend agrees.
+pub(crate) fn effective_filter_arity_in_scope(
+    db: &dyn Db,
+    scoped_libraries: ScopedTemplateLibraries<'_>,
+    filter_name: &str,
+    load_state: &LoadState<'_>,
+) -> Option<FilterArity> {
+    let loaded = load_state.libraries_loading_symbol(filter_name);
+    let mut agreed = None;
+    let mut alternatives_agree = true;
+    scoped_libraries.for_each_effective_definition_library(
+        filter_name,
+        TemplateSymbolKind::Filter,
+        &loaded,
+        |alternative| {
+            let definition = match alternative {
+                EffectiveDefinitionLibrary::Known(library) => library
+                    .and_then(|library| library_filter_specs(db, library.id()).get(filter_name)),
+                EffectiveDefinitionLibrary::Unobserved(library) => {
+                    let Some(arity) = library_filter_specs(db, library.id()).get(filter_name)
+                    else {
+                        alternatives_agree = false;
+                        return;
+                    };
+                    Some(arity)
+                }
+                EffectiveDefinitionLibrary::Unknown => {
+                    alternatives_agree = false;
+                    return;
+                }
+            };
+            match agreed {
+                None => agreed = Some(definition),
+                Some(existing) if existing == definition => {}
+                Some(_) => alternatives_agree = false,
+            }
+        },
+    );
+
+    alternatives_agree
+        .then_some(agreed.flatten())
+        .flatten()
+        .cloned()
 }

@@ -1,0 +1,13 @@
+---
+source: crates/djls-bench/src/check.rs
+expression: snapshot
+---
+- name: single_plain
+  bytes: 144
+  output_sha256: d322ff7b8ea70593c4ff773a172646277b43402cd47024b7eb22bc85a47cfd39
+- name: multi_plain
+  bytes: 257
+  output_sha256: eeef47c9adab57deb6dd28ff06e30ee3b44d922d3ab46d7a5ed41c72f41c2a59
+- name: single_styled
+  bytes: 256
+  output_sha256: cddcc95b457068c16c3a9f389f44f0681be5512bc316d30d1333267af7fe2bfd

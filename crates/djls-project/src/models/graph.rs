@@ -13,9 +13,9 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::db::Db as ProjectDb;
+use crate::models::imports::ModelImportPathResolutionError;
+use crate::models::imports::ModelImportReference;
 use crate::project::Project;
-use crate::python::ImportBindings;
-use crate::python::ImportPathResolutionError;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::resolve_prefix;
@@ -160,9 +160,24 @@ impl From<ModelId> for String {
 #[serde(tag = "kind")]
 pub(crate) enum RelationTarget {
     SelfRef,
-    Qualified { app_label: String, name: ModelName },
-    Bare { name: ModelName },
-    Attribute { path: Vec<String> },
+    Qualified {
+        app_label: String,
+        name: ModelName,
+    },
+    Bare {
+        name: ModelName,
+        // String targets have no import semantics; expression targets capture
+        // the alias state at this source occurrence.
+        #[serde(skip)]
+        import_reference: Option<ModelImportReference>,
+    },
+    Attribute {
+        path: Vec<String>,
+        // Attribute targets always come from expressions, so their
+        // occurrence-local import evidence is required.
+        #[serde(skip)]
+        import_reference: ModelImportReference,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
@@ -481,18 +496,17 @@ fn django_name_matches(candidate: &str, query: &str) -> bool {
 }
 
 fn unresolved_import_path_reason(
-    error: ImportPathResolutionError,
+    error: ModelImportPathResolutionError,
+    binding: Option<&str>,
 ) -> RelationTargetUnresolvedReason {
     match error {
-        ImportPathResolutionError::EmptyPath => {
-            RelationTargetUnresolvedReason::InvalidImportedTarget {
-                target: String::new(),
+        ModelImportPathResolutionError::MissingBinding
+        | ModelImportPathResolutionError::ShadowedBinding => {
+            RelationTargetUnresolvedReason::MissingImportBinding {
+                binding: binding.unwrap_or_default().to_string(),
             }
         }
-        ImportPathResolutionError::MissingBinding { binding } => {
-            RelationTargetUnresolvedReason::MissingImportBinding { binding }
-        }
-        ImportPathResolutionError::InvalidTarget { target } => {
+        ModelImportPathResolutionError::InvalidTarget(target) => {
             RelationTargetUnresolvedReason::InvalidImportedTarget { target }
         }
     }
@@ -588,8 +602,19 @@ impl ModelGraph {
 
     pub(crate) fn add_model(&mut self, model: ModelDef) {
         let id = ModelId::new(model.module_name.clone(), model.name.value().clone());
-        if self.models.insert(id.clone(), model).is_some() {
-            self.overwritten_model_ids.push(id.clone());
+        match self.models.entry(id.clone()) {
+            Entry::Occupied(mut entry) => {
+                self.overwritten_model_ids.push(id.clone());
+                let existing = entry.get();
+                let incoming_is_later = existing.file != model.file
+                    || existing.name.span().start() <= model.name.span().start();
+                if incoming_is_later {
+                    entry.insert(model);
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(model);
+            }
         }
         self.model_ids_by_name
             .entry(id.name.clone())
@@ -719,7 +744,7 @@ impl ModelGraph {
     ) -> Option<(&ModelId, &ModelDef)> {
         match target {
             RelationTarget::SelfRef => self.models.get_key_value(scope),
-            RelationTarget::Bare { name } => {
+            RelationTarget::Bare { name, .. } => {
                 let app_label = app_label_from_module_name(scope.module_name.as_str())?;
                 self.lookup_entry(app_label, name.as_str())
             }
@@ -795,25 +820,14 @@ impl ModelGraph {
         None
     }
 
-    pub(crate) fn resolve_relation_targets(
-        &mut self,
-        db: &dyn ProjectDb,
-        project: Project,
-        import_bindings_by_module: &BTreeMap<PythonModuleName, &ImportBindings>,
-    ) {
+    pub(crate) fn resolve_relation_targets(&mut self, db: &dyn ProjectDb, project: Project) {
         let mut updates = Vec::new();
         for (scope, model) in &self.models {
             for (index, relation) in model.relations.iter().enumerate() {
                 updates.push((
                     scope.clone(),
                     index,
-                    self.resolve_relation_target(
-                        db,
-                        project,
-                        scope,
-                        relation,
-                        import_bindings_by_module,
-                    ),
+                    self.resolve_relation_target(db, project, scope, relation),
                 ));
             }
         }
@@ -833,7 +847,6 @@ impl ModelGraph {
         project: Project,
         scope: &ModelId,
         relation: &Relation,
-        import_bindings_by_module: &BTreeMap<PythonModuleName, &ImportBindings>,
     ) -> RelationTargetResolution {
         let Some(target) = relation.target_model() else {
             return RelationTargetResolution::Unresolved {
@@ -851,42 +864,37 @@ impl ModelGraph {
                     name: name.clone(),
                 },
             ),
-            RelationTarget::Bare { name } => {
-                let Some(imports) = import_bindings_by_module.get(&scope.module_name) else {
-                    return self.resolve_same_app_target(scope, name);
-                };
-                match imports.resolve_qualified_path(std::iter::once(name.as_str())) {
-                    Ok(target) => self.resolve_imported_relation_target(db, project, &target),
-                    Err(ImportPathResolutionError::MissingBinding { .. }) => {
-                        self.resolve_same_app_target(scope, name)
+            RelationTarget::Bare {
+                name,
+                import_reference,
+            } => match import_reference {
+                Some(ModelImportReference::Qualified(target)) => {
+                    self.resolve_imported_relation_target(db, project, target)
+                }
+                Some(ModelImportReference::Unresolved(
+                    ModelImportPathResolutionError::MissingBinding,
+                ))
+                | None => self.resolve_same_app_target(scope, name),
+                Some(ModelImportReference::Unresolved(error)) => {
+                    RelationTargetResolution::Unresolved {
+                        reason: unresolved_import_path_reason(error.clone(), Some(name.as_str())),
                     }
-                    Err(error) => RelationTargetResolution::Unresolved {
-                        reason: unresolved_import_path_reason(error),
-                    },
                 }
-            }
-            RelationTarget::Attribute { path } => {
-                let Some(root) = path.first() else {
-                    return RelationTargetResolution::Unresolved {
-                        reason: RelationTargetUnresolvedReason::InvalidImportedTarget {
-                            target: String::new(),
-                        },
-                    };
-                };
-                let Some(imports) = import_bindings_by_module.get(&scope.module_name) else {
-                    return RelationTargetResolution::Unresolved {
-                        reason: RelationTargetUnresolvedReason::MissingImportBinding {
-                            binding: root.clone(),
-                        },
-                    };
-                };
-                match imports.resolve_qualified_path(path.iter().map(String::as_str)) {
-                    Ok(target) => self.resolve_imported_relation_target(db, project, &target),
-                    Err(error) => RelationTargetResolution::Unresolved {
-                        reason: unresolved_import_path_reason(error),
-                    },
+            },
+            RelationTarget::Attribute {
+                path,
+                import_reference,
+            } => match import_reference {
+                ModelImportReference::Qualified(target) => {
+                    self.resolve_imported_relation_target(db, project, target)
                 }
-            }
+                ModelImportReference::Unresolved(error) => RelationTargetResolution::Unresolved {
+                    reason: unresolved_import_path_reason(
+                        error.clone(),
+                        path.first().map(String::as_str),
+                    ),
+                },
+            },
         }
     }
 
@@ -1207,6 +1215,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1227,6 +1236,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1247,6 +1257,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1267,6 +1278,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("Title"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1287,6 +1299,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1309,6 +1322,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1330,6 +1344,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),
@@ -1434,6 +1449,7 @@ mod tests {
                 target: Spanned::new(
                     RelationTarget::Bare {
                         name: ModelName::new("User"),
+                        import_reference: None,
                     },
                     test_span(10),
                 ),

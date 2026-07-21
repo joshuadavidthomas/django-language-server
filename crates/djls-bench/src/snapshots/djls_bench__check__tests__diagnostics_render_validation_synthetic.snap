@@ -1,0 +1,10 @@
+---
+source: crates/djls-bench/src/check.rs
+expression: "SyntheticValidationRenderSnapshot\n{\n    source_bytes: MANY_ERRORS_SOURCE.len(), source_sha256:\n    sha256(MANY_ERRORS_SOURCE.as_bytes()), validation_error_count:\n    check.validation_errors.len(), rendered_count_per_inner_iteration:\n    rendered_count, rendered_bytes_per_inner_iteration: rendered_bytes,\n    rendered_output_sha256: hasher.finish(),\n}"
+---
+source_bytes: 191
+source_sha256: 5eaddcfcda69eb1915ea818a2fce059001983b6197867954f3f2cf7f62382a31
+validation_error_count: 8
+rendered_count_per_inner_iteration: 8
+rendered_bytes_per_inner_iteration: 1014
+rendered_output_sha256: 75615f594add81d076e46aff2a482b7f7b24428227230d22066bd5d7b87090b9

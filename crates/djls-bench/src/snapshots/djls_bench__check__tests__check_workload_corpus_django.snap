@@ -1,0 +1,30 @@
+---
+source: crates/djls-bench/src/check.rs
+expression: "CorpusWorkloadSnapshot\n{\n    input: corpus_input_snapshot(corpus), output:\n    checked_workload_snapshot(&db, &files, WorkloadDetail::Corpus, true),\n}"
+---
+input:
+  discovered_file_count: 123
+  synchronized_file_count: 123
+  total_bytes: 134038
+  sorted_records_sha256: 19f8f883847c75c5fde26a904d82d803c3ec3b3ef5f4db227dfcc2b0b6cb61d0
+output:
+  check_parser_count: 0
+  check_validation_count: 104
+  check_code_counts:
+    S108: 19
+    S111: 67
+    S120: 18
+  per_file_checks_sha256: 22c114d24893e0e0ae41a2f6c239d797835611d5e750e959baee003467b3def4
+  ide_eligible_file_count: 114
+  ide_diagnostic_count: 104
+  ide_code_counts:
+    S108: 19
+    S111: 67
+    S120: 18
+  normalized_ide_diagnostics_sha256: 8ad7b24d71c1ff5957b3dfa494d8b91312dacf5f2dd2b89fce83502afb58032b
+  files_with_diagnostics: 34
+  diagnostic_bearing_paths_sha256: 2d4019df1a70f410189b904e17672d3f07a6bc1380edab81681d22d290c9edc3
+  rendered:
+    item_count: 104
+    total_bytes: 29551
+    output_sha256: 24359b325d6e304ec3aa0dc5283472a7472e5b10e754282eb429070c2c92e0f1

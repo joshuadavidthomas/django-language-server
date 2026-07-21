@@ -1,12 +1,21 @@
+use std::borrow::Cow;
+
+use camino::Utf8Path;
 use djls_project::Project;
 use djls_project::TemplateName;
+use djls_semantic::TagRole;
+use djls_semantic::TagSpec;
+use djls_semantic::TagSpecs;
 use djls_semantic::TemplateReferenceKind;
+use djls_semantic::builtin_tag_specs;
 use djls_semantic::references_to_template_name;
+use djls_semantic::template_library_references_in_file;
 use djls_source::ChangeEvent;
 use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
+use rustc_hash::FxHashMap;
 
 fn project_with_templates(
     db: &mut TestDatabase,
@@ -26,10 +35,36 @@ fn project_with_templates(
         .file("/test/project/testproject/settings.py", settings_source);
     templates
         .into_iter()
-        .fold(fixture, |fixture, (name, path, source)| {
-            fixture.template_file(name, path, source)
+        .fold(fixture, |fixture, (_name, path, source)| {
+            fixture.file(path, source)
         })
-        .build(db)
+        .install(db)
+}
+
+#[test]
+fn inconclusive_load_role_does_not_create_a_load_event() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['custom_load'], 'libraries': {'custom': 'custom_tags'}}}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/custom_load.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='load')\ndef custom_load(value): pass\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='include')\ndef custom_include(value): pass\n",
+        )
+        .file(
+            "/test/project/templates/child.html",
+            "{% load custom %}{% include 'partial.html' %}",
+        )
+        .file("/test/project/templates/partial.html", "partial")
+        .install(&mut db);
+    let partial = TemplateName::new(&db, "partial.html".to_string());
+
+    assert_eq!(references_to_template_name(&db, project, partial).len(), 1);
 }
 
 #[test]
@@ -67,6 +102,34 @@ fn template_references_record_extends_and_include_kinds() {
     );
     assert_eq!(partial_refs.len(), 1);
     assert_eq!(partial_refs[0].kind(&db), TemplateReferenceKind::Include);
+}
+
+#[test]
+fn later_load_only_shadows_template_reference_occurrences_after_it() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='include')\ndef custom_include(value):\n    pass\n",
+        )
+        .file(
+            "/test/project/templates/child.html",
+            "{% include 'partial.html' %}\n{% load custom %}\n{% include 'partial.html' %}",
+        )
+        .file("/test/project/templates/partial.html", "partial")
+        .install(&mut db);
+
+    let partial = TemplateName::new(&db, "partial.html".to_string());
+    let references = references_to_template_name(&db, project, partial);
+
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].kind(&db), TemplateReferenceKind::Include);
+    assert_eq!(references[0].span(&db).start(), 12);
 }
 
 #[test]
@@ -222,29 +285,139 @@ fn template_references_exclude_missing_targets() {
 
 #[test]
 fn template_references_keep_known_inconclusive_targets() {
-    let db = TestDatabase::new();
+    let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file(
             "/test/project/testproject/settings.py",
             "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
         )
-        .template_file(
-            "child.html",
+        .file(
             "/test/project/templates/child.html",
             "{% include 'partial.html' %}",
         )
-        .template_file(
-            "partial.html",
-            "/test/project/templates/partial.html",
-            "partial",
-        )
-        .build(&db);
+        .file("/test/project/templates/partial.html", "partial")
+        .install(&mut db);
     let partial = TemplateName::new(&db, "partial.html".to_string());
 
     let references = references_to_template_name(&db, project, partial);
     assert_eq!(references.len(), 1);
     assert_eq!(references[0].kind(&db), TemplateReferenceKind::Include);
+}
+
+#[test]
+fn template_references_are_omitted_when_target_exists_only_in_another_backend() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file("/test/project/a/child.html", "{% include 'only-b.html' %}")
+        .file("/test/project/b/only-b.html", "b")
+        .install(&mut db);
+
+    let only_b = TemplateName::new(&db, "only-b.html".to_string());
+    assert!(references_to_template_name(&db, project, only_b).is_empty());
+}
+
+#[test]
+fn relative_references_normalize_for_every_name_of_the_source_file() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias'], 'APP_DIRS': False}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/templates/alias/child.html",
+            "{% include './parent.html' %}",
+        )
+        .file("/test/project/templates/alias/parent.html", "parent")
+        .install(&mut db);
+
+    let nested = TemplateName::new(&db, "alias/parent.html".to_string());
+    let root = TemplateName::new(&db, "parent.html".to_string());
+    assert_eq!(references_to_template_name(&db, project, nested).len(), 1);
+    assert_eq!(references_to_template_name(&db, project, root).len(), 1);
+}
+
+#[test]
+fn custom_shadowed_load_tag_creates_no_library_reference() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['custom_load'], 'libraries': {'custom': 'custom_tags'}}}]\n";
+    let _project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/custom_load.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='load')\ndef custom_load(value): pass\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/test/project/templates/page.html", "{% load custom %}")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+
+    assert!(
+        template_library_references_in_file(&db, file)
+            .as_slice(&db)
+            .is_empty()
+    );
+}
+
+#[test]
+fn shadowed_load_does_not_bootstrap_loaded_opaque_grammar() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['custom_load'], 'libraries': {'custom': 'custom_tags'}}}]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/custom_load.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='load')\ndef custom_load(value): pass\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag(name='shadow')\ndef shadow(parser, token):\n    parser.skip_past('endshadow')\n    return Node()\n",
+        )
+        .file(
+            "/test/project/templates/page.html",
+            "{% load custom %}{% shadow %}{% include 'partial.html' %}{% endshadow %}",
+        )
+        .file("/test/project/templates/partial.html", "partial")
+        .install(&mut db);
+    let partial = TemplateName::new(&db, "partial.html".to_string());
+
+    assert_eq!(references_to_template_name(&db, project, partial).len(), 1);
+}
+
+#[test]
+fn captured_else_does_not_retain_a_colliding_loader_role() {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
+        "else".to_string(),
+        TagSpec::new(
+            Cow::Borrowed("test.loader"),
+            None,
+            Cow::Borrowed(&[]),
+            false,
+        )
+        .with_role(TagRole::TemplateLibraryLoader),
+    )])));
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    let source = "{% else outside %}{% if condition %}{% else captured %}{% endif %}";
+    db.add_file("test.html", source);
+    let file = db.file(Utf8Path::new("test.html"));
+
+    let references = template_library_references_in_file(&db, file).as_slice(&db);
+
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].load_name().as_str(), "outside");
+    assert_eq!(
+        references[0].span().start_usize(),
+        source.find("outside").unwrap()
+    );
 }
 
 #[test]

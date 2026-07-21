@@ -16,8 +16,10 @@ use crate::project::Project;
 use crate::python::SearchPaths;
 use crate::settings::DjangoSettingsSources;
 use crate::settings::settings_sources;
+use crate::templates::ScopedTemplateLibraries;
+use crate::templates::TemplateLibrary;
 use crate::templates::discover_templatetag_candidate_paths;
-use crate::templates::template_libraries;
+use crate::templates::template_library_catalog;
 
 /// The resolved Python environment for a Project.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -247,10 +249,15 @@ impl ProjectFactsPhase {
                 .iter()
                 .map(|module| module.path().to_path_buf())
                 .collect(),
-            Self::TemplateLibrarySources => template_libraries(db, project)
-                .resolved_libraries()
-                .map(|library| library.file().path(db).to_path_buf())
-                .collect(),
+            Self::TemplateLibrarySources => {
+                let libraries = template_library_catalog(db, project);
+                ScopedTemplateLibraries::from_project_inventory(libraries)
+                    .resolved_libraries()
+                    .into_iter()
+                    .filter_map(TemplateLibrary::source_file)
+                    .map(|file| file.path(db).to_path_buf())
+                    .collect()
+            }
             Self::TemplateTagCandidates => discover_templatetag_candidate_paths(db, project),
         };
         ProjectFactsPart {
@@ -275,6 +282,11 @@ impl ProjectFactsPart {
     #[must_use]
     pub fn count(&self) -> usize {
         self.file_paths.len()
+    }
+
+    #[must_use]
+    pub fn file_paths(&self) -> &[Utf8PathBuf] {
+        &self.file_paths
     }
 }
 
@@ -337,4 +349,40 @@ impl ProjectFactsData {
 #[must_use]
 pub fn compute_project_facts(db: &dyn ProjectDb, project: Project) -> ProjectFactsData {
     ProjectFactsData::assemble(project_facts_phases().map(|phase| phase.run(db, project)))
+}
+
+/// Synchronize every source reached by Project Facts discovery with the
+/// authoritative filesystem view.
+///
+/// Environment application performs the broad root invalidation before facts
+/// are computed. This narrower application step records any content changes
+/// observed while discovery was running without causing a second root-wide
+/// invalidation wave.
+pub fn apply_project_facts(db: &mut dyn ProjectDb, facts: &ProjectFactsData) {
+    SourceChanges::new(
+        facts
+            .file_paths()
+            .iter()
+            .cloned()
+            .map(ChangeEvent::ContentChanged),
+    )
+    .apply(db);
+}
+
+/// Run synchronous Django Discovery for the currently configured Project.
+///
+/// Environment application intentionally precedes Project Facts computation:
+/// it activates the resolved search paths and synchronizes their source roots
+/// before any Project Facts query reads from them.
+#[must_use]
+pub fn run_django_discovery(db: &mut dyn ProjectDb) -> Option<ProjectFactsData> {
+    let project = db.project()?;
+
+    let environment = compute_django_environment(db, project);
+    apply_django_environment(db, environment);
+
+    let facts = compute_project_facts(db, project);
+    apply_project_facts(db, &facts);
+
+    Some(facts)
 }

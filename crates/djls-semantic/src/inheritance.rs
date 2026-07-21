@@ -1,10 +1,11 @@
 use std::collections::VecDeque;
 
-use djls_project::FindTemplateResult;
 use djls_project::Project;
+use djls_project::TemplateBackendScope;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
 use djls_project::TemplateResolution;
+use djls_project::TemplateResolutionResult;
 use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
@@ -16,25 +17,31 @@ use djls_templates::TemplateString;
 use djls_templates::parse_template;
 use rustc_hash::FxHashSet;
 
+use crate::TagSpec;
 use crate::db::Db;
 use crate::references::TemplateReferenceKind;
-use crate::references::references_to_template_name;
+use crate::scoping::ScopedTagFacts;
+use crate::scoping::template_analysis_projection_for_file_in_scope;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
-use crate::structure::build_template_tree;
 use crate::tags::TagRole;
-use crate::tags::TagSpec;
-use crate::tags::TagSpecs;
 
+// The loop is one state transition over a correlated parent chain; extracting its few remaining
+// lines would split cycle and inconclusive-parent decisions from the state they update.
+#[allow(clippy::too_many_lines)]
 #[salsa::tracked]
 pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> TemplateInheritance<'_> {
     let resolution = template_resolution(db, project);
     let mut ancestors = Vec::new();
-    let mut excluded = vec![file];
+    let scope_file = file;
     let mut current_file = file;
-    let mut current_template_name = resolution.primary_template_name(db, file);
+    let mut current_origins = inheritance_origins(db, resolution, file);
+    let mut excluded = current_origins
+        .iter()
+        .map(|(origin, _)| *origin)
+        .collect::<Vec<_>>();
 
     let end = loop {
         let TemplateParseResult::Parsed(nodelist) = parse_template(db, current_file) else {
@@ -43,54 +50,158 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
             break ChainEnd::Root;
         };
 
-        let Some(extends) = template_extends_target(db, nodelist) else {
+        let Some(extends) = template_extends_target(db, current_file, nodelist, scope_file) else {
             break ChainEnd::Root;
         };
-        let name = match extends {
+        let raw_name = match extends {
             ExtendsTarget::Literal { name, .. } => name,
             ExtendsTarget::Dynamic { span } => {
                 break ChainEnd::Dynamic { span };
             }
         };
-        let current_template_name_text = current_template_name.map(|name| name.name(db).as_str());
-        let Some(resolved_name) =
-            resolve_relative_name(current_template_name_text, name.as_str(), false)
-        else {
-            break ChainEnd::Unresolved { name };
-        };
+        let raw_template_name = TemplateName::new(db, raw_name.clone());
 
-        let template_name = TemplateName::new(db, resolved_name.into_owned());
-        let origin = match resolution.resolve_excluding(db, template_name, &excluded) {
-            FindTemplateResult::Found(origin) => origin,
-            FindTemplateResult::DoesNotExist(error) => {
-                if resolution.origins_for_name(db, template_name).is_empty() {
-                    break ChainEnd::Unresolved {
-                        name: error.name.name(db).clone(),
-                    };
+        if current_origins.is_empty() {
+            // An originless file has no anchor for a relative reference and no backend scope to
+            // correlate with. Absolute references still use project-wide resolution, whose
+            // result preserves the feasible settings alternatives rather than selecting an
+            // arbitrary inventory origin.
+            if resolve_relative_name(None, raw_template_name.name(db), false).is_none() {
+                break ChainEnd::Unresolved { name: raw_name };
+            }
+            match resolution.resolve(db, raw_template_name) {
+                TemplateResolutionResult::Found(origin) => {
+                    current_file = origin.file(db);
+                    ancestors.push(origin);
+                    current_origins =
+                        vec![(origin, resolution.backend_scope_for_origin(db, origin))];
+                    if !excluded.contains(&origin) {
+                        excluded.push(origin);
+                    }
+                    continue;
                 }
-                break ChainEnd::Cycle;
+                TemplateResolutionResult::DoesNotExist(_) => {
+                    break ChainEnd::Unresolved { name: raw_name };
+                }
+                TemplateResolutionResult::Inconclusive(_) => {
+                    break ChainEnd::InconclusiveParent { name: raw_name };
+                }
             }
-            FindTemplateResult::Inconclusive(search) => {
-                // Guessing a parent under an incomplete search could hang blocks off the
-                // wrong ancestor; end the chain and surface the uncertainty instead.
-                break ChainEnd::InconclusiveParent {
-                    name: search.name.name(db).clone(),
-                };
-            }
-        };
+        }
 
-        current_file = origin.file(db);
-        current_template_name = Some(origin.template_name(db));
-        ancestors.push(origin);
-        excluded.push(current_file);
+        let mut scoped = Vec::new();
+        let mut invalid_relative = false;
+        for (source, scope) in &current_origins {
+            let Some(outcome) = resolution.resolve_reference_from_origin_in_scope(
+                db,
+                *source,
+                raw_template_name,
+                &excluded,
+                false,
+                scope,
+            ) else {
+                invalid_relative = true;
+                break;
+            };
+            scoped.push((outcome, scope.clone()));
+        }
+        if invalid_relative || scoped.is_empty() {
+            break ChainEnd::Unresolved { name: raw_name };
+        }
+
+        let found_file = scoped
+            .first()
+            .and_then(|(outcome, _)| match outcome.result {
+                TemplateResolutionResult::Found(origin) => Some(origin.file(db)),
+                TemplateResolutionResult::DoesNotExist(_)
+                | TemplateResolutionResult::Inconclusive(_) => None,
+            });
+        if let Some(parent_file) = found_file
+            && scoped.iter().all(|(outcome, _)| {
+                matches!(outcome.result, TemplateResolutionResult::Found(origin) if origin.file(db) == parent_file)
+            })
+        {
+            let mut next_origins = Vec::new();
+            for (outcome, scope) in scoped {
+                let TemplateResolutionResult::Found(origin) = outcome.result else {
+                    unreachable!("the joined parent outcome was checked as found")
+                };
+                if !next_origins
+                    .iter()
+                    .any(|(existing, existing_scope)| *existing == origin && existing_scope == &scope)
+                {
+                    next_origins.push((origin, scope));
+                }
+            }
+            let representative = next_origins[0].0;
+            current_file = parent_file;
+            ancestors.push(representative);
+            for (origin, _) in &next_origins {
+                if !excluded.contains(origin) {
+                    excluded.push(*origin);
+                }
+            }
+            current_origins = next_origins;
+            continue;
+        }
+
+        if scoped
+            .iter()
+            .all(|(outcome, _)| matches!(outcome.result, TemplateResolutionResult::DoesNotExist(_)))
+        {
+            let cycle = scoped.iter().all(|(outcome, scope)| {
+                resolution
+                    .resolve_reference_from_origin_in_scope(
+                        db,
+                        outcome.source,
+                        raw_template_name,
+                        &[],
+                        false,
+                        scope,
+                    )
+                    .is_some_and(|without_exclusions| {
+                        matches!(without_exclusions.result, TemplateResolutionResult::Found(origin) if excluded.iter().any(|excluded| excluded.file(db) == origin.file(db)))
+                    })
+            });
+            break if cycle {
+                ChainEnd::Cycle
+            } else {
+                ChainEnd::Unresolved { name: raw_name }
+            };
+        }
+
+        // Different normalized names, backend-local winners, or incomplete searches cannot be
+        // collapsed to one safe parent chain.
+        break ChainEnd::InconclusiveParent { name: raw_name };
     };
 
     TemplateInheritance::new(db, ancestors, end)
 }
 
+fn inheritance_origins<'db>(
+    db: &'db dyn Db,
+    resolution: TemplateResolution<'db>,
+    file: File,
+) -> Vec<(TemplateOrigin<'db>, TemplateBackendScope)> {
+    resolution
+        .template_names_for_file(db, file)
+        .iter()
+        .flat_map(|name| resolution.origins_for_name(db, *name))
+        .filter(|origin| origin.file(db) == file)
+        .map(|origin| (*origin, resolution.backend_scope_for_origin(db, *origin)))
+        .collect()
+}
+
 #[salsa::tracked]
-fn template_extends_target<'db>(db: &'db dyn Db, nodelist: NodeList<'db>) -> Option<ExtendsTarget> {
-    template_symbols(db, nodelist).extends().cloned()
+fn template_extends_target<'db>(
+    db: &'db dyn Db,
+    file: File,
+    nodelist: NodeList<'db>,
+    scope_file: File,
+) -> Option<ExtendsTarget> {
+    template_symbols_in_scope(db, file, nodelist, scope_file)
+        .extends()
+        .cloned()
 }
 
 #[salsa::tracked]
@@ -121,7 +232,7 @@ pub fn parent_block(db: &dyn Db, project: Project, file: File, name: &str) -> Op
     template_inheritance(db, project, file)
         .ancestors(db)
         .iter()
-        .find_map(|origin| first_block_site(db, origin.file(db), name))
+        .find_map(|origin| first_block_site_in_scope(db, origin.file(db), file, name))
 }
 
 /// Block names visible from ancestors, using the nearest definition site per name.
@@ -134,7 +245,7 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
         let TemplateParseResult::Parsed(nodelist) = parse_template(db, ancestor_file) else {
             continue;
         };
-        for block in template_symbols(db, nodelist).blocks() {
+        for block in template_symbols_in_scope(db, ancestor_file, nodelist, file).blocks() {
             if seen.insert(block.name.as_str()) {
                 inherited.push((
                     block.name.clone(),
@@ -151,87 +262,93 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
     inherited
 }
 
-/// Descendant templates that define `name`, discovered through reverse extends edges.
+/// Descendant templates that define `name`, discovered through exact reverse extends edges.
 ///
-/// This is a best-effort, name-keyed query: reverse template references are keyed by target
-/// template name, not by a resolved origin. If this file is shadowed under a template name, a
-/// child extending that name may be returned even when Django would bind it to another origin.
-/// Descendants are still gated on their first literal extends target, so later duplicate extends
-/// tags do not create inheritance edges. This matches the existing template find-references
-/// contract.
+/// Each candidate reference is re-resolved from its source origin and backend scope. Traversal
+/// therefore follows the concrete origin selected by Django rather than every file sharing a
+/// template name.
 pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) -> Vec<BlockSite> {
     let resolution = template_resolution(db, project);
-    let mut queue = VecDeque::new();
-    let mut queued_names = FxHashSet::default();
-
-    for &template_name in resolution.template_names_for_file(db, file) {
-        if queued_names.insert(template_name) {
-            queue.push_back(template_name);
-        }
+    let roots = resolution
+        .template_names_for_file(db, file)
+        .iter()
+        .flat_map(|template_name| resolution.origins_for_name(db, *template_name))
+        .filter(|origin| origin.file(db) == file)
+        .copied()
+        .collect::<Vec<_>>();
+    if roots.is_empty() {
+        return Vec::new();
     }
 
-    let mut visited_files = FxHashSet::default();
-    visited_files.insert(file);
+    let mut queue = VecDeque::from(roots.clone());
+    let mut visited_origins = roots.into_iter().collect::<FxHashSet<_>>();
+    let mut emitted_sites = FxHashSet::default();
     let mut overrides = Vec::new();
 
-    while let Some(target_name) = queue.pop_front() {
-        for reference in references_to_template_name(db, project, target_name) {
-            if reference.kind(db) != TemplateReferenceKind::Extends {
+    while let Some(target) = queue.pop_front() {
+        for descendant in resolution.origins(db) {
+            if !origin_extends_exact_target(db, resolution, descendant, target) {
                 continue;
             }
 
-            let descendant_file = reference.source_file(db);
-            if !file_winning_extends_target_is(db, resolution, descendant_file, target_name) {
+            if !visited_origins.insert(descendant) {
                 continue;
             }
 
-            if !visited_files.insert(descendant_file) {
-                continue;
-            }
-
-            if let Some(site) = first_block_site(db, descendant_file, name) {
+            // A physical descendant can be reached through several origin names. Keep traversing
+            // each origin because its relative-name anchor and backend scope differ, but emit its
+            // block definition only once.
+            if let Some(site) =
+                first_block_site_in_scope(db, descendant.file(db), descendant.file(db), name)
+                && emitted_sites.insert((site.file, site.name_span, site.full_span))
+            {
                 overrides.push(site);
             }
-
-            for &template_name in resolution.template_names_for_file(db, descendant_file) {
-                if queued_names.insert(template_name) {
-                    queue.push_back(template_name);
-                }
-            }
+            queue.push_back(descendant);
         }
     }
 
     overrides
 }
 
-fn file_winning_extends_target_is<'db>(
+fn origin_extends_exact_target<'db>(
     db: &'db dyn Db,
     resolution: TemplateResolution<'db>,
-    file: File,
-    target_name: TemplateName<'db>,
+    source: TemplateOrigin<'db>,
+    target: TemplateOrigin<'db>,
 ) -> bool {
+    let file = source.file(db);
     let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return false;
     };
-
-    let Some(ExtendsTarget::Literal { name, .. }) = template_symbols(db, nodelist).extends() else {
+    let Some(ExtendsTarget::Literal { name, .. }) =
+        template_symbols_in_scope(db, file, nodelist, file).extends()
+    else {
         return false;
     };
-    let current_template_name = resolution
-        .primary_template_name(db, file)
-        .map(|name| name.name(db).as_str());
-    let Some(resolved_name) = resolve_relative_name(current_template_name, name, false) else {
+    let Some(resolved_name) =
+        resolve_relative_name(Some(source.template_name(db).name(db)), name, false)
+    else {
         return false;
     };
-
-    resolved_name.as_ref() == target_name.name(db)
+    let name = TemplateName::new(db, resolved_name.into_owned());
+    let scope = resolution.backend_scope_for_origin(db, source);
+    matches!(
+        resolution.resolve_excluding_origins_in_scope(db, name, &[source], &scope),
+        TemplateResolutionResult::Found(origin) if origin == target
+    )
 }
 
-fn first_block_site(db: &dyn Db, file: File, name: &str) -> Option<BlockSite> {
+fn first_block_site_in_scope(
+    db: &dyn Db,
+    file: File,
+    scope_file: File,
+    name: &str,
+) -> Option<BlockSite> {
     let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return None;
     };
-    template_symbols(db, nodelist)
+    template_symbols_in_scope(db, file, nodelist, scope_file)
         .blocks()
         .iter()
         .find(|block| block.name == name)
@@ -243,11 +360,26 @@ fn first_block_site(db: &dyn Db, file: File, name: &str) -> Option<BlockSite> {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn template_symbols<'db>(db: &'db dyn Db, nodelist: NodeList<'db>) -> TemplateSymbols {
-    let tree = build_template_tree(db, nodelist);
+pub fn template_symbols<'db>(
+    db: &'db dyn Db,
+    file: File,
+    nodelist: NodeList<'db>,
+) -> TemplateSymbols {
+    template_symbols_in_scope(db, file, nodelist, file).clone()
+}
+
+#[salsa::tracked(returns(ref))]
+fn template_symbols_in_scope<'db>(
+    db: &'db dyn Db,
+    file: File,
+    nodelist: NodeList<'db>,
+    scope_file: File,
+) -> TemplateSymbols {
+    let projection = template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file);
+    let tree = projection.tree(db);
     let regions = tree.regions(db);
     let mut builder = SymbolBuilder {
-        tag_specs: db.tag_specs(),
+        tag_facts: projection.scoped_tag_facts(db),
         regions,
         blocks: Vec::new(),
         partials: Vec::new(),
@@ -303,7 +435,7 @@ pub enum ExtendsTarget {
 }
 
 struct SymbolBuilder<'a> {
-    tag_specs: &'a TagSpecs,
+    tag_facts: &'a ScopedTagFacts,
     regions: &'a Regions,
     blocks: Vec<BlockDef>,
     partials: Vec<PartialDef>,
@@ -329,14 +461,14 @@ impl SymbolBuilder<'_> {
         match node {
             TemplateNode::Block {
                 tag,
+                name_span,
                 bits,
                 full_span,
                 body,
                 role: BlockRole::Opener,
-                ..
             } => {
-                self.collect_definition(tag, bits, *self.regions.get(*body).span());
-                self.collect_extends(tag, bits, *full_span);
+                self.collect_definition(tag, *name_span, bits, *self.regions.get(*body).span());
+                self.collect_extends(tag, *name_span, bits, *full_span);
                 self.collect_region(*body);
             }
             TemplateNode::Block {
@@ -348,11 +480,11 @@ impl SymbolBuilder<'_> {
             }
             TemplateNode::StandaloneTag {
                 tag,
+                name_span,
                 bits,
                 full_span,
-                ..
             } => {
-                self.collect_extends(tag, bits, *full_span);
+                self.collect_extends(tag, *name_span, bits, *full_span);
             }
             TemplateNode::Opaque { .. }
             | TemplateNode::Variable { .. }
@@ -362,8 +494,8 @@ impl SymbolBuilder<'_> {
         }
     }
 
-    fn collect_definition(&mut self, tag: &str, bits: &[TagBit], full_span: Span) {
-        let Some(role) = self.tag_role(tag) else {
+    fn collect_definition(&mut self, tag: &str, name_span: Span, bits: &[TagBit], full_span: Span) {
+        let Some(role) = self.tag_role(tag, name_span) else {
             return;
         };
         let Some(bit) = bits.first() else {
@@ -390,12 +522,12 @@ impl SymbolBuilder<'_> {
         }
     }
 
-    fn collect_extends(&mut self, tag: &str, bits: &[TagBit], full_span: Span) {
+    fn collect_extends(&mut self, tag: &str, name_span: Span, bits: &[TagBit], full_span: Span) {
         if self.extends.is_some() {
             return;
         }
         if !matches!(
-            self.tag_role(tag),
+            self.tag_role(tag, name_span),
             Some(TagRole::TemplateReference(TemplateReferenceKind::Extends))
         ) {
             return;
@@ -413,7 +545,10 @@ impl SymbolBuilder<'_> {
         });
     }
 
-    fn tag_role(&self, tag: &str) -> Option<TagRole> {
-        self.tag_specs.get(tag).and_then(TagSpec::role)
+    fn tag_role(&self, _tag: &str, name_span: Span) -> Option<TagRole> {
+        self.tag_facts
+            .for_name_span(name_span)
+            .and_then(|facts| facts.spec.as_ref())
+            .and_then(TagSpec::role)
     }
 }

@@ -5,7 +5,7 @@ use djls_semantic::OpaqueRegions;
 use djls_semantic::TagSpec;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::build_template_tree;
+use djls_semantic::build_template_tree_for_file;
 use djls_semantic::builtin_tag_specs;
 use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
@@ -17,7 +17,7 @@ fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {
     db.add_file(path, source);
     let file = db.file(Utf8Path::new(path));
     let nodelist = parse_template(db, file).expect("should parse");
-    compute_opaque_regions(db, nodelist)
+    compute_opaque_regions(db, file, nodelist)
 }
 
 #[test]
@@ -38,13 +38,13 @@ fn opaque_opener_treats_intermediate_as_raw_content() {
             true,
         ),
     );
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let path = "test.html";
     let source = "{% opaque_if %}first{% opaque_else %}second{% endopaque_if %}";
     db.add_file(path, source);
     let file = db.file(Utf8Path::new(path));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let regions = compute_opaque_regions(&db, nodelist);
+    let regions = compute_opaque_regions(&db, file, nodelist);
     let first = u32::try_from(source.find("first").unwrap()).unwrap();
     let opaque_else = u32::try_from(source.find("{% opaque_else %}").unwrap()).unwrap();
     let opaque_else_last = opaque_else + u32::try_from("{% opaque_else %}".len()).unwrap() - 1;
@@ -142,8 +142,10 @@ fn unclosed_opaque_block_creates_no_region() {
     db.add_file(path, source);
     let file = db.file(Utf8Path::new(path));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let regions = compute_opaque_regions(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    let regions = compute_opaque_regions(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    );
     let body = u32::try_from(source.find("body").unwrap()).unwrap();
 
     assert!(!regions.is_opaque(body));

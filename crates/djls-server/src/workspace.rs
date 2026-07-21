@@ -232,7 +232,7 @@ impl Buffers {
         self.inner.contains_key(path)
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (Utf8PathBuf, TextDocument)> + '_ {
+    fn iter(&self) -> impl Iterator<Item = (Utf8PathBuf, TextDocument)> + '_ {
         self.inner
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))

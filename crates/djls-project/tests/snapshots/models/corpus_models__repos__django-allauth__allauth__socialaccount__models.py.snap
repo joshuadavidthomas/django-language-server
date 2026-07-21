@@ -35,7 +35,22 @@ models:
         start: 1336
         length: 9
     module_name: allauth.socialaccount.models
-    relations: []
+    relations:
+      - field_name:
+          value: sites
+          span:
+            start: 2838
+            length: 5
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Qualified
+            app_label: sites
+            name: Site
+          span:
+            start: 2869
+            length: 12
+        related_name: ~
     kind: concrete
   allauth.socialaccount.models.SocialToken:
     name:

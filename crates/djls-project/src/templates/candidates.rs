@@ -12,8 +12,8 @@ use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::PythonSourceModule;
 use crate::python::SearchPath;
 use crate::python::resolve_package_dirs;
 use crate::templates::LibraryName;
@@ -22,7 +22,7 @@ use crate::templates::LibraryName;
 pub(crate) struct TemplateTagCandidate {
     pub(crate) app: PythonModuleName,
     pub(crate) name: LibraryName,
-    pub(crate) module: PythonModule,
+    pub(crate) module: PythonSourceModule,
 }
 
 impl TemplateTagCandidate {
@@ -42,7 +42,7 @@ impl TemplateTagCandidate {
         Ok(Self {
             app,
             name,
-            module: PythonModule::new(module_name, path, file, search_path),
+            module: PythonSourceModule::file_module(module_name, path, file, search_path),
         })
     }
 
@@ -54,7 +54,7 @@ impl TemplateTagCandidate {
         self.module.path().to_path_buf()
     }
 
-    pub(crate) fn into_python_module(self) -> PythonModule {
+    pub(crate) fn into_python_module(self) -> PythonSourceModule {
         self.module
     }
 

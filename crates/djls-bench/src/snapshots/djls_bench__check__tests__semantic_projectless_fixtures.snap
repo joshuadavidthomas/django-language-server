@@ -1,0 +1,26 @@
+---
+source: crates/djls-bench/src/check.rs
+expression: "SemanticWorkloadSnapshot\n{ files: snapshots, total_template_tree_regions, opaque_region_paths, }"
+---
+files:
+  - path: /templates/large/stress_test.html
+    template_tree_regions: 67
+    has_opaque_regions: true
+  - path: /templates/large/views_technical_500.html
+    template_tree_regions: 170
+    has_opaque_regions: false
+  - path: /templates/medium/admin_login.html
+    template_tree_regions: 18
+    has_opaque_regions: false
+  - path: /templates/medium/nested_blocks.html
+    template_tree_regions: 16
+    has_opaque_regions: false
+  - path: /templates/small/dense_tags.html
+    template_tree_regions: 5
+    has_opaque_regions: false
+  - path: /templates/small/forms_widgets_input.html
+    template_tree_regions: 3
+    has_opaque_regions: false
+total_template_tree_regions: 279
+opaque_region_paths:
+  - /templates/large/stress_test.html

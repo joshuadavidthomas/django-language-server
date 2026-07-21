@@ -1,3 +1,6 @@
+use std::cmp::Ordering;
+
+use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::FileReadError;
@@ -7,6 +10,7 @@ use ruff_python_ast::PySourceType;
 use ruff_python_ast::Stmt;
 
 use crate::ast::RangedExt;
+use crate::python::evaluation::StructuralOrd;
 
 #[derive(Clone, PartialEq, Eq, salsa::Update)]
 enum PythonParseResult<'db> {
@@ -32,24 +36,30 @@ pub(crate) struct RecoveredPythonModule<'db> {
 }
 
 impl<'db> RecoveredPythonModule<'db> {
-    pub(crate) fn body(self, db: &'db dyn djls_source::Db) -> &'db [Stmt] {
+    pub(crate) fn from_file(
+        db: &'db dyn SourceDb,
+        file: File,
+    ) -> Result<Option<Self>, FileReadError> {
+        match parse_python_file(db, file) {
+            PythonParseResult::Parsed(parse) => Ok(Some(Self { parse })),
+            PythonParseResult::NotPython => Ok(None),
+            PythonParseResult::Unreadable(error) => Err(error),
+        }
+    }
+
+    pub(crate) fn body(self, db: &'db dyn SourceDb) -> &'db [Stmt] {
         self.parse.body(db)
     }
-}
 
-#[derive(Clone, PartialEq, Eq, salsa::Update)]
-pub(crate) enum RecoveredPythonModuleResult<'db> {
-    Module(RecoveredPythonModule<'db>),
-    NotPython,
-    Unreadable(FileReadError),
-}
+    pub(crate) fn syntax_errors(self, db: &'db dyn SourceDb) -> &'db [PythonSyntaxError] {
+        self.parse.syntax_errors(db)
+    }
 
-#[derive(Clone, PartialEq, Eq, salsa::Update)]
-pub(crate) enum ExactPythonModule<'db> {
-    Ready(RecoveredPythonModule<'db>),
-    OrdinarySyntaxErrors,
-    NotPython,
-    Unreadable(FileReadError),
+    pub(crate) fn has_ordinary_syntax_errors(self, db: &'db dyn SourceDb) -> bool {
+        self.syntax_errors(db)
+            .iter()
+            .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -65,20 +75,24 @@ pub struct PythonSyntaxError {
     pub message: String,
 }
 
+impl StructuralOrd for PythonSyntaxError {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        self.class
+            .cmp(&other.class)
+            .then_with(|| self.span.start().cmp(&other.span.start()))
+            .then_with(|| self.span.length().cmp(&other.span.length()))
+            .then_with(|| self.message.cmp(&other.message))
+    }
+}
+
 struct PythonParseOutput {
     module: ModModule,
     syntax_errors: Vec<PythonSyntaxError>,
 }
 
-pub(super) enum ExactPythonSource {
-    Ready(ModModule),
-    OrdinarySyntaxErrors,
-}
-
 /// Convert Ruff's recovered parser output into project-owned syntax evidence.
 ///
-/// Keeping this pure lets tracked parsing and the legacy settings graph share
-/// exactly the same recovery and error-normalization policy.
+/// Keeping this pure gives tracked parsing one error-normalization policy.
 fn parse_python_source(source: &str) -> PythonParseOutput {
     let parsed = ruff_python_parser::parse_unchecked_source(source, PySourceType::Python);
     let mut syntax_errors =
@@ -105,59 +119,15 @@ fn parse_python_source(source: &str) -> PythonParseOutput {
     }
 }
 
-pub(super) fn parse_exact_python_source(source: &str) -> ExactPythonSource {
-    let parsed = parse_python_source(source);
-    if has_ordinary_syntax_errors(&parsed.syntax_errors) {
-        ExactPythonSource::OrdinarySyntaxErrors
-    } else {
-        ExactPythonSource::Ready(parsed.module)
-    }
-}
-
-pub(crate) fn recovered_python_module(
-    db: &dyn djls_source::Db,
-    file: File,
-) -> RecoveredPythonModuleResult<'_> {
-    match parse_python_file(db, file) {
-        PythonParseResult::Parsed(parse) => {
-            RecoveredPythonModuleResult::Module(RecoveredPythonModule { parse })
-        }
-        PythonParseResult::NotPython => RecoveredPythonModuleResult::NotPython,
-        PythonParseResult::Unreadable(error) => RecoveredPythonModuleResult::Unreadable(error),
-    }
-}
-
-pub(crate) fn exact_python_module(db: &dyn djls_source::Db, file: File) -> ExactPythonModule<'_> {
-    match parse_python_file(db, file) {
-        PythonParseResult::Parsed(parse) if has_ordinary_syntax_errors(parse.syntax_errors(db)) => {
-            ExactPythonModule::OrdinarySyntaxErrors
-        }
-        PythonParseResult::Parsed(parse) => {
-            ExactPythonModule::Ready(RecoveredPythonModule { parse })
-        }
-        PythonParseResult::NotPython => ExactPythonModule::NotPython,
-        PythonParseResult::Unreadable(error) => ExactPythonModule::Unreadable(error),
-    }
-}
-
-pub(crate) fn python_syntax_errors(
-    db: &dyn djls_source::Db,
-    file: File,
-) -> Option<&Vec<PythonSyntaxError>> {
+pub(crate) fn python_syntax_errors(db: &dyn SourceDb, file: File) -> Option<&[PythonSyntaxError]> {
     match parse_python_file(db, file) {
         PythonParseResult::Parsed(parse) => Some(parse.syntax_errors(db)),
         PythonParseResult::NotPython | PythonParseResult::Unreadable(_) => None,
     }
 }
 
-fn has_ordinary_syntax_errors(errors: &[PythonSyntaxError]) -> bool {
-    errors
-        .iter()
-        .any(|error| error.class == PythonSyntaxErrorClass::Ordinary)
-}
-
 #[salsa::tracked]
-fn parse_python_file(db: &dyn djls_source::Db, file: File) -> PythonParseResult<'_> {
+fn parse_python_file(db: &dyn SourceDb, file: File) -> PythonParseResult<'_> {
     let source = match file.try_source(db) {
         Ok(source) => source,
         Err(error) => return PythonParseResult::Unreadable(error),

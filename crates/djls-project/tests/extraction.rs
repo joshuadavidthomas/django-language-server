@@ -2,7 +2,11 @@ use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
-use djls_project::extract_tag_rules;
+use djls_project::TemplateLibraryId;
+use djls_project::TemplateSymbolKind;
+use djls_project::template_library_definition_facts;
+use djls_project::template_library_filter_facts;
+use djls_project::template_library_tag_facts;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::python_syntax_errors;
 use djls_source::ChangeEvent;
@@ -185,16 +189,98 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let file = db.file(path);
     let module_name = PythonModuleName::parse("test.templatetags.known").unwrap();
 
-    assert!(!extract_tag_rules(&db, file, module_name.clone()).is_empty());
+    let key = TemplateLibraryId::new(&db, Some(file), module_name);
+    assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
     let _ = event_log.take();
 
     db.add_file(path.as_str(), &format!("{source}# comment only\n"));
     SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
-    assert!(!extract_tag_rules(&db, file, module_name).is_empty());
+    assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
     let events = event_log.take();
     assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
-    assert_eq!(execution_count(&db, &events, "extract_tag_rules"), 0);
+    assert_eq!(
+        execution_count(&db, &events, "template_library_tag_facts"),
+        0
+    );
+}
+
+#[test]
+fn template_library_extraction_products_execute_once_and_share_parsing() {
+    let event_log = SalsaEventLog::default();
+    let db = TestDatabase::with_event_log(event_log.clone());
+
+    db.add_file("/test/defaulttags.py", DEFAULTTAGS_SOURCE);
+    let tags_file = db.file(Utf8Path::new("/test/defaulttags.py"));
+    let tags_module = PythonModuleName::parse("django.template.defaulttags").unwrap();
+    let tags_key = TemplateLibraryId::new(&db, Some(tags_file), tags_module);
+    let facts = template_library_definition_facts(&db, tags_key);
+    assert!(facts.is_library());
+    assert!(facts.symbol(TemplateSymbolKind::Tag, "for").is_some());
+    assert!(facts.symbol(TemplateSymbolKind::Filter, "for").is_none());
+    let tag_facts = template_library_tag_facts(&db, tags_key);
+    assert!(
+        tag_facts.tag_rules().keys().any(
+            |key| key.name == "for" && key.registration_module == "django.template.defaulttags"
+        )
+    );
+    assert!(
+        tag_facts
+            .block_specs()
+            .as_map()
+            .keys()
+            .any(|key| key.name == "for")
+    );
+
+    let events = event_log.take();
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(
+        execution_count(&db, &events, "template_library_source_analysis"),
+        1,
+        "definitions, Tag Rules, and Block Specs must share one registration analysis",
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_definition_facts"),
+        1
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_tag_facts"),
+        1
+    );
+
+    db.add_file("/test/defaultfilters.py", DEFAULTFILTERS_SOURCE);
+    let filters_file = db.file(Utf8Path::new("/test/defaultfilters.py"));
+    let filters_key = TemplateLibraryId::new(
+        &db,
+        Some(filters_file),
+        PythonModuleName::parse("django.template.defaultfilters").unwrap(),
+    );
+    let filters = template_library_filter_facts(&db, filters_key);
+    assert!(
+        filters
+            .filter_arities()
+            .keys()
+            .any(|key| key.name == "lower"
+                && key.registration_module == "django.template.defaultfilters")
+    );
+
+    let events = event_log.take();
+    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(
+        execution_count(&db, &events, "template_library_source_analysis"),
+        1,
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_filter_facts"),
+        1
+    );
+
+    let _ = template_library_filter_facts(&db, filters_key);
+    assert_eq!(
+        execution_count(&db, &event_log.take(), "template_library_filter_facts"),
+        0,
+        "same-revision extraction should be memoized",
+    );
 }
 
 // (b) Edge case — valid Python with no registrations

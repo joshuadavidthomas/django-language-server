@@ -37,7 +37,7 @@ fn render_inheritance(scenario: &Scenario) -> String {
     let primary_path = template_path(&primary.path);
     let file = db.file(Utf8Path::new(&primary_path));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let symbols = template_symbols(&db, nodelist);
+    let symbols = template_symbols(&db, file, nodelist);
     let inheritance = template_inheritance(&db, project, file);
 
     let mut output = String::new();

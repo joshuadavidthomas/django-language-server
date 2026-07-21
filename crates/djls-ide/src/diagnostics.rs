@@ -1,6 +1,6 @@
+use djls_semantic::collect_template_diagnostics;
 use djls_source::File;
 use djls_source::FileKind;
-use djls_templates::TemplateErrorAccumulator;
 use tower_lsp_server::ls_types;
 
 use crate::ext::DiagnosticExt;
@@ -27,25 +27,17 @@ pub fn collect_diagnostics(
 
     let config = db.diagnostics_config();
 
-    djls_semantic::validate_template_file(db, file);
-
-    let template_errors =
-        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
-
+    let collected = collect_template_diagnostics(db, file);
     let line_index = file.line_index(db);
 
-    for error_acc in template_errors {
-        if let Some(diagnostic) = error_acc.0.to_lsp_diagnostic(line_index, &config) {
+    for error in collected.template_errors {
+        if let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) {
             diagnostics.push(diagnostic);
         }
     }
 
-    let validation_errors = djls_semantic::validate_template_file::accumulated::<
-        djls_semantic::ValidationErrorAccumulator,
-    >(db, file);
-
-    for error_acc in validation_errors {
-        if let Some(diagnostic) = error_acc.0.to_lsp_diagnostic(line_index, &config) {
+    for error in collected.validation_errors {
+        if let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) {
             diagnostics.push(diagnostic);
         }
     }

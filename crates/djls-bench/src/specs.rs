@@ -1,20 +1,18 @@
-use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use djls_project::Db as ProjectDb;
+use camino::Utf8Path;
+use djls_conf::TagSpecDef;
+use djls_ide::prime_template_library_products;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
-use djls_project::LibraryName;
+use djls_project::Interpreter;
+use djls_project::Project;
 use djls_project::PythonModuleName;
-use djls_project::SymbolDefinition;
+use djls_project::SearchPaths;
 use djls_project::SymbolKey;
-use djls_project::TemplateSymbol;
-use djls_project::TemplateSymbolKind;
-use djls_project::TemplateSymbolName;
-use djls_project::testing;
-use djls_project::testing::TemplateLibraryInput;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
+use djls_source::Db as SourceDb;
 use djls_testing::extract_bundle;
 
 use crate::Db;
@@ -22,104 +20,11 @@ use crate::Db;
 const DEFAULTTAGS: &str = "django.template.defaulttags";
 const DEFAULTFILTERS: &str = "django.template.defaultfilters";
 const I18N: &str = "django.templatetags.i18n";
-const STATIC: &str = "django.templatetags.static";
-
-struct BenchSymbol {
-    load_name: Option<&'static str>,
-    module: &'static str,
-    symbol: TemplateSymbol,
-}
-
-fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &str) -> TemplateSymbol {
-    TemplateSymbol {
-        kind,
-        name: TemplateSymbolName::parse(name).unwrap(),
-        definition: PythonModuleName::parse(module)
-            .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module),
-        doc: None,
-    }
-}
-
-fn builtin_tag(name: &str, module: &'static str) -> BenchSymbol {
-    BenchSymbol {
-        load_name: None,
-        module,
-        symbol: template_symbol(TemplateSymbolKind::Tag, name, module),
-    }
-}
-
-fn library_tag(name: &str, load_name: &'static str, module: &'static str) -> BenchSymbol {
-    BenchSymbol {
-        load_name: Some(load_name),
-        module,
-        symbol: template_symbol(TemplateSymbolKind::Tag, name, module),
-    }
-}
-
-fn builtin_filter(name: &str, module: &'static str) -> BenchSymbol {
-    BenchSymbol {
-        load_name: None,
-        module,
-        symbol: template_symbol(TemplateSymbolKind::Filter, name, module),
-    }
-}
-
 struct RealisticSpecs {
     tag_specs: TagSpecs,
-    template_library_inputs: Vec<TemplateLibraryInput>,
     filter_arity_specs: FilterAritySpecs,
-}
-
-fn build_template_symbols() -> Vec<BenchSymbol> {
-    vec![
-        builtin_tag("if", DEFAULTTAGS),
-        builtin_tag("for", DEFAULTTAGS),
-        builtin_tag("block", DEFAULTTAGS),
-        builtin_tag("extends", DEFAULTTAGS),
-        builtin_tag("include", DEFAULTTAGS),
-        builtin_tag("with", DEFAULTTAGS),
-        builtin_tag("load", DEFAULTTAGS),
-        builtin_tag("url", DEFAULTTAGS),
-        builtin_tag("csrf_token", DEFAULTTAGS),
-        builtin_tag("comment", DEFAULTTAGS),
-        builtin_tag("verbatim", DEFAULTTAGS),
-        builtin_tag("autoescape", DEFAULTTAGS),
-        builtin_tag("spaceless", DEFAULTTAGS),
-        builtin_tag("widthratio", DEFAULTTAGS),
-        builtin_tag("cycle", DEFAULTTAGS),
-        builtin_tag("firstof", DEFAULTTAGS),
-        builtin_tag("now", DEFAULTTAGS),
-        builtin_tag("regroup", DEFAULTTAGS),
-        builtin_tag("ifchanged", DEFAULTTAGS),
-        builtin_tag("filter", DEFAULTTAGS),
-        builtin_filter("title", DEFAULTFILTERS),
-        builtin_filter("lower", DEFAULTFILTERS),
-        builtin_filter("upper", DEFAULTFILTERS),
-        builtin_filter("default", DEFAULTFILTERS),
-        builtin_filter("date", DEFAULTFILTERS),
-        builtin_filter("truncatewords", DEFAULTFILTERS),
-        builtin_filter("floatformat", DEFAULTFILTERS),
-        builtin_filter("length", DEFAULTFILTERS),
-        builtin_filter("join", DEFAULTFILTERS),
-        builtin_filter("safe", DEFAULTFILTERS),
-        builtin_filter("escape", DEFAULTFILTERS),
-        builtin_filter("urlencode", DEFAULTFILTERS),
-        builtin_filter("slugify", DEFAULTFILTERS),
-        builtin_filter("linebreaks", DEFAULTFILTERS),
-        builtin_filter("striptags", DEFAULTFILTERS),
-        builtin_filter("capfirst", DEFAULTFILTERS),
-        builtin_filter("center", DEFAULTFILTERS),
-        builtin_filter("cut", DEFAULTFILTERS),
-        builtin_filter("dictsort", DEFAULTFILTERS),
-        builtin_filter("yesno", DEFAULTFILTERS),
-        builtin_filter("pluralize", DEFAULTFILTERS),
-        library_tag("translate", "i18n", I18N),
-        library_tag("trans", "i18n", I18N),
-        library_tag("blocktranslate", "i18n", I18N),
-        library_tag("blocktrans", "i18n", I18N),
-        library_tag("get_current_language", "i18n", I18N),
-        library_tag("static", "static", STATIC),
-    ]
+    defaulttags_source: String,
+    i18n_source: String,
 }
 
 fn build_filter_arities(
@@ -159,65 +64,7 @@ fn build_filter_arities(
     specs
 }
 
-fn build_template_library_inputs(symbols: Vec<BenchSymbol>) -> Vec<TemplateLibraryInput> {
-    let mut builtins = BTreeMap::new();
-    for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
-        builtins.insert(PythonModuleName::parse(module_name).unwrap(), Vec::new());
-    }
-
-    let mut installed = BTreeMap::new();
-    for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
-        installed.insert(
-            LibraryName::parse(load_name).unwrap(),
-            (PythonModuleName::parse(module_name).unwrap(), Vec::new()),
-        );
-    }
-
-    for bench_symbol in symbols {
-        let module = PythonModuleName::parse(bench_symbol.module).unwrap();
-        match bench_symbol.load_name {
-            None => {
-                if let Some(symbols) = builtins.get_mut(&module) {
-                    symbols.push(bench_symbol.symbol);
-                }
-            }
-            Some(load_name) => {
-                let load_name = LibraryName::parse(load_name).unwrap();
-                if let Some((installed_module, symbols)) = installed.get_mut(&load_name)
-                    && installed_module == &module
-                {
-                    symbols.push(bench_symbol.symbol);
-                }
-            }
-        }
-    }
-
-    let mut inputs = Vec::new();
-    inputs.extend(
-        builtins
-            .into_iter()
-            .map(|(module, symbols)| TemplateLibraryInput::Builtin { module, symbols }),
-    );
-    inputs.extend(installed.into_iter().map(|(load_name, (module, symbols))| {
-        TemplateLibraryInput::Installed {
-            load_name,
-            module,
-            symbols,
-        }
-    }));
-    inputs
-}
-
-fn build_template_libraries(
-    db: &dyn ProjectDb,
-    inputs: &[TemplateLibraryInput],
-) -> djls_project::TemplateLibraries {
-    testing::template_libraries(db, inputs.to_vec())
-}
-
 fn build_realistic_specs() -> RealisticSpecs {
-    let template_library_inputs = build_template_library_inputs(build_template_symbols());
-
     let mut tag_specs = TagSpecs::default();
 
     let fixture_root = crate::fixtures::crate_root().join("fixtures/python");
@@ -257,8 +104,9 @@ fn build_realistic_specs() -> RealisticSpecs {
 
     RealisticSpecs {
         tag_specs,
-        template_library_inputs,
         filter_arity_specs,
+        defaulttags_source,
+        i18n_source,
     }
 }
 
@@ -267,11 +115,76 @@ fn realistic_specs() -> &'static RealisticSpecs {
     SPECS.get_or_init(build_realistic_specs)
 }
 
+fn install_template_library_fixture(db: &mut Db, specs: &RealisticSpecs) {
+    // Canonical builtin identities make extracted source facts fuse with semantic's hardcoded
+    // Django roles and fallback grammar, matching production project analysis.
+    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}}}]\n";
+    const DEFAULTFILTERS: &str = concat!(
+        "from django import template\nregister = template.Library()\n",
+        "@register.filter\ndef title(value): pass\n",
+        "@register.filter\ndef lower(value): pass\n",
+        "@register.filter\ndef upper(value): pass\n",
+        "@register.filter\ndef default(value, arg): pass\n",
+        "@register.filter\ndef date(value, arg=None): pass\n",
+        "@register.filter\ndef truncatewords(value, arg): pass\n",
+        "@register.filter\ndef floatformat(value, arg=None): pass\n",
+        "@register.filter\ndef join(value, arg): pass\n",
+        "@register.filter\ndef cut(value, arg): pass\n",
+        "@register.filter\ndef yesno(value, arg=None): pass\n",
+        "@register.filter\ndef pluralize(value, arg=None): pass\n",
+        "@register.filter\ndef center(value, arg): pass\n",
+    );
+    const LOADER_TAGS: &str = concat!(
+        "from django import template\nregister = template.Library()\n",
+        "@register.tag\ndef block(parser, token): pass\n",
+        "@register.tag\ndef extends(parser, token): pass\n",
+        "@register.tag\ndef include(parser, token): pass\n",
+    );
+
+    for (path, source) in [
+        ("/project/__init__.py", ""),
+        ("/project/settings.py", SETTINGS),
+        ("/django/__init__.py", ""),
+        ("/django/template/__init__.py", ""),
+        ("/django/template/defaultfilters.py", DEFAULTFILTERS),
+        ("/django/template/loader_tags.py", LOADER_TAGS),
+        ("/django/templatetags/__init__.py", ""),
+        (
+            "/django/templatetags/static.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef static(parser, token): pass\n",
+        ),
+    ] {
+        db.add_fixture_source(path, source);
+    }
+    db.add_fixture_source(
+        "/django/template/defaulttags.py",
+        specs.defaulttags_source.clone(),
+    );
+    db.add_fixture_source("/django/templatetags/i18n.py", specs.i18n_source.clone());
+
+    let root = Utf8Path::new("/");
+    let interpreter = Interpreter::Auto;
+    let search_paths =
+        SearchPaths::from_project_settings(db.file_system(), root, &interpreter, &[]);
+    search_paths.register_roots(db);
+    let project = Project::new(
+        db,
+        root.to_path_buf(),
+        search_paths,
+        interpreter,
+        Some(PythonModuleName::parse("project.settings").unwrap()),
+        Vec::new(),
+        Vec::new(),
+        TagSpecDef::default(),
+    );
+    db.set_project(project);
+}
+
 /// Create a benchmark `Db` configured for semantic structure projections.
 #[must_use]
 pub fn structure_db() -> Db {
     let specs = realistic_specs();
-    Db::new().with_tag_specs(specs.tag_specs.clone())
+    Db::new().with_projectless_tag_specs(specs.tag_specs.clone())
 }
 
 /// Create a benchmark `Db` configured with realistic Django tag specs,
@@ -279,11 +192,101 @@ pub fn structure_db() -> Db {
 /// source files.
 #[must_use]
 pub fn realistic_db() -> Db {
-    let specs = realistic_specs();
+    configure_realistic_db(Db::new())
+}
 
-    let db = Db::new()
-        .with_tag_specs(specs.tag_specs.clone())
-        .with_filter_arity_specs(specs.filter_arity_specs.clone());
-    let template_libraries = build_template_libraries(&db, &specs.template_library_inputs);
-    db.with_template_libraries(template_libraries)
+fn configure_realistic_db(db: Db) -> Db {
+    let specs = realistic_specs();
+    let mut db = db
+        .with_projectless_tag_specs(specs.tag_specs.clone())
+        .with_projectless_filter_arity_specs(specs.filter_arity_specs.clone());
+    install_template_library_fixture(&mut db, specs);
+    db
+}
+
+/// Create the realistic database with production intrinsic priming complete.
+///
+/// # Panics
+///
+/// Panics if the realistic fixture stops installing a Project.
+#[must_use]
+pub fn primed_realistic_db() -> Db {
+    let db = realistic_db();
+    prime_template_library_products(&db)
+        .expect("realistic benchmark database should install a Project");
+    db
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use djls_project::Db as ProjectDb;
+    use djls_project::ScopedTemplateLibraries;
+    use djls_project::TemplateLibrary;
+    use djls_project::template_library_catalog;
+    use djls_semantic::SemanticOffsetContext;
+    use djls_semantic::TagRole;
+    use djls_semantic::tag_spec_at;
+    use djls_source::Offset;
+    use djls_templates::parse_template;
+    use salsa::Event;
+
+    use super::Db;
+    use super::configure_realistic_db;
+    use super::primed_realistic_db;
+
+    impl Db {
+        pub(crate) fn realistic_with_event_log(events: Arc<Mutex<Vec<Event>>>) -> Self {
+            configure_realistic_db(Self::with_event_log(events))
+        }
+    }
+
+    #[test]
+    fn realistic_project_fuses_canonical_builtins_and_converges_loads() {
+        let mut db = primed_realistic_db();
+        let project = db
+            .project()
+            .expect("realistic fixture should install a Project");
+        let environment =
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project));
+        let builtin_modules: Vec<_> = environment
+            .resolved_libraries()
+            .into_iter()
+            .filter(|library| library.load_name().is_none())
+            .map(TemplateLibrary::module_name_str)
+            .collect();
+        assert_eq!(
+            builtin_modules,
+            [
+                "django.template.defaulttags",
+                "django.template.defaultfilters",
+                "django.template.loader_tags",
+            ]
+        );
+
+        let source = "{% load i18n %}{% trans \"hello\" %}";
+        let file = db.file_with_contents("/templates/semantic-contract.html", source);
+        let nodelist = parse_template(&db, file).expect("semantic contract template should parse");
+        let load_position = u32::try_from(source.find("load").unwrap()).unwrap();
+        assert_eq!(
+            tag_spec_at(&db, file, nodelist, load_position, "load").and_then(|spec| spec.role()),
+            Some(TagRole::TemplateLibraryLoader),
+        );
+
+        let trans_position = source.find("trans").unwrap();
+        assert!(matches!(
+            SemanticOffsetContext::from_offset(
+                &db,
+                file,
+                Offset::new(u32::try_from(trans_position).unwrap()),
+            ),
+            SemanticOffsetContext::Tag {
+                name,
+                loaded_libraries,
+                ..
+            } if name == "trans" && loaded_libraries == ["i18n"]
+        ));
+    }
 }

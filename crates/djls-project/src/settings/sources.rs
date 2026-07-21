@@ -1,42 +1,30 @@
-use std::collections::BTreeSet;
-
 use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::ProjectImportLoader;
-use crate::python::PythonSemanticModel;
+use crate::python::PythonSourceModule;
+use crate::python::evaluation::python_import_trace;
+use crate::python::evaluation::python_module_facts;
 use crate::settings::DjangoSettings;
-use crate::settings::extraction::extract_settings;
+use crate::settings::extraction::settings_from_values;
+use crate::settings::settings_module;
 
-pub(super) fn django_settings_from_file(
+pub(super) fn django_settings_from_module(
     db: &dyn ProjectDb,
     project: Project,
-    file: File,
+    module: PythonSourceModule,
 ) -> DjangoSettings {
-    let mut resolver = ProjectImportLoader::tracked(db, project);
-    let Ok(source) = resolver.read_source(file) else {
-        return DjangoSettings::default();
-    };
-    extract_settings(&source, &mut resolver)
+    let file = module.file();
+    match python_module_facts(db, project, module) {
+        Ok(values) => settings_from_values(db, file, values),
+        Err(_) => DjangoSettings::unreadable(),
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct DjangoSettingsSources(Vec<File>);
 
 impl DjangoSettingsSources {
-    fn from_files(db: &dyn ProjectDb, files: impl IntoIterator<Item = File>) -> Self {
-        let mut seen = BTreeSet::new();
-        let mut deduped = Vec::new();
-        for file in files {
-            if seen.insert(file.path(db).to_path_buf()) {
-                deduped.push(file);
-            }
-        }
-
-        Self(deduped)
-    }
-
     pub(crate) fn files(&self) -> &[File] {
         &self.0
     }
@@ -46,16 +34,11 @@ impl DjangoSettingsSources {
     }
 }
 
+#[salsa::tracked]
 pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSettingsSources {
-    let Some(file) = crate::settings::settings_module_file(db, project) else {
-        return DjangoSettingsSources::from_files(db, []);
+    let Some(module) = settings_module(db, project) else {
+        return DjangoSettingsSources(Vec::new());
     };
 
-    let mut resolver = ProjectImportLoader::tracked(db, project);
-    let Ok(source) = resolver.read_source(file) else {
-        return DjangoSettingsSources::from_files(db, [file]);
-    };
-    let model = PythonSemanticModel::analyze(&source, &mut resolver);
-
-    DjangoSettingsSources::from_files(db, model.files_read().iter().copied())
+    DjangoSettingsSources(python_import_trace(db, project, module).files().collect())
 }

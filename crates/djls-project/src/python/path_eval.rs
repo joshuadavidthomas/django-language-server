@@ -1,130 +1,168 @@
+use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use ruff_python_ast as ast;
-use rustc_hash::FxHashMap;
 
-use crate::ast::ExprExt;
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct PythonPathBindings {
-    paths: FxHashMap<String, Utf8PathBuf>,
+/// A path value is either an exact path object or a nominal intrinsic used to
+/// construct and transform paths. Keeping both under one owner makes callers
+/// distinguish concrete path data from the small supported standard-library
+/// surface explicitly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PythonPath {
+    Object(Utf8PathBuf),
+    Intrinsic(PythonPathIntrinsic),
 }
 
-impl PythonPathBindings {
-    pub(crate) fn set(&mut self, name: impl Into<String>, value: Utf8PathBuf) {
-        self.paths.insert(name.into(), value);
+impl PythonPath {
+    pub(crate) fn object(path: Utf8PathBuf) -> Self {
+        Self::Object(path)
     }
 
-    pub(crate) fn get(&self, name: &str) -> Option<&Utf8PathBuf> {
-        self.paths.get(name)
-    }
-}
-
-pub(crate) fn evaluate_path(
-    expr: &ast::Expr,
-    file_path: &Utf8Path,
-    bindings: &PythonPathBindings,
-) -> Option<Utf8PathBuf> {
-    if let Some(name) = expr.name_target() {
-        return bindings.get(name).cloned();
+    pub(crate) fn from_absolute_string(value: &str) -> Option<Self> {
+        let path = Utf8Path::new(value);
+        path.is_absolute().then(|| Self::Object(path.to_path_buf()))
     }
 
-    match expr {
-        ast::Expr::Attribute(attribute) if attribute.attr.as_str() == "parent" => {
-            evaluate_path(&attribute.value, file_path, bindings).and_then(|path| {
-                path.parent().map_or_else(
-                    || Some(Utf8PathBuf::from("/")),
-                    |parent| Some(parent.to_path_buf()),
-                )
-            })
-        }
-        ast::Expr::BinOp(bin_op) if bin_op.op == ast::Operator::Div => {
-            let base = evaluate_path(&bin_op.left, file_path, bindings)?;
-            let segment = bin_op.right.string_literal()?;
-            Some(base.join(segment))
-        }
-        ast::Expr::Call(call) => evaluate_path_call(call, file_path, bindings),
-        ast::Expr::StringLiteral(literal) => {
-            let value = Utf8Path::new(literal.value.to_str());
-            if value.is_absolute() {
-                Some(value.to_path_buf())
-            } else {
-                file_path.parent().map(|parent| parent.join(value))
-            }
-        }
-        _ => None,
+    pub(crate) fn intrinsic(intrinsic: PythonPathIntrinsic) -> Self {
+        Self::Intrinsic(intrinsic)
     }
-}
 
-fn evaluate_path_call(
-    call: &ast::ExprCall,
-    file_path: &Utf8Path,
-    bindings: &PythonPathBindings,
-) -> Option<Utf8PathBuf> {
-    match call.func.as_ref() {
-        func if func.name_target() == Some("Path") => {
-            let argument = single_positional_argument(&call.arguments)?;
-            if argument.name_target() == Some("__file__") {
-                Some(file_path.to_path_buf())
-            } else {
-                evaluate_path(argument, file_path, bindings)
-            }
+    pub(crate) fn object_path(&self) -> Option<&Utf8Path> {
+        match self {
+            Self::Object(path) => Some(path),
+            Self::Intrinsic(_) => None,
         }
-        func if func.name_target() == Some("str") => evaluate_path(
-            single_positional_argument(&call.arguments)?,
-            file_path,
-            bindings,
-        ),
-        ast::Expr::Attribute(attribute) => match attribute.attr.as_str() {
-            "resolve" if call.arguments.is_empty() => {
-                evaluate_path(&attribute.value, file_path, bindings)
-            }
-            "joinpath" => {
-                let mut path = evaluate_path(&attribute.value, file_path, bindings)?;
-                for argument in positional_arguments(&call.arguments) {
-                    path = path.join(argument.string_literal()?);
+    }
+
+    pub(crate) fn parent(&self) -> Option<Self> {
+        let path = self.object_path()?;
+        let parent = path.parent().unwrap_or_else(|| Utf8Path::new("/"));
+        Some(Self::Object(parent.to_path_buf()))
+    }
+
+    pub(crate) fn join(&self, segment: &str) -> Option<Self> {
+        Some(Self::Object(self.object_path()?.join(segment)))
+    }
+
+    pub(crate) fn resolve(&self) -> Option<Self> {
+        let path = self.object_path()?;
+        if !path.is_absolute() {
+            return None;
+        }
+
+        let mut resolved = Utf8PathBuf::new();
+        for component in path.components() {
+            match component {
+                Utf8Component::Prefix(prefix) => resolved.push(prefix.as_str()),
+                Utf8Component::RootDir => resolved.push(Utf8Path::new("/")),
+                Utf8Component::CurDir => {}
+                Utf8Component::ParentDir => {
+                    resolved.pop();
                 }
-                Some(path)
+                Utf8Component::Normal(component) => resolved.push(component),
             }
-            "join" if is_os_path_attr(&attribute.value, "path") => {
-                let mut arguments = positional_arguments(&call.arguments);
-                let first = arguments.next()?;
-                let mut path = evaluate_path(first, file_path, bindings)?;
-                for argument in arguments {
-                    path = path.join(argument.string_literal()?);
-                }
-                Some(path)
-            }
-            "dirname" if is_os_path_attr(&attribute.value, "path") => {
-                let path = evaluate_path(
-                    single_positional_argument(&call.arguments)?,
-                    file_path,
-                    bindings,
-                )?;
-                path.parent().map(Utf8Path::to_path_buf)
-            }
+        }
+        Some(Self::Object(resolved))
+    }
+}
+
+/// Nominal identities for the small standard-library surface used by static
+/// path evaluation. They travel through ordinary Python bindings so aliases,
+/// branches, and shadowing follow the same rules as every other value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum PythonPathNamespace {
+    Builtins,
+    Pathlib,
+    Os,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum PythonPathIntrinsic {
+    BuiltinsModule,
+    BuiltinStrType,
+    PathlibModule,
+    PathlibPathType,
+    OsModule,
+    OsPathModule,
+    OsPathJoinFunction,
+    OsPathDirnameFunction,
+}
+
+impl PythonPathIntrinsic {
+    pub(crate) fn unbound_intrinsic(name: &str) -> Option<Self> {
+        match name {
+            "str" => Some(Self::BuiltinStrType),
             _ => None,
-        },
-        _ => None,
+        }
     }
-}
 
-fn is_os_path_attr(expr: &ast::Expr, attr: &str) -> bool {
-    matches!(
-        expr,
-        ast::Expr::Attribute(attribute)
-            if attribute.attr.as_str() == attr && attribute.value.name_target() == Some("os")
-    )
-}
-
-fn single_positional_argument(arguments: &ast::Arguments) -> Option<&ast::Expr> {
-    if arguments.keywords.is_empty() && arguments.args.len() == 1 {
-        arguments.args.first()
-    } else {
-        None
+    pub(crate) fn from_direct_import(requested: &str, binds_root: bool) -> Option<Self> {
+        match (requested, binds_root) {
+            ("builtins", _) => Some(Self::BuiltinsModule),
+            ("pathlib", _) => Some(Self::PathlibModule),
+            ("os", _) | ("os.path", true) => Some(Self::OsModule),
+            ("os.path", false) => Some(Self::OsPathModule),
+            _ => None,
+        }
     }
-}
 
-fn positional_arguments(arguments: &ast::Arguments) -> impl Iterator<Item = &ast::Expr> {
-    arguments.args.iter()
+    pub(crate) fn is_known_external_module(level: u32, module: Option<&str>) -> bool {
+        level == 0 && matches!(module, Some("builtins" | "pathlib" | "os" | "os.path"))
+    }
+
+    pub(crate) fn from_named_import(
+        level: u32,
+        module: Option<&str>,
+        member: &str,
+    ) -> Option<Self> {
+        if !Self::is_known_external_module(level, module) {
+            return None;
+        }
+        match (module, member) {
+            (Some("builtins"), "str") => Some(Self::BuiltinStrType),
+            (Some("pathlib"), "Path") => Some(Self::PathlibPathType),
+            (Some("os"), "path") => Some(Self::OsPathModule),
+            (Some("os.path"), "join") => Some(Self::OsPathJoinFunction),
+            (Some("os.path"), "dirname") => Some(Self::OsPathDirnameFunction),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn mutable_namespace(self) -> PythonPathNamespace {
+        match self {
+            Self::BuiltinsModule | Self::BuiltinStrType => PythonPathNamespace::Builtins,
+            Self::PathlibModule | Self::PathlibPathType => PythonPathNamespace::Pathlib,
+            Self::OsModule
+            | Self::OsPathModule
+            | Self::OsPathJoinFunction
+            | Self::OsPathDirnameFunction => PythonPathNamespace::Os,
+        }
+    }
+
+    pub(crate) fn shares_mutable_namespace(self, other: Self) -> bool {
+        self.mutable_namespace() == other.mutable_namespace()
+    }
+
+    pub(crate) fn member(self, name: &str) -> Option<Self> {
+        match (self, name) {
+            (Self::BuiltinsModule, "str") => Some(Self::BuiltinStrType),
+            (Self::PathlibModule, "Path") => Some(Self::PathlibPathType),
+            (Self::OsModule, "path") => Some(Self::OsPathModule),
+            (Self::OsPathModule, "join") => Some(Self::OsPathJoinFunction),
+            (Self::OsPathModule, "dirname") => Some(Self::OsPathDirnameFunction),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn structural_rank(self) -> u8 {
+        match self {
+            Self::BuiltinsModule => 0,
+            Self::BuiltinStrType => 1,
+            Self::PathlibModule => 2,
+            Self::PathlibPathType => 3,
+            Self::OsModule => 4,
+            Self::OsPathModule => 5,
+            Self::OsPathJoinFunction => 6,
+            Self::OsPathDirnameFunction => 7,
+        }
+    }
 }

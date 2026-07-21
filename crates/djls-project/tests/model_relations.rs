@@ -72,6 +72,16 @@ fn expected_span(source: &str, needle: &str) -> Span {
     Span::saturating_from_parts_usize(start, needle.len())
 }
 
+fn expected_span_after(source: &str, anchor: &str, needle: &str) -> Span {
+    let anchor_start = source
+        .find(anchor)
+        .unwrap_or_else(|| panic!("expected source to contain anchor {anchor:?}"));
+    let relative_start = source[anchor_start..]
+        .find(needle)
+        .unwrap_or_else(|| panic!("expected {needle:?} after {anchor:?}"));
+    Span::saturating_from_parts_usize(anchor_start + relative_start, needle.len())
+}
+
 fn assert_relation_location(
     actual: &(String, djls_source::File, Span, Option<Span>),
     field: &str,
@@ -527,7 +537,7 @@ fn self_relation_resolves_to_scope_model() {
 }
 
 #[test]
-fn imported_foreign_key_resolves_to_imported_model_id() {
+fn later_same_name_class_shadows_imported_base_for_relation() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .file(
@@ -540,6 +550,9 @@ fn imported_foreign_key_resolves_to_imported_model_id() {
         )
         .build(&db);
 
+    // Occurrence-local resolution follows Python scoping: the later
+    // `class User` rebinds the name imported from `accounts.models`, so the FK
+    // occurrence resolves to the local `blog.models.User`, not the import.
     let graph = compute_model_graph(&db, project);
     let post = model_id(graph, "Post", "blog.models");
     let accounts_user = model_id(graph, "User", "accounts.models");
@@ -547,9 +560,9 @@ fn imported_foreign_key_resolves_to_imported_model_id() {
 
     let resolved = graph
         .resolve_relation(post, "author")
-        .expect("imported relation should resolve");
-    assert!(ptr::eq(resolved, graph.get_by_id(accounts_user).unwrap()));
-    assert!(!ptr::eq(resolved, graph.get_by_id(blog_user).unwrap()));
+        .expect("shadowed relation should resolve to the local class");
+    assert!(ptr::eq(resolved, graph.get_by_id(blog_user).unwrap()));
+    assert!(!ptr::eq(resolved, graph.get_by_id(accounts_user).unwrap()));
 
     let value = graph_value(graph);
     let relation = relation_value(&value, "blog.models.Post", "author");
@@ -559,7 +572,7 @@ fn imported_foreign_key_resolves_to_imported_model_id() {
     );
     assert_eq!(
         relation["resolution"],
-        json!({ "Resolved": "accounts.models.User" })
+        json!({ "Resolved": "blog.models.User" })
     );
 }
 
@@ -906,4 +919,486 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
     let _graph = compute_model_graph(&db, project);
     let events = event_log.take();
     assert_eq!(execution_count(&db, &events, "extract_models"), 1);
+}
+
+/// Detect whether occurrence-local model extraction recognizes `class` as a
+/// Django model in a single-file module. Exercises the source-order alias
+/// scanner end to end through the `extract_models` query.
+fn detects_model(source: &str, class: &str) -> bool {
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/project/app/models.py");
+    db.add_file(path.as_str(), source);
+    let file = db.file(path);
+    let module_name = PythonModuleName::parse("app.models").unwrap();
+    extract_model_graph(&db, file, module_name)
+        .models_named(class)
+        .next()
+        .is_some()
+}
+
+#[test]
+fn control_import_before_class_is_recognized() {
+    assert!(detects_model(
+        "from django.db import models\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn control_recognized_base_import_spellings() {
+    // Direct alias, dotted unaliased, and named from-import alias all remain
+    // recognized under occurrence-local resolution.
+    assert!(detects_model(
+        "import django.db.models as dm\nclass Thing(dm.Model):\n    pass\n",
+        "Thing",
+    ));
+    assert!(detects_model(
+        "import django.db.models\nclass Thing(django.db.models.Model):\n    pass\n",
+        "Thing",
+    ));
+    assert!(detects_model(
+        "from django.db.models import Model as Base\nclass Thing(Base):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn control_django_db_models_recognized_without_external_source() {
+    // No accounts/django sources are provided; recognition is purely symbolic.
+    assert!(detects_model(
+        "from django.db import models\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn correction_import_after_class_does_not_affect_earlier_class() {
+    assert!(!detects_model(
+        "class Thing(models.Model):\n    pass\nfrom django.db import models\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn correction_reassignment_before_occurrence_removes_certainty() {
+    assert!(!detects_model(
+        "from django.db import models\nmodels = None\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn correction_delete_before_occurrence_removes_certainty() {
+    assert!(!detects_model(
+        "from django.db import models\ndel models\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn correction_function_definition_before_occurrence_removes_certainty() {
+    assert!(!detects_model(
+        "from django.db import models\ndef models():\n    pass\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn correction_class_definition_before_occurrence_removes_certainty() {
+    assert!(!detects_model(
+        "from django.db import models\nclass models:\n    pass\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn correction_branch_disagreement_is_conservatively_unresolved() {
+    assert!(!detects_model(
+        "from django.db import models\nif flag:\n    models = None\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn correction_try_disagreement_is_conservatively_unresolved() {
+    assert!(!detects_model(
+        "from django.db import models\ntry:\n    models = None\nexcept Exception:\n    pass\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn correction_later_exact_import_restores_certainty_for_later_only() {
+    let source = concat!(
+        "from django.db import models\n",
+        "models = None\n",
+        "class Early(models.Model):\n    pass\n",
+        "from django.db import models\n",
+        "class Late(models.Model):\n    pass\n",
+    );
+    assert!(!detects_model(source, "Early"));
+    assert!(detects_model(source, "Late"));
+}
+
+#[test]
+fn correction_earlier_occurrence_stable_after_later_write() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Early(models.Model):\n    pass\n",
+        "models = None\n",
+        "class Late(models.Model):\n    pass\n",
+    );
+    assert!(detects_model(source, "Early"));
+    assert!(!detects_model(source, "Late"));
+}
+
+#[test]
+fn contained_model_occurrences_use_branch_local_aliases_without_exporting_them() {
+    let source = concat!(
+        "if enabled:\n",
+        "    from django.db import models\n",
+        "    class Inside(models.Model):\n",
+        "        pass\n",
+        "class Outside(models.Model):\n",
+        "    pass\n",
+    );
+    assert!(detects_model(source, "Inside"));
+    assert!(!detects_model(source, "Outside"));
+}
+
+#[test]
+fn compound_binding_targets_invalidate_aliases_inside_their_bodies() {
+    assert!(!detects_model(
+        "from django.db import models\nfor models in values:\n    class Thing(models.Model):\n        pass\n",
+        "Thing",
+    ));
+    assert!(!detects_model(
+        "from django.db import models\nmatch value:\n    case models:\n        class Thing(models.Model):\n            pass\n",
+        "Thing",
+    ));
+    assert!(!detects_model(
+        "from django.db import models\ntry:\n    pass\nexcept Exception as models:\n    class Thing(models.Model):\n        pass\n",
+        "Thing",
+    ));
+    assert!(!detects_model(
+        "from django.db import models\nwith resource() as models:\n    class Thing(models.Model):\n        pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn unusable_exact_relative_import_removes_stale_symbolic_alias() {
+    assert!(!detects_model(
+        "from django.db import models\nfrom ....missing import models\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn relative_model_alias_resolves_an_imported_abstract_base() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/app/base/models.py",
+            "from django.db import models\nclass AbstractThing(models.Model):\n    class Meta:\n        abstract = True\n",
+        )
+        .file(
+            "/project/app/models.py",
+            "from .base.models import AbstractThing as Base\nclass Thing(Base):\n    pass\n",
+        )
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    model_id(graph, "Thing", "app.models");
+}
+
+#[test]
+fn class_body_relations_capture_alias_state_at_each_occurrence() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Post(models.Model):\n",
+        "    before = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+        "    from accounts.models import User\n",
+        "    imported = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+        "    User = object()\n",
+        "    after = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            "from django.db import models\nclass User(models.Model):\n    pass\n",
+        )
+        .file("/project/blog/models.py", source)
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    let post = model_id(graph, "Post", "blog.models");
+    let accounts_user = model_id(graph, "User", "accounts.models");
+    assert_eq!(graph.resolve_relation(post, "before"), None);
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(post, "imported")
+            .expect("class-local import should resolve at its occurrence"),
+        graph.get_by_id(accounts_user).unwrap(),
+    ));
+    assert_eq!(graph.resolve_relation(post, "after"), None);
+
+    let value = graph_value(graph);
+    assert_eq!(
+        relation_value(&value, "blog.models.Post", "imported")["resolution"],
+        json!({ "Resolved": "accounts.models.User" })
+    );
+    assert_eq!(
+        relation_value(&value, "blog.models.Post", "before")["resolution"]["Unresolved"]["reason"]
+            ["SameAppTargetNotFound"]["name"],
+        json!("User")
+    );
+    assert_eq!(
+        relation_value(&value, "blog.models.Post", "after")["resolution"]["Unresolved"]["reason"]["MissingImportBinding"],
+        json!({ "binding": "User" })
+    );
+
+    let file = db.file(Utf8Path::new("/project/blog/models.py"));
+    let locations = model_relation_locations(graph, "blog.models", "Post");
+    for (field, anchor) in [
+        ("before", "before ="),
+        ("imported", "imported ="),
+        ("after", "after ="),
+    ] {
+        let location = locations
+            .iter()
+            .find(|location| location.0 == field)
+            .expect("relation location should exist");
+        assert_relation_location(
+            location,
+            field,
+            file,
+            expected_span_after(source, anchor, field),
+            Some(expected_span_after(source, anchor, "User")),
+        );
+    }
+}
+
+#[test]
+fn class_body_compound_aliases_apply_only_to_contained_relations() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Post(models.Model):\n",
+        "    if enabled:\n",
+        "        from accounts.models import User\n",
+        "        conditional = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+        "    outside = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            "from django.db import models\nclass User(models.Model):\n    pass\n",
+        )
+        .file("/project/blog/models.py", source)
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    let post = model_id(graph, "Post", "blog.models");
+    assert!(graph.resolve_relation(post, "conditional").is_some());
+    assert_eq!(graph.resolve_relation(post, "outside"), None);
+}
+
+#[test]
+fn scanner_visits_every_compound_body_and_preserves_untouched_aliases() {
+    let source = concat!(
+        "from django.db import models\n",
+        "for item in values:\n    class InFor(models.Model):\n        pass\n",
+        "while enabled:\n    class InWhile(models.Model):\n        pass\n",
+        "try:\n    class InTry(models.Model):\n        pass\n",
+        "except Exception:\n    class InExcept(models.Model):\n        pass\n",
+        "match value:\n    case _:\n        class InMatch(models.Model):\n            pass\n",
+        "with resource():\n    class InWith(models.Model):\n        pass\n",
+        "if enabled:\n    unrelated = None\n",
+        "class After(models.Model):\n    pass\n",
+    );
+
+    for name in [
+        "InFor", "InWhile", "InTry", "InExcept", "InMatch", "InWith", "After",
+    ] {
+        assert!(detects_model(source, name), "{name} should be recognized");
+    }
+}
+
+#[test]
+fn all_exact_write_forms_invalidate_symbolic_aliases() {
+    assert!(!detects_model(
+        "from django.db import models\nmodels: object = None\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+    assert!(!detects_model(
+        "from django.db import models\nmodels += other\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+    assert!(!detects_model(
+        "from django.db import models\ntype models = object\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn star_import_preserves_known_model_alias_and_function_body_is_isolated() {
+    let source = concat!(
+        "from django.db import models\n",
+        "from unknown import *\n",
+        "def helper():\n",
+        "    models = None\n",
+        "    class Inner(models.Model):\n",
+        "        pass\n",
+        "class Outer(models.Model):\n",
+        "    pass\n",
+    );
+    assert!(!detects_model(source, "Inner"));
+    assert!(detects_model(source, "Outer"));
+}
+
+#[test]
+fn deferred_imported_base_is_not_rebound_by_a_later_local_class() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class AbstractBase(models.Model):\n",
+                "    class Meta:\n",
+                "        abstract = True\n",
+            ),
+        )
+        .file(
+            "/project/blog/models.py",
+            concat!(
+                "from accounts.models import AbstractBase as Base\n",
+                "class Child(Base):\n",
+                "    pass\n",
+                "class Base:\n",
+                "    pass\n",
+            ),
+        )
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    model_id(graph, "Child", "blog.models");
+}
+
+#[test]
+fn loop_and_match_writes_invalidate_aliases_after_the_compound() {
+    assert!(!detects_model(
+        "from django.db import models\nfor item in values:\n    models = None\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+    assert!(!detects_model(
+        "from django.db import models\nmatch value:\n    case _:\n        models = None\nclass Thing(models.Model):\n    pass\n",
+        "Thing",
+    ));
+}
+
+#[test]
+fn string_relation_targets_ignore_python_import_aliases() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            "from django.db import models\nclass User(models.Model):\n    pass\n",
+        )
+        .file(
+            "/project/blog/models.py",
+            concat!(
+                "from django.db import models\n",
+                "from accounts.models import User\n",
+                "class User(models.Model):\n    pass\n",
+                "class Post(models.Model):\n",
+                "    author = models.ForeignKey(\"User\", on_delete=models.CASCADE)\n",
+            ),
+        )
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    let post = model_id(graph, "Post", "blog.models");
+    let blog_user = model_id(graph, "User", "blog.models");
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(post, "author")
+            .expect("string target should resolve in the current app"),
+        graph.get_by_id(blog_user).unwrap(),
+    ));
+}
+
+#[test]
+fn explicitly_shadowed_relation_does_not_fall_back_to_same_app_model() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/blog/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class User(models.Model):\n    pass\n",
+                "User = object()\n",
+                "class Post(models.Model):\n",
+                "    author = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+            ),
+        )
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    let post = model_id(graph, "Post", "blog.models");
+    assert_eq!(graph.resolve_relation(post, "author"), None);
+    let value = graph_value(graph);
+    assert_eq!(
+        relation_value(&value, "blog.models.Post", "author")["resolution"]["Unresolved"]["reason"]
+            ["MissingImportBinding"],
+        json!({ "binding": "User" })
+    );
+}
+
+#[test]
+fn unresolved_qualified_base_does_not_collapse_to_local_class_name() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class AbstractBase(models.Model):\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Child(missing.AbstractBase):\n",
+        "    pass\n",
+    );
+    assert!(!detects_model(source, "Child"));
+}
+
+#[test]
+fn earlier_deferred_model_cannot_overwrite_a_later_direct_definition() {
+    let source = concat!(
+        "from django.db import models\n",
+        "from accounts.models import AbstractBase as Base\n",
+        "class Thing(Base):\n",
+        "    old = models.ForeignKey(\"self\", on_delete=models.CASCADE)\n",
+        "class Thing(models.Model):\n",
+        "    new = models.ForeignKey(\"self\", on_delete=models.CASCADE)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class AbstractBase(models.Model):\n",
+                "    class Meta:\n        abstract = True\n",
+            ),
+        )
+        .file("/project/blog/models.py", source)
+        .build(&db);
+
+    let graph = compute_model_graph(&db, project);
+    let thing = model_id(graph, "Thing", "blog.models");
+    assert_eq!(graph.resolve_relation(thing, "old"), None);
+    assert!(graph.resolve_relation(thing, "new").is_some());
+    let (_file, span) = model_location(graph, "blog.models", "Thing").unwrap();
+    assert_eq!(
+        span,
+        expected_span_after(source, "class Thing(models.Model)", "Thing")
+    );
 }

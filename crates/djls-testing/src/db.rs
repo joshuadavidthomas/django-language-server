@@ -5,7 +5,6 @@ use camino::Utf8Path;
 use djls_project::Db as ProjectDb;
 use djls_project::ModelGraph;
 use djls_project::Project;
-use djls_project::TemplateLibraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
@@ -18,6 +17,8 @@ use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
 use djls_source::SourceFiles;
 use djls_source::path_to_file;
+use salsa::Database;
+use salsa::EventKind;
 
 #[derive(Clone, Default)]
 pub struct SalsaEventLog {
@@ -46,6 +47,21 @@ impl SalsaEventLog {
             .expect("salsa event log lock should not be poisoned")
             .push(event);
     }
+
+    /// Drain captured events and return the tracked functions that executed.
+    #[must_use]
+    pub fn take_will_execute_names(&self, db: &TestDatabase) -> Vec<String> {
+        self.take()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                EventKind::WillExecute { database_key } => Some(
+                    db.ingredient_debug_name(database_key.ingredient_index())
+                        .to_string(),
+                ),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 #[salsa::db]
@@ -53,9 +69,8 @@ impl SalsaEventLog {
 pub struct TestDatabase {
     fs: Arc<Mutex<InMemoryFileSystem>>,
     files: SourceFiles,
-    tag_specs: TagSpecs,
-    filter_arity_specs: FilterAritySpecs,
-    template_libraries: TemplateLibraries,
+    projectless_tag_specs: TagSpecs,
+    projectless_filter_arity_specs: FilterAritySpecs,
     diagnostics_config: djls_conf::DiagnosticsConfig,
     project: Option<Project>,
     storage: salsa::Storage<Self>,
@@ -91,9 +106,8 @@ impl TestDatabase {
         Self {
             fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
             files: SourceFiles::default(),
-            tag_specs: builtin_tag_specs(),
-            filter_arity_specs: FilterAritySpecs::new(),
-            template_libraries: TemplateLibraries::default(),
+            projectless_tag_specs: builtin_tag_specs(),
+            projectless_filter_arity_specs: FilterAritySpecs::new(),
             diagnostics_config: djls_conf::DiagnosticsConfig::default(),
             project: None,
             storage,
@@ -101,20 +115,14 @@ impl TestDatabase {
     }
 
     #[must_use]
-    pub fn with_specs(mut self, specs: TagSpecs) -> Self {
-        self.tag_specs = specs;
+    pub fn with_projectless_tag_specs(mut self, specs: TagSpecs) -> Self {
+        self.projectless_tag_specs = specs;
         self
     }
 
     #[must_use]
-    pub fn with_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
-        self.filter_arity_specs = specs;
-        self
-    }
-
-    #[must_use]
-    pub fn with_template_libraries(mut self, template_libraries: TemplateLibraries) -> Self {
-        self.template_libraries = template_libraries;
+    pub fn with_projectless_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
+        self.projectless_filter_arity_specs = specs;
         self
     }
 
@@ -260,20 +268,16 @@ impl ProjectDb for OsTestDatabase {
 
 #[salsa::db]
 impl SemanticDb for TestDatabase {
-    fn tag_specs(&self) -> &TagSpecs {
-        &self.tag_specs
+    fn projectless_tag_specs(&self) -> &TagSpecs {
+        &self.projectless_tag_specs
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         self.diagnostics_config.clone()
     }
 
-    fn template_libraries(&self) -> &TemplateLibraries {
-        &self.template_libraries
-    }
-
-    fn filter_arity_specs(&self) -> &FilterAritySpecs {
-        &self.filter_arity_specs
+    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
+        &self.projectless_filter_arity_specs
     }
 
     fn model_graph(&self) -> &ModelGraph {

@@ -1,34 +1,28 @@
+use djls_project::FilterArity;
 use djls_templates::Filter;
 use salsa::Accumulator;
 
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::filters::FilterAritySpecs;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
-pub(crate) fn check_filter_arity_rule(
-    db: &dyn Db,
-    filter: &Filter,
-    arity_specs: &FilterAritySpecs,
-) {
-    if let Some(arity) = arity_specs.get(&filter.name) {
-        let has_arg = filter.arg.is_some();
+pub(crate) fn check_filter_arity_rule(db: &dyn Db, filter: &Filter, arity: &FilterArity) {
+    let has_arg = filter.arg.is_some();
 
-        if arity.expects_arg && !arity.arg_optional && !has_arg {
-            // S115: required argument missing
-            ValidationErrorAccumulator(ValidationError::FilterMissingArgument {
-                filter: filter.name.clone(),
-                span: filter.span,
-            })
-            .accumulate(db);
-        } else if !arity.expects_arg && has_arg {
-            // S116: unexpected argument provided
-            ValidationErrorAccumulator(ValidationError::FilterUnexpectedArgument {
-                filter: filter.name.clone(),
-                span: filter.span,
-            })
-            .accumulate(db);
-        }
+    if arity.expects_arg && !arity.arg_optional && !has_arg {
+        // S115: required argument missing
+        ValidationErrorAccumulator(ValidationError::FilterMissingArgument {
+            filter: filter.name.clone(),
+            span: filter.span,
+        })
+        .accumulate(db);
+    } else if !arity.expects_arg && has_arg {
+        // S116: unexpected argument provided
+        ValidationErrorAccumulator(ValidationError::FilterUnexpectedArgument {
+            filter: filter.name.clone(),
+            span: filter.span,
+        })
+        .accumulate(db);
     }
 }

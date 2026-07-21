@@ -5,7 +5,7 @@
     "${SITE_PACKAGES}/django/contrib/auth/templates",
     "${PROJECT}/djls_app/templates"
   ],
-  "template_libraries": {
+  "template_library_catalog": {
     "builtins": [
       "django.template.defaulttags",
       "django.template.defaultfilters",

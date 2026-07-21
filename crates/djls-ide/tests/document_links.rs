@@ -1,11 +1,52 @@
-use std::collections::HashMap;
-
 use camino::Utf8Path;
+use djls_conf::TagDef;
+use djls_conf::TagLibraryDef;
+use djls_conf::TagSpecDef;
+use djls_conf::TagTypeDef;
 use djls_ide::document_links;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
-use djls_testing::make_template_libraries;
 use tower_lsp_server::ls_types;
+
+#[test]
+fn document_links_do_not_leak_templates_from_another_backend() {
+    let mut db = TestDatabase::new();
+    let settings = "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file("/test/project/a/child.html", "{% include 'only-b.html' %}")
+        .file("/test/project/b/only-b.html", "other backend")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new("/test/project/a/child.html"));
+
+    assert!(document_links(&db, file).is_empty());
+}
+
+#[test]
+fn document_links_resolve_absolute_references_from_originless_files() {
+    let mut db = TestDatabase::new();
+    let source = "{% include 'card.html' %}\n{% include './card.html' %}";
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file("/test/project/scratch.html", source)
+        .file("/test/project/templates/card.html", "card")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+
+    let links = document_links(&db, file);
+
+    assert_eq!(links.len(), 1);
+    assert_eq!(
+        links[0].target.as_ref().map(|uri| uri.as_str()),
+        Some("file:///test/project/templates/card.html")
+    );
+}
 
 #[test]
 fn document_links_resolve_template_references_with_interior_ranges() {
@@ -26,9 +67,9 @@ fn document_links_resolve_template_references_with_interior_ranges() {
             "/test/project/testproject/settings.py",
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
         )
-        .template_file("child.html", child_path, source)
-        .template_file("base.html", base_path, "base")
-        .template_file("partials/card.html", partial_path, "partial")
+        .file(child_path, source)
+        .file(base_path, "base")
+        .file(partial_path, "partial")
         .install(&mut db);
 
     let file = db.file(Utf8Path::new(child_path));
@@ -81,11 +122,65 @@ fn document_links_skip_inconclusive_template_references() {
             "/test/project/testproject/settings.py",
             "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
         )
-        .template_file("child.html", child_path, source)
-        .template_file("base.html", "/test/project/templates/base.html", "base")
+        .file(child_path, source)
+        .file("/test/project/templates/base.html", "base")
         .install(&mut db);
 
     let file = db.file(Utf8Path::new(child_path));
+
+    assert!(document_links(&db, file).is_empty());
+}
+
+#[test]
+fn document_links_do_not_invent_origin_for_source_less_configured_library() {
+    let mut db = TestDatabase::new();
+    let template_path = "/test/project/templates/load.html";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("project.settings")
+        .tag_specs(TagSpecDef {
+            libraries: vec![TagLibraryDef {
+                module: "missing.panel_tags".to_string(),
+                requires_engine: None,
+                tags: vec![TagDef {
+                    name: "panel".to_string(),
+                    tag_type: TagTypeDef::Block,
+                    end: None,
+                    intermediates: Vec::new(),
+                    args: Vec::new(),
+                    extra: None,
+                }],
+                extra: None,
+            }],
+            ..TagSpecDef::default()
+        })
+        .file(
+            "/test/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
+        )
+        .file(template_path, "{% load panels %}")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new(template_path));
+
+    assert!(document_links(&db, file).is_empty());
+}
+
+#[test]
+fn document_links_skip_library_candidate_beside_open_backend_alternative() {
+    let mut db = TestDatabase::new();
+    let template_path = "/test/project/templates/load.html";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': UNKNOWN}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'project_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/project_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file(template_path, "{% load custom %}")
+        .install(&mut db);
+    let file = db.file(Utf8Path::new(template_path));
 
     assert!(document_links(&db, file).is_empty());
 }
@@ -103,8 +198,8 @@ fn document_links_resolve_relative_include_to_sibling_template() {
             "/test/project/testproject/settings.py",
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
         )
-        .template_file("dir/child.html", child_path, source)
-        .template_file("dir/x.html", target_path, "target")
+        .file(child_path, source)
+        .file(target_path, "target")
         .install(&mut db);
 
     let file = db.file(Utf8Path::new(child_path));
@@ -130,26 +225,28 @@ fn document_links_resolve_relative_include_to_sibling_template() {
 
 #[test]
 fn document_links_resolve_load_libraries_with_argument_ranges() {
-    let db = TestDatabase::new();
-    let library_modules = HashMap::from([
-        (
-            "djls_app_tags".to_string(),
-            "djls_app.templatetags.djls_app_tags".to_string(),
-        ),
-        (
-            "extras".to_string(),
-            "project.templatetags.extras".to_string(),
-        ),
-    ]);
-    let template_libraries = make_template_libraries(&db, &[], &[], &library_modules, &[]);
-    let db = db.with_template_libraries(template_libraries);
+    let mut db = TestDatabase::new();
     let template_path = "/test/project/templates/load.html";
     let source = concat!(
         "{% load djls_app_tags extras missing %}\n",
         "{% load djls_greeting from djls_app_tags %}\n",
     );
-
-    db.add_file(template_path, source);
+    ProjectFixture::new("/test/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/test/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'djls_app_tags': 'djls_app.templatetags.djls_app_tags', 'extras': 'project.templatetags.extras'}}}]\n",
+        )
+        .file(
+            "/test/project/djls_app/templatetags/djls_app_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef djls_greeting(): pass\n",
+        )
+        .file(
+            "/test/project/project/templatetags/extras.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file(template_path, source)
+        .install(&mut db);
     let file = db.file(Utf8Path::new(template_path));
     let links = document_links(&db, file);
 
@@ -162,7 +259,7 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(0, 21),
                 ),
                 target: Some(
-                    "file:///__djls_testing__/djls_app/templatetags/djls_app_tags.py"
+                    "file:///test/project/djls_app/templatetags/djls_app_tags.py"
                         .parse()
                         .expect("test URI should parse"),
                 ),
@@ -175,7 +272,7 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(0, 28),
                 ),
                 target: Some(
-                    "file:///__djls_testing__/project/templatetags/extras.py"
+                    "file:///test/project/project/templatetags/extras.py"
                         .parse()
                         .expect("test URI should parse"),
                 ),
@@ -188,7 +285,7 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(1, 40),
                 ),
                 target: Some(
-                    "file:///__djls_testing__/djls_app/templatetags/djls_app_tags.py"
+                    "file:///test/project/djls_app/templatetags/djls_app_tags.py"
                         .parse()
                         .expect("test URI should parse"),
                 ),

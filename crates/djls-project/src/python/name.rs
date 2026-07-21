@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 
@@ -6,6 +7,8 @@ use camino::Utf8Path;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
+
+use crate::python::evaluation::StructuralOrd;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InvalidModuleName {
@@ -27,6 +30,53 @@ pub enum InvalidModuleName {
     SourcePathIsAbsolute(String),
 }
 
+impl InvalidModuleName {
+    fn structural_rank(&self) -> u8 {
+        match self {
+            Self::ContainsConsecutiveDots => 0,
+            Self::ContainsWhitespace => 1,
+            Self::Empty => 2,
+            Self::EndsWithDot => 3,
+            Self::InvalidSegment(_) => 4,
+            Self::MustHavePyExtension => 5,
+            Self::SourcePathIsAbsolute(_) => 6,
+            Self::StartsWithDot => 7,
+        }
+    }
+}
+
+impl StructuralOrd for InvalidModuleName {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        let ordering = self.structural_rank().cmp(&other.structural_rank());
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+        match (self, other) {
+            (Self::Empty, Self::Empty)
+            | (Self::ContainsWhitespace, Self::ContainsWhitespace)
+            | (Self::StartsWithDot, Self::StartsWithDot)
+            | (Self::EndsWithDot, Self::EndsWithDot)
+            | (Self::ContainsConsecutiveDots, Self::ContainsConsecutiveDots)
+            | (Self::MustHavePyExtension, Self::MustHavePyExtension) => Ordering::Equal,
+            (Self::InvalidSegment(left), Self::InvalidSegment(right))
+            | (Self::SourcePathIsAbsolute(left), Self::SourcePathIsAbsolute(right)) => {
+                left.cmp(right)
+            }
+            (
+                Self::Empty
+                | Self::ContainsWhitespace
+                | Self::StartsWithDot
+                | Self::EndsWithDot
+                | Self::ContainsConsecutiveDots
+                | Self::InvalidSegment(_)
+                | Self::MustHavePyExtension
+                | Self::SourcePathIsAbsolute(_),
+                _,
+            ) => unreachable!("equal module-name-error ranks identify the same variant"),
+        }
+    }
+}
+
 /// A dotted Python module name, e.g. `"myapp.models"`.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -41,7 +91,21 @@ impl PythonModuleName {
         if trimmed.chars().any(char::is_whitespace) {
             return Err(InvalidModuleName::ContainsWhitespace);
         }
-        validate_python_module_name(trimmed)?;
+        if trimmed.starts_with('.') {
+            return Err(InvalidModuleName::StartsWithDot);
+        }
+        if trimmed.ends_with('.') {
+            return Err(InvalidModuleName::EndsWithDot);
+        }
+        if trimmed.contains("..") {
+            return Err(InvalidModuleName::ContainsConsecutiveDots);
+        }
+        for segment in trimmed.split('.') {
+            if !is_python_identifier(segment) {
+                return Err(InvalidModuleName::InvalidSegment(segment.to_string()));
+            }
+        }
+
         Ok(Self(Arc::from(trimmed)))
     }
 
@@ -67,7 +131,18 @@ impl PythonModuleName {
             return Err(InvalidModuleName::MustHavePyExtension);
         }
 
-        Self::parse(&module_name_from_relative_source_path(path))
+        let without_ext = path.with_extension("");
+        let parts: Vec<&str> = without_ext
+            .components()
+            .map(|component| component.as_str())
+            .collect();
+        let module_name = if parts.last() == Some(&"__init__") {
+            parts[..parts.len() - 1].join(".")
+        } else {
+            parts.join(".")
+        };
+
+        Self::parse(&module_name)
     }
 
     #[must_use]
@@ -75,45 +150,22 @@ impl PythonModuleName {
         &self.0
     }
 
+    /// Extend this module by exactly one identifier segment.
+    pub(crate) fn exact_child(&self, segment: &str) -> Option<Self> {
+        is_python_identifier(segment)
+            .then(|| Self(Arc::from(format!("{}.{}", self.as_str(), segment))))
+    }
+
+    pub(crate) fn parent(&self) -> Option<Self> {
+        self.as_str()
+            .rsplit_once('.')
+            .map(|(parent, _)| Self(Arc::from(parent)))
+    }
+
     #[must_use]
     pub(crate) fn into_string(self) -> String {
         self.0.to_string()
     }
-}
-
-fn module_name_from_relative_source_path(path: &Utf8Path) -> String {
-    let without_ext = path.with_extension("");
-    let parts: Vec<&str> = without_ext
-        .components()
-        .map(|component| component.as_str())
-        .collect();
-    if parts.last() == Some(&"__init__") {
-        parts[..parts.len() - 1].join(".")
-    } else {
-        parts.join(".")
-    }
-}
-
-fn validate_python_module_name(name: &str) -> Result<(), InvalidModuleName> {
-    if name.starts_with('.') {
-        return Err(InvalidModuleName::StartsWithDot);
-    }
-
-    if name.ends_with('.') {
-        return Err(InvalidModuleName::EndsWithDot);
-    }
-
-    if name.contains("..") {
-        return Err(InvalidModuleName::ContainsConsecutiveDots);
-    }
-
-    for segment in name.split('.') {
-        if !is_python_identifier(segment) {
-            return Err(InvalidModuleName::InvalidSegment(segment.to_string()));
-        }
-    }
-
-    Ok(())
 }
 
 fn is_python_identifier(segment: &str) -> bool {
@@ -201,5 +253,15 @@ mod tests {
             PythonModuleName::from_relative_source_path(Utf8Path::new("pkg/module.txt")),
             Err(InvalidModuleName::MustHavePyExtension)
         );
+    }
+
+    #[test]
+    fn exact_child_accepts_one_identifier_segment_only() {
+        let package = PythonModuleName::parse("pkg").unwrap();
+
+        assert_eq!(package.exact_child("child").unwrap().as_str(), "pkg.child");
+        assert!(package.exact_child("child.grandchild").is_none());
+        assert!(package.exact_child("bad-name").is_none());
+        assert!(package.exact_child(" child ").is_none());
     }
 }

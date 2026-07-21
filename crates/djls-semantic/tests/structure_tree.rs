@@ -2,7 +2,9 @@ use std::borrow::Cow;
 
 use camino::Utf8Path;
 use djls_semantic::BlockRole;
+use djls_semantic::Db;
 use djls_semantic::EndTag;
+use djls_semantic::IntermediateTag;
 use djls_semantic::RegionId;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -11,12 +13,16 @@ use djls_semantic::TemplateRegion;
 use djls_semantic::TemplateTree;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::build_template_tree;
+use djls_semantic::build_template_tree_for_file;
 use djls_semantic::builtin_tag_specs;
+use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
+use djls_templates::Filter;
 use djls_templates::Node;
 use djls_templates::TagBit;
 use djls_templates::parse_template;
+use djls_testing::ProjectFixture;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
 
@@ -27,7 +33,7 @@ struct TemplateTreeSnapshot {
 }
 
 impl TemplateTreeSnapshot {
-    fn from_tree(tree: TemplateTree<'_>, db: &dyn djls_semantic::Db) -> Self {
+    fn from_tree(tree: TemplateTree<'_>, db: &dyn Db) -> Self {
         let root = tree.root(db);
         let regions_ref = tree.regions(db);
 
@@ -49,7 +55,7 @@ impl TemplateTreeSnapshot {
 
 #[derive(serde::Serialize)]
 struct RegionSnapshot {
-    span: djls_source::Span,
+    span: Span,
     parent: Option<u32>,
     nodes: Vec<NodeSnapshot>,
 }
@@ -59,40 +65,40 @@ struct RegionSnapshot {
 enum NodeSnapshot {
     BlockTag {
         tag: String,
-        name_span: djls_source::Span,
-        bits: Vec<djls_templates::TagBit>,
-        full_span: djls_source::Span,
+        name_span: Span,
+        bits: Vec<TagBit>,
+        full_span: Span,
         body: u32,
         role: String,
     },
     Opaque {
         tag: String,
-        name_span: djls_source::Span,
-        bits: Vec<djls_templates::TagBit>,
-        full_span: djls_source::Span,
-        body_span: djls_source::Span,
+        name_span: Span,
+        bits: Vec<TagBit>,
+        full_span: Span,
+        body_span: Span,
     },
     StandaloneTag {
         tag: String,
-        name_span: djls_source::Span,
-        bits: Vec<djls_templates::TagBit>,
-        full_span: djls_source::Span,
+        name_span: Span,
+        bits: Vec<TagBit>,
+        full_span: Span,
     },
     Variable {
         var: String,
-        var_span: djls_source::Span,
-        filters: Vec<djls_templates::Filter>,
-        span: djls_source::Span,
+        var_span: Span,
+        filters: Vec<Filter>,
+        span: Span,
     },
     Comment {
-        span: djls_source::Span,
+        span: Span,
     },
     Text {
-        span: djls_source::Span,
+        span: Span,
     },
     Error {
-        span: djls_source::Span,
-        full_span: djls_source::Span,
+        span: Span,
+        full_span: Span,
     },
 }
 
@@ -170,13 +176,13 @@ enum NodeView {
     Tag {
         name: String,
         name_span: Span,
-        bits: Vec<djls_templates::TagBit>,
+        bits: Vec<TagBit>,
         span: Span,
     },
     Variable {
         var: String,
         var_span: Span,
-        filters: Vec<djls_templates::Filter>,
+        filters: Vec<Filter>,
         span: Span,
     },
     Comment {
@@ -276,10 +282,104 @@ fn test_template_tree_building() {
     let nodelist = parse_template(&db, file).expect("should parse");
 
     insta::assert_yaml_snapshot!("nodelist", nodelist_view(nodelist.nodelist(&db)));
-    let template_tree = build_template_tree(&db, nodelist);
+    let template_tree = build_template_tree_for_file(&db, file, nodelist);
     insta::assert_yaml_snapshot!(
         "template_tree",
         TemplateTreeSnapshot::from_tree(template_tree, &db)
+    );
+}
+
+#[test]
+fn projectless_structure_queries_bypass_correlated_template_analysis() {
+    let event_log = SalsaEventLog::default();
+    let db = TestDatabase::with_event_log(event_log.clone());
+    db.add_file("/tree.html", "{% if value %}body{% endif %}");
+    db.add_file(
+        "/opaque.html",
+        "{% verbatim %}{% if ignored %}{% endverbatim %}",
+    );
+    let tree_file = db.file(Utf8Path::new("/tree.html"));
+    let opaque_file = db.file(Utf8Path::new("/opaque.html"));
+    let tree_nodes = parse_template(&db, tree_file).expect("tree fixture should parse");
+    let opaque_nodes = parse_template(&db, opaque_file).expect("opaque fixture should parse");
+
+    let _ = event_log.take();
+    let tree = build_template_tree_for_file(&db, tree_file, tree_nodes);
+    assert!(tree.regions(&db).iter().next().is_some());
+    let executed = event_log.take_will_execute_names(&db);
+    assert!(
+        executed
+            .iter()
+            .any(|name| name.ends_with("build_template_tree_for_file")),
+        "projectless structure should execute its direct tree query: {executed:?}"
+    );
+    assert!(
+        executed
+            .iter()
+            .all(|name| !name.ends_with("template_analysis_projection_for_file_in_scope")),
+        "projectless structure must bypass correlated analysis: {executed:?}"
+    );
+
+    let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
+    assert!(regions.is_opaque(20));
+    let executed = event_log.take_will_execute_names(&db);
+    assert!(
+        executed
+            .iter()
+            .any(|name| name.ends_with("build_template_tree_for_file")),
+        "projectless opaque analysis should build one direct tree: {executed:?}"
+    );
+    assert!(
+        executed
+            .iter()
+            .all(|name| !name.ends_with("template_analysis_projection_for_file_in_scope")),
+        "projectless opaque analysis must bypass correlated analysis: {executed:?}"
+    );
+}
+
+#[test]
+fn project_backed_structure_queries_use_correlated_template_analysis() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/project/templates/tree.html",
+            "{% if value %}body{% endif %}",
+        )
+        .file(
+            "/project/templates/opaque.html",
+            "{% verbatim %}{% if ignored %}{% endverbatim %}",
+        )
+        .install(&mut db);
+    let tree_file = db.file(Utf8Path::new("/project/templates/tree.html"));
+    let opaque_file = db.file(Utf8Path::new("/project/templates/opaque.html"));
+    let tree_nodes = parse_template(&db, tree_file).expect("tree fixture should parse");
+    let opaque_nodes = parse_template(&db, opaque_file).expect("opaque fixture should parse");
+
+    let _ = event_log.take();
+    let tree = build_template_tree_for_file(&db, tree_file, tree_nodes);
+    assert!(tree.regions(&db).iter().next().is_some());
+    let executed = event_log.take_will_execute_names(&db);
+    assert!(
+        executed
+            .iter()
+            .any(|name| name.ends_with("template_analysis_projection_for_file_in_scope")),
+        "project-backed structure must use correlated analysis: {executed:?}"
+    );
+
+    let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
+    assert!(regions.is_opaque(20));
+    let executed = event_log.take_will_execute_names(&db);
+    assert!(
+        executed
+            .iter()
+            .any(|name| name.ends_with("template_analysis_projection_for_file_in_scope")),
+        "project-backed opaque analysis must use correlated analysis: {executed:?}"
     );
 }
 
@@ -287,13 +387,10 @@ fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> TemplateTree<'db
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(db, file).expect("should parse");
-    build_template_tree(db, nodelist)
+    build_template_tree_for_file(db, file, nodelist)
 }
 
-fn root_region<'db>(
-    tree: TemplateTree<'db>,
-    db: &'db dyn djls_semantic::Db,
-) -> &'db TemplateRegion {
+fn root_region<'db>(tree: TemplateTree<'db>, db: &'db dyn Db) -> &'db TemplateRegion {
     let root = tree.root(db);
     tree.regions(db).get(root)
 }
@@ -376,20 +473,22 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
                 name: Cow::Borrowed("endopaque_if"),
                 required: true,
             }),
-            Cow::Owned(vec![djls_semantic::IntermediateTag {
+            Cow::Owned(vec![IntermediateTag {
                 name: Cow::Borrowed("else"),
             }]),
             true,
         ),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% opaque_if %}{% if cond %}first{% else %}second{% endif %}{% endopaque_if %}";
 
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    );
 
     let validation_errors = errors.iter().map(|error| &error.0).collect::<Vec<_>>();
     assert!(
@@ -441,17 +540,19 @@ fn opaque_closer_name_can_also_be_structured_opener() {
             ),
         ),
     ])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% raw %}body{% panel %}";
 
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-        .iter()
-        .map(|error| &error.0)
-        .collect::<Vec<_>>();
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -467,12 +568,15 @@ fn opaque_closer_name_can_also_be_structured_opener() {
     db.add_file("outside.html", outside_source);
     let outside_file = db.file(Utf8Path::new("outside.html"));
     let outside_nodelist = parse_template(&db, outside_file).expect("should parse");
-    let outside_tree = build_template_tree(&db, outside_nodelist);
-    let outside_errors =
-        build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, outside_nodelist)
-            .iter()
-            .map(|error| &error.0)
-            .collect::<Vec<_>>();
+    let outside_tree = build_template_tree_for_file(&db, outside_file, outside_nodelist);
+    let outside_errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db,
+        outside_file,
+        outside_nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         outside_errors.is_empty(),
@@ -480,6 +584,89 @@ fn opaque_closer_name_can_also_be_structured_opener() {
     );
     assert!(root_region(outside_tree, &db).nodes().iter().any(
         |node| matches!(node, TemplateNode::Block { tag, role: BlockRole::Opener, .. } if tag == "panel")
+    ));
+}
+
+fn specs_with_standalone_structural_spellings() -> TagSpecs {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter(
+        ["endif", "else", "empty"].map(|name| {
+            (
+                name.to_string(),
+                TagSpec::new(Cow::Borrowed("test"), None, Cow::Borrowed(&[]), false),
+            )
+        }),
+    )));
+    specs
+}
+
+#[test]
+fn standalone_definitions_win_over_top_level_structural_vocabulary() {
+    let db = TestDatabase::new()
+        .with_projectless_tag_specs(specs_with_standalone_structural_spellings());
+    let source = "{% endif %}{% else %}{% empty %}";
+
+    db.add_file("test.html", source);
+    let file = db.file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
+
+    assert!(
+        errors.is_empty(),
+        "effective standalone definitions must not be orphaned: {errors:?}"
+    );
+    let standalone_tags = root_region(tree, &db)
+        .nodes()
+        .iter()
+        .filter_map(|node| match node {
+            TemplateNode::StandaloneTag { tag, .. } => Some(tag.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(standalone_tags, ["endif", "else", "empty"]);
+}
+
+#[test]
+fn matching_branch_context_wins_but_other_collisions_stay_standalone_in_blocks() {
+    let db = TestDatabase::new()
+        .with_projectless_tag_specs(specs_with_standalone_structural_spellings());
+    let source = "{% if condition %}{% empty %}{% else %}after{% endif %}";
+
+    db.add_file("test.html", source);
+    let file = db.file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
+
+    assert!(
+        errors.is_empty(),
+        "matching if context should consume else/endif without consuming empty: {errors:?}"
+    );
+    let if_container = first_block_body(root_region(tree, &db), "if");
+    let initial_segment = segment_body(tree.regions(&db).get(if_container), "if");
+    assert!(
+        tree.regions(&db)
+            .get(initial_segment)
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TemplateNode::StandaloneTag { tag, .. } if tag == "empty"))
+    );
+    assert!(tree.regions(&db).get(if_container).nodes().iter().any(
+        |node| matches!(node, TemplateNode::Block { tag, role: BlockRole::Segment, .. } if tag == "else")
+    ));
+    assert!(!tree.regions(&db).iter().flat_map(TemplateRegion::nodes).any(
+        |node| matches!(node, TemplateNode::StandaloneTag { tag, .. } if tag == "else" || tag == "endif")
     ));
 }
 
@@ -498,17 +685,19 @@ fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
             true,
         ),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% raw %}body";
 
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-        .iter()
-        .map(|error| &error.0)
-        .collect::<Vec<_>>();
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         errors
@@ -532,11 +721,13 @@ fn known_opener_and_closer_inside_opaque_block_have_no_structure() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-        .iter()
-        .map(|error| &error.0)
-        .collect::<Vec<_>>();
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -560,11 +751,13 @@ fn outer_closer_inside_opaque_block_has_no_structure() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-        .iter()
-        .map(|error| &error.0)
-        .collect::<Vec<_>>();
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    )
+    .iter()
+    .map(|error| &error.0)
+    .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -706,8 +899,10 @@ fn malformed_recovery_is_best_effort() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree(&db, nodelist);
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    let tree = build_template_tree_for_file(&db, file, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    );
 
     assert!(
         root_region(tree, &db)
@@ -735,7 +930,7 @@ fn custom_block_tags_from_specs_are_blocks() {
             false,
         ),
     )])));
-    let db = TestDatabase::new().with_specs(specs);
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let tree = tree_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
 
     assert!(root_region(tree, &db).nodes().iter().any(|node| matches!(
@@ -759,7 +954,9 @@ fn test_endblock_name_mismatch() {
     db.add_file("test.html", source);
     let file = db.file(Utf8Path::new("test.html"));
     let nodelist = parse_template(&db, file).expect("should parse");
-    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
+        &db, file, nodelist,
+    );
     assert_eq!(errors.len(), 1);
     let opener_start = source
         .find("{% block content %}")

@@ -9,12 +9,46 @@ use crate::structure::Regions;
 use crate::structure::TemplateNode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StructuralOccurrenceMeaning {
+    /// The occurrence uses its own opening or standalone Tag Definition.
+    Definition,
+    /// The occurrence is an intermediate captured by an already-open block contract.
+    CapturedIntermediate,
+    /// The occurrence is a closer captured by an already-open block contract.
+    CapturedCloser,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct CapturedClosingTag {
+    pub tag: String,
+    pub name_span: Span,
+    pub bits: Vec<TagBit>,
+    pub full_span: Span,
+}
+
+impl CapturedClosingTag {
+    pub(crate) fn as_active(&self) -> ActiveTemplateTag<'_> {
+        let ActiveTemplateNode::Tag(tag) = ActiveTemplateNode::tag(
+            &self.tag,
+            self.name_span,
+            &self.bits,
+            self.full_span,
+            StructuralOccurrenceMeaning::CapturedCloser,
+        ) else {
+            unreachable!("tag constructor always returns a tag")
+        };
+        tag
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ActiveTemplateTag<'a> {
     pub tag: &'a str,
     pub name_span: Span,
     pub bits: &'a [TagBit],
     pub span: Span,
     pub full_span: Span,
+    pub structural_meaning: StructuralOccurrenceMeaning,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,7 +66,13 @@ pub(crate) enum ActiveTemplateNode<'a> {
 }
 
 impl<'a> ActiveTemplateNode<'a> {
-    fn tag(tag: &'a str, name_span: Span, bits: &'a [TagBit], full_span: Span) -> Self {
+    fn tag(
+        tag: &'a str,
+        name_span: Span,
+        bits: &'a [TagBit],
+        full_span: Span,
+        structural_meaning: StructuralOccurrenceMeaning,
+    ) -> Self {
         Self::Tag(ActiveTemplateTag {
             tag,
             name_span,
@@ -46,6 +86,7 @@ impl<'a> ActiveTemplateNode<'a> {
                     .saturating_sub(TagDelimiter::LENGTH_U32 as usize),
             ),
             full_span,
+            structural_meaning,
         })
     }
 
@@ -107,7 +148,13 @@ fn collect_active_nodes_for_node<'a>(
             body,
             role: BlockRole::Opener,
         } => {
-            nodes.push(ActiveTemplateNode::tag(tag, *name_span, bits, *full_span));
+            nodes.push(ActiveTemplateNode::tag(
+                tag,
+                *name_span,
+                bits,
+                *full_span,
+                StructuralOccurrenceMeaning::Definition,
+            ));
             collect_active_nodes_for_block_body(regions, *body, *full_span, nodes);
         }
         TemplateNode::Block {
@@ -118,7 +165,13 @@ fn collect_active_nodes_for_node<'a>(
             body,
             role: BlockRole::Segment,
         } => {
-            nodes.push(ActiveTemplateNode::tag(tag, *name_span, bits, *full_span));
+            nodes.push(ActiveTemplateNode::tag(
+                tag,
+                *name_span,
+                bits,
+                *full_span,
+                StructuralOccurrenceMeaning::CapturedIntermediate,
+            ));
             collect_active_nodes_for_region(regions, *body, nodes);
         }
         TemplateNode::StandaloneTag {
@@ -126,7 +179,13 @@ fn collect_active_nodes_for_node<'a>(
             name_span,
             bits,
             full_span,
-        } => nodes.push(ActiveTemplateNode::tag(tag, *name_span, bits, *full_span)),
+        } => nodes.push(ActiveTemplateNode::tag(
+            tag,
+            *name_span,
+            bits,
+            *full_span,
+            StructuralOccurrenceMeaning::Definition,
+        )),
         TemplateNode::Variable {
             var,
             var_span,
@@ -150,6 +209,7 @@ fn collect_active_nodes_for_node<'a>(
                 *name_span,
                 bits,
                 opener_full_span,
+                StructuralOccurrenceMeaning::Definition,
             ));
         }
         TemplateNode::Comment { .. } | TemplateNode::Text { .. } | TemplateNode::Error { .. } => {}

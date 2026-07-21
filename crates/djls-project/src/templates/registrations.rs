@@ -1,6 +1,6 @@
+use std::collections::BTreeMap;
 use std::ops::ControlFlow;
 
-use djls_source::File;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
@@ -10,18 +10,22 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
+use super::filters::FilterArityMap;
+use super::libraries::TemplateLibraryId;
 use super::names::TemplateSymbolName;
 use super::symbols::SymbolDefinition;
 use super::symbols::SymbolKey;
 use super::symbols::TemplateSymbol;
+use super::symbols::TemplateSymbolKind;
+use super::tags::BlockSpec;
+use super::tags::BlockSpecs;
+use super::tags::TagRuleMap;
+use super::tags::blocks::EndTagEvidence;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
-use crate::python::ExactPythonModule;
-use crate::python::RecoveredPythonModuleResult;
-use crate::python::exact_python_module;
-use crate::python::recovered_python_module;
+use crate::python::RecoveredPythonModule;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];
@@ -30,7 +34,7 @@ const FILTER_DECORATORS: &[&str] = &["filter"];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RegistrationInfo {
     name: String,
-    pub(crate) kind: RegistrationKind,
+    kind: RegistrationKind,
     func_name: Option<String>,
 }
 
@@ -67,23 +71,21 @@ pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<Registration
     registrations
 }
 
-pub(crate) fn for_each_registration(
+fn for_each_registration(
     body: &[Stmt],
     module_name: &str,
-    mut f: impl FnMut(&RegistrationInfo, &StmtFunctionDef, SymbolKey),
+    mut f: impl FnMut(&RegistrationInfo, Option<&StmtFunctionDef>, SymbolKey),
 ) {
     let registrations = collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
 
     for reg in &registrations {
-        let Some(func) = reg.func_name.as_deref().and_then(|name| {
+        let func = reg.func_name.as_deref().and_then(|name| {
             func_defs
                 .iter()
                 .find(|func| func.name.as_str() == name)
                 .copied()
-        }) else {
-            continue;
-        };
+        });
 
         let kind = reg.kind;
         let key = SymbolKey {
@@ -398,63 +400,257 @@ fn callable_name(expr: &Expr) -> Option<String> {
     }
 }
 
-pub(crate) enum TemplateLibraryAnalysis {
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateLibraryDefinitionState {
     Failed,
     ParsedNotLibrary {
-        source: TemplateLibrarySource,
+        parse_quality: TemplateLibraryParseQuality,
     },
     Library {
-        symbols: Vec<TemplateSymbol>,
-        source: TemplateLibrarySource,
+        parse_quality: TemplateLibraryParseQuality,
     },
 }
 
+/// Equality-bearing registration facts for one Template Library source module.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TemplateLibraryDefinitionFacts {
+    state: TemplateLibraryDefinitionState,
+    tags: BTreeMap<String, TemplateSymbol>,
+    filters: BTreeMap<String, TemplateSymbol>,
+}
+
+impl TemplateLibraryDefinitionFacts {
+    #[must_use]
+    pub fn is_library(&self) -> bool {
+        matches!(self.state, TemplateLibraryDefinitionState::Library { .. })
+    }
+
+    #[must_use]
+    pub(crate) fn is_recovered(&self) -> bool {
+        matches!(
+            self.state,
+            TemplateLibraryDefinitionState::ParsedNotLibrary {
+                parse_quality: TemplateLibraryParseQuality::Recovered,
+            } | TemplateLibraryDefinitionState::Library {
+                parse_quality: TemplateLibraryParseQuality::Recovered,
+            }
+        )
+    }
+
+    #[must_use]
+    pub(crate) fn source_failed(&self) -> bool {
+        matches!(self.state, TemplateLibraryDefinitionState::Failed)
+    }
+
+    pub(crate) fn symbols(&self) -> impl Iterator<Item = &TemplateSymbol> {
+        self.tags.values().chain(self.filters.values())
+    }
+
+    #[must_use]
+    pub fn symbol(&self, kind: TemplateSymbolKind, name: &str) -> Option<&TemplateSymbol> {
+        match kind {
+            TemplateSymbolKind::Tag => self.tags.get(name),
+            TemplateSymbolKind::Filter => self.filters.get(name),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TemplateLibrarySource {
+pub(crate) enum TemplateLibraryParseQuality {
     Exact,
     Recovered,
 }
 
-impl TemplateLibraryAnalysis {
-    pub(crate) fn from_file(db: &dyn ProjectDb, file: File) -> Self {
-        let (module, source) = match exact_python_module(db, file) {
-            ExactPythonModule::Ready(module) => (module, TemplateLibrarySource::Exact),
-            ExactPythonModule::OrdinarySyntaxErrors => {
-                let RecoveredPythonModuleResult::Module(module) = recovered_python_module(db, file)
-                else {
-                    return Self::Failed;
-                };
-                (module, TemplateLibrarySource::Recovered)
-            }
-            ExactPythonModule::NotPython | ExactPythonModule::Unreadable(_) => {
-                return Self::Failed;
-            }
-        };
+/// Canonical indexed analysis of one Template Library source module.
+///
+/// Registration discovery happens here once. Equality-bearing projections below keep changes in
+/// Tag Definitions, Filter Definitions, Tag Rules, Block Specs, and Filter Arity independent.
+#[derive(Clone, Debug, PartialEq)]
+struct TemplateLibrarySourceAnalysis {
+    definitions: TemplateLibraryDefinitionFacts,
+    tag_rules: TagRuleMap,
+    block_specs: BlockSpecs,
+    filter_arities: FilterArityMap,
+}
 
-        let mut symbols = Vec::new();
-        for registration in collect_registrations_from_body(module.body(db)) {
-            let Ok(name) = TemplateSymbolName::parse(&registration.name) else {
-                continue;
-            };
-            let kind = registration.kind.symbol_kind();
-            symbols.push(TemplateSymbol {
-                kind,
-                name,
-                definition: SymbolDefinition::Exact {
-                    file: file.path(db).to_path_buf(),
-                },
-                doc: None,
-            });
-        }
-
-        let defines_library = module.body(db).iter().any(Self::stmt_defines_library);
-        if defines_library || !symbols.is_empty() {
-            Self::Library { symbols, source }
-        } else {
-            Self::ParsedNotLibrary { source }
+impl TemplateLibrarySourceAnalysis {
+    fn failed() -> Self {
+        Self {
+            definitions: TemplateLibraryDefinitionFacts {
+                state: TemplateLibraryDefinitionState::Failed,
+                tags: BTreeMap::new(),
+                filters: BTreeMap::new(),
+            },
+            tag_rules: TagRuleMap::default(),
+            block_specs: BlockSpecs::default(),
+            filter_arities: FilterArityMap::default(),
         }
     }
+}
 
+#[salsa::tracked(returns(ref))]
+fn template_library_source_analysis(
+    db: &dyn ProjectDb,
+    key: TemplateLibraryId,
+) -> TemplateLibrarySourceAnalysis {
+    let Some(file) = key.file(db) else {
+        return TemplateLibrarySourceAnalysis::failed();
+    };
+    let Ok(Some(module)) = RecoveredPythonModule::from_file(db, file) else {
+        return TemplateLibrarySourceAnalysis::failed();
+    };
+    let parse_quality = if module.has_ordinary_syntax_errors(db) {
+        TemplateLibraryParseQuality::Recovered
+    } else {
+        TemplateLibraryParseQuality::Exact
+    };
+
+    let mut tags = BTreeMap::new();
+    let mut filters = BTreeMap::new();
+    let mut tag_rules = TagRuleMap::default();
+    let mut block_specs = BlockSpecs::default();
+    let mut filter_arities = FilterArityMap::default();
+    let registration_module = key.module(db).as_str();
+
+    for_each_registration(
+        module.body(db),
+        registration_module,
+        |registration, func, symbol_key| {
+            if let Ok(name) = TemplateSymbolName::parse(&registration.name) {
+                let kind = registration.kind.symbol_kind();
+                let symbol = TemplateSymbol {
+                    kind,
+                    name,
+                    definition: SymbolDefinition::Exact {
+                        file: file.path(db).to_path_buf(),
+                    },
+                    doc: None,
+                };
+                match kind {
+                    TemplateSymbolKind::Tag => {
+                        tags.insert(symbol.name().to_string(), symbol);
+                    }
+                    TemplateSymbolKind::Filter => {
+                        filters.insert(symbol.name().to_string(), symbol);
+                    }
+                }
+            }
+
+            let Some(func) = func else {
+                return;
+            };
+            if let Some(rule) = registration.kind.extract_tag_rule(func) {
+                tag_rules.insert(symbol_key.clone(), rule.into());
+            }
+            if let Some(block_spec) = registration.kind.extract_block_spec(func) {
+                let end_tag = match block_spec.end_tag {
+                    EndTagEvidence::Literal(end_tag) => Some(end_tag),
+                    EndTagEvidence::SelfNamed => Some(format!("end{}", symbol_key.name)),
+                    EndTagEvidence::Unknown => None,
+                };
+                block_specs.insert(
+                    symbol_key.clone(),
+                    BlockSpec {
+                        end_tag,
+                        intermediates: block_spec.intermediates,
+                        opaque: block_spec.opaque,
+                    },
+                );
+            }
+            if let Some(arity) = registration.kind.extract_filter_arity(func) {
+                filter_arities.insert(symbol_key, arity);
+            }
+        },
+    );
+
+    let defines_library = module
+        .body(db)
+        .iter()
+        .any(TemplateLibraryDefinitionFacts::stmt_defines_library);
+    let state = if defines_library || !tags.is_empty() || !filters.is_empty() {
+        TemplateLibraryDefinitionState::Library { parse_quality }
+    } else {
+        TemplateLibraryDefinitionState::ParsedNotLibrary { parse_quality }
+    };
+    TemplateLibrarySourceAnalysis {
+        definitions: TemplateLibraryDefinitionFacts {
+            state,
+            tags,
+            filters,
+        },
+        tag_rules,
+        block_specs,
+        filter_arities,
+    }
+}
+
+/// Independently backdatable Tag analysis for one Template Library.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TemplateLibraryTagFacts {
+    tag_rules: TagRuleMap,
+    block_specs: BlockSpecs,
+}
+
+impl TemplateLibraryTagFacts {
+    #[must_use]
+    pub fn tag_rules(&self) -> &TagRuleMap {
+        &self.tag_rules
+    }
+
+    #[must_use]
+    pub fn block_specs(&self) -> &BlockSpecs {
+        &self.block_specs
+    }
+}
+
+/// Independently backdatable Filter analysis for one Template Library.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TemplateLibraryFilterFacts {
+    filter_arities: FilterArityMap,
+}
+
+impl TemplateLibraryFilterFacts {
+    #[must_use]
+    pub fn filter_arities(&self) -> &FilterArityMap {
+        &self.filter_arities
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn template_library_definition_facts(
+    db: &dyn ProjectDb,
+    key: TemplateLibraryId,
+) -> TemplateLibraryDefinitionFacts {
+    template_library_source_analysis(db, key)
+        .definitions
+        .clone()
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn template_library_tag_facts(
+    db: &dyn ProjectDb,
+    key: TemplateLibraryId,
+) -> TemplateLibraryTagFacts {
+    let analysis = template_library_source_analysis(db, key);
+    TemplateLibraryTagFacts {
+        tag_rules: analysis.tag_rules.clone(),
+        block_specs: analysis.block_specs.clone(),
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn template_library_filter_facts(
+    db: &dyn ProjectDb,
+    key: TemplateLibraryId,
+) -> TemplateLibraryFilterFacts {
+    TemplateLibraryFilterFacts {
+        filter_arities: template_library_source_analysis(db, key)
+            .filter_arities
+            .clone(),
+    }
+}
+
+impl TemplateLibraryDefinitionFacts {
     fn stmt_defines_library(stmt: &Stmt) -> bool {
         let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
             return false;

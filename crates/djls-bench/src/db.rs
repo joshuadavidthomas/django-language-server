@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io;
 use std::sync::Arc;
 
@@ -5,7 +7,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
-use djls_project::TemplateLibraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
@@ -22,6 +23,7 @@ use djls_source::WalkEntry;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 use djls_source::path_to_file;
+use salsa::Storage;
 
 #[derive(Clone)]
 struct SourceMapFileSystem {
@@ -61,15 +63,21 @@ impl FileSystem for SourceMapFileSystem {
     }
 
     fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
-        if self.is_file(root) {
+        let source_paths: BTreeSet<_> = self
+            .sources
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        if source_paths.contains(root) {
             return RootWalk::File(WalkEntry::file_root(root));
         }
-        if !self.is_dir(root) {
+        if !source_paths.iter().any(|path| path.starts_with(root)) {
             return RootWalk::Missing;
         }
 
-        let mut entries = Vec::new();
-        for path in self.sources.iter().map(|entry| entry.key().clone()) {
+        let mut entries = BTreeMap::new();
+        for path in &source_paths {
             if !path.starts_with(root) || path == root {
                 continue;
             }
@@ -79,37 +87,27 @@ impl FileSystem for SourceMapFileSystem {
             };
             let mut entry_path = root.to_path_buf();
             let mut entry_relative = Utf8PathBuf::new();
-            for component in file_relative.components() {
-                entry_path.push(component.as_str());
-                entry_relative.push(component.as_str());
+            for (depth, component) in file_relative.components().enumerate() {
+                let component = component.as_str();
+                entry_path.push(component);
+                entry_relative.push(component);
 
-                if !options.hidden
-                    && entry_relative.components().any(|component| {
-                        component.as_str().starts_with('.') && component.as_str() != "."
-                    })
-                {
-                    continue;
+                if !options.hidden && component.starts_with('.') && component != "." {
+                    break;
                 }
-                if let Some(max_depth) = options.max_depth
-                    && entry_relative.components().count() > max_depth
+                if options
+                    .max_depth
+                    .is_some_and(|max_depth| depth + 1 > max_depth)
                 {
-                    continue;
-                }
-                if entries
-                    .iter()
-                    .any(|entry: &WalkEntry| entry.path == entry_path)
-                {
-                    continue;
+                    break;
                 }
 
-                let kind = if self.is_file(&entry_path) {
+                let kind = if source_paths.contains(&entry_path) {
                     WalkEntryKind::File
-                } else if self.is_dir(&entry_path) {
-                    WalkEntryKind::Directory
                 } else {
-                    WalkEntryKind::Other
+                    WalkEntryKind::Directory
                 };
-                entries.push(WalkEntry {
+                entries.entry(entry_path.clone()).or_insert(WalkEntry {
                     root: root.to_path_buf(),
                     path: entry_path.clone(),
                     relative: entry_relative.clone(),
@@ -117,10 +115,8 @@ impl FileSystem for SourceMapFileSystem {
                 });
             }
         }
-        entries.sort_by(|left, right| left.path.cmp(&right.path));
-        entries.dedup_by(|left, right| left.path == right.path);
         RootWalk::Directory {
-            entries,
+            entries: entries.into_values().collect(),
             issues: Vec::new(),
         }
     }
@@ -131,43 +127,53 @@ impl FileSystem for SourceMapFileSystem {
 pub struct Db {
     fs: SourceMapFileSystem,
     files: SourceFiles,
-    tag_specs: Arc<TagSpecs>,
-    template_libraries: Arc<TemplateLibraries>,
-    filter_arity_specs: Arc<FilterAritySpecs>,
-    storage: salsa::Storage<Self>,
+    projectless_tag_specs: Arc<TagSpecs>,
+    projectless_filter_arity_specs: Arc<FilterAritySpecs>,
+    project: Option<Project>,
+    storage: Storage<Self>,
 }
 
 impl Db {
     #[must_use]
     pub fn new() -> Self {
+        Self::with_storage(Storage::default())
+    }
+
+    fn with_storage(storage: Storage<Self>) -> Self {
         Self {
             fs: SourceMapFileSystem {
                 sources: Arc::new(FxDashMap::default()),
             },
             files: SourceFiles::default(),
-            tag_specs: Arc::new(TagSpecs::default()),
-            template_libraries: Arc::new(TemplateLibraries::default()),
-            filter_arity_specs: Arc::new(FilterAritySpecs::new()),
-            storage: salsa::Storage::default(),
+            projectless_tag_specs: Arc::new(TagSpecs::default()),
+            projectless_filter_arity_specs: Arc::new(FilterAritySpecs::new()),
+            project: None,
+            storage,
         }
     }
 
     #[must_use]
-    pub(crate) fn with_tag_specs(mut self, specs: TagSpecs) -> Self {
-        self.tag_specs = Arc::new(specs);
+    pub(crate) fn with_projectless_tag_specs(mut self, specs: TagSpecs) -> Self {
+        self.projectless_tag_specs = Arc::new(specs);
         self
     }
 
     #[must_use]
-    pub(crate) fn with_template_libraries(mut self, libs: TemplateLibraries) -> Self {
-        self.template_libraries = Arc::new(libs);
+    pub(crate) fn with_projectless_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
+        self.projectless_filter_arity_specs = Arc::new(specs);
         self
     }
 
-    #[must_use]
-    pub(crate) fn with_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
-        self.filter_arity_specs = Arc::new(specs);
-        self
+    pub(crate) fn add_fixture_source(
+        &self,
+        path: impl Into<Utf8PathBuf>,
+        contents: impl Into<String>,
+    ) {
+        self.fs.sources.insert(path.into(), contents.into());
+    }
+
+    pub(crate) fn set_project(&mut self, project: Project) {
+        self.project = Some(project);
     }
 
     /// Add source content and return the corresponding tracked file.
@@ -177,7 +183,7 @@ impl Db {
     /// Panics if the inserted benchmark source is not visible through the filesystem.
     pub fn file_with_contents(&mut self, path: impl Into<Utf8PathBuf>, contents: &str) -> File {
         let path = path.into();
-        self.fs.sources.insert(path.clone(), contents.to_string());
+        self.add_fixture_source(path.clone(), contents);
         path_to_file(self, &path).expect("inserted benchmark source should be visible")
     }
 
@@ -211,29 +217,91 @@ impl SourceDb for Db {
 #[salsa::db]
 impl ProjectDb for Db {
     fn project(&self) -> Option<Project> {
-        None
+        self.project
     }
 }
 
 #[salsa::db]
 impl SemanticDb for Db {
-    fn tag_specs(&self) -> &TagSpecs {
-        &self.tag_specs
+    fn projectless_tag_specs(&self) -> &TagSpecs {
+        &self.projectless_tag_specs
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn template_libraries(&self) -> &TemplateLibraries {
-        &self.template_libraries
-    }
-
-    fn filter_arity_specs(&self) -> &FilterAritySpecs {
-        &self.filter_arity_specs
+    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
+        &self.projectless_filter_arity_specs
     }
 
     fn model_graph(&self) -> &djls_project::ModelGraph {
         djls_project::ModelGraph::empty_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use camino::Utf8Path;
+    use camino::Utf8PathBuf;
+    use djls_source::Db as SourceDb;
+    use djls_source::RootWalk;
+    use djls_source::WalkOptions;
+    use salsa::Event;
+    use salsa::Storage;
+
+    use super::Db;
+
+    impl Db {
+        pub(crate) fn with_event_log(events: Arc<Mutex<Vec<Event>>>) -> Self {
+            Self::with_storage(Storage::new(Some(Box::new(move |event| {
+                events
+                    .lock()
+                    .expect("benchmark event log lock should not be poisoned")
+                    .push(event);
+            }))))
+        }
+    }
+
+    fn walked_paths(db: &Db, options: &WalkOptions) -> Vec<Utf8PathBuf> {
+        let RootWalk::Directory { entries, issues } =
+            db.file_system().walk_root(Utf8Path::new("/root"), options)
+        else {
+            panic!("fixture root should be a directory");
+        };
+        assert!(issues.is_empty());
+        entries.into_iter().map(|entry| entry.path).collect()
+    }
+
+    #[test]
+    fn source_map_walk_is_sorted_deduplicated_and_respects_hidden_and_depth() {
+        let db = Db::new();
+        db.add_fixture_source("/root/b/second.py", "");
+        db.add_fixture_source("/root/a/first.py", "");
+        db.add_fixture_source("/root/a/nested/third.py", "");
+        db.add_fixture_source("/root/.hidden/secret.py", "");
+
+        assert_eq!(
+            walked_paths(&db, &WalkOptions::project()),
+            [
+                Utf8PathBuf::from("/root/a"),
+                Utf8PathBuf::from("/root/a/first.py"),
+                Utf8PathBuf::from("/root/a/nested"),
+                Utf8PathBuf::from("/root/a/nested/third.py"),
+                Utf8PathBuf::from("/root/b"),
+                Utf8PathBuf::from("/root/b/second.py"),
+            ]
+        );
+        assert_eq!(
+            walked_paths(&db, &WalkOptions::shallow()),
+            [
+                Utf8PathBuf::from("/root/.hidden"),
+                Utf8PathBuf::from("/root/a"),
+                Utf8PathBuf::from("/root/b"),
+            ]
+        );
     }
 }

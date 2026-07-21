@@ -3,17 +3,20 @@ mod db;
 mod fixtures;
 mod specs;
 
-pub use check::CheckResult;
-pub use check::FileCheckResult;
-pub use check::check_file;
-pub use check::render_validation_error;
+pub use check::MANY_ERRORS_SOURCE;
+pub use check::synthetic_render_diagnostics;
 pub use db::Db;
+pub use fixtures::CorpusLoadError;
+pub use fixtures::CorpusTemplates;
 pub use fixtures::Fixture;
 pub use fixtures::ValidationErrorFixture;
+pub use fixtures::django_corpus_templates;
+pub use fixtures::full_corpus_templates;
 pub use fixtures::model_fixtures;
 pub use fixtures::python_fixtures;
 pub use fixtures::template_fixtures;
 pub use fixtures::validation_error_fixtures;
+pub use specs::primed_realistic_db;
 pub use specs::realistic_db;
 pub use specs::structure_db;
 
