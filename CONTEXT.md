@@ -42,9 +42,9 @@ _Avoid_: Django Discovery, refresh, indexing mode
 Source-based **Django Discovery** that derives **Project Facts** from source files without executing project code.
 _Avoid_: introspection, runtime analysis, import-time analysis
 
-**Project/Semantic Boundary**:
-Observed source facts and lookup facts — including Python source facts and **Template Resolution** — belong to `djls-project`; project meaning — fusion, validity, availability, diagnostics, and template-domain relationships — belongs to `djls-semantic`. Only `djls-project` parses Python source. Inside `djls-project`, code is organized by Django domain (`settings`, `templates`, `models`) rather than by generic fact/extraction buckets.
-_Avoid_: classifying ownership by whether a type's name sounds semantic
+**Django/Template Semantic Boundary**:
+Observed Django facts — including Python source facts and **Template Resolution** — belong to the Django knowledge crate (`djls-django-semantic`; today `djls-project`); template meaning — fusion, validity, availability, diagnostics, and template-domain relationships — belongs to the template analysis crate (`djls-template-semantic`; today `djls-semantic`). Facts flow into template meaning, never back. Only the python **Subject Crates** parse Python source. What **Template Context** a view provides is a Django fact; checking **Template Variables** against it is template meaning. Inside the Django knowledge crate, code is organized by **Fact Family** rather than by generic fact/extraction buckets.
+_Avoid_: Project/Semantic Boundary, classifying ownership by whether a type's name sounds semantic
 
 **Project Introspection**:
 Historical runtime-backed **Django Discovery** that asked Django or Python about the configured **Project**. Runtime-backed discovery has been removed from the server; keep this term for older issues, PRs, and release notes.
@@ -272,6 +272,26 @@ _Avoid_: raw token, Template Node, Tag Definition when library inventory is mean
 A navigational projection of editor-relevant **Template Symbols** from a **Template Tree**.
 _Avoid_: Template Tree, document symbol, syntax tree
 
+### Crate subjects and layers
+
+These terms name how the workspace divides knowledge into crates. They describe the target organization; see **Known terminology drift** for where current crate names differ.
+
+**Subject Crate**:
+A workspace crate named `djls-{subject}-{layer}` for the subject it holds knowledge of and the layer it owns — always fully qualified, even when a subject has one layer. Subjects: python (`-resolution`, `-semantic`), django (`-project`, `-semantic`), template (`-parser`, `-semantic`).
+_Avoid_: bare subject names, mechanism names, unqualified layer names
+
+**Semantic Crate**:
+A **Subject Crate** whose `-semantic` layer owns derived knowledge *about* its subject — named for what its outputs describe, not the language its inputs are written in (`djls-django-semantic` reads Python but knows about the Django project). Only a language with source files DJLS analyzes and serves editor features on earns a semantic crate.
+_Avoid_: naming a crate `-semantic` for what it reads, semantic crates for **Fact Families**
+
+**Fact Family**:
+A coherent slice of **Project Facts** — settings, models, urls, views, the template environment — owned as a module inside `djls-django-semantic`, never as its own crate. Fact families are densely interdependent and grow together.
+_Avoid_: fact crates, per-feature crates, domain crates
+
+**Infrastructure Crate**:
+A workspace crate that supports the language server rather than analyzing a subject — `djls-source`, `djls-conf`, `djls-db`, `djls-ide`, `djls-server`, `djls-format`, `djls-testing`, `djls-bench`, and the `djls` binary. Exempt from the subject-layer naming pattern.
+_Avoid_: retrofitting subject-layer names onto infrastructure
+
 ## Relationships
 
 - **Project Facts** describe what the language server understands about a **Project**.
@@ -351,6 +371,7 @@ _Avoid_: Template Tree, document symbol, syntax tree
 - **Template Context** is a Django runtime concept; DJLS has limited knowledge of it because the language server does not render templates and does not yet infer template variable types.
 - Specific named tags use the `<Name> Template Tag` pattern when the name matters; resolved: define only names with domain significance or ambiguity, such as **Block Template Tag**.
 - "Partial Tag" is too ambiguous between tags that define, render, or include partials; resolved: use **Template Partial** for the reusable fragment and existing tag-role terms for tags that interact with it.
+- "Semantic" can mean template analysis (the current `djls-semantic` crate), Python evaluation, or Django fact extraction; resolved: a **Semantic Crate**'s `-semantic` layer means derived knowledge about its named subject, so the subject prefix disambiguates.
 - **Template Partial** is the canonical term for partials, while "template fragment" may be used in definitions because partials are reusable fragments.
 
 ## Known terminology drift
@@ -360,3 +381,5 @@ _Avoid_: Template Tree, document symbol, syntax tree
 - Current code and docs may describe intermediate and closing tags as tag names in a **Tag Spec**; this glossary treats them as contextual **Template Tags** rather than independent **Tag Definitions**.
 - Current code and outline snapshots may use `ControlTag`; this glossary does not make **Control Tag** canonical yet.
 - Django groups `block`, `extends`, and `include` in `django.template.loader_tags`, but this glossary uses role terms instead of **Loader Tag** for user-facing domain language.
+- Current crates `djls-project`, `djls-semantic`, and `djls-templates` carry pre-scheme names; this glossary uses the target subject-layer names `djls-django-semantic`, `djls-template-semantic`, and `djls-template-parser`. Renames ride mechanical changes that already touch the affected imports rather than landing standalone.
+- Python parsing, module resolution, and evaluation currently live inside `djls-project`; this glossary assigns them to the python **Subject Crates** (`djls-python-resolution`, `djls-python-semantic`), which do not exist yet.
