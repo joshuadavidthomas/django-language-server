@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use djls_source::File;
 use djls_source::Span;
@@ -732,6 +733,12 @@ struct ModelRelationBindings {
     effective_forward_bindings: BTreeMap<FieldName, RelationBindingId>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct RelationLookupIndex {
+    forward: FxHashMap<ModelId, FxHashMap<FieldName, Option<ModelId>>>,
+    reverse: FxHashMap<ModelId, FxHashMap<FieldName, ModelId>>,
+}
+
 /// Dependency graph of Django models and their relations.
 ///
 /// Models are keyed by deterministic import identity (`ModelId`) so
@@ -743,8 +750,7 @@ pub struct ModelGraph {
     model_ids_by_class: BTreeMap<ClassId, ModelId>,
     relation_bindings: BTreeMap<RelationBindingId, RelationBinding>,
     model_relation_bindings: BTreeMap<ModelId, ModelRelationBindings>,
-    forward_relation_targets: FxHashMap<ModelId, FxHashMap<FieldName, Option<ModelId>>>,
-    reverse_relation_bindings: FxHashMap<ModelId, FxHashMap<FieldName, ModelId>>,
+    relation_lookup_index: OnceLock<RelationLookupIndex>,
     non_model_class_bindings: BTreeMap<ClassId, BTreeSet<FieldName>>,
 }
 
@@ -753,8 +759,6 @@ impl PartialEq for ModelGraph {
         self.records == other.records
             && self.relation_bindings == other.relation_bindings
             && self.model_relation_bindings == other.model_relation_bindings
-            && self.forward_relation_targets == other.forward_relation_targets
-            && self.reverse_relation_bindings == other.reverse_relation_bindings
             && self.non_model_class_bindings == other.non_model_class_bindings
     }
 }
@@ -1025,7 +1029,7 @@ impl ModelGraph {
         for (id, mro) in complete {
             self.install_effective_relation_bindings(id, &mro);
         }
-        self.rebuild_reverse_relation_bindings();
+        self.relation_lookup_index = OnceLock::new();
     }
 
     fn model_id_for_class(&self, class: &ClassId) -> Option<&ModelId> {
@@ -1257,7 +1261,8 @@ impl ModelGraph {
     #[must_use]
     pub fn resolve_forward(&self, scope: &ModelId, field_name: &str) -> Option<&ModelDef> {
         let target = self
-            .forward_relation_targets
+            .relation_lookup_index()
+            .forward
             .get(scope)?
             .get(field_name)?
             .as_ref()?;
@@ -1368,7 +1373,8 @@ impl ModelGraph {
         field_name: &str,
     ) -> Option<&'a ModelDef> {
         if let Some(target) = self
-            .forward_relation_targets
+            .relation_lookup_index()
+            .forward
             .get(scope)
             .and_then(|relations| relations.get(field_name))
         {
@@ -1383,11 +1389,19 @@ impl ModelGraph {
     }
 
     fn resolve_reverse_relation(&self, scope: &ModelId, field_name: &str) -> Option<&ModelId> {
-        self.reverse_relation_bindings.get(scope)?.get(field_name)
+        self.relation_lookup_index()
+            .reverse
+            .get(scope)?
+            .get(field_name)
     }
 
-    fn rebuild_reverse_relation_bindings(&mut self) {
-        let mut forward_targets: FxHashMap<ModelId, FxHashMap<FieldName, Option<ModelId>>> =
+    fn relation_lookup_index(&self) -> &RelationLookupIndex {
+        self.relation_lookup_index
+            .get_or_init(|| self.build_relation_lookup_index())
+    }
+
+    fn build_relation_lookup_index(&self) -> RelationLookupIndex {
+        let mut forward: FxHashMap<ModelId, FxHashMap<FieldName, Option<ModelId>>> =
             FxHashMap::default();
         for (owner, bindings) in &self.model_relation_bindings {
             for (name, binding_id) in &bindings.effective_forward_bindings {
@@ -1402,7 +1416,7 @@ impl ModelGraph {
                         self.resolve_relation_target_entry(binding, relation)
                     })
                     .map(|(target_id, _target_model)| target_id.clone());
-                forward_targets
+                forward
                     .entry(owner.clone())
                     .or_default()
                     .insert(name.clone(), target);
@@ -1435,8 +1449,10 @@ impl ModelGraph {
                     .or_insert_with(|| source_id.clone());
             }
         }
-        self.forward_relation_targets = forward_targets;
-        self.reverse_relation_bindings = reverse_bindings;
+        RelationLookupIndex {
+            forward,
+            reverse: reverse_bindings,
+        }
     }
 
     pub(crate) fn resolve_relation_targets(&mut self, db: &dyn ProjectDb, project: Project) {
@@ -1463,7 +1479,7 @@ impl ModelGraph {
                 binding.resolution = resolution;
             }
         }
-        self.rebuild_reverse_relation_bindings();
+        self.relation_lookup_index = OnceLock::new();
     }
 
     fn resolve_relation_target(
