@@ -214,6 +214,7 @@ ref = "1.3.12"
 name = "inventree"
 url = "https://github.com/inventree/InvenTree.git"
 ref = "master"
+project_root = "src/backend/InvenTree"
 django_settings_module = "InvenTree.settings"
 
 [[repo]]
@@ -230,6 +231,7 @@ ref = "main"
 name = "netbox"
 url = "https://github.com/netbox-community/netbox.git"
 ref = "main"
+project_root = "netbox"
 django_settings_module = "netbox.settings"
 
 [[repo]]

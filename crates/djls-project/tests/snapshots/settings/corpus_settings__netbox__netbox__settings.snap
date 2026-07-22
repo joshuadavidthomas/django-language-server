@@ -1,0 +1,368 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 21
+                start: 19619
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 19646
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 19681
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 19712
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 19743
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 19777
+            value: django.contrib.humanize
+          - spans:
+              - length: 14
+                start: 19808
+            value: django.forms
+          - spans:
+              - length: 13
+                start: 19828
+            value: corsheaders
+          - spans:
+              - length: 16
+                start: 19868
+            value: django_filters
+          - spans:
+              - length: 13
+                start: 19890
+            value: django_htmx
+          - spans:
+              - length: 16
+                start: 19909
+            value: django_tables2
+          - spans:
+              - length: 19
+                start: 19931
+            value: django_prometheus
+          - spans:
+              - length: 19
+                start: 19956
+            value: strawberry_django
+          - spans:
+              - length: 6
+                start: 19981
+            value: mptt
+          - spans:
+              - length: 16
+                start: 19993
+            value: rest_framework
+          - spans:
+              - length: 15
+                start: 20015
+            value: social_django
+          - spans:
+              - length: 16
+                start: 20036
+            value: sorl.thumbnail
+          - spans:
+              - length: 8
+                start: 20058
+            value: taggit
+          - spans:
+              - length: 16
+                start: 20072
+            value: timezone_field
+          - spans:
+              - length: 6
+                start: 20094
+            value: core
+          - spans:
+              - length: 9
+                start: 20106
+            value: account
+          - spans:
+              - length: 10
+                start: 20121
+            value: circuits
+          - spans:
+              - length: 6
+                start: 20137
+            value: dcim
+          - spans:
+              - length: 6
+                start: 20149
+            value: ipam
+          - spans:
+              - length: 8
+                start: 20161
+            value: extras
+          - spans:
+              - length: 9
+                start: 20175
+            value: tenancy
+          - spans:
+              - length: 7
+                start: 20190
+            value: users
+          - spans:
+              - length: 11
+                start: 20203
+            value: utilities
+          - spans:
+              - length: 16
+                start: 20220
+            value: virtualization
+          - spans:
+              - length: 5
+                start: 20242
+            value: vpn
+          - spans:
+              - length: 10
+                start: 20253
+            value: wireless
+          - spans:
+              - length: 11
+                start: 20269
+            value: django_rq
+          - spans:
+              - length: 17
+                start: 20352
+            value: drf_spectacular
+          - spans:
+              - length: 25
+                start: 20375
+            value: drf_spectacular_sidecar
+    - known:
+        apps:
+          - spans:
+              - length: 21
+                start: 19619
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 19646
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 19681
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 19712
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 19743
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 19777
+            value: django.contrib.humanize
+          - spans:
+              - length: 14
+                start: 19808
+            value: django.forms
+          - spans:
+              - length: 13
+                start: 19828
+            value: corsheaders
+          - spans:
+              - length: 15
+                start: 19847
+            value: debug_toolbar
+          - spans:
+              - length: 16
+                start: 19868
+            value: django_filters
+          - spans:
+              - length: 13
+                start: 19890
+            value: django_htmx
+          - spans:
+              - length: 16
+                start: 19909
+            value: django_tables2
+          - spans:
+              - length: 19
+                start: 19931
+            value: django_prometheus
+          - spans:
+              - length: 19
+                start: 19956
+            value: strawberry_django
+          - spans:
+              - length: 6
+                start: 19981
+            value: mptt
+          - spans:
+              - length: 16
+                start: 19993
+            value: rest_framework
+          - spans:
+              - length: 15
+                start: 20015
+            value: social_django
+          - spans:
+              - length: 16
+                start: 20036
+            value: sorl.thumbnail
+          - spans:
+              - length: 8
+                start: 20058
+            value: taggit
+          - spans:
+              - length: 16
+                start: 20072
+            value: timezone_field
+          - spans:
+              - length: 6
+                start: 20094
+            value: core
+          - spans:
+              - length: 9
+                start: 20106
+            value: account
+          - spans:
+              - length: 10
+                start: 20121
+            value: circuits
+          - spans:
+              - length: 6
+                start: 20137
+            value: dcim
+          - spans:
+              - length: 6
+                start: 20149
+            value: ipam
+          - spans:
+              - length: 8
+                start: 20161
+            value: extras
+          - spans:
+              - length: 9
+                start: 20175
+            value: tenancy
+          - spans:
+              - length: 7
+                start: 20190
+            value: users
+          - spans:
+              - length: 11
+                start: 20203
+            value: utilities
+          - spans:
+              - length: 16
+                start: 20220
+            value: virtualization
+          - spans:
+              - length: 5
+                start: 20242
+            value: vpn
+          - spans:
+              - length: 10
+                start: 20253
+            value: wireless
+          - spans:
+              - length: 11
+                start: 20269
+            value: django_rq
+          - spans:
+              - length: 17
+                start: 20352
+            value: drf_spectacular
+          - spans:
+              - length: 25
+                start: 20375
+            value: drf_spectacular_sidecar
+    - dynamic:
+        evidence:
+          - issue:
+              kind: dynamic_expression
+              spans:
+                - length: 3461
+                  start: 32047
+                - length: 29
+                  start: 36405
+templates:
+  cases:
+    - known:
+        backends:
+          - app_dirs:
+              spans:
+                - length: 4
+                  start: 21821
+              value: true
+            backend:
+              spans:
+                - length: 49
+                  start: 21717
+              value: django.template.backends.django.DjangoTemplates
+            builtins:
+              - spans:
+                  - length: 41
+                    start: 21890
+                value: utilities.templatetags.builtins.filters
+              - spans:
+                  - length: 38
+                    start: 21949
+                value: utilities.templatetags.builtins.tags
+            context_processors:
+              - spans:
+                  - length: 42
+                    start: 22056
+                value: django.template.context_processors.debug
+              - spans:
+                  - length: 44
+                    start: 22116
+                value: django.template.context_processors.request
+              - spans:
+                  - length: 42
+                    start: 22178
+                value: django.template.context_processors.media
+              - spans:
+                  - length: 45
+                    start: 22238
+                value: django.contrib.auth.context_processors.auth
+              - spans:
+                  - length: 53
+                    start: 22301
+                value: django.contrib.messages.context_processors.messages
+              - spans:
+                  - length: 36
+                    start: 22372
+                value: netbox.context_processors.settings
+              - spans:
+                  - length: 34
+                    start: 22426
+                value: netbox.context_processors.config
+              - spans:
+                  - length: 36
+                    start: 22478
+                value: netbox.context_processors.registry
+              - spans:
+                  - length: 39
+                    start: 22532
+                value: netbox.context_processors.preferences
+            dirs:
+              - spans:
+                  - length: 23
+                    start: 21654
+                value: "${REPO}/netbox/templates"
+            libraries: []
+    - dynamic:
+        evidence:
+          - issue:
+              kind: dynamic_expression
+              spans:
+                - length: 29
+                  start: 36405

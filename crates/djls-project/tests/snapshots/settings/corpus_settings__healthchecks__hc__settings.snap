@@ -1,0 +1,240 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 13
+                start: 2458
+            value: hc.accounts
+          - spans:
+              - length: 22
+                start: 2477
+            value: django.contrib.admin
+          - spans:
+              - length: 21
+                start: 2505
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 2532
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 2567
+            value: django.contrib.humanize
+          - spans:
+              - length: 25
+                start: 2598
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 2629
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 2660
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 12
+                start: 2694
+            value: compressor
+          - spans:
+              - length: 8
+                start: 2712
+            value: hc.api
+          - spans:
+              - length: 10
+                start: 2726
+            value: hc.front
+          - spans:
+              - length: 9
+                start: 2742
+            value: hc.logs
+          - spans:
+              - length: 13
+                start: 2757
+            value: hc.payments
+          - spans:
+              - length: 25
+                start: 2776
+            value: hc.integrations.apprise
+          - spans:
+              - length: 22
+                start: 2807
+            value: hc.integrations.call
+          - spans:
+              - length: 25
+                start: 2835
+            value: hc.integrations.discord
+          - spans:
+              - length: 23
+                start: 2866
+            value: hc.integrations.email
+          - spans:
+              - length: 24
+                start: 2895
+            value: hc.integrations.github
+          - spans:
+              - length: 28
+                start: 2925
+            value: hc.integrations.googlechat
+          - spans:
+              - length: 24
+                start: 2959
+            value: hc.integrations.gotify
+          - spans:
+              - length: 23
+                start: 2989
+            value: hc.integrations.group
+          - spans:
+              - length: 24
+                start: 3018
+            value: hc.integrations.matrix
+          - spans:
+              - length: 28
+                start: 3048
+            value: hc.integrations.mattermost
+          - spans:
+              - length: 26
+                start: 3082
+            value: hc.integrations.msteamsw
+          - spans:
+              - length: 22
+                start: 3114
+            value: hc.integrations.ntfy
+          - spans:
+              - length: 26
+                start: 3142
+            value: hc.integrations.opsgenie
+          - spans:
+              - length: 27
+                start: 3174
+            value: hc.integrations.pagertree
+          - spans:
+              - length: 20
+                start: 3207
+            value: hc.integrations.pd
+          - spans:
+              - length: 20
+                start: 3233
+            value: hc.integrations.po
+          - spans:
+              - length: 28
+                start: 3259
+            value: hc.integrations.prometheus
+          - spans:
+              - length: 28
+                start: 3293
+            value: hc.integrations.pushbullet
+          - spans:
+              - length: 28
+                start: 3327
+            value: hc.integrations.rocketchat
+          - spans:
+              - length: 23
+                start: 3361
+            value: hc.integrations.shell
+          - spans:
+              - length: 24
+                start: 3390
+            value: hc.integrations.signal
+          - spans:
+              - length: 23
+                start: 3420
+            value: hc.integrations.slack
+          - spans:
+              - length: 21
+                start: 3449
+            value: hc.integrations.sms
+          - spans:
+              - length: 23
+                start: 3476
+            value: hc.integrations.spike
+          - spans:
+              - length: 26
+                start: 3505
+            value: hc.integrations.telegram
+          - spans:
+              - length: 24
+                start: 3537
+            value: hc.integrations.trello
+          - spans:
+              - length: 27
+                start: 3567
+            value: hc.integrations.victorops
+          - spans:
+              - length: 25
+                start: 3600
+            value: hc.integrations.webhook
+          - spans:
+              - length: 26
+                start: 3631
+            value: hc.integrations.whatsapp
+          - spans:
+              - length: 23
+                start: 3663
+            value: hc.integrations.zulip
+    - dynamic:
+        evidence:
+          - issue:
+              kind: dynamic_expression
+              spans:
+                - length: 29
+                  start: 13789
+templates:
+  cases:
+    - known:
+        backends:
+          - app_dirs:
+              spans:
+                - length: 4
+                  start: 4813
+              value: true
+            backend:
+              spans:
+                - length: 49
+                  start: 4700
+              value: django.template.backends.django.DjangoTemplates
+            builtins: []
+            context_processors:
+              - spans:
+                  - length: 42
+                    start: 4892
+                value: django.template.context_processors.debug
+              - spans:
+                  - length: 44
+                    start: 4952
+                value: django.template.context_processors.request
+              - spans:
+                  - length: 45
+                    start: 5014
+                value: django.contrib.auth.context_processors.auth
+              - spans:
+                  - length: 53
+                    start: 5077
+                value: django.contrib.messages.context_processors.messages
+              - spans:
+                  - length: 38
+                    start: 5148
+                value: hc.front.context_processors.branding
+              - spans:
+                  - length: 41
+                    start: 5204
+                value: hc.payments.context_processors.payments
+            dirs:
+              - spans:
+                  - length: 22
+                    start: 4768
+                value: "${REPO}/templates"
+            libraries: []
+    - dynamic:
+        evidence:
+          - issue:
+              kind: dynamic_expression
+              spans:
+                - length: 29
+                  start: 13789

@@ -6,6 +6,7 @@ mod mdtest;
 mod vendor;
 
 pub use corpus::Corpus;
+pub use corpus::CorpusSettingsProject;
 pub use corpus::LockFilter;
 pub use corpus::Lockfile;
 pub use corpus::Manifest;
