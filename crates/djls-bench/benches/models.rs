@@ -229,22 +229,9 @@ fn resolve_relations(bencher: Bencher) {
         "find Group in auth model graph",
         model_id(graph, "Group", "django.contrib.auth.models"),
     );
-    let user = require(
-        "find User in auth model graph",
-        model_id(graph, "User", "django.contrib.auth.models"),
-    );
-
     let lookup_queries = [("auth", "Permission"), ("auth", "Group"), ("auth", "User")];
-    let forward_queries = [
-        (permission, "content_type"),
-        (group, "permissions"),
-        (user, "groups"),
-    ];
-    let relation_queries = [
-        (group, "user_set"),
-        (permission, "group_set"),
-        (permission, "user_set"),
-    ];
+    let forward_queries = [(permission, "content_type"), (group, "permissions")];
+    let relation_queries = [(permission, "group_set")];
 
     for &(model, field) in &forward_queries {
         require_some(

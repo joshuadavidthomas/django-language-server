@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use djls_source::File;
@@ -8,6 +9,7 @@ use ruff_python_ast::StmtClassDef;
 
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
+use crate::models::graph::ClassName;
 use crate::models::graph::FieldName;
 use crate::models::graph::ModelDef;
 use crate::models::graph::ModelKind;
@@ -23,38 +25,73 @@ use crate::python::import::FromImportSyntax;
 use crate::python::import::ModuleKind;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ModelExtraction {
-    pub(super) candidates: Vec<ModelCandidate>,
+pub(crate) struct ExtractedClasses(Vec<ExtractedClass>);
+
+impl ExtractedClasses {
+    pub(super) fn as_slice(&self) -> &[ExtractedClass] {
+        &self.0
+    }
 }
 
-/// A class declaration with every statically recognized base expression.
-///
-/// Recognition happens after all project modules have been scanned. Keeping
-/// these source facts immutable prevents an early parent from hiding a later or
-/// unresolved base.
+/// A Python class declaration and the source facts extracted from its body.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ModelCandidate {
-    pub(super) model: ModelDef,
-    pub(super) bases: Vec<Spanned<CandidateBaseRef>>,
+pub(super) struct ExtractedClass {
+    pub(super) file: File,
+    pub(super) name: Spanned<ClassName>,
+    pub(super) module_name: PythonModuleName,
+    relations: Vec<Relation>,
+    pub(super) declared_model_kind: ModelKind,
+    pub(super) bases: Vec<Spanned<ExtractedBaseRef>>,
+    pub(super) local_bindings: BTreeMap<FieldName, LocalBinding>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum CandidateBaseRef {
+pub(super) enum LocalBinding {
+    Relation(usize),
+    Other,
+}
+
+/// A base expression as understood from imports at its source occurrence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ExtractedBaseRef {
     DjangoModelRoot,
     Qualified(PythonModuleName),
-    SameModule(ModelName),
+    SameModule(ClassName),
     UnsupportedExpression,
-    Unresolved {
-        path: Vec<String>,
-        reason: CandidateBaseReferenceError,
-    },
+    MissingBinding { path: Vec<String> },
+    ShadowedBinding { path: Vec<String> },
+    InvalidTarget { target: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum CandidateBaseReferenceError {
-    MissingBinding,
-    ShadowedBinding,
-    InvalidTarget { target: String },
+impl ExtractedClass {
+    fn push_local_relation(&mut self, relation: Relation) {
+        let name = relation.field_name.value().clone();
+        let relation_index = self.relations.len();
+        self.relations.push(relation);
+        self.local_bindings
+            .insert(name, LocalBinding::Relation(relation_index));
+    }
+
+    fn bind_local_other(&mut self, name: FieldName) {
+        self.local_bindings.insert(name, LocalBinding::Other);
+    }
+
+    pub(super) fn has_local_relation_binding(&self) -> bool {
+        self.local_bindings
+            .values()
+            .any(|binding| matches!(binding, LocalBinding::Relation(_)))
+    }
+
+    pub(super) fn into_admitted_model(self) -> (ModelDef, BTreeMap<FieldName, LocalBinding>) {
+        let definition = ModelDef {
+            file: self.file,
+            name: Spanned::new(ModelName::new(self.name.value().as_str()), self.name.span()),
+            module_name: self.module_name,
+            relations: self.relations,
+            kind: self.declared_model_kind,
+        };
+        (definition, self.local_bindings)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -66,10 +103,10 @@ struct ModelExtractionContext<'a> {
 
 enum ModelExtractionTarget<'out> {
     Module {
-        candidates: &'out mut Vec<ModelCandidate>,
+        classes: &'out mut Vec<ExtractedClass>,
     },
     Class {
-        model: &'out mut ModelDef,
+        extracted_class: &'out mut ExtractedClass,
     },
 }
 
@@ -85,17 +122,28 @@ fn scan_class(
     target: &mut ModelExtractionTarget<'_>,
     context: ModelExtractionContext<'_>,
 ) {
-    let ModelExtractionTarget::Module { candidates } = target else {
+    let ModelExtractionTarget::Module { classes } = target else {
         return;
     };
-    let mut model = ModelDef::new(
-        class.name.to_string(),
-        context.module_name.clone(),
-        context.file,
-        class.name.span(),
-    );
+    let bases = class
+        .arguments
+        .iter()
+        .flat_map(|arguments| &arguments.args)
+        .map(|arg| Spanned::new(ExtractedBaseRef::from_expr(arg, aliases), arg.span()))
+        .collect();
+    let mut extracted_class = ExtractedClass {
+        file: context.file,
+        name: Spanned::new(ClassName::new(class.name.to_string()), class.name.span()),
+        module_name: context.module_name.clone(),
+        relations: Vec::new(),
+        declared_model_kind: ModelKind::Concrete,
+        bases,
+        local_bindings: BTreeMap::new(),
+    };
     let mut class_state = aliases.clone();
-    let mut class_target = ModelExtractionTarget::Class { model: &mut model };
+    let mut class_target = ModelExtractionTarget::Class {
+        extracted_class: &mut extracted_class,
+    };
     scan_statements(
         &class.body,
         &mut class_state,
@@ -103,22 +151,15 @@ fn scan_class(
         context,
         true,
     );
-
-    let bases = class
-        .arguments
-        .iter()
-        .flat_map(|arguments| &arguments.args)
-        .map(|arg| Spanned::new(CandidateBaseRef::from_expr(arg, aliases), arg.span()))
-        .collect();
-    candidates.push(ModelCandidate { model, bases });
+    classes.push(extracted_class);
 }
 
-/// Scan Model-relevant occurrences in source order.
+/// Scan model-relevant occurrences in source order.
 ///
-/// Module scans collect model classes. Class scans collect relation and `Meta`
-/// facts. Compound bodies share this transition engine but receive independent
-/// alias clones, so contained facts see their branch's exact source order while
-/// no branch-local alias leaks into the following statement.
+/// Module scans collect Python classes. Class scans collect Django relation and
+/// `Meta` evidence. Compound bodies share this transition engine but receive
+/// independent alias clones, so contained facts see their branch's exact source
+/// order while no branch-local alias leaks into the following statement.
 fn scan_statements(
     stmts: &[Stmt],
     state: &mut ModelImportState,
@@ -127,11 +168,11 @@ fn scan_statements(
     record_local_bindings: bool,
 ) {
     for stmt in stmts {
-        if record_local_bindings && let ModelExtractionTarget::Class { model } = target {
+        if record_local_bindings && let ModelExtractionTarget::Class { extracted_class } = target {
             let mut names = BTreeSet::new();
             collect_touched_roots(stmt, &mut names);
             for name in names {
-                model.bind_local_other(FieldName::new(name));
+                extracted_class.bind_local_other(FieldName::new(name));
             }
         }
 
@@ -153,16 +194,28 @@ fn scan_statements(
                     scan_class(class, state, target, context);
                     state.bind_local_class(class.name.as_str());
                 }
-                ModelExtractionTarget::Class { model } => {
-                    process_class_body(stmt, context.file, model, state, record_local_bindings);
+                ModelExtractionTarget::Class { extracted_class } => {
+                    process_class_body(
+                        stmt,
+                        context.file,
+                        extracted_class,
+                        state,
+                        record_local_bindings,
+                    );
                     state.invalidate_root(class.name.as_str());
                 }
             }
             continue;
         }
 
-        if let ModelExtractionTarget::Class { model } = target {
-            process_class_body(stmt, context.file, model, state, record_local_bindings);
+        if let ModelExtractionTarget::Class { extracted_class } = target {
+            process_class_body(
+                stmt,
+                context.file,
+                extracted_class,
+                state,
+                record_local_bindings,
+            );
         }
         scan_compound(stmt, state, target, context);
 
@@ -242,8 +295,8 @@ pub(super) fn extract_models_impl(
     module_name: &PythonModuleName,
     file: File,
     module_kind: ModuleKind,
-) -> ModelExtraction {
-    let mut candidates = Vec::new();
+) -> ExtractedClasses {
+    let mut classes = Vec::new();
     let mut state = ModelImportState::default();
     let context = ModelExtractionContext {
         module_name,
@@ -251,14 +304,14 @@ pub(super) fn extract_models_impl(
         module_kind,
     };
     let mut target = ModelExtractionTarget::Module {
-        candidates: &mut candidates,
+        classes: &mut classes,
     };
     scan_statements(stmts, &mut state, &mut target, context, false);
 
-    ModelExtraction { candidates }
+    ExtractedClasses(classes)
 }
 
-impl CandidateBaseRef {
+impl ExtractedBaseRef {
     fn from_expr(expr: &Expr, aliases: &ModelImportState) -> Self {
         let Some(path) = expr.path_segments() else {
             return Self::UnsupportedExpression;
@@ -277,22 +330,13 @@ impl CandidateBaseRef {
             }
             Ok(path) => Self::Qualified(path),
             Err(ModelImportPathResolutionError::MissingBinding) if path.len() == 1 => {
-                Self::SameModule(ModelName::new(path[0].clone()))
+                Self::SameModule(ClassName::new(path[0].clone()))
             }
-            Err(error) => Self::Unresolved {
-                path,
-                reason: match error {
-                    ModelImportPathResolutionError::MissingBinding => {
-                        CandidateBaseReferenceError::MissingBinding
-                    }
-                    ModelImportPathResolutionError::ShadowedBinding => {
-                        CandidateBaseReferenceError::ShadowedBinding
-                    }
-                    ModelImportPathResolutionError::InvalidTarget { target, .. } => {
-                        CandidateBaseReferenceError::InvalidTarget { target }
-                    }
-                },
-            },
+            Err(ModelImportPathResolutionError::MissingBinding) => Self::MissingBinding { path },
+            Err(ModelImportPathResolutionError::ShadowedBinding) => Self::ShadowedBinding { path },
+            Err(ModelImportPathResolutionError::InvalidTarget { target, .. }) => {
+                Self::InvalidTarget { target }
+            }
         }
     }
 }
@@ -300,7 +344,7 @@ impl CandidateBaseRef {
 fn process_class_body(
     stmt: &Stmt,
     file: File,
-    model: &mut ModelDef,
+    extracted_class: &mut ExtractedClass,
     aliases: &ModelImportState,
     record_local_binding: bool,
 ) {
@@ -311,10 +355,10 @@ fn process_class_body(
         // A class statement rebinds `Meta` when it finishes. Start each
         // top-level declaration from Django's concrete default so an earlier
         // `Meta.abstract` value cannot survive a later replacement class.
-        model.kind = ModelKind::Concrete;
+        extracted_class.declared_model_kind = ModelKind::Concrete;
         for meta_stmt in &meta.body {
             if let Some(is_abstract) = static_abstract_assignment(meta_stmt) {
-                model.kind = if is_abstract {
+                extracted_class.declared_model_kind = if is_abstract {
                     ModelKind::Abstract
                 } else {
                     ModelKind::Concrete
@@ -328,7 +372,7 @@ fn process_class_body(
     let Some(relation) = relation else {
         return;
     };
-    model.push_local_relation(relation);
+    extracted_class.push_local_relation(relation);
 }
 
 fn static_abstract_assignment(stmt: &Stmt) -> Option<bool> {
@@ -690,12 +734,13 @@ mod tests {
 
     use super::extract_models_impl;
     use super::*;
+    use crate::models::graph::ModelDef;
     use crate::models::graph::ModelGraph;
     use crate::models::graph::ModelId;
     use crate::models::graph::RelatedName;
     use crate::models::resolve::resolve_local_model_graph;
 
-    fn extract_model_facts(source: &str, module_name: &str) -> ModelExtraction {
+    fn extract_model_facts(source: &str, module_name: &str) -> ExtractedClasses {
         let db = TestDatabase::new();
         db.add_file("/test.py", source)
             .expect("model extraction fixture should be added to the test database");
@@ -705,7 +750,7 @@ mod tests {
         let module_name =
             PythonModuleName::parse(module_name).expect("test Python module name should be valid");
         let Ok(parsed) = ruff_python_parser::parse_module(source) else {
-            return ModelExtraction::default();
+            return ExtractedClasses::default();
         };
         let module = parsed.into_syntax();
         extract_models_impl(&module.body, &module_name, file, ModuleKind::Module)
@@ -715,12 +760,12 @@ mod tests {
         resolve_local_model_graph(&extract_model_facts(source, module_name))
     }
 
-    fn candidate<'a>(extraction: &'a ModelExtraction, name: &str) -> &'a ModelCandidate {
+    fn extracted_class<'a>(extraction: &'a ExtractedClasses, name: &str) -> &'a ExtractedClass {
         extraction
-            .candidates
+            .as_slice()
             .iter()
-            .find(|candidate| candidate.model.name.value().as_str() == name)
-            .expect("model candidate should exist")
+            .find(|class| class.name.value().as_str() == name)
+            .expect("extracted class should exist")
     }
 
     fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {
@@ -765,9 +810,16 @@ mod tests {
     }
 
     #[test]
-    fn plain_class_ignored() {
-        let graph = extract_model_graph("class Foo:\n    pass\n", "test");
-        assert!(graph.is_empty());
+    fn plain_class_is_extracted_but_not_admitted() {
+        let source = "class Foo:\n    pass\n";
+        let extraction = extract_model_facts(source, "test");
+        let class = extracted_class(&extraction, "Foo");
+
+        assert_eq!(class.module_name.as_str(), "test");
+        assert_eq!(class.name.span(), Span::new(6, 3));
+        assert!(class.relations.is_empty());
+        assert_eq!(class.declared_model_kind, ModelKind::Concrete);
+        assert!(extract_model_graph(source, "test").is_empty());
     }
 
     #[test]
@@ -876,7 +928,7 @@ class Location(GeoModel):
     }
 
     #[test]
-    fn unrelated_alias_is_retained_as_a_qualified_candidate() {
+    fn unrelated_alias_is_retained_as_a_qualified_base() {
         let source = r"
 import foo
 
@@ -884,18 +936,18 @@ class NotAModel(foo.Model):
     pass
 ";
         let extraction = extract_model_facts(source, "app.models");
-        let candidate = candidate(&extraction, "NotAModel");
+        let class = extracted_class(&extraction, "NotAModel");
         assert!(matches!(
-            candidate.bases.as_slice(),
+            class.bases.as_slice(),
             [base] if matches!(
                 base.value(),
-                CandidateBaseRef::Qualified(path) if path.as_str() == "foo.Model"
+                ExtractedBaseRef::Qualified(path) if path.as_str() == "foo.Model"
             )
         ));
     }
 
     #[test]
-    fn imported_non_django_base_is_retained_as_a_qualified_candidate() {
+    fn imported_non_django_base_is_retained_as_a_qualified_base() {
         let source = r"
 from pydantic import BaseModel
 
@@ -903,12 +955,12 @@ class NotDjango(BaseModel):
     pass
 ";
         let extraction = extract_model_facts(source, "app.models");
-        let candidate = candidate(&extraction, "NotDjango");
+        let class = extracted_class(&extraction, "NotDjango");
         assert!(matches!(
-            candidate.bases.as_slice(),
+            class.bases.as_slice(),
             [base] if matches!(
                 base.value(),
-                CandidateBaseRef::Qualified(path) if path.as_str() == "pydantic.BaseModel"
+                ExtractedBaseRef::Qualified(path) if path.as_str() == "pydantic.BaseModel"
             )
         ));
     }
@@ -1155,17 +1207,14 @@ class ConcreteOrder(BaseOrder):
     seller = models.ForeignKey(Seller, on_delete=models.CASCADE)
 ";
         let extraction = extract_model_facts(source, "shop.models");
-        let concrete = candidate(&extraction, "ConcreteOrder");
+        let concrete = extracted_class(&extraction, "ConcreteOrder");
 
-        assert_eq!(concrete.model.kind, ModelKind::Concrete);
-        assert_eq!(concrete.model.relations.len(), 1);
-        assert_eq!(
-            bare_target_name(&concrete.model.relations[0]),
-            Some("Seller")
-        );
+        assert_eq!(concrete.declared_model_kind, ModelKind::Concrete);
+        assert_eq!(concrete.relations.len(), 1);
+        assert_eq!(bare_target_name(&concrete.relations[0]), Some("Seller"));
         assert!(matches!(
             concrete.bases.as_slice(),
-            [base] if matches!(base.value(), CandidateBaseRef::SameModule(name) if name.as_str() == "BaseOrder")
+            [base] if matches!(base.value(), ExtractedBaseRef::SameModule(name) if name.as_str() == "BaseOrder")
         ));
     }
 
@@ -1187,14 +1236,14 @@ class SpecialOrder(BaseOrder):
     pass
 "#;
         let extraction = extract_model_facts(source, "shop.models");
-        let base = candidate(&extraction, "BaseOrder");
-        let special = candidate(&extraction, "SpecialOrder");
+        let base = extracted_class(&extraction, "BaseOrder");
+        let special = extracted_class(&extraction, "SpecialOrder");
 
-        assert_eq!(base.model.relations.len(), 1);
-        assert!(special.model.relations.is_empty());
+        assert_eq!(base.relations.len(), 1);
+        assert!(special.relations.is_empty());
         assert!(matches!(
             special.bases.as_slice(),
-            [parent] if matches!(parent.value(), CandidateBaseRef::SameModule(name) if name.as_str() == "BaseOrder")
+            [parent] if matches!(parent.value(), ExtractedBaseRef::SameModule(name) if name.as_str() == "BaseOrder")
         ));
     }
 
@@ -1328,17 +1377,17 @@ class Document(TimestampMixin, AuditMixin):
     pass
 ";
         let extraction = extract_model_facts(source, "app.models");
-        let document = candidate(&extraction, "Document");
+        let document = extracted_class(&extraction, "Document");
 
-        assert!(document.model.relations.is_empty());
+        assert!(document.relations.is_empty());
         assert_eq!(document.bases.len(), 2);
         assert!(matches!(
             document.bases[0].value(),
-            CandidateBaseRef::SameModule(name) if name.as_str() == "TimestampMixin"
+            ExtractedBaseRef::SameModule(name) if name.as_str() == "TimestampMixin"
         ));
         assert!(matches!(
             document.bases[1].value(),
-            CandidateBaseRef::SameModule(name) if name.as_str() == "AuditMixin"
+            ExtractedBaseRef::SameModule(name) if name.as_str() == "AuditMixin"
         ));
     }
 
@@ -1357,17 +1406,11 @@ class Restaurant(Place):
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
 ";
         let extraction = extract_model_facts(source, "app.models");
-        let restaurant = candidate(&extraction, "Restaurant");
+        let restaurant = extracted_class(&extraction, "Restaurant");
 
-        assert_eq!(restaurant.model.relations.len(), 1);
-        assert_eq!(
-            restaurant.model.relations[0].field_name.value().as_str(),
-            "owner"
-        );
-        assert_eq!(
-            bare_target_name(&restaurant.model.relations[0]),
-            Some("User")
-        );
+        assert_eq!(restaurant.relations.len(), 1);
+        assert_eq!(restaurant.relations[0].field_name.value().as_str(), "owner");
+        assert_eq!(bare_target_name(&restaurant.relations[0]), Some("User"));
     }
 
     #[test]
@@ -1388,13 +1431,13 @@ class ConcreteOrder(some_module.BaseOrder):
     pass
 ";
         let extraction = extract_model_facts(source, "shop.models");
-        let concrete = candidate(&extraction, "ConcreteOrder");
+        let concrete = extracted_class(&extraction, "ConcreteOrder");
 
         assert!(matches!(
             concrete.bases.as_slice(),
             [base] if matches!(
                 base.value(),
-                CandidateBaseRef::Unresolved { path, .. }
+                ExtractedBaseRef::MissingBinding { path }
                     if path == &["some_module".to_string(), "BaseOrder".to_string()]
             )
         ));
@@ -1422,13 +1465,13 @@ class Concrete(MiddleMixin):
     pass
 ";
         let extraction = extract_model_facts(source, "app.models");
-        let middle = candidate(&extraction, "MiddleMixin");
-        let concrete = candidate(&extraction, "Concrete");
+        let middle = extracted_class(&extraction, "MiddleMixin");
+        let concrete = extracted_class(&extraction, "Concrete");
 
-        assert_eq!(middle.model.kind, ModelKind::Abstract);
-        assert!(middle.model.relations.is_empty());
-        assert_eq!(concrete.model.kind, ModelKind::Concrete);
-        assert!(concrete.model.relations.is_empty());
+        assert_eq!(middle.declared_model_kind, ModelKind::Abstract);
+        assert!(middle.relations.is_empty());
+        assert_eq!(concrete.declared_model_kind, ModelKind::Concrete);
+        assert!(concrete.relations.is_empty());
     }
 
     #[test]
@@ -1546,15 +1589,15 @@ class TaggedItem(GenericMixin):
     pass
 "#;
         let extraction = extract_model_facts(source, "tagging.models");
-        let mixin = candidate(&extraction, "GenericMixin");
-        let tagged = candidate(&extraction, "TaggedItem");
+        let mixin = extracted_class(&extraction, "GenericMixin");
+        let tagged = extracted_class(&extraction, "TaggedItem");
 
-        assert_eq!(mixin.model.relations.len(), 1);
+        assert_eq!(mixin.relations.len(), 1);
         assert!(matches!(
-            mixin.model.relations[0].relation_type,
+            mixin.relations[0].relation_type,
             RelationType::GenericForeignKey { .. }
         ));
-        assert!(tagged.model.relations.is_empty());
+        assert!(tagged.relations.is_empty());
     }
 
     #[test]

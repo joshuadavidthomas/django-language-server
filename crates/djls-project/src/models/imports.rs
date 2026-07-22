@@ -128,7 +128,7 @@ impl ModelImportState {
     pub(crate) fn resolve_reference(&self, root: &str, tail: &[String]) -> ModelImportReference {
         match self.resolve_qualified_path(root, tail) {
             Ok(target) => ModelImportReference::Qualified(target),
-            Err(error) => ModelImportReference::Unresolved(error),
+            Err(error) => ModelImportReference::Unresolved(error.into()),
         }
     }
 }
@@ -141,7 +141,15 @@ pub(crate) enum ModelImportReference {
     Qualified(PythonModuleName),
     /// The spelling could not be symbolically qualified; the reason is
     /// preserved for downstream resolution and diagnostics.
-    Unresolved(ModelImportPathResolutionError),
+    Unresolved(ModelImportPathUnresolvedReason),
+}
+
+/// Stored evidence explaining why an import path could not be qualified.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ModelImportPathUnresolvedReason {
+    MissingBinding,
+    ShadowedBinding,
+    InvalidTarget { target: String },
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Hash)]
@@ -156,6 +164,18 @@ pub(crate) enum ModelImportPathResolutionError {
         #[source]
         source: InvalidModuleName,
     },
+}
+
+impl From<ModelImportPathResolutionError> for ModelImportPathUnresolvedReason {
+    fn from(error: ModelImportPathResolutionError) -> Self {
+        match error {
+            ModelImportPathResolutionError::MissingBinding => Self::MissingBinding,
+            ModelImportPathResolutionError::ShadowedBinding => Self::ShadowedBinding,
+            ModelImportPathResolutionError::InvalidTarget { target, .. } => {
+                Self::InvalidTarget { target }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -302,7 +322,7 @@ mod tests {
         assert!(state.aliases.is_empty());
         assert_eq!(
             state.resolve_reference("c", &[]),
-            ModelImportReference::Unresolved(ModelImportPathResolutionError::ShadowedBinding)
+            ModelImportReference::Unresolved(ModelImportPathUnresolvedReason::ShadowedBinding)
         );
     }
 
@@ -315,7 +335,7 @@ mod tests {
         );
         assert_eq!(
             state.resolve_reference("missing", &[]),
-            ModelImportReference::Unresolved(ModelImportPathResolutionError::MissingBinding)
+            ModelImportReference::Unresolved(ModelImportPathUnresolvedReason::MissingBinding)
         );
     }
 }

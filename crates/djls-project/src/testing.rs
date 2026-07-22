@@ -33,7 +33,8 @@ pub use crate::discovery::compute_project_facts;
 use crate::models::AncestryOutcome;
 use crate::models::BaseOutcome;
 use crate::models::BaseUnresolvedReason;
-use crate::models::InheritanceError;
+use crate::models::ClassId;
+use crate::models::InvalidAncestryReason;
 use crate::models::ModelGraph;
 use crate::models::ModelId;
 use crate::models::extract_models;
@@ -78,6 +79,35 @@ pub fn model_location(
         .map(|(_id, model)| (model.file, model.name.span()))
 }
 
+/// The import identity of an extracted Python class without claiming that the
+/// resolver admitted it as a Django model.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelClassIdentityView {
+    module_name: PythonModuleName,
+    name: String,
+}
+
+impl ModelClassIdentityView {
+    #[must_use]
+    pub fn module_name(&self) -> &PythonModuleName {
+        &self.module_name
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl From<&ClassId> for ModelClassIdentityView {
+    fn from(class: &ClassId) -> Self {
+        Self {
+            module_name: class.module_name().clone(),
+            name: class.name().to_string(),
+        }
+    }
+}
+
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelBaseOutcomeView {
@@ -89,7 +119,7 @@ pub enum ModelBaseOutcomeView {
         span: Span,
     },
     NonModelClass {
-        class: ModelId,
+        class: ModelClassIdentityView,
         span: Span,
     },
     Unresolved {
@@ -120,27 +150,146 @@ pub enum ModelBaseUnresolvedReasonView {
         resolved_prefix: PythonModuleName,
         unresolved_tail: Vec<String>,
     },
-    ModelNotFound {
-        model: ModelId,
+    ClassNotFound {
+        class: ModelClassIdentityView,
     },
     ReboundLocalBase {
-        model: ModelId,
+        class: ModelClassIdentityView,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelMroEntryView {
+    Model(ModelId),
+    NonModelClass(ModelClassIdentityView),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelAncestryOutcomeView {
-    Complete { mro: Vec<ModelId> },
+    Complete {
+        mro: Vec<ModelMroEntryView>,
+    },
     Partial,
-    Invalid { error: ModelInheritanceErrorView },
+    Invalid {
+        reason: ModelInvalidAncestryReasonView,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ModelInheritanceErrorView {
+pub enum ModelInvalidAncestryReasonView {
     Cycle,
     DuplicateDjangoModelRoot,
-    DuplicateModelBase { model: ModelId },
-    InconsistentC3,
+    DuplicateClassBase { class: ModelClassIdentityView },
+    InconsistentMethodResolutionOrder,
+}
+
+fn model_base_unresolved_reason_view(
+    reason: &BaseUnresolvedReason,
+) -> ModelBaseUnresolvedReasonView {
+    match reason {
+        BaseUnresolvedReason::UnsupportedExpression => {
+            ModelBaseUnresolvedReasonView::UnsupportedExpression
+        }
+        BaseUnresolvedReason::MissingImportBinding { path } => {
+            ModelBaseUnresolvedReasonView::MissingImportBinding { path: path.clone() }
+        }
+        BaseUnresolvedReason::ShadowedImportBinding { path } => {
+            ModelBaseUnresolvedReasonView::ShadowedImportBinding { path: path.clone() }
+        }
+        BaseUnresolvedReason::InvalidImportedTarget { target } => {
+            ModelBaseUnresolvedReasonView::InvalidImportedTarget {
+                target: target.clone(),
+            }
+        }
+        BaseUnresolvedReason::ImportNotFound { requested } => {
+            ModelBaseUnresolvedReasonView::ImportNotFound {
+                requested: requested.clone(),
+            }
+        }
+        BaseUnresolvedReason::ImportedTargetIsModule { module } => {
+            ModelBaseUnresolvedReasonView::ImportedTargetIsModule {
+                module: module.clone(),
+            }
+        }
+        BaseUnresolvedReason::PartialImport {
+            resolved_prefix,
+            unresolved_tail,
+        } => ModelBaseUnresolvedReasonView::PartialImport {
+            resolved_prefix: resolved_prefix.clone(),
+            unresolved_tail: unresolved_tail.clone(),
+        },
+        BaseUnresolvedReason::ClassNotFound { class } => {
+            ModelBaseUnresolvedReasonView::ClassNotFound {
+                class: class.into(),
+            }
+        }
+        BaseUnresolvedReason::ReboundLocalBase { class } => {
+            ModelBaseUnresolvedReasonView::ReboundLocalBase {
+                class: class.into(),
+            }
+        }
+    }
+}
+
+fn model_base_outcome_view(base: &BaseOutcome) -> ModelBaseOutcomeView {
+    match base {
+        BaseOutcome::DjangoModelRoot { .. } => {
+            ModelBaseOutcomeView::DjangoModelRoot { span: base.span() }
+        }
+        BaseOutcome::Model { model, .. } => ModelBaseOutcomeView::Model {
+            model: model.clone(),
+            span: base.span(),
+        },
+        BaseOutcome::NonModelClass { class, .. } => ModelBaseOutcomeView::NonModelClass {
+            class: class.into(),
+            span: base.span(),
+        },
+        BaseOutcome::Unresolved { reason, .. } => ModelBaseOutcomeView::Unresolved {
+            span: base.span(),
+            reason: model_base_unresolved_reason_view(reason),
+        },
+    }
+}
+
+fn model_mro_entry_view(graph: &ModelGraph, class: &ClassId) -> ModelMroEntryView {
+    graph
+        .models_named(class.name())
+        .find(|(model, _definition)| ClassId::from_model_id(model) == *class)
+        .map_or_else(
+            || ModelMroEntryView::NonModelClass(class.into()),
+            |(model, _definition)| ModelMroEntryView::Model(model.clone()),
+        )
+}
+
+fn model_ancestry_outcome_view(
+    graph: &ModelGraph,
+    ancestry: &AncestryOutcome,
+) -> ModelAncestryOutcomeView {
+    match ancestry {
+        AncestryOutcome::Complete { mro } => ModelAncestryOutcomeView::Complete {
+            mro: mro
+                .iter()
+                .map(|class| model_mro_entry_view(graph, class))
+                .collect(),
+        },
+        AncestryOutcome::Partial => ModelAncestryOutcomeView::Partial,
+        AncestryOutcome::Invalid { reason } => ModelAncestryOutcomeView::Invalid {
+            reason: match reason {
+                InvalidAncestryReason::Cycle => ModelInvalidAncestryReasonView::Cycle,
+                InvalidAncestryReason::DuplicateDjangoModelRoot => {
+                    ModelInvalidAncestryReasonView::DuplicateDjangoModelRoot
+                }
+                InvalidAncestryReason::DuplicateClassBase { class } => {
+                    ModelInvalidAncestryReasonView::DuplicateClassBase {
+                        class: class.into(),
+                    }
+                }
+                InvalidAncestryReason::InconsistentMethodResolutionOrder => {
+                    ModelInvalidAncestryReasonView::InconsistentMethodResolutionOrder
+                }
+            },
+        },
+    }
 }
 
 #[must_use]
@@ -153,90 +302,10 @@ pub fn model_inheritance_outcomes(
         .models_named(model_name)
         .find(|(id, _model)| id.module_name().as_str() == module_name)?;
     let record = graph.inheritance(id)?;
-    let bases = record
-        .bases
-        .iter()
-        .map(|base| match base {
-            BaseOutcome::DjangoModelRoot { .. } => {
-                ModelBaseOutcomeView::DjangoModelRoot { span: base.span() }
-            }
-            BaseOutcome::Model { model, .. } => ModelBaseOutcomeView::Model {
-                model: model.clone(),
-                span: base.span(),
-            },
-            BaseOutcome::NonModelClass { class, .. } => ModelBaseOutcomeView::NonModelClass {
-                class: class.clone(),
-                span: base.span(),
-            },
-            BaseOutcome::Unresolved { reason, .. } => ModelBaseOutcomeView::Unresolved {
-                span: base.span(),
-                reason: match reason {
-                    BaseUnresolvedReason::UnsupportedExpression => {
-                        ModelBaseUnresolvedReasonView::UnsupportedExpression
-                    }
-                    BaseUnresolvedReason::MissingImportBinding { path } => {
-                        ModelBaseUnresolvedReasonView::MissingImportBinding { path: path.clone() }
-                    }
-                    BaseUnresolvedReason::ShadowedImportBinding { path } => {
-                        ModelBaseUnresolvedReasonView::ShadowedImportBinding { path: path.clone() }
-                    }
-                    BaseUnresolvedReason::InvalidImportedTarget { target } => {
-                        ModelBaseUnresolvedReasonView::InvalidImportedTarget {
-                            target: target.clone(),
-                        }
-                    }
-                    BaseUnresolvedReason::ImportNotFound { requested } => {
-                        ModelBaseUnresolvedReasonView::ImportNotFound {
-                            requested: requested.clone(),
-                        }
-                    }
-                    BaseUnresolvedReason::ImportedTargetIsModule { module } => {
-                        ModelBaseUnresolvedReasonView::ImportedTargetIsModule {
-                            module: module.clone(),
-                        }
-                    }
-                    BaseUnresolvedReason::PartialImport {
-                        resolved_prefix,
-                        unresolved_tail,
-                    } => ModelBaseUnresolvedReasonView::PartialImport {
-                        resolved_prefix: resolved_prefix.clone(),
-                        unresolved_tail: unresolved_tail.clone(),
-                    },
-                    BaseUnresolvedReason::ModelNotFound { model } => {
-                        ModelBaseUnresolvedReasonView::ModelNotFound {
-                            model: model.clone(),
-                        }
-                    }
-                    BaseUnresolvedReason::ReboundLocalBase { model } => {
-                        ModelBaseUnresolvedReasonView::ReboundLocalBase {
-                            model: model.clone(),
-                        }
-                    }
-                },
-            },
-        })
-        .collect();
-    let ancestry = match &record.ancestry {
-        AncestryOutcome::Complete { mro } => {
-            ModelAncestryOutcomeView::Complete { mro: mro.clone() }
-        }
-        AncestryOutcome::Partial => ModelAncestryOutcomeView::Partial,
-        AncestryOutcome::Invalid { error } => ModelAncestryOutcomeView::Invalid {
-            error: match error {
-                InheritanceError::Cycle => ModelInheritanceErrorView::Cycle,
-                InheritanceError::DuplicateDjangoModelRoot => {
-                    ModelInheritanceErrorView::DuplicateDjangoModelRoot
-                }
-                InheritanceError::DuplicateModelBase { model } => {
-                    ModelInheritanceErrorView::DuplicateModelBase {
-                        model: model.clone(),
-                    }
-                }
-                InheritanceError::InconsistentC3 => ModelInheritanceErrorView::InconsistentC3,
-            },
-        },
-    };
-    Some((bases, ancestry))
+    Some((
+        record.bases.iter().map(model_base_outcome_view).collect(),
+        model_ancestry_outcome_view(graph, &record.ancestry),
+    ))
 }
 
 #[must_use]

@@ -13,7 +13,8 @@ use djls_project::compute_model_graph;
 use djls_project::testing::ModelAncestryOutcomeView;
 use djls_project::testing::ModelBaseOutcomeView;
 use djls_project::testing::ModelBaseUnresolvedReasonView;
-use djls_project::testing::ModelInheritanceErrorView;
+use djls_project::testing::ModelInvalidAncestryReasonView;
+use djls_project::testing::ModelMroEntryView;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::extract_model_graph;
 use djls_project::testing::model_inheritance_outcomes;
@@ -1871,7 +1872,13 @@ fn relation_evidence_retains_partial_model_without_promoting_arbitrary_subclass(
     assert!(matches!(
         ancestry,
         ModelAncestryOutcomeView::Complete { ref mro }
-            if mro.iter().map(ModelId::name).collect::<Vec<_>>() == ["Webhook", "WebhookBase"]
+            if matches!(
+                mro.as_slice(),
+                [
+                    ModelMroEntryView::Model(model),
+                    ModelMroEntryView::NonModelClass(class),
+                ] if model.name() == "Webhook" && class.name() == "WebhookBase"
+            )
     ));
 }
 
@@ -1903,7 +1910,13 @@ fn plain_same_file_mixin_keeps_local_ancestry_complete() {
     assert!(matches!(
         ancestry,
         ModelAncestryOutcomeView::Complete { ref mro }
-            if mro.iter().map(ModelId::name).collect::<Vec<_>>() == ["Child", "PlainMixin"]
+            if matches!(
+                mro.as_slice(),
+                [
+                    ModelMroEntryView::Model(model),
+                    ModelMroEntryView::NonModelClass(class),
+                ] if model.name() == "Child" && class.name() == "PlainMixin"
+            )
     ));
 }
 
@@ -2162,7 +2175,7 @@ fn known_c3_conflict_propagates_through_partial_ancestry() {
     assert_eq!(
         c_ancestry,
         ModelAncestryOutcomeView::Invalid {
-            error: ModelInheritanceErrorView::InconsistentC3,
+            reason: ModelInvalidAncestryReasonView::InconsistentMethodResolutionOrder,
         }
     );
 }
@@ -2269,9 +2282,9 @@ fn a_same_module_base_rebound_after_the_child_is_unresolved() {
     assert!(matches!(
         bases.as_slice(),
         [ModelBaseOutcomeView::Unresolved {
-            reason: ModelBaseUnresolvedReasonView::ReboundLocalBase { model },
+            reason: ModelBaseUnresolvedReasonView::ReboundLocalBase { class },
             ..
-        }] if model.name() == "Base" && model.module_name().as_str() == "app.models"
+        }] if class.name() == "Base" && class.module_name().as_str() == "app.models"
     ));
     assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
 }
@@ -2299,9 +2312,9 @@ fn rebound_local_base_admission_uses_proven_same_module_ancestry() {
     assert!(matches!(
         bases.as_slice(),
         [ModelBaseOutcomeView::Unresolved {
-            reason: ModelBaseUnresolvedReasonView::ReboundLocalBase { model },
+            reason: ModelBaseUnresolvedReasonView::ReboundLocalBase { class },
             ..
-        }] if model.name() == "Base" && model.module_name().as_str() == "app.models"
+        }] if class.name() == "Base" && class.module_name().as_str() == "app.models"
     ));
     assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
 }
@@ -2457,14 +2470,14 @@ fn django_root_before_derived_base_is_invalid() {
     assert_eq!(
         ancestry,
         ModelAncestryOutcomeView::Invalid {
-            error: ModelInheritanceErrorView::InconsistentC3,
+            reason: ModelInvalidAncestryReasonView::InconsistentMethodResolutionOrder,
         }
     );
     assert_eq!(graph.resolve_relation(bad, "inherited"), None);
 }
 
 #[test]
-fn duplicate_model_base_is_invalid() {
+fn duplicate_class_base_is_invalid() {
     let source = concat!(
         "from django.db import models\n",
         "class Base(models.Model):\n    pass\n",
@@ -2481,8 +2494,8 @@ fn duplicate_model_base_is_invalid() {
     assert!(matches!(
         ancestry,
         ModelAncestryOutcomeView::Invalid {
-            error: ModelInheritanceErrorView::DuplicateModelBase { ref model },
-        } if model.name() == "Base"
+            reason: ModelInvalidAncestryReasonView::DuplicateClassBase { ref class },
+        } if class.name() == "Base"
     ));
 }
 
@@ -2512,7 +2525,7 @@ fn cycle_wins_over_unresolved_ancestry() {
     assert_eq!(
         ancestry,
         ModelAncestryOutcomeView::Invalid {
-            error: ModelInheritanceErrorView::Cycle,
+            reason: ModelInvalidAncestryReasonView::Cycle,
         }
     );
 }
@@ -2607,7 +2620,7 @@ fn abstract_clone_expression_target_keeps_its_declaration_scope() {
 }
 
 #[test]
-fn local_non_field_names_block_abstract_relation_cloning() {
+fn extracted_class_bindings_block_abstract_relation_cloning() {
     let source = concat!(
         "from django.db import models\n",
         "class Target(models.Model):\n    pass\n",

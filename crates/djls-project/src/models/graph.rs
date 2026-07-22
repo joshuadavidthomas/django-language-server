@@ -12,7 +12,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::db::Db as ProjectDb;
-use crate::models::imports::ModelImportPathResolutionError;
+use crate::models::imports::ModelImportPathUnresolvedReason;
 use crate::models::imports::ModelImportReference;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
@@ -68,6 +68,11 @@ macro_rules! string_newtype {
 string_newtype! {
     /// A Django model class name (e.g., `"User"`, `"Article"`).
     pub(crate) struct ModelName
+}
+
+string_newtype! {
+    /// A Python class name, whether or not the class is a Django model.
+    pub(crate) struct ClassName
 }
 
 string_newtype! {
@@ -150,6 +155,53 @@ impl TryFrom<String> for ModelId {
 
 impl From<ModelId> for String {
     fn from(value: ModelId) -> Self {
+        format!("{}.{}", value.module_name.as_str(), value.name.as_str())
+    }
+}
+
+/// The import identity of any extracted Python class.
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(into = "String")]
+pub(crate) struct ClassId {
+    name: ClassName,
+    module_name: PythonModuleName,
+}
+
+impl ClassId {
+    #[must_use]
+    pub(super) fn new(module_name: PythonModuleName, name: impl Into<String>) -> Self {
+        Self {
+            name: ClassName::new(name),
+            module_name,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[must_use]
+    pub(crate) fn module_name(&self) -> &PythonModuleName {
+        &self.module_name
+    }
+
+    /// Promote this class identity after the resolver has admitted it as a
+    /// Django model.
+    #[must_use]
+    pub(super) fn into_admitted_model_id(self) -> ModelId {
+        ModelId::new(self.module_name, ModelName::new(self.name.as_str()))
+    }
+
+    /// Build the class identity used to look up a model in a mixed-class MRO.
+    #[must_use]
+    pub(crate) fn from_model_id(model: &ModelId) -> Self {
+        Self::new(model.module_name.clone(), model.name.as_str())
+    }
+}
+
+impl From<ClassId> for String {
+    fn from(value: ClassId) -> Self {
         format!("{}.{}", value.module_name.as_str(), value.name.as_str())
     }
 }
@@ -512,26 +564,20 @@ fn django_name_matches(candidate: &str, query: &str) -> bool {
 }
 
 fn unresolved_import_path_reason(
-    error: ModelImportPathResolutionError,
+    reason: ModelImportPathUnresolvedReason,
     binding: Option<&str>,
 ) -> RelationTargetUnresolvedReason {
-    match error {
-        ModelImportPathResolutionError::MissingBinding
-        | ModelImportPathResolutionError::ShadowedBinding => {
+    match reason {
+        ModelImportPathUnresolvedReason::MissingBinding
+        | ModelImportPathUnresolvedReason::ShadowedBinding => {
             RelationTargetUnresolvedReason::MissingImportBinding {
                 binding: binding.unwrap_or_default().to_string(),
             }
         }
-        ModelImportPathResolutionError::InvalidTarget { target, .. } => {
+        ModelImportPathUnresolvedReason::InvalidTarget { target } => {
             RelationTargetUnresolvedReason::InvalidImportedTarget { target }
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum LocalBinding {
-    Relation(usize),
-    Other,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -542,8 +588,6 @@ pub struct ModelDef {
     pub(crate) module_name: PythonModuleName,
     pub(crate) relations: Vec<Relation>,
     pub(crate) kind: ModelKind,
-    #[serde(skip)]
-    final_local_bindings: BTreeMap<FieldName, LocalBinding>,
 }
 
 impl ModelDef {
@@ -560,26 +604,12 @@ impl ModelDef {
             module_name,
             relations: Vec::new(),
             kind: ModelKind::Concrete,
-            final_local_bindings: BTreeMap::new(),
         }
     }
 
-    pub(crate) fn push_local_relation(&mut self, relation: Relation) {
-        let name = relation.field_name.value().clone();
-        let relation_index = self.relations.len();
+    #[cfg(test)]
+    fn push_local_relation(&mut self, relation: Relation) {
         self.relations.push(relation);
-        self.final_local_bindings
-            .insert(name, LocalBinding::Relation(relation_index));
-    }
-
-    pub(crate) fn bind_local_other(&mut self, name: FieldName) {
-        self.final_local_bindings.insert(name, LocalBinding::Other);
-    }
-
-    pub(super) fn has_local_relation_binding(&self) -> bool {
-        self.final_local_bindings
-            .values()
-            .any(|binding| matches!(binding, LocalBinding::Relation(_)))
     }
 }
 
@@ -593,7 +623,7 @@ pub(crate) enum BaseOutcome {
         span: Span,
     },
     NonModelClass {
-        class: ModelId,
+        class: ClassId,
         span: Span,
     },
     Unresolved {
@@ -636,27 +666,27 @@ pub(crate) enum BaseUnresolvedReason {
         resolved_prefix: PythonModuleName,
         unresolved_tail: Vec<String>,
     },
-    ModelNotFound {
-        model: ModelId,
+    ClassNotFound {
+        class: ClassId,
     },
     ReboundLocalBase {
-        model: ModelId,
+        class: ClassId,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) enum AncestryOutcome {
-    Complete { mro: Vec<ModelId> },
+    Complete { mro: Vec<ClassId> },
     Partial,
-    Invalid { error: InheritanceError },
+    Invalid { reason: InvalidAncestryReason },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) enum InheritanceError {
+pub(crate) enum InvalidAncestryReason {
     Cycle,
     DuplicateDjangoModelRoot,
-    DuplicateModelBase { model: ModelId },
-    InconsistentC3,
+    DuplicateClassBase { class: ClassId },
+    InconsistentMethodResolutionOrder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -669,6 +699,7 @@ pub(crate) struct InheritanceRecord {
 struct ModelRecord {
     definition: ModelDef,
     inheritance: InheritanceRecord,
+    local_bindings: BTreeMap<FieldName, crate::models::extract::LocalBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -705,8 +736,10 @@ struct ModelRelationBindings {
 pub struct ModelGraph {
     records: BTreeMap<ModelId, ModelRecord>,
     model_ids_by_name: BTreeMap<ModelName, BTreeSet<ModelId>>,
+    model_ids_by_class: BTreeMap<ClassId, ModelId>,
     relation_bindings: BTreeMap<RelationBindingId, RelationBinding>,
     model_relation_bindings: BTreeMap<ModelId, ModelRelationBindings>,
+    non_model_class_bindings: BTreeMap<ClassId, BTreeSet<FieldName>>,
 }
 
 impl PartialEq for ModelGraph {
@@ -714,6 +747,7 @@ impl PartialEq for ModelGraph {
         self.records == other.records
             && self.relation_bindings == other.relation_bindings
             && self.model_relation_bindings == other.model_relation_bindings
+            && self.non_model_class_bindings == other.non_model_class_bindings
     }
 }
 
@@ -829,6 +863,7 @@ impl ModelGraph {
         &mut self,
         definition: ModelDef,
         inheritance: InheritanceRecord,
+        local_bindings: BTreeMap<FieldName, crate::models::extract::LocalBinding>,
     ) {
         let id = ModelId::new(
             definition.module_name.clone(),
@@ -841,6 +876,7 @@ impl ModelGraph {
                     ModelRecord {
                         definition,
                         inheritance,
+                        local_bindings,
                     },
                 )
                 .is_none(),
@@ -849,7 +885,9 @@ impl ModelGraph {
         self.model_ids_by_name
             .entry(id.name.clone())
             .or_default()
-            .insert(id);
+            .insert(id.clone());
+        self.model_ids_by_class
+            .insert(ClassId::from_model_id(&id), id);
     }
 
     #[cfg(test)]
@@ -858,14 +896,25 @@ impl ModelGraph {
             definition.module_name.clone(),
             definition.name.value().clone(),
         );
+        let class = ClassId::from_model_id(&id);
+        let local_bindings = definition
+            .relations
+            .iter()
+            .enumerate()
+            .map(|(index, relation)| {
+                (
+                    relation.field_name.value().clone(),
+                    crate::models::extract::LocalBinding::Relation(index),
+                )
+            })
+            .collect();
         self.insert_resolved_model(
             definition,
             InheritanceRecord {
                 bases: Vec::new(),
-                ancestry: AncestryOutcome::Complete {
-                    mro: vec![id.clone()],
-                },
+                ancestry: AncestryOutcome::Complete { mro: vec![class] },
             },
+            local_bindings,
         );
         self.build_effective_relation_bindings();
     }
@@ -873,12 +922,12 @@ impl ModelGraph {
     fn install_local_relation_bindings(
         &mut self,
         id: &ModelId,
-        local_bindings: BTreeMap<FieldName, LocalBinding>,
+        local_bindings: BTreeMap<FieldName, crate::models::extract::LocalBinding>,
     ) {
         let local_bound_names = local_bindings.keys().cloned().collect();
         let mut local_relation_bindings = BTreeMap::new();
         for (field_name, binding) in local_bindings {
-            let LocalBinding::Relation(index) = binding else {
+            let crate::models::extract::LocalBinding::Relation(index) = binding else {
                 continue;
             };
             let declaration = RelationDeclarationId {
@@ -915,17 +964,14 @@ impl ModelGraph {
         );
     }
 
-    pub(super) fn add_non_model_class(&mut self, id: &ModelId, class: &ModelDef) {
-        let local_bound_names = class.final_local_bindings.keys().cloned().collect();
+    pub(super) fn add_non_model_class(
+        &mut self,
+        id: &ClassId,
+        local_bindings: BTreeMap<FieldName, crate::models::extract::LocalBinding>,
+    ) {
         assert!(
-            self.model_relation_bindings
-                .insert(
-                    id.clone(),
-                    ModelRelationBindings {
-                        local_bound_names,
-                        ..ModelRelationBindings::default()
-                    },
-                )
+            self.non_model_class_bindings
+                .insert(id.clone(), local_bindings.into_keys().collect())
                 .is_none(),
             "non-model class inserted more than once: {id:?}",
         );
@@ -949,13 +995,13 @@ impl ModelGraph {
         let local_bindings: Vec<_> = self
             .records
             .iter()
-            .map(|(id, record)| (id.clone(), record.definition.final_local_bindings.clone()))
+            .map(|(id, record)| (id.clone(), record.local_bindings.clone()))
             .collect();
         for (id, bindings) in local_bindings {
             self.install_local_relation_bindings(&id, bindings);
         }
 
-        let mut complete: Vec<(ModelId, Vec<ModelId>)> = self
+        let mut complete: Vec<(ModelId, Vec<ClassId>)> = self
             .records
             .iter()
             .filter_map(|(id, record)| match &record.inheritance.ancestry {
@@ -973,7 +1019,29 @@ impl ModelGraph {
         }
     }
 
-    fn clone_abstract_relation_bindings(&mut self, id: &ModelId, mro: &[ModelId]) {
+    fn model_id_for_class(&self, class: &ClassId) -> Option<&ModelId> {
+        self.model_ids_by_class.get(class)
+    }
+
+    fn class_local_bound_names(&self, class: &ClassId) -> BTreeSet<FieldName> {
+        self.model_id_for_class(class)
+            .and_then(|model| self.model_relation_bindings.get(model))
+            .map(|bindings| bindings.local_bound_names.clone())
+            .or_else(|| self.non_model_class_bindings.get(class).cloned())
+            .unwrap_or_default()
+    }
+
+    fn class_local_relation_bindings(
+        &self,
+        class: &ClassId,
+    ) -> BTreeMap<FieldName, RelationBindingId> {
+        self.model_id_for_class(class)
+            .and_then(|model| self.model_relation_bindings.get(model))
+            .map(|bindings| bindings.local_relation_bindings.clone())
+            .unwrap_or_default()
+    }
+
+    fn clone_abstract_relation_bindings(&mut self, id: &ModelId, mro: &[ClassId]) {
         let mut occupied = self
             .model_relation_bindings
             .get(id)
@@ -987,19 +1055,11 @@ impl ModelGraph {
         let mut cloned_names = BTreeSet::new();
 
         for ancestor_id in mro.iter().skip(1) {
-            let ancestor_names = self
-                .model_relation_bindings
-                .get(ancestor_id)
-                .map(|bindings| bindings.local_bound_names.clone())
-                .unwrap_or_default();
-            let ancestor_relations = self
-                .model_relation_bindings
-                .get(ancestor_id)
-                .map(|bindings| bindings.local_relation_bindings.clone())
-                .unwrap_or_default();
+            let ancestor_names = self.class_local_bound_names(ancestor_id);
+            let ancestor_relations = self.class_local_relation_bindings(ancestor_id);
             let ancestor_is_abstract = self
-                .records
-                .get(ancestor_id)
+                .model_id_for_class(ancestor_id)
+                .and_then(|model| self.records.get(model))
                 .is_some_and(|record| record.definition.kind == ModelKind::Abstract);
 
             for name in ancestor_names {
@@ -1036,7 +1096,7 @@ impl ModelGraph {
         bindings.local_relation_bindings = local_relations;
     }
 
-    fn install_effective_relation_bindings(&mut self, id: ModelId, mro: &[ModelId]) {
+    fn install_effective_relation_bindings(&mut self, id: ModelId, mro: &[ClassId]) {
         let mut occupied = self
             .model_relation_bindings
             .get(&id)
@@ -1049,16 +1109,8 @@ impl ModelGraph {
             .unwrap_or_default();
 
         for ancestor_id in mro.iter().skip(1) {
-            let ancestor_names = self
-                .model_relation_bindings
-                .get(ancestor_id)
-                .map(|bindings| bindings.local_bound_names.clone())
-                .unwrap_or_default();
-            let ancestor_relations = self
-                .model_relation_bindings
-                .get(ancestor_id)
-                .map(|bindings| bindings.local_relation_bindings.clone())
-                .unwrap_or_default();
+            let ancestor_names = self.class_local_bound_names(ancestor_id);
+            let ancestor_relations = self.class_local_relation_bindings(ancestor_id);
             for name in ancestor_names {
                 if occupied.insert(name.clone())
                     && let Some(binding_id) = ancestor_relations.get(&name)
@@ -1104,9 +1156,9 @@ impl ModelGraph {
                 self.records
                     .get(owner)
                     .and_then(|record| match &record.inheritance.ancestry {
-                        AncestryOutcome::Complete { mro } => mro
-                            .iter()
-                            .position(|model| model == &binding.declaration.model),
+                        AncestryOutcome::Complete { mro } => mro.iter().position(|class| {
+                            class == &ClassId::from_model_id(&binding.declaration.model)
+                        }),
                         AncestryOutcome::Partial | AncestryOutcome::Invalid { .. } => None,
                     })
                     .unwrap_or(usize::MAX - 1)
@@ -1258,7 +1310,7 @@ impl ModelGraph {
                 name,
                 import_reference:
                     Some(ModelImportReference::Unresolved(
-                        ModelImportPathResolutionError::MissingBinding,
+                        ModelImportPathUnresolvedReason::MissingBinding,
                     )),
             } => {
                 let app_label = app_label_from_module_name(declaration_scope.module_name.as_str())?;
@@ -1413,7 +1465,7 @@ impl ModelGraph {
                     self.resolve_imported_relation_target(db, project, target)
                 }
                 Some(ModelImportReference::Unresolved(
-                    ModelImportPathResolutionError::MissingBinding,
+                    ModelImportPathUnresolvedReason::MissingBinding,
                 )) => self.resolve_same_app_target(declaration_scope, name),
                 None => self.resolve_same_app_target(recipient_scope, name),
                 Some(ModelImportReference::Unresolved(error)) => {
@@ -2137,7 +2189,7 @@ mod tests {
         assert_eq!(
             inheritance.ancestry,
             AncestryOutcome::Complete {
-                mro: vec![id.clone()]
+                mro: vec![ClassId::from_model_id(id)]
             }
         );
     }

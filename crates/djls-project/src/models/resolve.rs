@@ -2,66 +2,84 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use djls_source::Span;
+use djls_source::Spanned;
 
 use crate::db::Db;
-use crate::models::extract::CandidateBaseRef;
-use crate::models::extract::CandidateBaseReferenceError;
-use crate::models::extract::ModelCandidate;
-use crate::models::extract::ModelExtraction;
+use crate::models::extract::ExtractedBaseRef;
+use crate::models::extract::ExtractedClass;
+use crate::models::extract::ExtractedClasses;
 use crate::models::graph::AncestryOutcome;
 use crate::models::graph::BaseOutcome;
 use crate::models::graph::BaseUnresolvedReason;
-use crate::models::graph::InheritanceError;
+use crate::models::graph::ClassId;
 use crate::models::graph::InheritanceRecord;
+use crate::models::graph::InvalidAncestryReason;
 use crate::models::graph::ModelGraph;
-use crate::models::graph::ModelId;
 use crate::models::graph::ModelKind;
 use crate::project::Project;
 use crate::python::PythonModuleName;
 use crate::python::resolve_prefix;
 
+/// An extracted base after project and occurrence resolution, before admission.
 #[derive(Clone)]
-enum ResolvedBase {
-    DjangoModelRoot {
-        span: Span,
-    },
-    Model {
-        model: ModelId,
-        span: Span,
-    },
+enum ResolvedClassBase {
+    DjangoModelRoot,
+    Class(ClassId),
     ReboundLocalBase {
-        span: Span,
-        model: ModelId,
+        class: ClassId,
         has_positive_model_evidence: bool,
     },
-    Unresolved {
-        span: Span,
-        reason: BaseUnresolvedReason,
+    Unresolved(ClassBaseUnresolvedReason),
+}
+
+/// A failure that can occur while resolving an extracted base, before model
+/// admission assigns terminal model/class meaning.
+#[derive(Clone)]
+enum ClassBaseUnresolvedReason {
+    UnsupportedExpression,
+    MissingImportBinding {
+        path: Vec<String>,
+    },
+    ShadowedImportBinding {
+        path: Vec<String>,
+    },
+    InvalidImportedTarget {
+        target: String,
+    },
+    ImportNotFound {
+        requested: PythonModuleName,
+    },
+    ImportedTargetIsModule {
+        module: PythonModuleName,
+    },
+    PartialImport {
+        resolved_prefix: PythonModuleName,
+        unresolved_tail: Vec<String>,
     },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum C3Node {
+enum MroEntry {
     DjangoModelRoot,
-    Model(ModelId),
+    Class(ClassId),
 }
 
 #[derive(Clone)]
 enum ComputedAncestry {
-    Complete { mro: Vec<C3Node> },
-    Partial { known_mro: Vec<C3Node> },
-    Invalid { error: InheritanceError },
+    Complete { mro: Vec<MroEntry> },
+    Partial { known_mro: Vec<MroEntry> },
+    Invalid { reason: InvalidAncestryReason },
 }
 
 #[derive(Clone, Copy)]
-struct CandidateOccurrence {
+struct ClassOccurrence {
     span: Span,
     has_positive_model_evidence: bool,
 }
 
-struct ResolvedCandidate {
-    candidate: ModelCandidate,
-    bases: Vec<ResolvedBase>,
+struct ResolvedClass {
+    extracted: ExtractedClass,
+    bases: Vec<Spanned<ResolvedClassBase>>,
 }
 
 #[derive(Clone, Copy)]
@@ -73,103 +91,94 @@ enum AdmissionPolicy {
 pub(super) fn resolve_model_inheritance(
     db: &dyn Db,
     project: Project,
-    candidates: Vec<ModelCandidate>,
+    classes: Vec<ExtractedClass>,
 ) -> ModelGraph {
     let mut prefix_cache = BTreeMap::new();
-    assemble_model_graph(
-        candidates,
-        AdmissionPolicy::Production,
-        |candidate, base, span| {
-            resolve_candidate_base(candidate, base, span, &mut |path, span| {
-                resolve_project_qualified_base(db, project, path, span, &mut prefix_cache)
-            })
-        },
-    )
+    assemble_model_graph(classes, AdmissionPolicy::Production, |class, base| {
+        resolve_class_base(class, base, &mut |path| {
+            resolve_project_qualified_base(db, project, path, &mut prefix_cache)
+        })
+    })
 }
 
-/// Resolve one file's extracted model candidates without consulting a Project.
+/// Resolve one file's extracted classes without consulting a Project.
 ///
 /// This keeps corpus extraction deterministic and limited to classes whose
 /// Django model ancestry can be proven within the file. Qualified bases remain
 /// unresolved and cannot seed local model admission.
-pub(crate) fn resolve_local_model_graph(extraction: &ModelExtraction) -> ModelGraph {
+pub(crate) fn resolve_local_model_graph(extraction: &ExtractedClasses) -> ModelGraph {
     assemble_model_graph(
-        extraction.candidates.iter().cloned(),
+        extraction.as_slice().iter().cloned(),
         AdmissionPolicy::Local,
-        |candidate, base, span| {
-            resolve_candidate_base(candidate, base, span, &mut |path, span| {
-                ResolvedBase::Unresolved {
-                    span,
-                    reason: BaseUnresolvedReason::ImportNotFound {
-                        requested: path.clone(),
-                    },
-                }
+        |class, base| {
+            resolve_class_base(class, base, &mut |path| {
+                ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::ImportNotFound {
+                    requested: path.clone(),
+                })
             })
         },
     )
 }
 
 fn assemble_model_graph(
-    candidates: impl IntoIterator<Item = ModelCandidate>,
+    classes: impl IntoIterator<Item = ExtractedClass>,
     policy: AdmissionPolicy,
-    mut resolve_base: impl FnMut(&ModelCandidate, &CandidateBaseRef, Span) -> ResolvedBase,
+    mut resolve_base: impl FnMut(&ExtractedClass, &ExtractedBaseRef) -> ResolvedClassBase,
 ) -> ModelGraph {
-    let mut occurrences: BTreeMap<ModelId, Vec<CandidateOccurrence>> = BTreeMap::new();
+    let mut occurrences: BTreeMap<ClassId, Vec<ClassOccurrence>> = BTreeMap::new();
     let mut winners = BTreeMap::new();
 
-    // Candidates retain source order within their selected module file. Keep
-    // every occurrence and its proven model evidence before reducing to the
-    // final module binding: a base expression may refer to an earlier class
-    // that a later declaration replaces. Evidence can flow through an earlier
-    // same-module base only after that base occurrence has itself been proven.
-    for candidate in candidates {
-        let id = candidate_id(&candidate);
+    // Keep each declaration until occurrence-local rebinding has been resolved;
+    // only then does the final module/name winner replace earlier declarations.
+    for class in classes {
+        let id = class_id(&class);
         let has_positive_model_evidence =
-            candidate_occurrence_has_positive_model_evidence(&candidate, &occurrences);
+            class_occurrence_has_positive_model_evidence(&class, &occurrences);
         occurrences
             .entry(id.clone())
             .or_default()
-            .push(CandidateOccurrence {
-                span: candidate.model.name.span(),
+            .push(ClassOccurrence {
+                span: class.name.span(),
                 has_positive_model_evidence,
             });
-        winners.insert(id, candidate);
+        winners.insert(id, class);
     }
-    let selected_spans: BTreeMap<ModelId, Span> = winners
+    let selected_spans: BTreeMap<ClassId, Span> = winners
         .iter()
-        .map(|(id, candidate)| (id.clone(), candidate.model.name.span()))
+        .map(|(id, class)| (id.clone(), class.name.span()))
         .collect();
 
-    let resolved: BTreeMap<ModelId, ResolvedCandidate> = winners
+    let resolved: BTreeMap<ClassId, ResolvedClass> = winners
         .into_iter()
-        .map(|(id, candidate)| {
-            let bases = candidate
+        .map(|(id, extracted)| {
+            let bases = extracted
                 .bases
                 .iter()
                 .map(|base| {
-                    resolve_candidate_base_rebinding(
-                        &candidate,
+                    let resolved = resolve_class_base_rebinding(
+                        &extracted,
                         base.value(),
                         base.span(),
                         &occurrences,
                         &selected_spans,
                     )
-                    .unwrap_or_else(|| resolve_base(&candidate, base.value(), base.span()))
+                    .unwrap_or_else(|| resolve_base(&extracted, base.value()));
+                    Spanned::new(resolved, base.span())
                 })
                 .collect();
-            (id, ResolvedCandidate { candidate, bases })
+            (id, ResolvedClass { extracted, bases })
         })
         .collect();
-    let admitted = admitted_candidate_ids(&resolved, policy);
+    let admitted = admitted_class_ids(&resolved, policy);
 
-    let bases_by_class: BTreeMap<ModelId, Vec<BaseOutcome>> = resolved
+    // Terminal outcomes are the evidence retained by ModelGraph.
+    let bases_by_class: BTreeMap<ClassId, Vec<BaseOutcome>> = resolved
         .iter()
-        .map(|(id, candidate)| {
-            let bases = candidate
+        .map(|(id, class)| {
+            let bases = class
                 .bases
                 .iter()
-                .cloned()
-                .map(|base| terminal_outcome(base, candidate, &resolved, &admitted, policy))
+                .map(|base| terminal_outcome(base, class, &resolved, &admitted, policy))
                 .collect();
             (id.clone(), bases)
         })
@@ -188,78 +197,81 @@ fn assemble_model_graph(
             .get(id)
             .cloned()
             .unwrap_or(ComputedAncestry::Complete {
-                mro: vec![C3Node::Model(id.clone())],
+                mro: vec![MroEntry::Class(id.clone())],
             }) {
             ComputedAncestry::Complete { mro } => AncestryOutcome::Complete {
                 mro: mro
                     .into_iter()
-                    .filter_map(|node| match node {
-                        C3Node::DjangoModelRoot => None,
-                        C3Node::Model(class) => Some(class),
+                    .filter_map(|entry| match entry {
+                        MroEntry::DjangoModelRoot => None,
+                        MroEntry::Class(class) => Some(class),
                     })
                     .collect(),
             },
             ComputedAncestry::Partial { .. } => AncestryOutcome::Partial,
-            ComputedAncestry::Invalid { error } => AncestryOutcome::Invalid { error },
+            ComputedAncestry::Invalid { reason } => AncestryOutcome::Invalid { reason },
         };
         inheritance_by_model.insert(id.clone(), InheritanceRecord { bases, ancestry });
     }
 
     let mut graph = ModelGraph::new();
-    for (id, candidate) in resolved {
+    for (id, resolved_class) in resolved {
         if let Some(inheritance) = inheritance_by_model.remove(&id) {
-            graph.insert_resolved_model(candidate.candidate.model, inheritance);
+            let (definition, local_bindings) = resolved_class.extracted.into_admitted_model();
+            graph.insert_resolved_model(definition, inheritance, local_bindings);
         } else {
-            graph.add_non_model_class(&id, &candidate.candidate.model);
+            graph.add_non_model_class(&id, resolved_class.extracted.local_bindings);
         }
     }
     graph.build_effective_relation_bindings();
     graph
 }
 
-fn admitted_candidate_ids(
-    candidates: &BTreeMap<ModelId, ResolvedCandidate>,
+fn admitted_class_ids(
+    classes: &BTreeMap<ClassId, ResolvedClass>,
     policy: AdmissionPolicy,
-) -> BTreeSet<ModelId> {
-    let mut ids: BTreeSet<ModelId> = candidates
+) -> BTreeSet<ClassId> {
+    let mut ids: BTreeSet<ClassId> = classes
         .iter()
         .filter(|(_id, resolved)| match policy {
             AdmissionPolicy::Production => {
                 has_django_root(resolved)
                     || has_positive_rebound_local_base(resolved)
-                    || (!has_negative_django_root_evidence(resolved, candidates)
-                        && (resolved.candidate.model.kind != ModelKind::Concrete
-                            || resolved.candidate.model.has_local_relation_binding()))
+                    || (!has_negative_django_root_evidence(resolved, classes)
+                        && (resolved.extracted.declared_model_kind != ModelKind::Concrete
+                            || resolved.extracted.has_local_relation_binding()))
             }
             AdmissionPolicy::Local => {
                 has_django_root(resolved)
                     || has_positive_rebound_local_base(resolved)
-                    || (!has_negative_django_root_evidence(resolved, candidates)
-                        && resolved.candidate.model.kind != ModelKind::Concrete)
+                    || (!has_negative_django_root_evidence(resolved, classes)
+                        && resolved.extracted.declared_model_kind != ModelKind::Concrete)
             }
         })
         .map(|(id, _resolved)| id.clone())
         .collect();
 
     loop {
-        let descendants: Vec<ModelId> = candidates
+        let descendants: Vec<ClassId> = classes
             .iter()
-            .filter(|(id, _candidate)| !ids.contains(*id))
-            .filter(|(_id, candidate)| {
-                candidate.bases.iter().any(|base| {
-                    let ResolvedBase::Model { model, .. } = base else {
+            .filter(|(id, _class)| !ids.contains(*id))
+            .filter(|(_id, class)| {
+                class.bases.iter().any(|base| {
+                    let ResolvedClassBase::Class(parent_id) = base.value() else {
                         return false;
                     };
-                    ids.contains(model)
+                    ids.contains(parent_id)
                         && match policy {
                             AdmissionPolicy::Production => true,
-                            AdmissionPolicy::Local => candidates.get(model).is_some_and(|parent| {
-                                parent.candidate.model.file == candidate.candidate.model.file
-                            }),
+                            AdmissionPolicy::Local => {
+                                classes.get(parent_id).is_some_and(|parent| {
+                                    parent.extracted.file == class.extracted.file
+                                })
+                            }
                         }
                 })
             })
-            .map(|(id, _candidate)| id.clone())
+            .map(|(id, _class)| id.clone())
             .collect();
         if descendants.is_empty() {
             break;
@@ -270,44 +282,42 @@ fn admitted_candidate_ids(
     ids
 }
 
-fn has_django_root(candidate: &ResolvedCandidate) -> bool {
-    candidate
+fn has_django_root(class: &ResolvedClass) -> bool {
+    class
         .bases
         .iter()
-        .any(|base| matches!(base, ResolvedBase::DjangoModelRoot { .. }))
+        .any(|base| matches!(base.value(), ResolvedClassBase::DjangoModelRoot))
 }
 
 fn has_negative_django_root_evidence(
-    candidate: &ResolvedCandidate,
-    candidates: &BTreeMap<ModelId, ResolvedCandidate>,
+    class: &ResolvedClass,
+    classes: &BTreeMap<ClassId, ResolvedClass>,
 ) -> bool {
-    candidate.bases.iter().any(|base| match base {
-        ResolvedBase::Model { model, .. } => {
-            model.name() == "Model" && !candidates.contains_key(model)
+    class.bases.iter().any(|base| match base.value() {
+        ResolvedClassBase::Class(base_class) => {
+            base_class.name() == "Model" && !classes.contains_key(base_class)
         }
-        ResolvedBase::Unresolved { reason, .. } => {
+        ResolvedClassBase::Unresolved(reason) => {
             let path = match reason {
-                BaseUnresolvedReason::MissingImportBinding { path }
-                | BaseUnresolvedReason::ShadowedImportBinding { path } => path,
-                BaseUnresolvedReason::UnsupportedExpression
-                | BaseUnresolvedReason::InvalidImportedTarget { .. }
-                | BaseUnresolvedReason::ImportNotFound { .. }
-                | BaseUnresolvedReason::ImportedTargetIsModule { .. }
-                | BaseUnresolvedReason::PartialImport { .. }
-                | BaseUnresolvedReason::ModelNotFound { .. }
-                | BaseUnresolvedReason::ReboundLocalBase { .. } => return false,
+                ClassBaseUnresolvedReason::MissingImportBinding { path }
+                | ClassBaseUnresolvedReason::ShadowedImportBinding { path } => path,
+                ClassBaseUnresolvedReason::UnsupportedExpression
+                | ClassBaseUnresolvedReason::InvalidImportedTarget { .. }
+                | ClassBaseUnresolvedReason::ImportNotFound { .. }
+                | ClassBaseUnresolvedReason::ImportedTargetIsModule { .. }
+                | ClassBaseUnresolvedReason::PartialImport { .. } => return false,
             };
             path.last().is_some_and(|name| name == "Model")
         }
-        ResolvedBase::DjangoModelRoot { .. } | ResolvedBase::ReboundLocalBase { .. } => false,
+        ResolvedClassBase::DjangoModelRoot | ResolvedClassBase::ReboundLocalBase { .. } => false,
     })
 }
 
-fn has_positive_rebound_local_base(candidate: &ResolvedCandidate) -> bool {
-    candidate.bases.iter().any(|base| {
+fn has_positive_rebound_local_base(class: &ResolvedClass) -> bool {
+    class.bases.iter().any(|base| {
         matches!(
-            base,
-            ResolvedBase::ReboundLocalBase {
+            base.value(),
+            ResolvedClassBase::ReboundLocalBase {
                 has_positive_model_evidence: true,
                 ..
             }
@@ -315,44 +325,41 @@ fn has_positive_rebound_local_base(candidate: &ResolvedCandidate) -> bool {
     })
 }
 
-fn candidate_occurrence_has_positive_model_evidence(
-    candidate: &ModelCandidate,
-    occurrences: &BTreeMap<ModelId, Vec<CandidateOccurrence>>,
+fn class_occurrence_has_positive_model_evidence(
+    class: &ExtractedClass,
+    occurrences: &BTreeMap<ClassId, Vec<ClassOccurrence>>,
 ) -> bool {
-    has_direct_model_evidence(candidate)
-        || candidate.bases.iter().any(|base| {
-            let CandidateBaseRef::SameModule(name) = base.value() else {
+    has_direct_model_evidence(class)
+        || class.bases.iter().any(|base| {
+            let ExtractedBaseRef::SameModule(name) = base.value() else {
                 return false;
             };
-            let model = ModelId::new(candidate.model.module_name.clone(), name.clone());
-            nearest_preceding_occurrence(occurrences, &model, base.span(), None)
+            let base_class = ClassId::new(class.module_name.clone(), name.as_str());
+            nearest_preceding_occurrence(occurrences, &base_class, base.span(), None)
                 .is_some_and(|occurrence| occurrence.has_positive_model_evidence)
         })
 }
 
-fn has_direct_model_evidence(candidate: &ModelCandidate) -> bool {
-    candidate.model.kind != ModelKind::Concrete
-        || candidate
+fn has_direct_model_evidence(class: &ExtractedClass) -> bool {
+    class.declared_model_kind != ModelKind::Concrete
+        || class
             .bases
             .iter()
-            .any(|base| matches!(base.value(), CandidateBaseRef::DjangoModelRoot))
+            .any(|base| matches!(base.value(), ExtractedBaseRef::DjangoModelRoot))
 }
 
-fn candidate_id(candidate: &ModelCandidate) -> ModelId {
-    ModelId::new(
-        candidate.model.module_name.clone(),
-        candidate.model.name.value().clone(),
-    )
+fn class_id(class: &ExtractedClass) -> ClassId {
+    ClassId::new(class.module_name.clone(), class.name.value().as_str())
 }
 
 fn nearest_preceding_occurrence<'a>(
-    occurrences: &'a BTreeMap<ModelId, Vec<CandidateOccurrence>>,
-    model: &ModelId,
+    occurrences: &'a BTreeMap<ClassId, Vec<ClassOccurrence>>,
+    class: &ClassId,
     before: Span,
     excluded_span: Option<Span>,
-) -> Option<&'a CandidateOccurrence> {
+) -> Option<&'a ClassOccurrence> {
     occurrences
-        .get(model)?
+        .get(class)?
         .iter()
         .filter(|occurrence| {
             Some(occurrence.span) != excluded_span && occurrence.span.start() < before.start()
@@ -360,63 +367,58 @@ fn nearest_preceding_occurrence<'a>(
         .max_by_key(|occurrence| occurrence.span.start())
 }
 
-fn resolve_candidate_base_rebinding(
-    candidate: &ModelCandidate,
-    base: &CandidateBaseRef,
+fn resolve_class_base_rebinding(
+    extracted: &ExtractedClass,
+    base: &ExtractedBaseRef,
     span: Span,
-    occurrences: &BTreeMap<ModelId, Vec<CandidateOccurrence>>,
-    selected_spans: &BTreeMap<ModelId, Span>,
-) -> Option<ResolvedBase> {
-    let CandidateBaseRef::SameModule(name) = base else {
+    occurrences: &BTreeMap<ClassId, Vec<ClassOccurrence>>,
+    selected_spans: &BTreeMap<ClassId, Span>,
+) -> Option<ResolvedClassBase> {
+    let ExtractedBaseRef::SameModule(name) = base else {
         return None;
     };
-    let model = ModelId::new(candidate.model.module_name.clone(), name.clone());
+    let class = ClassId::new(extracted.module_name.clone(), name.as_str());
     let nearest =
-        nearest_preceding_occurrence(occurrences, &model, span, Some(candidate.model.name.span()))?;
-    if selected_spans.get(&model) == Some(&nearest.span) {
+        nearest_preceding_occurrence(occurrences, &class, span, Some(extracted.name.span()))?;
+    if selected_spans.get(&class) == Some(&nearest.span) {
         return None;
     }
 
-    Some(ResolvedBase::ReboundLocalBase {
-        span,
-        model,
+    Some(ResolvedClassBase::ReboundLocalBase {
+        class,
         has_positive_model_evidence: nearest.has_positive_model_evidence,
     })
 }
 
-fn resolve_candidate_base(
-    candidate: &ModelCandidate,
-    base: &CandidateBaseRef,
-    span: Span,
-    resolve_qualified: &mut impl FnMut(&PythonModuleName, Span) -> ResolvedBase,
-) -> ResolvedBase {
+fn resolve_class_base(
+    extracted: &ExtractedClass,
+    base: &ExtractedBaseRef,
+    resolve_qualified: &mut impl FnMut(&PythonModuleName) -> ResolvedClassBase,
+) -> ResolvedClassBase {
     match base {
-        CandidateBaseRef::DjangoModelRoot => ResolvedBase::DjangoModelRoot { span },
-        CandidateBaseRef::SameModule(name) => ResolvedBase::Model {
-            model: ModelId::new(candidate.model.module_name.clone(), name.clone()),
-            span,
-        },
-        CandidateBaseRef::UnsupportedExpression => ResolvedBase::Unresolved {
-            span,
-            reason: BaseUnresolvedReason::UnsupportedExpression,
-        },
-        CandidateBaseRef::Qualified(path) => resolve_qualified(path, span),
-        CandidateBaseRef::Unresolved { path, reason } => ResolvedBase::Unresolved {
-            span,
-            reason: match reason {
-                CandidateBaseReferenceError::MissingBinding => {
-                    BaseUnresolvedReason::MissingImportBinding { path: path.clone() }
-                }
-                CandidateBaseReferenceError::ShadowedBinding => {
-                    BaseUnresolvedReason::ShadowedImportBinding { path: path.clone() }
-                }
-                CandidateBaseReferenceError::InvalidTarget { target } => {
-                    BaseUnresolvedReason::InvalidImportedTarget {
-                        target: target.clone(),
-                    }
-                }
-            },
-        },
+        ExtractedBaseRef::DjangoModelRoot => ResolvedClassBase::DjangoModelRoot,
+        ExtractedBaseRef::SameModule(name) => {
+            ResolvedClassBase::Class(ClassId::new(extracted.module_name.clone(), name.as_str()))
+        }
+        ExtractedBaseRef::UnsupportedExpression => {
+            ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::UnsupportedExpression)
+        }
+        ExtractedBaseRef::Qualified(path) => resolve_qualified(path),
+        ExtractedBaseRef::MissingBinding { path } => {
+            ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::MissingImportBinding {
+                path: path.clone(),
+            })
+        }
+        ExtractedBaseRef::ShadowedBinding { path } => {
+            ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::ShadowedImportBinding {
+                path: path.clone(),
+            })
+        }
+        ExtractedBaseRef::InvalidTarget { target } => {
+            ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::InvalidImportedTarget {
+                target: target.clone(),
+            })
+        }
     }
 }
 
@@ -424,95 +426,130 @@ fn resolve_project_qualified_base(
     db: &dyn Db,
     project: Project,
     path: &PythonModuleName,
-    span: Span,
     prefix_cache: &mut BTreeMap<PythonModuleName, crate::python::ResolvedPrefix>,
-) -> ResolvedBase {
+) -> ResolvedClassBase {
     let resolved = prefix_cache
         .entry(path.clone())
         .or_insert_with(|| resolve_prefix(db, project, path.as_str()));
     let Some(module) = &resolved.module else {
-        return ResolvedBase::Unresolved {
-            span,
-            reason: BaseUnresolvedReason::ImportNotFound {
-                requested: path.clone(),
-            },
-        };
+        return ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::ImportNotFound {
+            requested: path.clone(),
+        });
     };
     match resolved.unresolved_tail.as_slice() {
-        [] => ResolvedBase::Unresolved {
-            span,
-            reason: BaseUnresolvedReason::ImportedTargetIsModule {
-                module: module.name().clone(),
-            },
-        },
-        [name] => ResolvedBase::Model {
-            model: ModelId::new(module.name().clone(), name.as_str().into()),
-            span,
-        },
-        unresolved_tail => ResolvedBase::Unresolved {
-            span,
-            reason: BaseUnresolvedReason::PartialImport {
+        [] => ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::ImportedTargetIsModule {
+            module: module.name().clone(),
+        }),
+        [name] => ResolvedClassBase::Class(ClassId::new(module.name().clone(), name.as_str())),
+        unresolved_tail => {
+            ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::PartialImport {
                 resolved_prefix: module.name().clone(),
                 unresolved_tail: unresolved_tail.to_vec(),
-            },
-        },
+            })
+        }
     }
 }
 
 fn terminal_outcome(
-    base: ResolvedBase,
-    candidate: &ResolvedCandidate,
-    selected: &BTreeMap<ModelId, ResolvedCandidate>,
-    admitted: &BTreeSet<ModelId>,
+    base: &Spanned<ResolvedClassBase>,
+    class: &ResolvedClass,
+    selected: &BTreeMap<ClassId, ResolvedClass>,
+    admitted: &BTreeSet<ClassId>,
     policy: AdmissionPolicy,
 ) -> BaseOutcome {
-    match base {
-        ResolvedBase::DjangoModelRoot { span } => BaseOutcome::DjangoModelRoot { span },
-        ResolvedBase::Model { model, span } => {
-            let known = selected.get(&model).is_some_and(|target| match policy {
+    let span = base.span();
+    match base.value() {
+        ResolvedClassBase::DjangoModelRoot => BaseOutcome::DjangoModelRoot { span },
+        ResolvedClassBase::Class(base_class) => {
+            let known = selected.get(base_class).is_some_and(|target| match policy {
                 AdmissionPolicy::Production => true,
-                AdmissionPolicy::Local => {
-                    target.candidate.model.file == candidate.candidate.model.file
-                }
+                AdmissionPolicy::Local => target.extracted.file == class.extracted.file,
             });
             if !known {
                 return BaseOutcome::Unresolved {
                     span,
-                    reason: BaseUnresolvedReason::ModelNotFound { model },
+                    reason: BaseUnresolvedReason::ClassNotFound {
+                        class: base_class.clone(),
+                    },
                 };
             }
-            if admitted.contains(&model) {
-                BaseOutcome::Model { model, span }
+            if admitted.contains(base_class) {
+                BaseOutcome::Model {
+                    model: base_class.clone().into_admitted_model_id(),
+                    span,
+                }
             } else {
-                BaseOutcome::NonModelClass { class: model, span }
+                BaseOutcome::NonModelClass {
+                    class: base_class.clone(),
+                    span,
+                }
             }
         }
-        ResolvedBase::ReboundLocalBase { span, model, .. } => BaseOutcome::Unresolved {
+        ResolvedClassBase::ReboundLocalBase {
+            class: base_class, ..
+        } => BaseOutcome::Unresolved {
             span,
-            reason: BaseUnresolvedReason::ReboundLocalBase { model },
+            reason: BaseUnresolvedReason::ReboundLocalBase {
+                class: base_class.clone(),
+            },
         },
-        ResolvedBase::Unresolved { span, reason } => BaseOutcome::Unresolved { span, reason },
+        ResolvedClassBase::Unresolved(reason) => BaseOutcome::Unresolved {
+            span,
+            reason: match reason {
+                ClassBaseUnresolvedReason::UnsupportedExpression => {
+                    BaseUnresolvedReason::UnsupportedExpression
+                }
+                ClassBaseUnresolvedReason::MissingImportBinding { path } => {
+                    BaseUnresolvedReason::MissingImportBinding { path: path.clone() }
+                }
+                ClassBaseUnresolvedReason::ShadowedImportBinding { path } => {
+                    BaseUnresolvedReason::ShadowedImportBinding { path: path.clone() }
+                }
+                ClassBaseUnresolvedReason::InvalidImportedTarget { target } => {
+                    BaseUnresolvedReason::InvalidImportedTarget {
+                        target: target.clone(),
+                    }
+                }
+                ClassBaseUnresolvedReason::ImportNotFound { requested } => {
+                    BaseUnresolvedReason::ImportNotFound {
+                        requested: requested.clone(),
+                    }
+                }
+                ClassBaseUnresolvedReason::ImportedTargetIsModule { module } => {
+                    BaseUnresolvedReason::ImportedTargetIsModule {
+                        module: module.clone(),
+                    }
+                }
+                ClassBaseUnresolvedReason::PartialImport {
+                    resolved_prefix,
+                    unresolved_tail,
+                } => BaseUnresolvedReason::PartialImport {
+                    resolved_prefix: resolved_prefix.clone(),
+                    unresolved_tail: unresolved_tail.clone(),
+                },
+            },
+        },
     }
 }
 
 fn compute_ancestry(
-    id: &ModelId,
-    bases_by_model: &BTreeMap<ModelId, Vec<BaseOutcome>>,
-    memo: &mut BTreeMap<ModelId, ComputedAncestry>,
-    visiting: &mut BTreeSet<ModelId>,
+    id: &ClassId,
+    bases_by_class: &BTreeMap<ClassId, Vec<BaseOutcome>>,
+    memo: &mut BTreeMap<ClassId, ComputedAncestry>,
+    visiting: &mut BTreeSet<ClassId>,
 ) -> ComputedAncestry {
     if let Some(outcome) = memo.get(id) {
         return outcome.clone();
     }
     if !visiting.insert(id.clone()) {
         return ComputedAncestry::Invalid {
-            error: InheritanceError::Cycle,
+            reason: InvalidAncestryReason::Cycle,
         };
     }
 
-    let Some(bases) = bases_by_model.get(id) else {
+    let Some(bases) = bases_by_class.get(id) else {
         let outcome = ComputedAncestry::Complete {
-            mro: vec![C3Node::Model(id.clone())],
+            mro: vec![MroEntry::Class(id.clone())],
         };
         visiting.remove(id);
         memo.insert(id.clone(), outcome.clone());
@@ -524,58 +561,58 @@ fn compute_ancestry(
     let mut seen = BTreeSet::new();
     let mut duplicate = None;
     for base in bases {
-        let node = match base {
-            BaseOutcome::DjangoModelRoot { .. } => C3Node::DjangoModelRoot,
-            BaseOutcome::Model { model, .. } => C3Node::Model(model.clone()),
-            BaseOutcome::NonModelClass { class, .. } => C3Node::Model(class.clone()),
+        let entry = match base {
+            BaseOutcome::DjangoModelRoot { .. } => MroEntry::DjangoModelRoot,
+            BaseOutcome::Model { model, .. } => MroEntry::Class(ClassId::from_model_id(model)),
+            BaseOutcome::NonModelClass { class, .. } => MroEntry::Class(class.clone()),
             BaseOutcome::Unresolved { .. } => {
                 has_unresolved = true;
                 continue;
             }
         };
-        if !seen.insert(node.clone()) && duplicate.is_none() {
-            duplicate = Some(match &node {
-                C3Node::DjangoModelRoot => InheritanceError::DuplicateDjangoModelRoot,
-                C3Node::Model(model) => InheritanceError::DuplicateModelBase {
-                    model: model.clone(),
+        if !seen.insert(entry.clone()) && duplicate.is_none() {
+            duplicate = Some(match &entry {
+                MroEntry::DjangoModelRoot => InvalidAncestryReason::DuplicateDjangoModelRoot,
+                MroEntry::Class(class) => InvalidAncestryReason::DuplicateClassBase {
+                    class: class.clone(),
                 },
             });
         }
-        direct_parents.push(node);
+        direct_parents.push(entry);
     }
 
     let mut parent_mros = Vec::new();
     let mut parent_is_partial = false;
-    let mut inherited_error = None;
+    let mut inherited_reason = None;
     for parent in &direct_parents {
         match parent {
-            C3Node::DjangoModelRoot => {
-                parent_mros.push(vec![C3Node::DjangoModelRoot]);
+            MroEntry::DjangoModelRoot => {
+                parent_mros.push(vec![MroEntry::DjangoModelRoot]);
             }
-            C3Node::Model(parent) => {
-                match compute_ancestry(parent, bases_by_model, memo, visiting) {
+            MroEntry::Class(parent) => {
+                match compute_ancestry(parent, bases_by_class, memo, visiting) {
                     ComputedAncestry::Complete { mro } => parent_mros.push(mro),
                     ComputedAncestry::Partial { known_mro } => {
                         parent_mros.push(known_mro);
                         parent_is_partial = true;
                     }
-                    ComputedAncestry::Invalid { error } => {
-                        inherited_error.get_or_insert(error);
+                    ComputedAncestry::Invalid { reason } => {
+                        inherited_reason.get_or_insert(reason);
                     }
                 }
             }
         }
     }
 
-    let outcome = if let Some(error) = duplicate.or(inherited_error) {
-        ComputedAncestry::Invalid { error }
+    let outcome = if let Some(reason) = duplicate.or(inherited_reason) {
+        ComputedAncestry::Invalid { reason }
     } else {
         match c3_merge(parent_mros, direct_parents) {
             None => ComputedAncestry::Invalid {
-                error: InheritanceError::InconsistentC3,
+                reason: InvalidAncestryReason::InconsistentMethodResolutionOrder,
             },
             Some(mut tail) => {
-                tail.insert(0, C3Node::Model(id.clone()));
+                tail.insert(0, MroEntry::Class(id.clone()));
                 if has_unresolved || parent_is_partial {
                     ComputedAncestry::Partial { known_mro: tail }
                 } else {
@@ -589,7 +626,10 @@ fn compute_ancestry(
     outcome
 }
 
-fn c3_merge(mut parent_mros: Vec<Vec<C3Node>>, direct_parents: Vec<C3Node>) -> Option<Vec<C3Node>> {
+fn c3_merge(
+    mut parent_mros: Vec<Vec<MroEntry>>,
+    direct_parents: Vec<MroEntry>,
+) -> Option<Vec<MroEntry>> {
     parent_mros.push(direct_parents);
     let mut result = Vec::new();
 
@@ -617,22 +657,22 @@ mod tests {
     use camino::Utf8Path;
     use djls_testing::TestDatabase;
 
-    use super::C3Node;
+    use super::MroEntry;
     use super::c3_merge;
     use super::resolve_local_model_graph;
     use crate::models::extract::extract_models_impl;
     use crate::models::graph::AncestryOutcome;
+    use crate::models::graph::ClassId;
     use crate::models::graph::ModelGraph;
     use crate::models::graph::ModelId;
     use crate::python::PythonModuleName;
     use crate::python::import::ModuleKind;
 
-    fn model(value: &str) -> C3Node {
-        C3Node::Model(
-            value
-                .parse::<ModelId>()
-                .expect("test model id should parse"),
-        )
+    fn class(value: &str) -> MroEntry {
+        let model = value
+            .parse::<ModelId>()
+            .expect("test class id should parse");
+        MroEntry::Class(ClassId::from_model_id(&model))
     }
 
     fn local_graph(source: &str) -> ModelGraph {
@@ -653,9 +693,9 @@ mod tests {
 
     #[test]
     fn c3_prefers_the_left_parent_at_a_collision() {
-        let left = model("app.models.Left");
-        let right = model("app.models.Right");
-        let root = C3Node::DjangoModelRoot;
+        let left = class("app.models.Left");
+        let right = class("app.models.Right");
+        let root = MroEntry::DjangoModelRoot;
         assert_eq!(
             c3_merge(
                 vec![
@@ -670,8 +710,8 @@ mod tests {
 
     #[test]
     fn c3_rejects_inconsistent_parent_order() {
-        let x = model("app.models.X");
-        let y = model("app.models.Y");
+        let x = class("app.models.X");
+        let y = class("app.models.Y");
         assert_eq!(
             c3_merge(
                 vec![vec![x.clone(), y.clone()], vec![y.clone(), x.clone()]],
@@ -737,7 +777,10 @@ class Unsupported(make_base()):
                 .expect("Child should retain inheritance")
                 .ancestry,
             AncestryOutcome::Complete { mro }
-                if mro == &[child.clone(), abstract_base]
+                if mro == &[
+                    ClassId::from_model_id(&child),
+                    ClassId::from_model_id(&abstract_base),
+                ]
         ));
 
         let abstract_qualified: ModelId = "app.models.AbstractQualified"
