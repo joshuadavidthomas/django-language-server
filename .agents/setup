@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+echo "==> Installing system build dependencies"
+packages=(build-essential ca-certificates curl git pkg-config)
+missing_packages=()
+for package in "${packages[@]}"; do
+    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'ok installed'; then
+        missing_packages+=("$package")
+    fi
+done
+if ((${#missing_packages[@]})); then
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing_packages[@]}"
+fi
+
+echo "==> Configuring tool paths for login shells"
+profile_marker="# django-language-server orb toolchain"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+    cat >> "$HOME/.bash_profile" <<'EOF'
+
+# django-language-server orb toolchain
+if [ -f "$HOME/.cargo/env" ]; then
+    . "$HOME/.cargo/env"
+fi
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+EOF
+fi
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+
+if ! command -v rustup >/dev/null 2>&1; then
+    echo "==> Installing rustup"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+        sh -s -- -y --profile minimal --no-modify-path
+fi
+
+echo "==> Installing Rust toolchains and components"
+rust_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+if [[ -z "$rust_channel" ]]; then
+    echo "Unable to read the pinned channel from rust-toolchain.toml" >&2
+    exit 1
+fi
+rustup toolchain install "$rust_channel" --profile minimal --component clippy
+rustup toolchain install nightly --profile minimal --component rustfmt
+rustup toolchain install 1.95.0 --profile minimal
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "==> Installing uv"
+    curl -LsSf https://astral.sh/uv/install.sh |
+        env UV_INSTALL_DIR="$HOME/.local/bin" sh
+fi
+
+if ! command -v just >/dev/null 2>&1; then
+    echo "==> Installing just"
+    cargo install just --locked
+fi
+
+if ! cargo hawk --version >/dev/null 2>&1; then
+    echo "==> Installing cargo-hawk"
+    curl --proto '=https' --tlsv1.2 -LsSf \
+        https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
+fi
+
+echo "==> Installing locked Python dependencies"
+uv sync --frozen
+
+echo "==> Fetching locked Rust dependencies"
+cargo fetch --locked
+
+echo "==> Orb setup complete"
