@@ -2,6 +2,7 @@ use ruff_python_ast as ast;
 use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
+use crate::python::evaluation::truthiness::Truthiness;
 
 pub(super) fn target_write_names(target: &ast::Expr) -> Vec<&str> {
     let mut names = Vec::new();
@@ -62,25 +63,41 @@ fn collect_target_write_names<'a>(target: &'a ast::Expr, names: &mut Vec<&'a str
 
 /// Collects names whose current bindings are read while evaluating an expression.
 pub(super) fn expr_read_names(expression: &ast::Expr) -> FxHashSet<String> {
-    ReadNameCollector::collect(expression, false).names
+    ReadNameCollector::collect(expression, false, None).names
 }
 
-pub(super) fn expr_calls(expression: &ast::Expr) -> Vec<ast::ExprCall> {
-    ReadNameCollector::collect(expression, true)
+pub(super) fn reachable_expr_read_names(
+    expression: &ast::Expr,
+    truthiness: &impl Fn(&ast::Expr) -> Truthiness,
+) -> FxHashSet<String> {
+    ReadNameCollector::collect(expression, false, Some(truthiness)).names
+}
+
+pub(super) fn reachable_expr_calls(
+    expression: &ast::Expr,
+    truthiness: &impl Fn(&ast::Expr) -> Truthiness,
+) -> Vec<ast::ExprCall> {
+    ReadNameCollector::collect(expression, true, Some(truthiness))
         .calls
         .unwrap_or_default()
 }
 
 #[derive(Default)]
-struct ReadNameCollector {
+struct ReadNameCollector<'a> {
     names: FxHashSet<String>,
     calls: Option<Vec<ast::ExprCall>>,
+    truthiness: Option<&'a dyn Fn(&ast::Expr) -> Truthiness>,
 }
 
-impl ReadNameCollector {
-    fn collect(expression: &ast::Expr, collect_calls: bool) -> Self {
+impl<'a> ReadNameCollector<'a> {
+    fn collect(
+        expression: &ast::Expr,
+        collect_calls: bool,
+        truthiness: Option<&'a dyn Fn(&ast::Expr) -> Truthiness>,
+    ) -> Self {
         let mut collector = Self {
             calls: collect_calls.then(Vec::new),
+            truthiness,
             ..Self::default()
         };
         collector.visit_expr(expression);
@@ -113,7 +130,7 @@ impl ReadNameCollector {
                 self.visit_expr(&binary.right);
             }
             ast::Expr::UnaryOp(unary) => self.visit_expr(&unary.operand),
-            ast::Expr::BoolOp(boolean) => self.visit_elements(&boolean.values),
+            ast::Expr::BoolOp(boolean) => self.visit_bool_op(boolean),
             ast::Expr::Compare(compare) => {
                 self.visit_expr(&compare.left);
                 self.visit_elements(&compare.comparators);
@@ -180,6 +197,22 @@ impl ReadNameCollector {
             | ast::Expr::NoneLiteral(_)
             | ast::Expr::EllipsisLiteral(_)
             | ast::Expr::IpyEscapeCommand(_) => {}
+        }
+    }
+
+    fn visit_bool_op(&mut self, boolean: &ast::ExprBoolOp) {
+        for value in &boolean.values {
+            self.visit_expr(value);
+            let Some(truthiness) = self.truthiness.map(|truthiness| truthiness(value)) else {
+                continue;
+            };
+            if matches!(
+                (boolean.op, truthiness),
+                (ast::BoolOp::And, Truthiness::AlwaysFalse)
+                    | (ast::BoolOp::Or, Truthiness::AlwaysTrue)
+            ) {
+                break;
+            }
         }
     }
 
@@ -303,8 +336,11 @@ mod tests {
     use ruff_python_ast as ast;
     use ruff_python_parser::parse_module;
 
+    use super::Truthiness;
     use super::expr_read_names;
     use super::pattern_bound_names;
+    use super::reachable_expr_calls;
+    use super::reachable_expr_read_names;
     use super::target_write_names;
 
     fn read_names(expression: &str) -> BTreeSet<String> {
@@ -401,6 +437,20 @@ mod tests {
                 .map(str::to_string)
                 .collect()
         );
+    }
+
+    #[test]
+    fn reachable_expression_collection_stops_at_decisive_boolean_operands() {
+        let module = parse_module("VALUE = False and unreachable(ARGUMENT)\n")
+            .expect("expression should parse")
+            .into_syntax();
+        let [ast::Stmt::Assign(assignment)] = module.body.as_slice() else {
+            panic!("expected one assignment");
+        };
+        let truthiness = |expression: &ast::Expr| Truthiness::of_expr(expression, &|_| None);
+
+        assert!(reachable_expr_read_names(&assignment.value, &truthiness).is_empty());
+        assert!(reachable_expr_calls(&assignment.value, &truthiness).is_empty());
     }
 
     #[test]

@@ -9,6 +9,7 @@ use super::PythonSyntaxErrorImpact;
 use super::mutation::MutationTarget;
 use super::name_analysis::expr_read_names;
 use super::name_analysis::pattern_bound_names;
+use super::name_analysis::reachable_expr_read_names;
 use super::name_analysis::target_write_names;
 use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
@@ -237,7 +238,7 @@ impl DefiniteWriteCollector {
         match statement {
             ast::Stmt::Assign(assign) => {
                 let value = self.exact_bool(&assign.value);
-                let dominates = self.taint.expression_is_independent(&assign.value);
+                let dominates = self.expression_is_independent(&assign.value);
                 for target in &assign.targets {
                     self.record_targets(target, value, dominates);
                 }
@@ -245,7 +246,7 @@ impl DefiniteWriteCollector {
             ast::Stmt::AnnAssign(assign) => {
                 if let Some(value) = assign.value.as_deref() {
                     let exact_bool = self.exact_bool(value);
-                    let dominates = self.taint.expression_is_independent(value);
+                    let dominates = self.expression_is_independent(value);
                     self.record_targets(&assign.target, exact_bool, dominates);
                 }
             }
@@ -420,6 +421,12 @@ impl DefiniteWriteCollector {
             self.known_name_truthiness.get(name).copied()
         })
     }
+
+    fn expression_is_independent(&self, value: &ast::Expr) -> bool {
+        reachable_expr_read_names(value, &|expression| self.known_truthiness(expression))
+            .iter()
+            .all(|name| !self.taint.name_is_tainted(name))
+    }
 }
 
 struct AssignmentTaint {
@@ -435,12 +442,6 @@ impl AssignmentTaint {
             namespace_open,
             clean_names: FxHashSet::default(),
         }
-    }
-
-    fn expression_is_independent(&self, value: &ast::Expr) -> bool {
-        expr_read_names(value)
-            .iter()
-            .all(|name| !self.name_is_tainted(name))
     }
 
     fn name_is_tainted(&self, name: &str) -> bool {

@@ -23,8 +23,19 @@ impl Truthiness {
             ast::Expr::UnaryOp(unary) if unary.op == ast::UnaryOp::Not => {
                 Self::of_expr(&unary.operand, known_bool).negate()
             }
-            ast::Expr::BoolOp(_)
-            | ast::Expr::Named(_)
+            ast::Expr::BoolOp(boolean) => match boolean.op {
+                ast::BoolOp::And => boolean
+                    .values
+                    .iter()
+                    .map(|value| Self::of_expr(value, known_bool))
+                    .fold(Self::AlwaysTrue, Self::and),
+                ast::BoolOp::Or => boolean
+                    .values
+                    .iter()
+                    .map(|value| Self::of_expr(value, known_bool))
+                    .fold(Self::AlwaysFalse, Self::or),
+            },
+            ast::Expr::Named(_)
             | ast::Expr::BinOp(_)
             | ast::Expr::UnaryOp(_)
             | ast::Expr::Lambda(_)
@@ -71,6 +82,26 @@ impl Truthiness {
             Self::AlwaysTrue => Self::AlwaysFalse,
             Self::AlwaysFalse => Self::AlwaysTrue,
             Self::Ambiguous => Self::Ambiguous,
+        }
+    }
+
+    const fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::AlwaysFalse, _) | (_, Self::AlwaysFalse) => Self::AlwaysFalse,
+            (Self::AlwaysTrue, Self::AlwaysTrue) => Self::AlwaysTrue,
+            (Self::AlwaysTrue | Self::Ambiguous, Self::AlwaysTrue | Self::Ambiguous) => {
+                Self::Ambiguous
+            }
+        }
+    }
+
+    const fn or(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::AlwaysTrue, _) | (_, Self::AlwaysTrue) => Self::AlwaysTrue,
+            (Self::AlwaysFalse, Self::AlwaysFalse) => Self::AlwaysFalse,
+            (Self::AlwaysFalse | Self::Ambiguous, Self::AlwaysFalse | Self::Ambiguous) => {
+                Self::Ambiguous
+            }
         }
     }
 }

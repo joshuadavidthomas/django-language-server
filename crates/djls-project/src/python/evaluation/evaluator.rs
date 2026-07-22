@@ -33,7 +33,8 @@ use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::UniqueVec;
 use super::module_object::PathIntrinsicContamination;
-use super::name_analysis::expr_calls;
+use super::name_analysis::reachable_expr_calls;
+use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
@@ -114,8 +115,11 @@ impl PythonModuleEvaluator<'_> {
         Origin::new(self.module.file(), span)
     }
 
-    fn record_unsupported_call_effects(&mut self, expression: &ast::Expr) {
-        for call in expr_calls(expression) {
+    pub(super) fn record_unsupported_call_effects(&mut self, expression: &ast::Expr) {
+        let calls = reachable_expr_calls(expression, &|value| {
+            Truthiness::of_expr(value, &|name| self.state.known_truthiness(name))
+        });
+        for call in calls {
             let include_receiver = match self.unsupported_call_effect(&call) {
                 UnsupportedCallEffect::None => continue,
                 UnsupportedCallEffect::Arguments => false,
@@ -499,7 +503,7 @@ impl PythonEvaluationState {
     /// The definite truthiness of a name, if any: a uniformly boolean binding
     /// yields its constant value, and a uniformly module-valued binding is
     /// always truthy (Python module objects are never falsy).
-    fn known_truthiness(&self, name: &str) -> Option<bool> {
+    pub(super) fn known_truthiness(&self, name: &str) -> Option<bool> {
         if let Some(value) = self.bool_value(name) {
             return Some(value);
         }

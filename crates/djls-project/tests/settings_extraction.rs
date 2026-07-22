@@ -7627,6 +7627,109 @@ fn only_deterministic_if_assignments_dominate_namespace_wide_syntax_impact() {
 }
 
 #[test]
+fn boolean_short_circuit_preserves_decisive_bound_values() {
+    for (assignment, expected) in [
+        ("SELECT = False\nSELECT = SELECT and UNKNOWN", "fallback"),
+        ("SELECT = True\nSELECT = SELECT or UNKNOWN", "selected"),
+    ] {
+        let source = format!(
+            "{assignment}\nif SELECT:\n    INSTALLED_APPS = ['selected']\nelse:\n    INSTALLED_APPS = ['fallback']\n"
+        );
+        let settings = extract(&source).expect("Django settings extraction should succeed");
+        let setting_cases = cases(&settings, "/installed_apps/cases")
+            .expect("settings JSON pointer should identify an array");
+
+        assert_eq!(setting_cases.len(), 1, "{assignment}");
+        assert_eq!(setting_cases[0]["known"]["apps"][0]["value"], expected);
+    }
+}
+
+#[test]
+fn short_circuit_returns_the_decisive_operand_without_boolean_coercion() {
+    let (_file, evaluation) = evaluate_module_with(
+        &[("/project/helper.py", "")],
+        "import helper\nVALUE = helper or UNKNOWN\n",
+    )
+    .expect("multi-file Python evaluation fixture should build");
+
+    assert!(matches!(
+        bound_module(&evaluation, "VALUE"),
+        Some(PythonModuleView::Source(module)) if module.as_str() == "helper"
+    ));
+}
+
+#[test]
+fn unreachable_boolean_calls_do_not_contaminate_path_values() {
+    for statement in [
+        "IGNORED = False and mutate(pathlib.Path)",
+        "False and mutate(pathlib.Path)",
+        "if False and mutate(pathlib.Path):\n    pass",
+    ] {
+        let source = format!(
+            "import pathlib\n{statement}\nBASE = pathlib.Path(__file__).parent\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE / 'templates']}}]\n"
+        );
+        let settings = extract(&source).expect("Django settings extraction should succeed");
+        let setting_cases = cases(&settings, "/templates/cases")
+            .expect("settings JSON pointer should identify an array");
+
+        assert_eq!(setting_cases.len(), 1, "{statement}");
+        assert_eq!(
+            setting_cases[0]["known"]["backends"][0]["dirs"][0]["value"],
+            "/project/settings/config/templates",
+            "{statement}"
+        );
+    }
+}
+
+#[test]
+fn reachable_boolean_calls_persist_path_intrinsic_contamination() {
+    for statement in [
+        "True and mutate(pathlib.Path)",
+        "if mutate(pathlib.Path) and False:\n    pass",
+    ] {
+        let source = format!(
+            "import pathlib\n{statement}\nimport pathlib as fresh_pathlib\nBASE = fresh_pathlib.Path(__file__).parent\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE / 'templates']}}]\n"
+        );
+        let settings = extract(&source).expect("Django settings extraction should succeed");
+        let setting_cases = cases(&settings, "/templates/cases")
+            .expect("settings JSON pointer should identify an array");
+
+        assert_eq!(setting_cases.len(), 1, "{statement}");
+        assert!(setting_cases[0].get("dynamic").is_some(), "{statement}");
+    }
+}
+
+#[test]
+fn short_circuit_assignments_clear_unreachable_syntax_taint() {
+    let settings = extract_project(
+        "if FLAG:\n    from clean import *\n    broken(]\nSELECT = False\nSELECT = SELECT and UNKNOWN\nif SELECT:\n    INSTALLED_APPS = ['wrong']\nelse:\n    INSTALLED_APPS = ['selected']\n",
+        &[("clean", "")],
+    )
+    .expect("settings extraction project should build")
+    .2;
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(setting_cases.len(), 1);
+    assert_eq!(setting_cases[0]["known"]["apps"][0]["value"], "selected");
+}
+
+#[test]
+fn boolean_control_flow_honors_decisive_operands() {
+    for (condition, expected) in [("FLAG and False", "fallback"), ("FLAG or True", "selected")] {
+        let source = format!(
+            "if {condition}:\n    INSTALLED_APPS = ['selected']\nelse:\n    INSTALLED_APPS = ['fallback']\n"
+        );
+        let settings = extract(&source).expect("Django settings extraction should succeed");
+        let setting_cases = cases(&settings, "/installed_apps/cases")
+            .expect("settings JSON pointer should identify an array");
+
+        assert_eq!(setting_cases.len(), 1, "{condition}");
+        assert_eq!(setting_cases[0]["known"]["apps"][0]["value"], expected);
+    }
+}
+
+#[test]
 fn unrelated_later_syntax_error_preserves_all_exact_settings() {
     let settings = extract("INSTALLED_APPS = ['blog']\nTEMPLATES = []\ndef broken(\n")
         .expect("Django settings extraction should succeed");

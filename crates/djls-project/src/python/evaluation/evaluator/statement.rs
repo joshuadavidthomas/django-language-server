@@ -42,13 +42,16 @@ impl PythonModuleEvaluator<'_> {
                 self.bind_for_target(&stmt_for.target);
                 self.degrade_loop_bodies(&[&stmt_for.body, &stmt_for.orelse], stmt_for.span());
             }
-            ast::Stmt::While(stmt_while) => match self.test_truthiness(&stmt_while.test) {
-                Truthiness::AlwaysFalse => self.evaluate_body(&stmt_while.orelse),
-                Truthiness::AlwaysTrue | Truthiness::Ambiguous => self.degrade_loop_bodies(
-                    &[&stmt_while.body, &stmt_while.orelse],
-                    stmt_while.span(),
-                ),
-            },
+            ast::Stmt::While(stmt_while) => {
+                self.record_unsupported_call_effects(&stmt_while.test);
+                match self.test_truthiness(&stmt_while.test) {
+                    Truthiness::AlwaysFalse => self.evaluate_body(&stmt_while.orelse),
+                    Truthiness::AlwaysTrue | Truthiness::Ambiguous => self.degrade_loop_bodies(
+                        &[&stmt_while.body, &stmt_while.orelse],
+                        stmt_while.span(),
+                    ),
+                }
+            }
             ast::Stmt::With(stmt_with) => {
                 for item in &stmt_with.items {
                     if let Some(optional_vars) = &item.optional_vars {
@@ -93,6 +96,7 @@ impl PythonModuleEvaluator<'_> {
         let arm_count = 1
             + clauses.len()
             + usize::from(clauses.last().is_none_or(|clause| clause.test.is_some()));
+        self.record_unsupported_call_effects(&stmt_if.test);
         match self.test_truthiness(&stmt_if.test) {
             Truthiness::AlwaysTrue => self.evaluate_body(&stmt_if.body),
             Truthiness::AlwaysFalse => {
@@ -103,6 +107,7 @@ impl PythonModuleEvaluator<'_> {
                         return;
                     };
 
+                    self.record_unsupported_call_effects(test);
                     match self.test_truthiness(test) {
                         Truthiness::AlwaysTrue => {
                             self.evaluate_body(&clause.body);
@@ -116,6 +121,7 @@ impl PythonModuleEvaluator<'_> {
                                 index + 1,
                                 arm_count,
                                 control_span,
+                                true,
                             );
                             return;
                         }
@@ -128,6 +134,7 @@ impl PythonModuleEvaluator<'_> {
                 1,
                 arm_count,
                 stmt_if.span(),
+                false,
             ),
         }
     }
@@ -139,6 +146,7 @@ impl PythonModuleEvaluator<'_> {
         first_clause_arm: usize,
         arm_count: usize,
         control_span: Span,
+        first_test_already_evaluated: bool,
     ) {
         let mut bodies = Vec::with_capacity(clauses.len() + 2);
         if let Some(body) = first_body {
@@ -154,6 +162,9 @@ impl PythonModuleEvaluator<'_> {
                 break;
             };
 
+            if offset != 0 || !first_test_already_evaluated {
+                self.record_unsupported_call_effects(test);
+            }
             match self.test_truthiness(test) {
                 Truthiness::AlwaysTrue => {
                     bodies.push((arm, clause.body.as_slice()));
