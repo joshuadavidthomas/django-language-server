@@ -18,21 +18,18 @@ if ((${#missing_packages[@]})); then
 fi
 
 echo "==> Configuring tool paths for login shells"
-profile_marker="# django-language-server orb toolchain"
+profile_marker="# django-language-server orb toolchain v2"
 if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
     cat >> "$HOME/.bash_profile" <<'EOF'
 
-# django-language-server orb toolchain
+# django-language-server orb toolchain v2
 if [ -f "$HOME/.cargo/env" ]; then
     . "$HOME/.cargo/env"
 fi
-case ":$PATH:" in
-    *":$HOME/.local/bin:"*) ;;
-    *) export PATH="$HOME/.local/bin:$PATH" ;;
-esac
+export PATH="$HOME/.local/bin:$PATH"
 EOF
 fi
-export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
 if ! command -v rustup >/dev/null 2>&1; then
     echo "==> Installing rustup"
@@ -56,9 +53,10 @@ if ! command -v uv >/dev/null 2>&1; then
         env UV_INSTALL_DIR="$HOME/.local/bin" sh
 fi
 
-if ! command -v just >/dev/null 2>&1; then
-    echo "==> Installing just"
-    cargo install just --locked
+if [[ ! -x "$HOME/.local/bin/just" ]]; then
+    echo "==> Installing prebuilt just"
+    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh |
+        bash -s -- --tag 1.57.0 --to "$HOME/.local/bin"
 fi
 
 if ! cargo hawk --version >/dev/null 2>&1; then
