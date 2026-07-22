@@ -12,7 +12,7 @@ use djls_testing::TestDatabase;
 
 #[test]
 fn corpus_template_inheritance_terminates() {
-    let corpus = Corpus::require();
+    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
     let mut by_entry: BTreeMap<Utf8PathBuf, Vec<Utf8PathBuf>> = BTreeMap::new();
 
     for template_path in corpus.templates_in(corpus.root()) {
@@ -54,9 +54,13 @@ fn corpus_template_inheritance_terminates() {
             fixture = fixture.file(template_path.clone(), source);
         }
 
-        let project = fixture.build(&db);
+        let project = fixture
+            .build(&db)
+            .expect("corpus project fixture should build in the test database");
         for template_path in templates {
-            let file = db.file(&template_path);
+            let file = db
+                .file(&template_path)
+                .expect("corpus template should exist in the test database");
             if !matches!(
                 parse_template(&db, file),
                 djls_templates::TemplateParseResult::Parsed(_)

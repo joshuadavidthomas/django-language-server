@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 
 use thiserror::Error;
 
+use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
@@ -113,8 +114,12 @@ impl ModelImportState {
             format!("{}.{}", target.as_str(), tail.join("."))
         };
 
-        PythonModuleName::parse(&resolved)
-            .map_err(|_| ModelImportPathResolutionError::InvalidTarget(resolved))
+        PythonModuleName::parse(&resolved).map_err(|source| {
+            ModelImportPathResolutionError::InvalidTarget {
+                target: resolved,
+                source,
+            }
+        })
     }
 
     /// Resolve a Model base/relation spelling into an occurrence-local
@@ -145,8 +150,12 @@ pub(crate) enum ModelImportPathResolutionError {
     MissingBinding,
     #[error("the import binding was shadowed")]
     ShadowedBinding,
-    #[error("resolved import target `{0}` is not a valid module name")]
-    InvalidTarget(String),
+    #[error("resolved import target `{target}` is not a valid module name")]
+    InvalidTarget {
+        target: String,
+        #[source]
+        source: InvalidModuleName,
+    },
 }
 
 #[cfg(test)]
@@ -170,7 +179,7 @@ mod tests {
     }
 
     fn module_name(name: &str) -> PythonModuleName {
-        PythonModuleName::parse(name).unwrap()
+        PythonModuleName::parse(name).expect("test Python module name should be valid")
     }
 
     /// Build occurrence-local aliases by applying every top-level import in
@@ -178,7 +187,9 @@ mod tests {
     /// invalidation. Adequate for the import-spelling unit tests here.
     fn aliases(source: &str, module: &str, module_kind: ModuleKind) -> ModelImportState {
         let name = module_name(module);
-        let parsed = parse_module(source).unwrap().into_syntax();
+        let parsed = parse_module(source)
+            .expect("test Python module name should be valid")
+            .into_syntax();
         let mut state = ModelImportState::default();
         for stmt in &parsed.body {
             match stmt {
@@ -188,7 +199,29 @@ mod tests {
                 Stmt::ImportFrom(import) => {
                     state.apply_from_import(&FromImportSyntax::lower(import), &name, module_kind);
                 }
-                _ => {}
+                Stmt::FunctionDef(_)
+                | Stmt::ClassDef(_)
+                | Stmt::Return(_)
+                | Stmt::Delete(_)
+                | Stmt::TypeAlias(_)
+                | Stmt::Assign(_)
+                | Stmt::AugAssign(_)
+                | Stmt::AnnAssign(_)
+                | Stmt::For(_)
+                | Stmt::While(_)
+                | Stmt::If(_)
+                | Stmt::With(_)
+                | Stmt::Match(_)
+                | Stmt::Raise(_)
+                | Stmt::Try(_)
+                | Stmt::Assert(_)
+                | Stmt::Global(_)
+                | Stmt::Nonlocal(_)
+                | Stmt::Expr(_)
+                | Stmt::Pass(_)
+                | Stmt::Break(_)
+                | Stmt::Continue(_)
+                | Stmt::IpyEscapeCommand(_) => {}
             }
         }
         state

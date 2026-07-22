@@ -10,6 +10,7 @@ pub use python_evaluation::PythonDictItemView;
 pub use python_evaluation::PythonFileReadErrorView;
 pub use python_evaluation::PythonImportNameErrorView;
 pub use python_evaluation::PythonImportOutcomeView;
+pub use python_evaluation::PythonModuleEvaluationError;
 pub use python_evaluation::PythonModuleEvaluationView;
 pub use python_evaluation::PythonModuleView;
 pub use python_evaluation::PythonMutationOperationView;
@@ -43,6 +44,7 @@ use crate::settings::settings_module_file as project_settings_module_file;
 use crate::templates::LibraryName;
 use crate::templates::TemplateLibrary;
 use crate::templates::TemplateLibraryCatalog;
+pub use crate::templates::TemplateLibraryFixtureError;
 use crate::templates::TemplateLibraryId;
 use crate::templates::TemplateSymbol;
 
@@ -184,21 +186,19 @@ fn build_template_library_catalog(
     }
 }
 
-#[must_use]
 pub fn template_library_catalog_with_settings_cases(
     db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TemplateLibraryCatalog {
+) -> Result<TemplateLibraryCatalog, TemplateLibraryFixtureError> {
     configure_template_library_catalog(template_library_catalog(db, inputs), settings_cases)
 }
 
-#[must_use]
 pub fn template_library_catalog_with_settings_case_omissions(
     db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TemplateLibraryCatalog {
+) -> Result<TemplateLibraryCatalog, TemplateLibraryFixtureError> {
     configure_template_library_catalog(
         template_library_catalog_with_omissions(db, inputs),
         settings_cases,
@@ -208,7 +208,7 @@ pub fn template_library_catalog_with_settings_case_omissions(
 fn configure_template_library_catalog(
     mut catalog: TemplateLibraryCatalog,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TemplateLibraryCatalog {
+) -> Result<TemplateLibraryCatalog, TemplateLibraryFixtureError> {
     catalog.set_testing_settings_cases(
         settings_cases
             .into_iter()
@@ -219,6 +219,6 @@ fn configure_template_library_catalog(
                     .collect()
             })
             .collect(),
-    );
-    catalog
+    )?;
+    Ok(catalog)
 }

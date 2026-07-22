@@ -77,9 +77,7 @@ pub(crate) fn python_module_facts(
     module: PythonSourceModule,
 ) -> Result<PythonModuleFacts, FileReadError> {
     match evaluate_python_module(db, project, module, PathIntrinsicContamination::default()) {
-        PythonModuleEvaluation::CycleSeed => {
-            unreachable!("cycle seed escaped Python module evaluation")
-        }
+        PythonModuleEvaluation::CycleSeed => Ok(PythonModuleFacts::cycle_seed()),
         PythonModuleEvaluation::Evaluated(evaluated) => evaluated.facts().clone(),
     }
 }
@@ -92,10 +90,9 @@ pub(crate) fn python_import_trace(
     project: Project,
     module: PythonSourceModule,
 ) -> PythonImportTrace {
+    let file = module.file();
     match evaluate_python_module(db, project, module, PathIntrinsicContamination::default()) {
-        PythonModuleEvaluation::CycleSeed => {
-            unreachable!("cycle seed escaped Python module evaluation")
-        }
+        PythonModuleEvaluation::CycleSeed => PythonImportTrace::rooted(file),
         PythonModuleEvaluation::Evaluated(evaluated) => evaluated.import_trace().clone(),
     }
 }
@@ -126,14 +123,16 @@ fn evaluate_python_module_cycle_recover(
         "Python module cycle should converge within twelve iterations"
     );
     let unchanged = previous == &computed;
-    let PythonModuleEvaluation::Evaluated(computed) = computed else {
-        unreachable!("cycle seed cannot be a computed evaluation")
-    };
-    let computed = *computed;
-    let evaluated = match previous {
-        PythonModuleEvaluation::CycleSeed => computed,
-        PythonModuleEvaluation::Evaluated(_) if unchanged => computed,
-        PythonModuleEvaluation::Evaluated(previous) => computed.widened(previous, &module),
-    };
-    PythonModuleEvaluation::evaluated(evaluated)
+    match computed {
+        PythonModuleEvaluation::CycleSeed => PythonModuleEvaluation::CycleSeed,
+        PythonModuleEvaluation::Evaluated(computed) => {
+            let computed = *computed;
+            let evaluated = match previous {
+                PythonModuleEvaluation::CycleSeed => computed,
+                PythonModuleEvaluation::Evaluated(_) if unchanged => computed,
+                PythonModuleEvaluation::Evaluated(previous) => computed.widened(previous, &module),
+            };
+            PythonModuleEvaluation::evaluated(evaluated)
+        }
+    }
 }

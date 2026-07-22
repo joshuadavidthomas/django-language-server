@@ -124,8 +124,8 @@ mod tests {
     // No params → only Max constraint
     #[test]
     fn simple_tag_no_params() {
-        let func =
-            django_function("tests/template_tests/templatetags/custom.py", "no_params").unwrap();
+        let func = django_function("tests/template_tests/templatetags/custom.py", "no_params")
+            .expect("expected Django fixture function should exist");
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(
             rule.arg_constraints
@@ -142,7 +142,7 @@ mod tests {
             "tests/template_tests/templatetags/custom.py",
             "simple_two_params",
         )
-        .unwrap();
+        .expect("expected Django fixture function should exist");
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(
             rule.arg_constraints
@@ -158,7 +158,7 @@ mod tests {
             "tests/template_tests/templatetags/custom.py",
             "simple_one_default",
         )
-        .unwrap();
+        .expect("expected Django fixture function should exist");
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(
             rule.arg_constraints
@@ -175,7 +175,8 @@ mod tests {
 def concat(*args):
     return ''.join(str(a) for a in args)
 ";
-        let func = find_function_in_source(source, "concat").unwrap();
+        let func = find_function_in_source(source, "concat")
+            .expect("expected function should exist in test source");
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(
             !rule
@@ -194,7 +195,7 @@ def concat(*args):
             "django/contrib/admin/templatetags/admin_urls.py",
             "add_preserved_filters",
         )
-        .unwrap();
+        .expect("expected Django fixture function should exist");
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(
             rule.arg_constraints

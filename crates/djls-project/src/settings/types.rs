@@ -109,19 +109,21 @@ where
             return;
         }
         if let SettingCase::Dynamic(additional) = case
-            && let Some(existing) = self
-                .cases
-                .iter_mut()
-                .rev()
-                .find(|case| matches!(case.case, SettingCase::Dynamic(_)))
+            && let Some((remainder, constraints)) =
+                self.cases
+                    .iter_mut()
+                    .rev()
+                    .find_map(|case| match &mut case.case {
+                        SettingCase::Dynamic(remainder) => Some((remainder, &mut case.constraints)),
+                        SettingCase::Known(_) | SettingCase::Unset | SettingCase::Malformed(_) => {
+                            None
+                        }
+                    })
         {
-            let SettingCase::Dynamic(remainder) = &mut existing.case else {
-                unreachable!()
-            };
             remainder.merge_dynamic_evidence(additional);
             // A capped remainder may represent several incompatible branches. Treating it as
             // unconstrained is conservative while keeping the existing cap.
-            existing.constraints = BranchConstraints::unconstrained();
+            *constraints = BranchConstraints::unconstrained();
         }
     }
 }
@@ -870,7 +872,7 @@ mod tests {
         assert_eq!(value.origin(), first);
         assert_eq!(value.origins().collect::<Vec<_>>(), [first]);
         assert_eq!(
-            to_value(&value).unwrap(),
+            to_value(&value).expect("test value should serialize to JSON"),
             json!({
                 "value": "value",
                 "spans": [first.span],
@@ -887,7 +889,7 @@ mod tests {
         assert_eq!(value.origin(), first);
         assert_eq!(value.origins().collect::<Vec<_>>(), [first, second]);
         assert_eq!(
-            to_value(&value).unwrap(),
+            to_value(&value).expect("test value should serialize to JSON"),
             json!({
                 "value": "value",
                 "spans": [first.span, second.span],
@@ -908,7 +910,10 @@ mod tests {
         assert!(reversed.merge_evidence(&second_value));
         assert_eq!(forward, reversed);
         assert_eq!(forward.origins().collect::<Vec<_>>(), [first, second]);
-        assert_eq!(to_value(&forward).unwrap(), to_value(&reversed).unwrap());
+        assert_eq!(
+            to_value(&forward).expect("test value should serialize to JSON"),
+            to_value(&reversed).expect("test value should serialize to JSON")
+        );
 
         let merged = forward.clone();
         assert!(forward.merge_evidence(&merged));

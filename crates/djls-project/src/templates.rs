@@ -22,6 +22,8 @@ pub use libraries::TemplateLibraryAppCandidates;
 pub use libraries::TemplateLibraryCatalog;
 pub use libraries::TemplateLibraryChain;
 pub use libraries::TemplateLibraryChainStep;
+#[doc(hidden)]
+pub use libraries::TemplateLibraryFixtureError;
 pub use libraries::TemplateLibraryId;
 pub use libraries::TemplateSymbolAvailability;
 pub use libraries::TemplateSymbolCandidate;

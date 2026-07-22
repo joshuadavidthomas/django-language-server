@@ -215,7 +215,8 @@ mod tests {
             T100 = "info"
         "#;
 
-        let config: DiagnosticsConfig = toml::from_str(toml).unwrap();
+        let config: DiagnosticsConfig =
+            toml::from_str(toml).expect("diagnostics configuration fixture should deserialize");
         assert_eq!(config.get_severity("S100"), DiagnosticSeverity::Off);
         assert_eq!(config.get_severity("S101"), DiagnosticSeverity::Warning);
         assert_eq!(config.get_severity("S102"), DiagnosticSeverity::Hint);

@@ -36,7 +36,7 @@ impl TryFrom<usize> for Offset {
     #[inline]
     fn try_from(offset: usize) -> Result<Self, Self::Error> {
         Ok(Self(
-            u32::try_from(offset).map_err(|_| OffsetConversionError::Overflow)?,
+            u32::try_from(offset).map_err(|_error| OffsetConversionError::Overflow)?,
         ))
     }
 }
@@ -293,8 +293,8 @@ impl TryFrom<(usize, usize)> for Span {
     #[inline]
     fn try_from((start, length): (usize, usize)) -> Result<Self, Self::Error> {
         Ok(Self {
-            start: u32::try_from(start).map_err(|_| SpanConversionError::Overflow)?,
-            length: u32::try_from(length).map_err(|_| SpanConversionError::Overflow)?,
+            start: u32::try_from(start).map_err(|_error| SpanConversionError::Overflow)?,
+            length: u32::try_from(length).map_err(|_error| SpanConversionError::Overflow)?,
         })
     }
 }

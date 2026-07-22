@@ -115,7 +115,7 @@ fn discovery_roots(
 pub(crate) fn resolve_project_root() -> Result<Utf8PathBuf> {
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
     Utf8PathBuf::from_path_buf(cwd)
-        .map_err(|_| anyhow::anyhow!("Current directory is not valid UTF-8"))
+        .map_err(|path| anyhow::anyhow!("Current directory is not valid UTF-8: {}", path.display()))
 }
 
 pub(crate) fn is_template(path: &Utf8Path) -> bool {
@@ -131,38 +131,42 @@ mod tests {
 
     use super::*;
 
-    fn project_database(project_root: &Utf8Path) -> DjangoDatabase {
-        let settings = Settings::new(project_root, None).unwrap();
+    fn project_database(project_root: &Utf8Path) -> anyhow::Result<DjangoDatabase> {
+        let settings = Settings::new(project_root, None)?;
         let mut db = DjangoDatabase::new(
             Arc::new(OsFileSystem::default()),
             &settings,
             Some(project_root),
         );
         db.apply_project_settings(settings);
-        db
+        Ok(db)
     }
 
-    fn write_settings_project(project_root: &Utf8Path, settings_source: &str) {
+    fn write_settings_project(
+        project_root: &Utf8Path,
+        settings_source: &str,
+    ) -> std::io::Result<()> {
         std::fs::write(
             project_root.join("djls.toml"),
             "django_settings_module = \"settings\"\n",
-        )
-        .unwrap();
-        std::fs::write(project_root.join("settings.py"), settings_source).unwrap();
+        )?;
+        std::fs::write(project_root.join("settings.py"), settings_source)
     }
 
     #[test]
     fn explicit_paths_take_precedence_over_discovered_roots() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         let configured = root.join("configured");
         write_settings_project(
             &root,
             &format!(
                 "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{configured}'], 'APP_DIRS': False}}]\n"
             ),
-        );
-        let db = project_database(&root);
+        )
+        .expect("test settings project should be written");
+        let db = project_database(&root).expect("test project database should be created");
 
         assert_eq!(
             discovery_roots(&[Utf8PathBuf::from("explicit")], &db, &root),
@@ -172,38 +176,45 @@ mod tests {
 
     #[test]
     fn no_paths_use_closed_known_roots_without_project_fallback() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         write_settings_project(
             &root,
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False}]\n",
-        );
-        let db = project_database(&root);
+        )
+        .expect("test settings project should be written");
+        let db = project_database(&root).expect("test project database should be created");
 
         assert!(discovery_roots(&[], &db, &root).is_empty());
     }
 
     #[test]
     fn incomplete_roots_add_project_root_without_duplicates() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         write_settings_project(
             &root,
             &format!(
                 "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}', dynamic()], 'APP_DIRS': False}}]\n"
             ),
-        );
-        let db = project_database(&root);
+        )
+        .expect("test settings project should be written");
+        let db = project_database(&root).expect("test project database should be created");
 
         assert_eq!(discovery_roots(&[], &db, &root), [root]);
     }
 
     #[test]
     fn discovers_templates_under_explicit_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
-        std::fs::write(dir.path().join("page.html"), "page").unwrap();
-        std::fs::write(dir.path().join("style.css"), "style").unwrap();
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
+        std::fs::write(dir.path().join("page.html"), "page")
+            .expect("page.html fixture should be written");
+        std::fs::write(dir.path().join("style.css"), "style")
+            .expect("style.css fixture should be written");
         let db = DjangoDatabase::new(
             Arc::new(OsFileSystem::default()),
             &Settings::default(),
@@ -224,10 +235,13 @@ mod tests {
 
     #[test]
     fn discovers_explicit_file_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
-        let file_path = Utf8PathBuf::from_path_buf(dir.path().join("single.html")).unwrap();
-        std::fs::write(file_path.as_std_path(), "single").unwrap();
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
+        let file_path = Utf8PathBuf::from_path_buf(dir.path().join("single.html"))
+            .expect("temporary test path should be valid UTF-8");
+        std::fs::write(file_path.as_std_path(), "single")
+            .expect("single.html fixture should be written");
         let db = DjangoDatabase::new(
             Arc::new(OsFileSystem::default()),
             &Settings::default(),
@@ -241,17 +255,25 @@ mod tests {
             &WalkOptions::default(),
         );
 
-        let canonical =
-            Utf8PathBuf::from_path_buf(file_path.as_std_path().canonicalize().unwrap()).unwrap();
+        let canonical = Utf8PathBuf::from_path_buf(
+            file_path
+                .as_std_path()
+                .canonicalize()
+                .expect("test fixture path should be canonicalized"),
+        )
+        .expect("canonical test fixture path should be valid UTF-8");
         assert_eq!(files, vec![canonical]);
     }
 
     #[test]
     fn deduplicates_explicit_file_and_directory_results() {
-        let dir = tempfile::tempdir().unwrap();
-        let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
-        let file_path = Utf8PathBuf::from_path_buf(dir.path().join("page.html")).unwrap();
-        std::fs::write(file_path.as_std_path(), "page").unwrap();
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
+        let file_path = Utf8PathBuf::from_path_buf(dir.path().join("page.html"))
+            .expect("temporary test path should be valid UTF-8");
+        std::fs::write(file_path.as_std_path(), "page")
+            .expect("page.html fixture should be written");
         let db = DjangoDatabase::new(
             Arc::new(OsFileSystem::default()),
             &Settings::default(),

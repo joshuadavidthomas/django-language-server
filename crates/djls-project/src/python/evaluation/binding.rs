@@ -200,25 +200,27 @@ impl PythonBinding {
         };
 
         let mut imported = Vec::new();
-        let mut unbound_constraints = None;
+        let mut unbound_case = None;
         for case in self.cases {
             if case.state == PythonBindingState::Unbound {
-                unbound_constraints = Some(case.constraints);
+                unbound_case = Some(case);
             } else {
                 imported.push(case);
             }
         }
-        let fallback = prior.intersect_constraints(
-            unbound_constraints
-                .as_ref()
-                .expect("an unbound state has constraints"),
-        );
+        let Some(unbound_case) = unbound_case else {
+            return Self { cases: imported };
+        };
+        let fallback = prior.intersect_constraints(&unbound_case.constraints);
         let imported = (!imported.is_empty()).then_some(Self { cases: imported });
+        let retained_unbound = Self {
+            cases: vec![unbound_case],
+        };
         match (imported, fallback) {
             (Some(imported), Some(fallback)) => imported.join(fallback, overflow_origin),
-            (Some(imported), None) => imported,
+            (Some(imported), None) => imported.join(retained_unbound, overflow_origin),
             (None, Some(fallback)) => fallback,
-            (None, None) => unreachable!("an imported fallback must have a feasible branch"),
+            (None, None) => retained_unbound,
         }
     }
 
@@ -478,11 +480,16 @@ impl PythonBinding {
                     if let Some(existing_case) = normalized.iter_mut().find(|candidate| {
                         matches!(&candidate.state, PythonBindingState::Bound(bound) if bound.value.same_semantic_value(&incoming.value))
                     }) {
-                        let PythonBindingState::Bound(existing) = &mut existing_case.state else {
-                            unreachable!()
-                        };
-                        existing.merge_semantically_equal(incoming, operation_origin);
-                        existing_case.constraints.merge(incoming_case.constraints);
+                        match &mut existing_case.state {
+                            PythonBindingState::Bound(existing) => {
+                                existing.merge_semantically_equal(incoming, operation_origin);
+                                existing_case.constraints.merge(incoming_case.constraints);
+                            }
+                            PythonBindingState::Unbound => {
+                                incoming_case.state = PythonBindingState::Bound(incoming);
+                                normalized.push(incoming_case);
+                            }
+                        }
                     } else {
                         incoming_case.state = PythonBindingState::Bound(incoming);
                         normalized.push(incoming_case);
@@ -583,10 +590,17 @@ impl PythonBoundValue {
         self.binding_origins.replace([origin]);
     }
 
-    fn merge_semantically_equal(&mut self, incoming: Self, operation_origin: Option<Origin>) {
+    fn merge_semantically_equal(
+        &mut self,
+        incoming: Self,
+        operation_origin: Option<Origin>,
+    ) -> bool {
+        if !self.value.same_semantic_value(&incoming.value) {
+            return false;
+        }
         self.binding_origins.extend(incoming.binding_origins.iter());
         self.value
-            .merge_semantically_equal(incoming.value, operation_origin);
+            .merge_semantically_equal(incoming.value, operation_origin)
     }
 }
 
@@ -694,7 +708,8 @@ mod tests {
 
     fn namespace_module(name: &str) -> PythonModule {
         PythonModule::Namespace(PythonNamespacePackage::new(
-            crate::python::PythonModuleName::parse(name).unwrap(),
+            crate::python::PythonModuleName::parse(name)
+                .expect("test Python module name should be valid"),
             Vec::new(),
         ))
     }
@@ -711,6 +726,70 @@ mod tests {
             };
             matches!(&bound.value.kind, PythonValueKind::Str(text) if text.as_str() == wanted)
         })
+    }
+
+    #[test]
+    fn infeasible_unbound_replacement_stays_conservatively_unbound() {
+        let join = origin(0, 100);
+        let mut imported_constraints = BranchConstraints::unconstrained();
+        imported_constraints.select(join, 0);
+        let imported = PythonBinding {
+            cases: vec![BindingCase {
+                state: PythonBindingState::Unbound,
+                constraints: imported_constraints.clone(),
+            }],
+        };
+        let mut prior_constraints = BranchConstraints::unconstrained();
+        prior_constraints.select(join, 1);
+        let prior = PythonBinding::constrained_bound(
+            PythonValue::string("prior".to_string(), origin(0, 1)),
+            origin(0, 1),
+            &prior_constraints,
+        )
+        .expect("the prior branch constraints should be feasible");
+
+        let replaced = imported.replace_unbound_with(Some(prior), origin(0, 2));
+
+        assert_eq!(
+            replaced.alternatives_with_constraints().collect::<Vec<_>>(),
+            vec![(&PythonBindingState::Unbound, &imported_constraints)],
+        );
+    }
+
+    #[test]
+    fn infeasible_unbound_replacement_preserves_mixed_bound_and_unbound_cases() {
+        let join = origin(0, 100);
+        let mut imported_bound = binding(BindingValue::Exact("imported".to_string()), 1);
+        imported_bound.select_branch(join, 0);
+        let mut imported_unbound = PythonBinding::unbound();
+        imported_unbound.select_branch(join, 1);
+        let imported = imported_bound.join(imported_unbound, origin(0, 2));
+
+        let mut prior_constraints = BranchConstraints::unconstrained();
+        prior_constraints.select(join, 0);
+        let prior = PythonBinding::constrained_bound(
+            PythonValue::string("prior".to_string(), origin(0, 3)),
+            origin(0, 3),
+            &prior_constraints,
+        )
+        .expect("the prior branch constraints should be feasible");
+        let replaced = imported
+            .clone()
+            .replace_unbound_with(Some(prior), origin(0, 4));
+
+        assert_eq!(replaced, imported);
+        let mut expected_unbound_constraints = BranchConstraints::unconstrained();
+        expected_unbound_constraints.select(join, 1);
+        assert!(contains_str(&replaced, "imported"));
+        assert!(!contains_str(&replaced, "prior"));
+        assert!(
+            replaced
+                .alternatives_with_constraints()
+                .any(|(state, constraints)| {
+                    state == &PythonBindingState::Unbound
+                        && constraints == &expected_unbound_constraints
+                })
+        );
     }
 
     #[test]
@@ -831,9 +910,9 @@ mod tests {
             },
             origin(0, 1_000),
         );
-        let Some(bound) = merged.single_bound() else {
-            panic!("semantically equal values should still merge")
-        };
+        let bound = merged
+            .single_bound()
+            .expect("semantically equal values should merge to one bound case");
         assert_eq!(
             bound.binding_origins().collect::<Vec<_>>(),
             [origin(0, 10), origin(0, 20)]
@@ -854,9 +933,9 @@ mod tests {
                 binding(value.clone(), 10),
                 binding(value, 20),
             ]);
-            let Some(bound) = joined.single_bound() else {
-                panic!("equal values should normalize to one bound alternative");
-            };
+            let bound = joined
+                .single_bound()
+                .expect("equal values should normalize to one bound alternative");
             assert_eq!(
                 bound
                     .binding_origins()
@@ -939,18 +1018,19 @@ mod tests {
                 .collect::<Vec<_>>(),
             "the typed order retains the same exact 64-value subset"
         );
-        let PythonBindingState::Bound(overflow) = &overflowed
+        let overflow = overflowed
             .cases
             .iter()
             .find(|case| case.is_limit_remainder())
-            .expect("overflow should add a typed unknown remainder")
-            .state
-        else {
-            unreachable!();
-        };
-        let PythonValueKind::Unknown(unknown) = &overflow.value.kind else {
-            unreachable!();
-        };
+            .and_then(|case| match &case.state {
+                PythonBindingState::Bound(bound) => Some(bound),
+                PythonBindingState::Unbound => None,
+            })
+            .expect("overflow should add one bound typed unknown remainder");
+        let unknown = overflow
+            .value
+            .unknown_value()
+            .expect("overflow remainder should remain an unknown value");
         assert!(
             unknown
                 .origins()

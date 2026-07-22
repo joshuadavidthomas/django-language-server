@@ -173,7 +173,37 @@ fn eval_condition(expr: &Expr, env: &mut Env) -> ExtractedTagConstraints {
             }
         }
 
-        _ => ExtractedTagConstraints::default(),
+        Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => ExtractedTagConstraints::default(),
     }
 }
 
@@ -208,7 +238,9 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
                 CmpOp::GtE if n > 0 => {
                     Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
                 }
-                _ => None,
+                CmpOp::Eq | CmpOp::GtE | CmpOp::Is | CmpOp::IsNot | CmpOp::In | CmpOp::NotIn => {
+                    None
+                }
             };
             return constraint.map_or_else(
                 ExtractedTagConstraints::default,
@@ -240,7 +272,13 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
                 }
                 CmpOp::Gt => Some(ArgumentCountConstraint::Min(split.resolve_length(n))),
                 CmpOp::GtE => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
-                _ => None,
+                CmpOp::Eq
+                | CmpOp::NotEq
+                | CmpOp::LtE
+                | CmpOp::Is
+                | CmpOp::IsNot
+                | CmpOp::In
+                | CmpOp::NotIn => None,
             };
             return constraint.map_or_else(
                 ExtractedTagConstraints::default,
@@ -316,7 +354,14 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagCon
                     Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
                 }
                 CmpOp::Gt => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
-                _ => None,
+                CmpOp::NotEq
+                | CmpOp::Lt
+                | CmpOp::LtE
+                | CmpOp::GtE
+                | CmpOp::Is
+                | CmpOp::IsNot
+                | CmpOp::In
+                | CmpOp::NotIn => None,
             };
             if let Some(c) = constraint {
                 return ExtractedTagConstraints::single_length(c);
@@ -923,7 +968,8 @@ def do_tag(parser, token):
     // `bits[4] != "as"` in sequential if/raise guards.
     #[test]
     fn regroup_pattern_end_to_end() {
-        let func = django_function("django/template/defaulttags.py", "regroup").unwrap();
+        let func = django_function("django/template/defaulttags.py", "regroup")
+            .expect("expected Django fixture function should exist");
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(6)]);
         assert_eq!(
@@ -1094,7 +1140,8 @@ def do_tag(parser, token):
     // interpreter handles equivalently.
     #[test]
     fn choice_at_autoescape_pattern() {
-        let func = django_function("django/template/defaulttags.py", "autoescape").unwrap();
+        let func = django_function("django/template/defaulttags.py", "autoescape")
+            .expect("expected Django fixture function should exist");
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
         assert_eq!(
@@ -1170,8 +1217,8 @@ def do_tag(parser, token):
     // Produces Exact(3) + RequiredKeyword("as" at position 1).
     #[test]
     fn corpus_get_current_timezone() {
-        let func =
-            django_function("django/templatetags/tz.py", "get_current_timezone_tag").unwrap();
+        let func = django_function("django/templatetags/tz.py", "get_current_timezone_tag")
+            .expect("expected Django fixture function should exist");
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
         assert_eq!(
@@ -1187,7 +1234,8 @@ def do_tag(parser, token):
     // Clean single-constraint example.
     #[test]
     fn corpus_timezone_tag() {
-        let func = django_function("django/templatetags/tz.py", "timezone_tag").unwrap();
+        let func = django_function("django/templatetags/tz.py", "timezone_tag")
+            .expect("expected Django fixture function should exist");
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
         assert!(c.required_keywords.is_empty());
@@ -1199,7 +1247,8 @@ def do_tag(parser, token):
     // the abstract interpreter may not fully resolve.
     #[test]
     fn corpus_do_for() {
-        let func = django_function("django/template/defaulttags.py", "do_for").unwrap();
+        let func = django_function("django/template/defaulttags.py", "do_for")
+            .expect("expected Django fixture function should exist");
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(4)));
     }
@@ -1207,7 +1256,8 @@ def do_tag(parser, token):
     // Corpus: cycle in defaulttags.py — `len(args) < 2` produces Min(2).
     #[test]
     fn corpus_cycle() {
-        let func = django_function("django/template/defaulttags.py", "cycle").unwrap();
+        let func = django_function("django/template/defaulttags.py", "cycle")
+            .expect("expected Django fixture function should exist");
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
     }
@@ -1215,7 +1265,8 @@ def do_tag(parser, token):
     // Corpus: url in defaulttags.py — `len(bits) < 2` produces Min(2).
     #[test]
     fn corpus_url() {
-        let func = django_function("django/template/defaulttags.py", "url").unwrap();
+        let func = django_function("django/template/defaulttags.py", "url")
+            .expect("expected Django fixture function should exist");
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
     }
@@ -1225,7 +1276,8 @@ def do_tag(parser, token):
     // Max(2) + ChoiceAt(position=1, ["on", "off"]).
     #[test]
     fn corpus_localtime_tag() {
-        let func = django_function("django/templatetags/tz.py", "localtime_tag").unwrap();
+        let func = django_function("django/templatetags/tz.py", "localtime_tag")
+            .expect("expected Django fixture function should exist");
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Max(2)));
         assert_eq!(

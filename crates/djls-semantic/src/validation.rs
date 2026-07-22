@@ -25,8 +25,8 @@ enum ExtendsPosition {
 impl ExtendsPosition {
     fn record_non_text(self) -> Self {
         match self {
-            Self::Start => Self::AfterContent,
-            other => other,
+            Self::Start | Self::AfterContent => Self::AfterContent,
+            Self::AfterExtends => Self::AfterExtends,
         }
     }
 }

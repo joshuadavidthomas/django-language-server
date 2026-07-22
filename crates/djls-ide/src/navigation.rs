@@ -100,7 +100,12 @@ pub fn goto_definition(
                 }
             }
         }
-        _ => None,
+        SemanticOffsetContext::LoadLibrary { .. }
+        | SemanticOffsetContext::LoadSymbol { .. }
+        | SemanticOffsetContext::Tag { .. }
+        | SemanticOffsetContext::Filter { .. }
+        | SemanticOffsetContext::Variable { .. }
+        | SemanticOffsetContext::None => None,
     }
 }
 
@@ -172,6 +177,11 @@ pub fn find_references(
                 Some(locations)
             }
         }
-        _ => None,
+        SemanticOffsetContext::LoadLibrary { .. }
+        | SemanticOffsetContext::LoadSymbol { .. }
+        | SemanticOffsetContext::Tag { .. }
+        | SemanticOffsetContext::Filter { .. }
+        | SemanticOffsetContext::Variable { .. }
+        | SemanticOffsetContext::None => None,
     }
 }

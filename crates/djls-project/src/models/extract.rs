@@ -135,14 +135,20 @@ fn scan_statements(
     context: ModelExtractionContext<'_>,
 ) {
     for stmt in stmts {
-        match stmt {
-            Stmt::Import(import) => state.apply_direct_import(&DirectImportClause::lower(import)),
-            Stmt::ImportFrom(import) => state.apply_from_import(
+        if let Stmt::Import(import) = stmt {
+            state.apply_direct_import(&DirectImportClause::lower(import));
+            continue;
+        }
+        if let Stmt::ImportFrom(import) = stmt {
+            state.apply_from_import(
                 &FromImportSyntax::lower(import),
                 context.module_name,
                 context.module_kind,
-            ),
-            Stmt::ClassDef(class) => match target {
+            );
+            continue;
+        }
+        if let Stmt::ClassDef(class) = stmt {
+            match target {
                 ModelExtractionTarget::Module { .. } => {
                     scan_class(class, state, target, context);
                     state.bind_local_class(class.name.as_str());
@@ -151,28 +157,18 @@ fn scan_statements(
                     process_class_body(stmt, context.file, model, state);
                     state.invalidate_root(class.name.as_str());
                 }
-            },
-            Stmt::FunctionDef(function) => state.invalidate_root(function.name.as_str()),
-            Stmt::For(_)
-            | Stmt::While(_)
-            | Stmt::If(_)
-            | Stmt::With(_)
-            | Stmt::Try(_)
-            | Stmt::Match(_) => {
-                scan_compound(stmt, state, target, context);
-                let mut roots = BTreeSet::new();
-                collect_touched_roots(stmt, &mut roots);
-                invalidate_names(state, &roots);
             }
-            _ => {
-                if let ModelExtractionTarget::Class { model } = target {
-                    process_class_body(stmt, context.file, model, state);
-                }
-                let mut roots = BTreeSet::new();
-                collect_touched_roots(stmt, &mut roots);
-                invalidate_names(state, &roots);
-            }
+            continue;
         }
+
+        if let ModelExtractionTarget::Class { model } = target {
+            process_class_body(stmt, context.file, model, state);
+        }
+        scan_compound(stmt, state, target, context);
+
+        let mut roots = BTreeSet::new();
+        collect_touched_roots(stmt, &mut roots);
+        invalidate_names(state, &roots);
     }
 }
 
@@ -189,71 +185,55 @@ fn scan_compound(
     };
     let none = BTreeSet::new();
 
-    match stmt {
-        Stmt::For(statement) => {
-            let mut targets = BTreeSet::new();
-            push_name_targets(&statement.target, &mut targets);
-            scan(&statement.body, &targets);
-            scan(&statement.orelse, &none);
+    if let Stmt::For(statement) = stmt {
+        let mut targets = BTreeSet::new();
+        push_name_targets(&statement.target, &mut targets);
+        scan(&statement.body, &targets);
+        scan(&statement.orelse, &none);
+        return;
+    }
+    if let Stmt::While(statement) = stmt {
+        scan(&statement.body, &none);
+        scan(&statement.orelse, &none);
+        return;
+    }
+    if let Stmt::If(statement) = stmt {
+        scan(&statement.body, &none);
+        for clause in &statement.elif_else_clauses {
+            scan(&clause.body, &none);
         }
-        Stmt::While(statement) => {
-            scan(&statement.body, &none);
-            scan(&statement.orelse, &none);
-        }
-        Stmt::If(statement) => {
-            scan(&statement.body, &none);
-            for clause in &statement.elif_else_clauses {
-                scan(&clause.body, &none);
+        return;
+    }
+    if let Stmt::With(statement) = stmt {
+        let mut optional_variables = BTreeSet::new();
+        for item in &statement.items {
+            if let Some(variables) = &item.optional_vars {
+                push_name_targets(variables, &mut optional_variables);
             }
         }
-        Stmt::With(statement) => {
-            let mut optional_variables = BTreeSet::new();
-            for item in &statement.items {
-                if let Some(variables) = &item.optional_vars {
-                    push_name_targets(variables, &mut optional_variables);
-                }
+        scan(&statement.body, &optional_variables);
+        return;
+    }
+    if let Stmt::Try(statement) = stmt {
+        scan(&statement.body, &none);
+        for handler in &statement.handlers {
+            let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+            let mut exception_name = BTreeSet::new();
+            if let Some(name) = &handler.name {
+                exception_name.insert(name.to_string());
             }
-            scan(&statement.body, &optional_variables);
+            scan(&handler.body, &exception_name);
         }
-        Stmt::Try(statement) => {
-            scan(&statement.body, &none);
-            for handler in &statement.handlers {
-                let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
-                let mut exception_name = BTreeSet::new();
-                if let Some(name) = &handler.name {
-                    exception_name.insert(name.to_string());
-                }
-                scan(&handler.body, &exception_name);
-            }
-            scan(&statement.orelse, &none);
-            scan(&statement.finalbody, &none);
+        scan(&statement.orelse, &none);
+        scan(&statement.finalbody, &none);
+        return;
+    }
+    if let Stmt::Match(statement) = stmt {
+        for case in &statement.cases {
+            let mut pattern_names = BTreeSet::new();
+            collect_pattern_names(&case.pattern, &mut pattern_names);
+            scan(&case.body, &pattern_names);
         }
-        Stmt::Match(statement) => {
-            for case in &statement.cases {
-                let mut pattern_names = BTreeSet::new();
-                collect_pattern_names(&case.pattern, &mut pattern_names);
-                scan(&case.body, &pattern_names);
-            }
-        }
-        Stmt::Import(_)
-        | Stmt::ImportFrom(_)
-        | Stmt::ClassDef(_)
-        | Stmt::FunctionDef(_)
-        | Stmt::Assign(_)
-        | Stmt::AnnAssign(_)
-        | Stmt::AugAssign(_)
-        | Stmt::Delete(_)
-        | Stmt::TypeAlias(_)
-        | Stmt::Expr(_)
-        | Stmt::Return(_)
-        | Stmt::Raise(_)
-        | Stmt::Assert(_)
-        | Stmt::Global(_)
-        | Stmt::Nonlocal(_)
-        | Stmt::Pass(_)
-        | Stmt::Break(_)
-        | Stmt::Continue(_)
-        | Stmt::IpyEscapeCommand(_) => unreachable!("caller passes only compound statements"),
     }
 }
 
@@ -413,7 +393,7 @@ impl DeferredBaseRef {
             Err(
                 ModelImportPathResolutionError::MissingBinding
                 | ModelImportPathResolutionError::ShadowedBinding
-                | ModelImportPathResolutionError::InvalidTarget(_),
+                | ModelImportPathResolutionError::InvalidTarget { .. },
             ) => None,
         }
     }
@@ -486,43 +466,41 @@ fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportState) -> Opti
         return None;
     };
 
-    let field_class_name = match call.func.as_ref() {
-        Expr::Attribute(attr) => attr.attr.as_str(),
-        expr => expr.name_target()?,
+    let field_class_name = if let Expr::Attribute(attr) = call.func.as_ref() {
+        attr.attr.as_str()
+    } else {
+        call.func.name_target()?
     };
 
     let first_arg = call.arguments.args.first()?;
-    let target = match first_arg {
-        Expr::StringLiteral(string) => {
-            let value = string.value.to_string();
-            if value == "self" {
-                RelationTarget::SelfRef
-            } else if let Some((app_label, name)) = value.rsplit_once('.') {
-                RelationTarget::Qualified {
-                    app_label: app_label.to_string(),
-                    name: ModelName::new(name),
-                }
-            } else {
-                RelationTarget::Bare {
-                    name: ModelName::new(value),
-                    import_reference: None,
-                }
+    let target = if let Expr::StringLiteral(string) = first_arg {
+        let value = string.value.to_string();
+        if value == "self" {
+            RelationTarget::SelfRef
+        } else if let Some((app_label, name)) = value.rsplit_once('.') {
+            RelationTarget::Qualified {
+                app_label: app_label.to_string(),
+                name: ModelName::new(name),
+            }
+        } else {
+            RelationTarget::Bare {
+                name: ModelName::new(value),
+                import_reference: None,
             }
         }
-        expression => {
-            let path = expression.path_segments()?;
-            let (root, tail) = path.split_first()?;
-            let import_reference = aliases.resolve_reference(root, tail);
-            if path.len() == 1 {
-                RelationTarget::Bare {
-                    name: ModelName::new(path[0].clone()),
-                    import_reference: Some(import_reference),
-                }
-            } else {
-                RelationTarget::Attribute {
-                    path,
-                    import_reference,
-                }
+    } else {
+        let path = first_arg.path_segments()?;
+        let (root, tail) = path.split_first()?;
+        let import_reference = aliases.resolve_reference(root, tail);
+        if path.len() == 1 {
+            RelationTarget::Bare {
+                name: ModelName::new(path[0].clone()),
+                import_reference: Some(import_reference),
+            }
+        } else {
+            RelationTarget::Attribute {
+                path,
+                import_reference,
             }
         }
     };
@@ -545,22 +523,24 @@ fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportState) -> Opti
 }
 
 fn push_name_targets(target: &Expr, out: &mut BTreeSet<String>) {
-    match target {
-        Expr::Name(name) => {
-            out.insert(name.id.to_string());
+    if let Expr::Name(name) = target {
+        out.insert(name.id.to_string());
+        return;
+    }
+    if let Expr::Tuple(tuple) = target {
+        for element in &tuple.elts {
+            push_name_targets(element, out);
         }
-        Expr::Tuple(tuple) => {
-            for element in &tuple.elts {
-                push_name_targets(element, out);
-            }
+        return;
+    }
+    if let Expr::List(list) = target {
+        for element in &list.elts {
+            push_name_targets(element, out);
         }
-        Expr::List(list) => {
-            for element in &list.elts {
-                push_name_targets(element, out);
-            }
-        }
-        Expr::Starred(starred) => push_name_targets(&starred.value, out),
-        _ => {}
+        return;
+    }
+    if let Expr::Starred(starred) = target {
+        push_name_targets(&starred.value, out);
     }
 }
 
@@ -670,49 +650,52 @@ fn collect_compound_touched_roots(stmt: &Stmt, out: &mut BTreeSet<String>) {
             collect_touched_roots(stmt, out);
         }
     }
-    match stmt {
-        Stmt::For(statement) => {
-            push_name_targets(&statement.target, out);
-            recurse(&statement.body, out);
-            recurse(&statement.orelse, out);
+
+    if let Stmt::For(statement) = stmt {
+        push_name_targets(&statement.target, out);
+        recurse(&statement.body, out);
+        recurse(&statement.orelse, out);
+        return;
+    }
+    if let Stmt::While(statement) = stmt {
+        recurse(&statement.body, out);
+        recurse(&statement.orelse, out);
+        return;
+    }
+    if let Stmt::If(statement) = stmt {
+        recurse(&statement.body, out);
+        for clause in &statement.elif_else_clauses {
+            recurse(&clause.body, out);
         }
-        Stmt::While(statement) => {
-            recurse(&statement.body, out);
-            recurse(&statement.orelse, out);
-        }
-        Stmt::If(statement) => {
-            recurse(&statement.body, out);
-            for clause in &statement.elif_else_clauses {
-                recurse(&clause.body, out);
+        return;
+    }
+    if let Stmt::With(statement) = stmt {
+        for item in &statement.items {
+            if let Some(vars) = &item.optional_vars {
+                push_name_targets(vars, out);
             }
         }
-        Stmt::With(statement) => {
-            for item in &statement.items {
-                if let Some(vars) = &item.optional_vars {
-                    push_name_targets(vars, out);
-                }
+        recurse(&statement.body, out);
+        return;
+    }
+    if let Stmt::Try(statement) = stmt {
+        recurse(&statement.body, out);
+        for handler in &statement.handlers {
+            let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+            if let Some(name) = &handler.name {
+                out.insert(name.to_string());
             }
-            recurse(&statement.body, out);
+            recurse(&handler.body, out);
         }
-        Stmt::Try(statement) => {
-            recurse(&statement.body, out);
-            for handler in &statement.handlers {
-                let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
-                if let Some(name) = &handler.name {
-                    out.insert(name.to_string());
-                }
-                recurse(&handler.body, out);
-            }
-            recurse(&statement.orelse, out);
-            recurse(&statement.finalbody, out);
+        recurse(&statement.orelse, out);
+        recurse(&statement.finalbody, out);
+        return;
+    }
+    if let Stmt::Match(statement) = stmt {
+        for case in &statement.cases {
+            collect_pattern_names(&case.pattern, out);
+            recurse(&case.body, out);
         }
-        Stmt::Match(statement) => {
-            for case in &statement.cases {
-                collect_pattern_names(&case.pattern, out);
-                recurse(&case.body, out);
-            }
-        }
-        _ => {}
     }
 }
 
@@ -725,10 +708,7 @@ fn extract_related_name(call: &ruff_python_ast::ExprCall) -> Option<String> {
                 .as_ref()
                 .is_some_and(|a| a.as_str() == "related_name")
         })
-        .and_then(|kw| match &kw.value {
-            Expr::StringLiteral(s) => Some(s.value.to_string()),
-            _ => None,
-        })
+        .and_then(|kw| kw.value.string_literal().map(str::to_string))
 }
 
 fn extract_generic_foreign_key(stmt: &Stmt, file: File) -> Option<Relation> {
@@ -745,9 +725,10 @@ fn extract_generic_foreign_key(stmt: &Stmt, file: File) -> Option<Relation> {
         return None;
     };
 
-    let is_gfk = match call.func.as_ref() {
-        Expr::Attribute(attr) => attr.attr.as_str() == "GenericForeignKey",
-        expr => expr.name_target() == Some("GenericForeignKey"),
+    let is_gfk = if let Expr::Attribute(attr) = call.func.as_ref() {
+        attr.attr.as_str() == "GenericForeignKey"
+    } else {
+        call.func.name_target() == Some("GenericForeignKey")
     };
 
     if !is_gfk {
@@ -780,19 +761,17 @@ fn extract_gfk_arg(call: &ruff_python_ast::ExprCall, pos: usize, keyword: &str) 
         .keywords
         .iter()
         .find(|kw| kw.arg.as_ref().is_some_and(|a| a.as_str() == keyword))
-        .and_then(|kw| match &kw.value {
-            Expr::StringLiteral(s) => Some(s.value.to_string()),
-            _ => None,
-        })
+        .and_then(|kw| kw.value.string_literal().map(str::to_string))
     {
         return Some(value);
     }
 
     // Fall back to positional
-    call.arguments.args.get(pos).and_then(|arg| match arg {
-        Expr::StringLiteral(s) => Some(s.value.to_string()),
-        _ => None,
-    })
+    call.arguments
+        .args
+        .get(pos)
+        .and_then(ExprExt::string_literal)
+        .map(str::to_string)
 }
 
 #[cfg(test)]
@@ -807,9 +786,13 @@ mod tests {
 
     fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
         let db = TestDatabase::new();
-        db.add_file("/test.py", source);
-        let file = db.file(Utf8Path::new("/test.py"));
-        let module_name = PythonModuleName::parse(module_name).unwrap();
+        db.add_file("/test.py", source)
+            .expect("model extraction fixture should be added to the test database");
+        let file = db
+            .file(Utf8Path::new("/test.py"))
+            .expect("model extraction fixture should exist in the test database");
+        let module_name =
+            PythonModuleName::parse(module_name).expect("test Python module name should be valid");
         let Ok(parsed) = ruff_python_parser::parse_module(source) else {
             return ModelGraph::default();
         };

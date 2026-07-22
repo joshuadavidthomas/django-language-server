@@ -1,3 +1,4 @@
+use std::io;
 use std::path::PathBuf;
 
 use camino::Utf8Path;
@@ -18,31 +19,38 @@ use djls_project::template_library_catalog;
 use djls_project::testing::compute_project_facts;
 use djls_testing::OsTestDatabase;
 
-fn fixture_root(name: &str) -> Utf8PathBuf {
+type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+fn fixture_root(name: &str) -> TestResult<Utf8PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../djls-testing/fixtures/django-projects")
         .join(name)
-        .canonicalize()
-        .unwrap_or_else(|err| panic!("failed to canonicalize fixture `{name}`: {err}"));
-    Utf8PathBuf::from_path_buf(root).expect("fixture path should be UTF-8")
+        .canonicalize()?;
+    Ok(Utf8PathBuf::from_path_buf(root).map_err(|path| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("fixture path should be UTF-8: {}", path.display()),
+        )
+    })?)
 }
 
 fn bootstrap_fixture(
     name: &str,
     overrides: Option<djls_conf::Settings>,
-) -> (OsTestDatabase, Project, Utf8PathBuf) {
-    let root = fixture_root(name);
+) -> TestResult<(OsTestDatabase, Project, Utf8PathBuf)> {
+    let root = fixture_root(name)?;
     let mut db = OsTestDatabase::new();
-    let settings = djls_conf::Settings::new(root.as_path(), overrides).unwrap();
+    let settings = djls_conf::Settings::new(root.as_path(), overrides)?;
     let project = Project::bootstrap(&db, root.as_path(), &settings);
     db.set_project(project);
-    (db, project, root)
+    Ok((db, project, root))
 }
 
-fn venv_override(venv: &Utf8Path) -> djls_conf::Settings {
+fn venv_override(venv: &Utf8Path) -> TestResult<djls_conf::Settings> {
     let escaped = venv.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-    toml::from_str::<djls_conf::Settings>(&format!("venv_path = \"{escaped}\""))
-        .expect("venv override should deserialize")
+    Ok(toml::from_str::<djls_conf::Settings>(&format!(
+        "venv_path = \"{escaped}\""
+    ))?)
 }
 
 fn template_dirs(db: &OsTestDatabase, project: Project) -> Vec<Utf8PathBuf> {
@@ -56,9 +64,11 @@ fn template_dirs(db: &OsTestDatabase, project: Project) -> Vec<Utf8PathBuf> {
 
 #[test]
 fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
-    let root = fixture_root("src-layout");
+    let root = fixture_root("src-layout").expect("src-layout fixture root should resolve");
     let venv = root.join(".venv");
-    let (db, project, root) = bootstrap_fixture("src-layout", Some(venv_override(&venv)));
+    let overrides = venv_override(&venv).expect("src-layout venv override should deserialize");
+    let (db, project, root) = bootstrap_fixture("src-layout", Some(overrides))
+        .expect("src-layout fixture should bootstrap");
 
     let site_packages = root.join(".venv/lib/python3.12/site-packages");
     let search_paths: Vec<_> = project.search_paths(&db).iter().cloned().collect();
@@ -103,9 +113,11 @@ fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
 
 #[test]
 fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
-    let root = fixture_root("editable-pth");
+    let root = fixture_root("editable-pth").expect("editable-pth fixture root should resolve");
     let venv = root.join(".venv");
-    let (db, project, root) = bootstrap_fixture("editable-pth", Some(venv_override(&venv)));
+    let overrides = venv_override(&venv).expect("editable-pth venv override should deserialize");
+    let (db, project, root) = bootstrap_fixture("editable-pth", Some(overrides))
+        .expect("editable-pth fixture should bootstrap");
 
     let site_packages = root.join(".venv/lib/python3.12/site-packages");
     let search_paths: Vec<_> = project.search_paths(&db).iter().cloned().collect();
@@ -131,7 +143,8 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
         "shoutbox.templatetags.shout_tags"
     );
 
-    let dupe_name = PythonModuleName::parse("dupe").unwrap();
+    let dupe_name =
+        PythonModuleName::parse("dupe").expect("test Python module name should be valid");
     let dupe = PythonSourceModule::resolve(&db, project, dupe_name.clone())
         .expect("dupe should resolve to the first root");
     assert_eq!(dupe.path(), root.join("dupe.py").as_path());
@@ -159,9 +172,11 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
 
 #[test]
 fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
-    let root = fixture_root("namespace-apps");
+    let root = fixture_root("namespace-apps").expect("namespace-apps fixture root should resolve");
     let venv = root.join(".venv");
-    let (db, project, root) = bootstrap_fixture("namespace-apps", Some(venv_override(&venv)));
+    let overrides = venv_override(&venv).expect("namespace-apps venv override should deserialize");
+    let (db, project, root) = bootstrap_fixture("namespace-apps", Some(overrides))
+        .expect("namespace-apps fixture should bootstrap");
 
     let site_packages = root.join(".venv/lib/python3.12/site-packages");
     let search_paths: Vec<_> = project.search_paths(&db).iter().cloned().collect();
@@ -185,7 +200,8 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
         .expect("ns_tags should be installed from namespace app");
     assert_eq!(ns_tags.module_name_str(), "nsapp.templatetags.ns_tags");
 
-    let nsapp_name = PythonModuleName::parse("nsapp").unwrap();
+    let nsapp_name =
+        PythonModuleName::parse("nsapp").expect("test Python module name should be valid");
     let package_dirs = resolve_package_dirs(&db, project, nsapp_name.clone());
     assert_eq!(package_dirs.dirs, vec![root.join("nsapp")]);
 

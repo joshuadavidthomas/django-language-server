@@ -213,20 +213,17 @@ pub fn resolve_reference_for_file<'db>(
         resolve_relative_name(None, raw_name.name(db), kind.allow_self())?;
         return Some(resolution.resolve(db, raw_name));
     };
-    let found_file = match first.result {
-        TemplateResolutionResult::Found(origin) => Some(origin.file(db)),
+    let first_found = match first.result {
+        TemplateResolutionResult::Found(origin) => Some((origin, origin.file(db))),
         TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
             None
         }
     };
-    if let Some(file) = found_file
+    if let Some((origin, file)) = first_found
         && outcomes.iter().all(
             |outcome| matches!(outcome.result, TemplateResolutionResult::Found(origin) if origin.file(db) == file),
         )
     {
-        let TemplateResolutionResult::Found(origin) = first.result else {
-            unreachable!("the joined reference outcome was checked as found")
-        };
         return Some(TemplateResolutionResult::Found(origin));
     }
 

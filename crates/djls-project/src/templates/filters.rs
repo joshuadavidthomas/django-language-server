@@ -119,7 +119,8 @@ mod tests {
     // Corpus: `title` in defaultfilters.py — `def title(value):`
     #[test]
     fn no_arg_filter() {
-        let func = django_function("django/template/defaultfilters.py", "title").unwrap();
+        let func = django_function("django/template/defaultfilters.py", "title")
+            .expect("expected Django fixture function should exist");
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -128,7 +129,8 @@ mod tests {
     // Corpus: `upper` in defaultfilters.py — `def upper(value):`
     #[test]
     fn no_arg_filter_upper() {
-        let func = django_function("django/template/defaultfilters.py", "upper").unwrap();
+        let func = django_function("django/template/defaultfilters.py", "upper")
+            .expect("expected Django fixture function should exist");
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -139,7 +141,8 @@ mod tests {
     // Corpus: `cut` in defaultfilters.py — `def cut(value, arg):`
     #[test]
     fn required_arg_filter() {
-        let func = django_function("django/template/defaultfilters.py", "cut").unwrap();
+        let func = django_function("django/template/defaultfilters.py", "cut")
+            .expect("expected Django fixture function should exist");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -148,7 +151,8 @@ mod tests {
     // Corpus: `add` in defaultfilters.py — `def add(value, arg):`
     #[test]
     fn required_arg_filter_add() {
-        let func = django_function("django/template/defaultfilters.py", "add").unwrap();
+        let func = django_function("django/template/defaultfilters.py", "add")
+            .expect("expected Django fixture function should exist");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -159,7 +163,8 @@ mod tests {
     // Corpus: `floatformat` in defaultfilters.py — `def floatformat(text, arg=-1):`
     #[test]
     fn optional_arg_filter() {
-        let func = django_function("django/template/defaultfilters.py", "floatformat").unwrap();
+        let func = django_function("django/template/defaultfilters.py", "floatformat")
+            .expect("expected Django fixture function should exist");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
@@ -168,7 +173,8 @@ mod tests {
     // Corpus: `date` in defaultfilters.py — `def date(value, arg=None):`
     #[test]
     fn optional_arg_filter_none_default() {
-        let func = django_function("django/template/defaultfilters.py", "date").unwrap();
+        let func = django_function("django/template/defaultfilters.py", "date")
+            .expect("expected Django fixture function should exist");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
@@ -181,7 +187,8 @@ mod tests {
     #[test]
     fn method_style_no_arg() {
         let source = "def my_filter(self, value):\n    return value.upper()\n";
-        let func = find_function_in_source(source, "my_filter").unwrap();
+        let func = find_function_in_source(source, "my_filter")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -190,7 +197,8 @@ mod tests {
     #[test]
     fn method_style_with_arg() {
         let source = "def my_filter(self, value, arg):\n    return value + arg\n";
-        let func = find_function_in_source(source, "my_filter").unwrap();
+        let func = find_function_in_source(source, "my_filter")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -199,7 +207,8 @@ mod tests {
     #[test]
     fn method_style_with_optional_arg() {
         let source = "def my_filter(self, value, arg=\"default\"):\n    return value + arg\n";
-        let func = find_function_in_source(source, "my_filter").unwrap();
+        let func = find_function_in_source(source, "my_filter")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
@@ -211,7 +220,8 @@ mod tests {
     #[test]
     fn no_params_at_all() {
         let source = "def weird_filter():\n    return 'nothing'\n";
-        let func = find_function_in_source(source, "weird_filter").unwrap();
+        let func = find_function_in_source(source, "weird_filter")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -220,7 +230,8 @@ mod tests {
     #[test]
     fn self_only() {
         let source = "def weird_method(self):\n    return 'nothing'\n";
-        let func = find_function_in_source(source, "weird_method").unwrap();
+        let func = find_function_in_source(source, "weird_method")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -232,7 +243,8 @@ mod tests {
     #[test]
     fn posonly_params() {
         let source = "def my_filter(value, /, arg):\n    return value + arg\n";
-        let func = find_function_in_source(source, "my_filter").unwrap();
+        let func = find_function_in_source(source, "my_filter")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -241,7 +253,8 @@ mod tests {
     #[test]
     fn posonly_with_default() {
         let source = "def my_filter(value, /, arg=\"x\"):\n    return value + arg\n";
-        let func = find_function_in_source(source, "my_filter").unwrap();
+        let func = find_function_in_source(source, "my_filter")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
@@ -253,7 +266,8 @@ mod tests {
     #[test]
     fn multiple_extra_args_all_with_defaults() {
         let source = "def my_filter(value, arg1=\"a\", arg2=\"b\"):\n    return value\n";
-        let func = find_function_in_source(source, "my_filter").unwrap();
+        let func = find_function_in_source(source, "my_filter")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
@@ -262,7 +276,8 @@ mod tests {
     #[test]
     fn multiple_extra_args_mixed_defaults() {
         let source = "def my_filter(value, arg1, arg2=\"b\"):\n    return value\n";
-        let func = find_function_in_source(source, "my_filter").unwrap();
+        let func = find_function_in_source(source, "my_filter")
+            .expect("expected function should exist in test source");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -277,7 +292,8 @@ mod tests {
     // Corpus: `floatformat` — `@register.filter(is_safe=True)` with `def floatformat(text, arg=-1):`
     #[test]
     fn is_safe_does_not_affect_arity() {
-        let func = django_function("django/template/defaultfilters.py", "floatformat").unwrap();
+        let func = django_function("django/template/defaultfilters.py", "floatformat")
+            .expect("expected Django fixture function should exist");
         let arity = extract_filter_arity(&func);
         // floatformat has is_safe=True on decorator; arity should reflect signature only
         assert!(arity.expects_arg);
@@ -288,7 +304,8 @@ mod tests {
     // `@register.filter(is_safe=True)` and `@stringfilter`
     #[test]
     fn stringfilter_does_not_affect_arity() {
-        let func = django_function("django/template/defaultfilters.py", "title").unwrap();
+        let func = django_function("django/template/defaultfilters.py", "title")
+            .expect("expected Django fixture function should exist");
         let arity = extract_filter_arity(&func);
         // title has @stringfilter decorator; arity should reflect signature only (value-only)
         assert!(!arity.expects_arg);

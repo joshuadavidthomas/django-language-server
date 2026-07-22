@@ -85,9 +85,9 @@ fn main() -> anyhow::Result<()> {
                 update_lockfile(&manifest_path, &lockfile_path, &LockFilter::All)?;
             }
 
-            let lockfile = Lockfile::load(&lockfile_path).map_err(|_| {
+            let lockfile = Lockfile::load(&lockfile_path).map_err(|error| {
                 anyhow::anyhow!(
-                    "No lockfile found at {lockfile_path}. Run `cargo run -p djls-testing --bin corpus -- lock` first."
+                    "No valid lockfile found at {lockfile_path}. Run `cargo run -p djls-testing --bin corpus -- lock` first: {error}"
                 )
             })?;
             let manifest = Manifest::load(&manifest_path)?;

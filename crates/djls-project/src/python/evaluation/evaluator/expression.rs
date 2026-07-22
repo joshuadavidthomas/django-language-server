@@ -63,7 +63,36 @@ impl PythonModuleEvaluator<'_> {
             ast::Expr::Call(call) => self.evaluate_call_binding(call, origin),
             ast::Expr::Dict(dict) => self.evaluate_dict_binding(dict, origin),
             ast::Expr::Attribute(attribute) => self.evaluate_attribute_binding(attribute, origin),
-            _ => PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
+            ast::Expr::BoolOp(_)
+            | ast::Expr::Named(_)
+            | ast::Expr::BinOp(_)
+            | ast::Expr::UnaryOp(_)
+            | ast::Expr::Lambda(_)
+            | ast::Expr::If(_)
+            | ast::Expr::Set(_)
+            | ast::Expr::ListComp(_)
+            | ast::Expr::SetComp(_)
+            | ast::Expr::DictComp(_)
+            | ast::Expr::Generator(_)
+            | ast::Expr::Await(_)
+            | ast::Expr::Yield(_)
+            | ast::Expr::YieldFrom(_)
+            | ast::Expr::Compare(_)
+            | ast::Expr::FString(_)
+            | ast::Expr::TString(_)
+            | ast::Expr::StringLiteral(_)
+            | ast::Expr::BytesLiteral(_)
+            | ast::Expr::NumberLiteral(_)
+            | ast::Expr::BooleanLiteral(_)
+            | ast::Expr::NoneLiteral(_)
+            | ast::Expr::EllipsisLiteral(_)
+            | ast::Expr::Subscript(_)
+            | ast::Expr::Starred(_)
+            | ast::Expr::Name(_)
+            | ast::Expr::Slice(_)
+            | ast::Expr::IpyEscapeCommand(_) => {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+            }
         }
     }
 
@@ -141,22 +170,15 @@ impl PythonModuleEvaluator<'_> {
                 return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
             }
             let receiver = self.evaluate_binding(&attribute.value);
-            return match attribute.attr.as_str() {
-                "resolve" if call.arguments.args.is_empty() => {
-                    project_bound_alternatives(&receiver, origin, |value| {
-                        resolve_path(value, origin)
-                    })
-                }
-                "joinpath" => {
-                    let paths = project_bound_alternatives(&receiver, origin, |value| {
-                        rebase_exact_path(value, origin)
-                    });
-                    self.join_path_arguments(paths, &call.arguments.args, origin)
-                }
-                "resolve" => {
-                    PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
-                }
-                _ => unreachable!("the method guard accepts only path methods"),
+            return if attribute.attr.as_str() == "joinpath" {
+                let paths = project_bound_alternatives(&receiver, origin, |value| {
+                    rebase_exact_path(value, origin)
+                });
+                self.join_path_arguments(paths, &call.arguments.args, origin)
+            } else if call.arguments.args.is_empty() {
+                project_bound_alternatives(&receiver, origin, |value| resolve_path(value, origin))
+            } else {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
             };
         }
 
@@ -187,7 +209,7 @@ impl PythonModuleEvaluator<'_> {
             return PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin);
         }
         match intrinsic {
-            PythonPathIntrinsic::PathlibPathType | PythonPathIntrinsic::BuiltinStrType => {
+            PythonPathIntrinsic::PathlibPathType => {
                 let Some(argument) = single_positional_argument(&call.arguments) else {
                     return PythonBinding::unknown(
                         &PythonUnknownCause::UnsupportedExpression,
@@ -195,10 +217,20 @@ impl PythonModuleEvaluator<'_> {
                     );
                 };
                 let argument = self.evaluate_binding(argument);
-                project_bound_alternatives(&argument, origin, |argument| match intrinsic {
-                    PythonPathIntrinsic::PathlibPathType => path_from_value(argument, origin),
-                    PythonPathIntrinsic::BuiltinStrType => string_path_from_value(argument, origin),
-                    _ => unreachable!("the outer match selects callable intrinsics"),
+                project_bound_alternatives(&argument, origin, |argument| {
+                    path_from_value(argument, origin)
+                })
+            }
+            PythonPathIntrinsic::BuiltinStrType => {
+                let Some(argument) = single_positional_argument(&call.arguments) else {
+                    return PythonBinding::unknown(
+                        &PythonUnknownCause::UnsupportedExpression,
+                        origin,
+                    );
+                };
+                let argument = self.evaluate_binding(argument);
+                project_bound_alternatives(&argument, origin, |argument| {
+                    string_path_from_value(argument, origin)
                 })
             }
             PythonPathIntrinsic::OsPathJoinFunction
@@ -296,7 +328,38 @@ impl PythonModuleEvaluator<'_> {
             let element_origin = self.origin(element);
             let (expression, starred) = match element {
                 ast::Expr::Starred(starred) => (starred.value.as_ref(), true),
-                _ => (element, false),
+                ast::Expr::BoolOp(_)
+                | ast::Expr::Named(_)
+                | ast::Expr::BinOp(_)
+                | ast::Expr::UnaryOp(_)
+                | ast::Expr::Lambda(_)
+                | ast::Expr::If(_)
+                | ast::Expr::Dict(_)
+                | ast::Expr::Set(_)
+                | ast::Expr::ListComp(_)
+                | ast::Expr::SetComp(_)
+                | ast::Expr::DictComp(_)
+                | ast::Expr::Generator(_)
+                | ast::Expr::Await(_)
+                | ast::Expr::Yield(_)
+                | ast::Expr::YieldFrom(_)
+                | ast::Expr::Compare(_)
+                | ast::Expr::Call(_)
+                | ast::Expr::FString(_)
+                | ast::Expr::TString(_)
+                | ast::Expr::StringLiteral(_)
+                | ast::Expr::BytesLiteral(_)
+                | ast::Expr::NumberLiteral(_)
+                | ast::Expr::BooleanLiteral(_)
+                | ast::Expr::NoneLiteral(_)
+                | ast::Expr::EllipsisLiteral(_)
+                | ast::Expr::Attribute(_)
+                | ast::Expr::Subscript(_)
+                | ast::Expr::Name(_)
+                | ast::Expr::List(_)
+                | ast::Expr::Tuple(_)
+                | ast::Expr::Slice(_)
+                | ast::Expr::IpyEscapeCommand(_) => (element, false),
             };
             let values = self.evaluate_binding(expression);
             lists = combine_bindings(&lists, &values, element_origin, |mut result, value| {
@@ -318,8 +381,11 @@ impl PythonModuleEvaluator<'_> {
                             Some(origin),
                         );
                     }
-                } else {
-                    result.push_constructed_element(value);
+                } else if !result.push_constructed_element(value) {
+                    return PythonValue::unknown(
+                        PythonUnknownCause::UnsupportedExpression,
+                        Some(origin),
+                    );
                 }
                 result
             });
@@ -338,11 +404,15 @@ impl PythonModuleEvaluator<'_> {
                     &unpacked,
                     item_origin,
                     |mut result, unpacked| {
-                        let PythonValueKind::Dict(dictionary) = &mut result.kind else {
-                            unreachable!("dictionary construction starts with a dictionary")
-                        };
-                        dictionary.extend_from_unpack(unpacked, item_origin);
-                        result
+                        if let PythonValueKind::Dict(dictionary) = &mut result.kind {
+                            dictionary.extend_from_unpack(unpacked, item_origin);
+                            result
+                        } else {
+                            PythonValue::unknown(
+                                PythonUnknownCause::UnsupportedExpression,
+                                Some(origin),
+                            )
+                        }
                     },
                 );
                 continue;
@@ -358,13 +428,17 @@ impl PythonModuleEvaluator<'_> {
             });
             dictionaries =
                 combine_bindings(&dictionaries, &entries, item_origin, |mut result, entry| {
-                    let (PythonValueKind::Dict(dictionary), PythonValueKind::Dict(entry)) =
+                    if let (PythonValueKind::Dict(dictionary), PythonValueKind::Dict(entry)) =
                         (&mut result.kind, entry.kind)
-                    else {
-                        unreachable!("dictionary construction combines dictionaries")
-                    };
-                    dictionary.append_entries_from(entry);
-                    result
+                    {
+                        dictionary.append_entries_from(entry);
+                        result
+                    } else {
+                        PythonValue::unknown(
+                            PythonUnknownCause::UnsupportedExpression,
+                            Some(origin),
+                        )
+                    }
                 });
         }
         dictionaries
@@ -629,16 +703,14 @@ fn combine_bindings(
             if constraints.is_impossible() {
                 continue;
             }
-            let alternative = PythonBinding::constrained_bound(
-                combine(left.clone(), right),
-                origin,
-                &constraints,
-            )
-            .expect("combined binding constraints are feasible");
-            result = Some(match result {
-                Some(current) => current.join(alternative, origin),
-                None => alternative,
-            });
+            if let Some(alternative) =
+                PythonBinding::constrained_bound(combine(left.clone(), right), origin, &constraints)
+            {
+                result = Some(match result {
+                    Some(current) => current.join(alternative, origin),
+                    None => alternative,
+                });
+            }
         }
     }
     result.unwrap_or_else(|| {

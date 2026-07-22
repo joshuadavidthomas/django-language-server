@@ -4,11 +4,10 @@
 //! omit branch constraints, allocation identities, and other evaluator-only details; they are not
 //! production domain types or necessarily serialized snapshots.
 
-use std::io::ErrorKind;
-
 use camino::Utf8PathBuf;
 use djls_source::File;
 use djls_source::FileReadError;
+use djls_source::FileReadErrorKind;
 use djls_source::Origin;
 
 use crate::db::Db;
@@ -152,7 +151,7 @@ pub enum PythonUnknownCauseView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonFileReadErrorView {
     pub path: Utf8PathBuf,
-    pub kind: ErrorKind,
+    pub kind: FileReadErrorKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,14 +226,21 @@ pub enum PythonMutationOperationView {
     Remove,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum PythonModuleEvaluationError {
+    #[error("Python file `{path}` does not map to a module in the project search paths")]
+    UnresolvedFile { path: Utf8PathBuf },
+}
+
 pub fn python_module_evaluation(
     db: &dyn Db,
     project: Project,
     file: File,
-) -> PythonModuleEvaluationView {
-    let module = file_to_module(db, project, file.path(db).to_path_buf())
-        .expect("the evaluated file should have a canonical module identity");
-    python_module_evaluation_for_module(db, project, module)
+) -> Result<PythonModuleEvaluationView, PythonModuleEvaluationError> {
+    let path = file.path(db).to_path_buf();
+    let module = file_to_module(db, project, path.clone())
+        .ok_or(PythonModuleEvaluationError::UnresolvedFile { path })?;
+    Ok(python_module_evaluation_for_module(db, project, module))
 }
 
 pub fn python_module_evaluation_for_module(

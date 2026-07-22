@@ -304,13 +304,23 @@ impl PythonEvaluationState {
     /// Update a name's single bound value after a successful in-place mutation.
     /// This preserves the binding's assignment origins, branch constraints, and
     /// prior mutation facts; only rebinding operations replace that state.
-    fn update_bound_value(&mut self, name: &str, value: PythonValue) {
-        let bound = self
+    ///
+    /// If the binding no longer has one bound value, retain that loss of
+    /// precision as an unknown instead of treating it as an evaluator invariant.
+    fn update_bound_value(&mut self, name: &str, value: PythonValue, origin: Origin) {
+        if let Some(bound) = self
             .bindings
             .get_mut(name)
             .and_then(PythonBinding::single_bound_mut)
-            .expect("name-target in-place mutation requires one bound value");
-        bound.value = value;
+        {
+            bound.value = value;
+        } else {
+            self.assign_value(
+                name,
+                PythonValue::unknown(PythonUnknownCause::UnsupportedMutation, Some(origin)),
+                origin,
+            );
+        }
     }
 
     fn assign_binding(&mut self, name: &str, binding: PythonBinding, origin: Origin) {
@@ -500,10 +510,11 @@ impl PythonEvaluationState {
         origin: Origin,
         constraints: &BranchConstraints,
     ) {
+        let Some(unknown) = PythonBinding::constrained_unknown(cause, origin, constraints) else {
+            return;
+        };
         for binding in self.bindings.values_mut() {
-            let unknown = PythonBinding::constrained_unknown(cause, origin, constraints)
-                .expect("a namespace cause must have a feasible branch");
-            *binding = binding.clone().join(unknown, origin);
+            *binding = binding.clone().join(unknown.clone(), origin);
         }
     }
 
@@ -769,7 +780,7 @@ mod tests {
 
     fn namespace_module(name: &str) -> PythonModule {
         PythonModule::Namespace(PythonNamespacePackage::new(
-            PythonModuleName::parse(name).unwrap(),
+            PythonModuleName::parse(name).expect("test Python module name should be valid"),
             Vec::new(),
         ))
     }
@@ -884,7 +895,8 @@ mod tests {
             test_file(1),
             PythonImportOutcome::NotFound {
                 origin: origin(3),
-                module: PythonModuleName::parse("missing").unwrap(),
+                module: PythonModuleName::parse("missing")
+                    .expect("test Python module name should be valid"),
             },
             None,
         );

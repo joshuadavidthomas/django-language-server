@@ -243,7 +243,11 @@ pub(crate) enum TagClose {
 
 impl TagClose {
     fn after_offset(source: &str, offset: Offset, content_span: Span) -> Self {
-        let offset = (offset.get() as usize).min(source.len());
+        Self::after_position(source, offset.get() as usize, content_span)
+    }
+
+    fn after_position(source: &str, offset: usize, content_span: Span) -> Self {
+        let offset = offset.min(source.len());
         let content_end = content_span.end_usize().min(source.len());
         if offset > content_end {
             return Self::None;
@@ -362,12 +366,11 @@ impl<'source> OffsetSuffix<'source> {
         if let Some((closing_index, _)) = text.char_indices().find(|(index, character)| {
             *character == quote && !is_escaped(source.as_bytes(), start + index)
         }) {
-            let after_quote = Offset::try_from(start + closing_index + quote.len_utf8())
-                .expect("closing quote offset is bounded by the token content span");
+            let after_quote = start + closing_index + quote.len_utf8();
             return (
                 Self::new(&text[..closing_index], offset),
                 true,
-                TagClose::after_offset(source, after_quote, content_span),
+                TagClose::after_position(source, after_quote, content_span),
             );
         }
 
@@ -545,10 +548,15 @@ mod tests {
     const CURSOR: &str = "▮";
 
     fn source_with_offset_marker(input: &str) -> (String, Offset) {
-        let offset = input.find(CURSOR).unwrap();
+        let offset = input
+            .find(CURSOR)
+            .expect("test source should contain the expected text");
         let mut source = input.to_string();
         source.replace_range(offset..offset + CURSOR.len(), "");
-        (source, Offset::new(u32::try_from(offset).unwrap()))
+        (
+            source,
+            Offset::new(u32::try_from(offset).expect("test source offset should fit in u32")),
+        )
     }
 
     fn with_syntax_context<R>(
@@ -609,7 +617,9 @@ mod tests {
     #[test]
     fn tag_argument_syntax_context_tracks_tag_position_and_prefix() {
         with_syntax_context("{% include \"base.html\" wi▮", |source, context| {
-            let prefix_start = source.find("wi").unwrap();
+            let prefix_start = source
+                .find("wi")
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
@@ -618,7 +628,11 @@ mod tests {
                     position: 1,
                     prefix: OffsetPrefix {
                         text: "wi",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            2
+                        ),
                     },
                     close: TagClose::None,
                 })
@@ -631,7 +645,9 @@ mod tests {
         with_syntax_context(
             "{% include \"base layout.html\" wi▮",
             |source, context| {
-                let prefix_start = source.find("wi").unwrap();
+                let prefix_start = source
+                    .find("wi")
+                    .expect("test source should contain the expected text");
 
                 assert_eq!(
                     context,
@@ -640,7 +656,11 @@ mod tests {
                         position: 1,
                         prefix: OffsetPrefix {
                             text: "wi",
-                            span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                            span: Span::new(
+                                u32::try_from(prefix_start)
+                                    .expect("test source offset should fit in u32"),
+                                2
+                            ),
                         },
                         close: TagClose::None,
                     })
@@ -653,7 +673,9 @@ mod tests {
     fn quoted_argument_syntax_context_keeps_trailing_whitespace_inside_open_quote() {
         with_syntax_context("{% include \"base layout ▮", |source, context| {
             let prefix = "base layout ";
-            let prefix_start = source.find(prefix).unwrap();
+            let prefix_start = source
+                .find(prefix)
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
@@ -664,13 +686,19 @@ mod tests {
                     prefix: OffsetPrefix {
                         text: prefix,
                         span: Span::new(
-                            u32::try_from(prefix_start).unwrap(),
-                            u32::try_from(prefix.len()).unwrap(),
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            u32::try_from(prefix.len())
+                                .expect("test source offset should fit in u32"),
                         ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start + prefix.len()).unwrap(), 0,),
+                        span: Span::new(
+                            u32::try_from(prefix_start + prefix.len())
+                                .expect("test source offset should fit in u32"),
+                            0,
+                        ),
                     },
                     closed: false,
                     close: TagClose::None,
@@ -682,7 +710,9 @@ mod tests {
     #[test]
     fn quoted_argument_syntax_context_tracks_prefix() {
         with_syntax_context("{% extends \"ba▮", |source, context| {
-            let prefix_start = source.find("ba").unwrap();
+            let prefix_start = source
+                .find("ba")
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
@@ -692,11 +722,19 @@ mod tests {
                     quote: '"',
                     prefix: OffsetPrefix {
                         text: "ba",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            2
+                        ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start + 2).unwrap(), 0),
+                        span: Span::new(
+                            u32::try_from(prefix_start + 2)
+                                .expect("test source offset should fit in u32"),
+                            0
+                        ),
                     },
                     closed: false,
                     close: TagClose::None,
@@ -709,7 +747,9 @@ mod tests {
     fn quoted_argument_syntax_context_tracks_slash_prefix() {
         with_syntax_context("{% include \"partials/na▮", |source, context| {
             let prefix = "partials/na";
-            let prefix_start = source.find(prefix).unwrap();
+            let prefix_start = source
+                .find(prefix)
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
@@ -720,13 +760,19 @@ mod tests {
                     prefix: OffsetPrefix {
                         text: prefix,
                         span: Span::new(
-                            u32::try_from(prefix_start).unwrap(),
-                            u32::try_from(prefix.len()).unwrap(),
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            u32::try_from(prefix.len())
+                                .expect("test source offset should fit in u32"),
                         ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start + prefix.len()).unwrap(), 0),
+                        span: Span::new(
+                            u32::try_from(prefix_start + prefix.len())
+                                .expect("test source offset should fit in u32"),
+                            0
+                        ),
                     },
                     closed: false,
                     close: TagClose::None,
@@ -738,7 +784,9 @@ mod tests {
     #[test]
     fn quoted_argument_syntax_context_preserves_existing_full_close() {
         with_syntax_context("{% extends \"ba▮ %}", |source, context| {
-            let prefix_start = source.find("ba").unwrap();
+            let prefix_start = source
+                .find("ba")
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
@@ -748,11 +796,19 @@ mod tests {
                     quote: '"',
                     prefix: OffsetPrefix {
                         text: "ba",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            2
+                        ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start + 2).unwrap(), 0),
+                        span: Span::new(
+                            u32::try_from(prefix_start + 2)
+                                .expect("test source offset should fit in u32"),
+                            0
+                        ),
                     },
                     closed: false,
                     close: TagClose::Full {
@@ -766,7 +822,9 @@ mod tests {
     #[test]
     fn quoted_argument_syntax_context_tracks_closed_suffix() {
         with_syntax_context("{% extends \"ba▮se.html\" %}", |source, context| {
-            let prefix_start = source.find("ba").unwrap();
+            let prefix_start = source
+                .find("ba")
+                .expect("test source should contain the expected text");
             let suffix_start = prefix_start + 2;
 
             assert_eq!(
@@ -777,11 +835,19 @@ mod tests {
                     quote: '"',
                     prefix: OffsetPrefix {
                         text: "ba",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            2
+                        ),
                     },
                     suffix: OffsetSuffix {
                         text: "se.html",
-                        span: Span::new(u32::try_from(suffix_start).unwrap(), 7),
+                        span: Span::new(
+                            u32::try_from(suffix_start)
+                                .expect("test source offset should fit in u32"),
+                            7
+                        ),
                     },
                     closed: true,
                     close: TagClose::Full {
@@ -795,7 +861,9 @@ mod tests {
     #[test]
     fn quoted_argument_syntax_context_supports_single_quotes() {
         with_syntax_context("{% extends 'ba▮", |source, context| {
-            let prefix_start = source.find("ba").unwrap();
+            let prefix_start = source
+                .find("ba")
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
@@ -805,11 +873,19 @@ mod tests {
                     quote: '\'',
                     prefix: OffsetPrefix {
                         text: "ba",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            2
+                        ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start + 2).unwrap(), 0),
+                        span: Span::new(
+                            u32::try_from(prefix_start + 2)
+                                .expect("test source offset should fit in u32"),
+                            0
+                        ),
                     },
                     closed: false,
                     close: TagClose::None,
@@ -821,7 +897,10 @@ mod tests {
     #[test]
     fn quoted_argument_syntax_context_tracks_later_quoted_argument_positions() {
         with_syntax_context("{% include \"a.html\" with x=\"▮", |source, context| {
-            let prefix_start = source.find("x=\"").unwrap() + "x=\"".len();
+            let prefix_start = source
+                .find("x=\"")
+                .expect("test source should contain the expected text")
+                + "x=\"".len();
 
             assert_eq!(
                 context,
@@ -831,11 +910,19 @@ mod tests {
                     quote: '"',
                     prefix: OffsetPrefix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 0),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            0
+                        ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 0),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            0
+                        ),
                     },
                     closed: false,
                     close: TagClose::None,
@@ -848,7 +935,9 @@ mod tests {
     fn quoted_argument_syntax_context_ignores_escaped_quotes() {
         with_syntax_context(r#"{% extends "ba\"se▮"#, |source, context| {
             let prefix = r#"ba\"se"#;
-            let prefix_start = source.find(prefix).unwrap();
+            let prefix_start = source
+                .find(prefix)
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
@@ -859,13 +948,19 @@ mod tests {
                     prefix: OffsetPrefix {
                         text: prefix,
                         span: Span::new(
-                            u32::try_from(prefix_start).unwrap(),
-                            u32::try_from(prefix.len()).unwrap(),
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            u32::try_from(prefix.len())
+                                .expect("test source offset should fit in u32"),
                         ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start + prefix.len()).unwrap(), 0,),
+                        span: Span::new(
+                            u32::try_from(prefix_start + prefix.len())
+                                .expect("test source offset should fit in u32"),
+                            0,
+                        ),
                     },
                     closed: false,
                     close: TagClose::None,
@@ -878,7 +973,9 @@ mod tests {
     fn closed_quoted_argument_stays_tag_argument_after_quote() {
         with_syntax_context("{% extends \"base.html\"▮", |source, context| {
             let prefix = "\"base.html\"";
-            let prefix_start = source.find(prefix).unwrap();
+            let prefix_start = source
+                .find(prefix)
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
@@ -888,8 +985,10 @@ mod tests {
                     prefix: OffsetPrefix {
                         text: prefix,
                         span: Span::new(
-                            u32::try_from(prefix_start).unwrap(),
-                            u32::try_from(prefix.len()).unwrap(),
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            u32::try_from(prefix.len())
+                                .expect("test source offset should fit in u32"),
                         ),
                     },
                     close: TagClose::None,
@@ -919,18 +1018,28 @@ mod tests {
     #[test]
     fn load_tag_uses_library_name_syntax_context() {
         with_syntax_context("{% load stat▮", |source, context| {
-            let prefix_start = source.find("stat").unwrap();
+            let prefix_start = source
+                .find("stat")
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
                 CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
                     prefix: OffsetPrefix {
                         text: "stat",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 4),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            4
+                        ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start + 4).unwrap(), 0),
+                        span: Span::new(
+                            u32::try_from(prefix_start + 4)
+                                .expect("test source offset should fit in u32"),
+                            0
+                        ),
                     },
                     close: TagClose::None,
                 })
@@ -941,18 +1050,28 @@ mod tests {
     #[test]
     fn selective_load_symbol_uses_load_symbol_syntax_context() {
         with_syntax_context("{% load trans▮ from i18n %}", |source, context| {
-            let prefix_start = source.find("trans").unwrap();
+            let prefix_start = source
+                .find("trans")
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
                 CompletionOffsetContext::Template(TemplateCompletionContext::LoadSymbol {
                     prefix: OffsetPrefix {
                         text: "trans",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 5),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            5
+                        ),
                     },
                     suffix: OffsetSuffix {
                         text: "",
-                        span: Span::new(u32::try_from(prefix_start + 5).unwrap(), 0),
+                        span: Span::new(
+                            u32::try_from(prefix_start + 5)
+                                .expect("test source offset should fit in u32"),
+                            0
+                        ),
                     },
                     library: Some("i18n"),
                     needs_trailing_space: false,
@@ -974,7 +1093,9 @@ mod tests {
     #[test]
     fn selective_load_from_library_uses_library_name_syntax_context() {
         with_syntax_context("{% load trans from i▮ %}", |source, context| {
-            let prefix_start = source.find('i').unwrap();
+            let prefix_start = source
+                .find('i')
+                .expect("test source should contain the expected text");
 
             assert!(matches!(
                 context,
@@ -985,7 +1106,7 @@ mod tests {
                     },
                     suffix: OffsetSuffix { text: "", .. },
                     close: TagClose::Full { .. },
-                }) if span == Span::new(u32::try_from(prefix_start).unwrap(), 1)
+                }) if span == Span::new(u32::try_from(prefix_start).expect("test source offset should fit in u32"), 1)
             ));
         });
     }
@@ -993,7 +1114,9 @@ mod tests {
     #[test]
     fn selective_load_from_library_tracks_source_suffix_at_token_start() {
         with_syntax_context("{% load trans from ▮i18n %}", |source, context| {
-            let suffix_start = source.find("i18n").unwrap();
+            let suffix_start = source
+                .find("i18n")
+                .expect("test source should contain the expected text");
 
             assert!(matches!(
                 context,
@@ -1004,7 +1127,7 @@ mod tests {
                         span,
                     },
                     close: TagClose::Full { .. },
-                }) if span == Span::new(u32::try_from(suffix_start).unwrap(), 4)
+                }) if span == Span::new(u32::try_from(suffix_start).expect("test source offset should fit in u32"), 4)
             ));
         });
     }
@@ -1058,14 +1181,20 @@ mod tests {
     #[test]
     fn variable_pipe_uses_filter_syntax_context() {
         with_syntax_context("{{ value|def▮", |source, context| {
-            let prefix_start = source.find("def").unwrap();
+            let prefix_start = source
+                .find("def")
+                .expect("test source should contain the expected text");
 
             assert_eq!(
                 context,
                 CompletionOffsetContext::Template(TemplateCompletionContext::Filter {
                     prefix: OffsetPrefix {
                         text: "def",
-                        span: Span::new(u32::try_from(prefix_start).unwrap(), 3),
+                        span: Span::new(
+                            u32::try_from(prefix_start)
+                                .expect("test source offset should fit in u32"),
+                            3
+                        ),
                     },
                 })
             );

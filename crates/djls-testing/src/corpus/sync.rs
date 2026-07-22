@@ -7,7 +7,8 @@
 use std::collections::HashSet;
 use std::io::Read;
 use std::io::Write;
-use std::sync::Mutex;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use camino::Utf8Path;
@@ -203,7 +204,7 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> 
         Vec::new()
     } else {
         tracing::info!(count = work.len(), "downloading");
-        sync_parallel(&client, &work)
+        sync_parallel(&client, &work)?
     };
 
     if prune {
@@ -226,31 +227,68 @@ struct SyncItem<'a> {
     label: String,
 }
 
-fn sync_parallel(client: &reqwest::blocking::Client, work: &[SyncItem]) -> Vec<String> {
-    let (permit_tx, permit_rx) = std::sync::mpsc::sync_channel(MAX_CONCURRENT_DOWNLOADS);
-    for _ in 0..MAX_CONCURRENT_DOWNLOADS {
-        permit_tx.send(()).unwrap();
+fn sync_parallel(
+    client: &reqwest::blocking::Client,
+    work: &[SyncItem],
+) -> anyhow::Result<Vec<String>> {
+    run_parallel(work, MAX_CONCURRENT_DOWNLOADS, |item| {
+        sync_repo(client, item.repo, &item.out_dir, &item.label)
+            .map_err(|error| format!("{}: {error}", item.label))
+    })
+}
+
+fn run_parallel<T, F>(work: &[T], max_concurrent: usize, process: F) -> anyhow::Result<Vec<String>>
+where
+    T: Sync,
+    F: Fn(&T) -> Result<(), String> + Sync,
+{
+    if work.is_empty() {
+        return Ok(Vec::new());
+    }
+    if max_concurrent == 0 {
+        anyhow::bail!("parallel worker limit must be greater than zero");
     }
 
-    let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-    std::thread::scope(|s| {
-        for item in work {
-            permit_rx.recv().unwrap();
-            let permit_tx = permit_tx.clone();
-            let errors = &errors;
-
-            s.spawn(move || {
-                if let Err(e) = sync_repo(client, item.repo, &item.out_dir, &item.label) {
-                    errors.lock().unwrap().push(format!("{}: {e}", item.label));
+    let next_index = AtomicUsize::new(0);
+    let worker_count = work.len().min(max_concurrent);
+    let mut errors = std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(worker_count);
+        for _ in 0..worker_count {
+            let next_index = &next_index;
+            let process = &process;
+            handles.push(scope.spawn(move || {
+                let mut errors = Vec::new();
+                loop {
+                    let index = next_index.fetch_add(1, Ordering::Relaxed);
+                    let Some(item) = work.get(index) else {
+                        break;
+                    };
+                    if let Err(error) = process(item) {
+                        errors.push((index, error));
+                    }
                 }
-
-                let _ = permit_tx.send(());
-            });
+                errors
+            }));
         }
-    });
 
-    errors.into_inner().unwrap()
+        let mut errors = Vec::new();
+        let mut worker_panicked = false;
+        for handle in handles {
+            match handle.join() {
+                Ok(worker_errors) => errors.extend(worker_errors),
+                Err(_panic) => worker_panicked = true,
+            }
+        }
+
+        if worker_panicked {
+            Err(anyhow::anyhow!("corpus download worker panicked"))
+        } else {
+            Ok(errors)
+        }
+    })?;
+
+    errors.sort_unstable_by_key(|(index, _error)| *index);
+    Ok(errors.into_iter().map(|(_index, error)| error).collect())
 }
 
 /// Remove synced data for specific entries by name.
@@ -314,6 +352,8 @@ fn prune_dir(base: &Utf8Path, keep: &HashSet<impl AsRef<str>>) -> anyhow::Result
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
     use super::*;
 
     fn locked_repo(url: &str) -> LockedRepo {
@@ -326,17 +366,90 @@ mod tests {
     }
 
     fn temp_dir() -> (tempfile::TempDir, Utf8PathBuf) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+        let dir = tempfile::tempdir().expect("temporary sync test directory should be created");
+        let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary sync test directory path should be UTF-8");
         (dir, path)
+    }
+
+    #[test]
+    fn parallel_workers_take_more_work_while_one_item_is_blocked() {
+        let work = [0, 1, 2, 3];
+        let release_blocked_item = AtomicBool::new(false);
+        let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let handle = scope.spawn(|| {
+                run_parallel(&work, 2, |item| {
+                    if *item == 0 {
+                        while !release_blocked_item.load(Ordering::Acquire) {
+                            std::thread::yield_now();
+                        }
+                    } else {
+                        progress_tx.send(*item).map_err(|error| error.to_string())?;
+                    }
+                    Ok(())
+                })
+            });
+
+            let first = progress_rx.recv_timeout(Duration::from_secs(2));
+            let second = progress_rx.recv_timeout(Duration::from_secs(2));
+            release_blocked_item.store(true, Ordering::Release);
+            let errors = handle
+                .join()
+                .expect("parallel test coordinator should not panic")
+                .expect("parallel work should succeed");
+
+            assert!(first.is_ok(), "one unblocked item should complete");
+            assert!(
+                second.is_ok(),
+                "the available worker should take another item before the blocked item finishes"
+            );
+            assert!(errors.is_empty());
+        });
+    }
+
+    #[test]
+    fn parallel_workers_process_each_item_once_and_collect_errors_in_work_order() {
+        let work = [0, 1, 2, 3, 4, 5, 6, 7];
+        let attempts: [AtomicUsize; 8] = std::array::from_fn(|_| AtomicUsize::new(0));
+
+        let errors = run_parallel(&work, 3, |item| {
+            attempts[*item].fetch_add(1, Ordering::Relaxed);
+            match *item {
+                1 | 4 | 7 => Err(format!("item {item} failed")),
+                0 | 2 | 3 | 5 | 6 => Ok(()),
+                _ => Err(format!("unexpected item {item}")),
+            }
+        })
+        .expect("parallel work should complete without a worker panic");
+
+        assert_eq!(errors, ["item 1 failed", "item 4 failed", "item 7 failed"]);
+        assert!(
+            attempts
+                .iter()
+                .all(|attempts| attempts.load(Ordering::Relaxed) == 1)
+        );
+    }
+
+    #[test]
+    fn parallel_worker_panics_are_returned_as_errors() {
+        let result = run_parallel(&[0], 1, |_item| -> Result<(), String> {
+            panic!("intentional worker panic");
+        });
+
+        let error = result.expect_err("a worker panic should fail parallel work");
+        assert_eq!(error.to_string(), "corpus download worker panicked");
     }
 
     #[test]
     fn synced_repo_requires_matching_marker() {
         let repo = locked_repo("https://github.com/owner/project.git");
         let (_dir, out) = temp_dir();
-        std::fs::create_dir_all(out.as_std_path()).unwrap();
-        write_marker(&out, &RepoMarker::from(&repo)).unwrap();
+        std::fs::create_dir_all(out.as_std_path())
+            .expect("synced-repo test directory should be created");
+        write_marker(&out, &RepoMarker::from(&repo))
+            .expect("matching repo marker should be written");
 
         assert!(is_synced(&repo, &out));
     }
@@ -347,8 +460,9 @@ mod tests {
         let mut stale = locked_repo("https://github.com/owner/project.git");
         stale.git_ref = "old-ref".to_string();
         let (_dir, out) = temp_dir();
-        std::fs::create_dir_all(out.as_std_path()).unwrap();
-        write_marker(&out, &RepoMarker::from(&stale)).unwrap();
+        std::fs::create_dir_all(out.as_std_path())
+            .expect("stale-marker test directory should be created");
+        write_marker(&out, &RepoMarker::from(&stale)).expect("stale repo marker should be written");
 
         assert!(!is_synced(&repo, &out));
     }
@@ -367,10 +481,12 @@ mod tests {
         let lockfile = Lockfile { repos: vec![repo] };
         let (_dir, root) = temp_dir();
         let out = root.join("repos/test");
-        std::fs::create_dir_all(out.as_std_path()).unwrap();
-        write_marker(&out, &RepoMarker::from(&lockfile.repos[0])).unwrap();
+        std::fs::create_dir_all(out.as_std_path())
+            .expect("matching-marker test directory should be created");
+        write_marker(&out, &RepoMarker::from(&lockfile.repos[0]))
+            .expect("matching repo marker should be written");
 
-        validate_synced_corpus(&lockfile, &root).unwrap();
+        validate_synced_corpus(&lockfile, &root).expect("matching repo marker should validate");
     }
 
     #[test]
@@ -381,17 +497,19 @@ mod tests {
         stale.git_ref = "old-ref".to_string();
         let (_dir, root) = temp_dir();
         let out = root.join("repos/test");
-        std::fs::create_dir_all(out.as_std_path()).unwrap();
-        write_marker(&out, &RepoMarker::from(&stale)).unwrap();
+        std::fs::create_dir_all(out.as_std_path())
+            .expect("stale-validation test directory should be created");
+        write_marker(&out, &RepoMarker::from(&stale)).expect("stale repo marker should be written");
 
-        let error = validate_synced_corpus(&lockfile, &root).unwrap_err();
+        let error = validate_synced_corpus(&lockfile, &root)
+            .expect_err("stale repo marker should fail corpus validation");
         assert!(error.to_string().contains("test"));
     }
 
     #[test]
     fn github_archive_url() {
         let repo = locked_repo("https://github.com/owner/project.git");
-        let url = repo_archive_url(&repo).unwrap();
+        let url = repo_archive_url(&repo).expect("GitHub archive URL should be built");
         assert_eq!(
             url,
             "https://github.com/owner/project/archive/abc123def456.tar.gz"
@@ -401,7 +519,7 @@ mod tests {
     #[test]
     fn github_archive_url_without_dot_git() {
         let repo = locked_repo("https://github.com/owner/project");
-        let url = repo_archive_url(&repo).unwrap();
+        let url = repo_archive_url(&repo).expect("GitHub archive URL without .git should be built");
         assert_eq!(
             url,
             "https://github.com/owner/project/archive/abc123def456.tar.gz"
@@ -411,7 +529,7 @@ mod tests {
     #[test]
     fn gitlab_com_archive_url() {
         let repo = locked_repo("https://gitlab.com/group/project.git");
-        let url = repo_archive_url(&repo).unwrap();
+        let url = repo_archive_url(&repo).expect("GitLab archive URL should be built");
         assert_eq!(
             url,
             "https://gitlab.com/group/project/-/archive/abc123def456/project-abc123def456.tar.gz"
@@ -421,7 +539,7 @@ mod tests {
     #[test]
     fn gitlab_com_nested_group() {
         let repo = locked_repo("https://gitlab.com/group/subgroup/project.git");
-        let url = repo_archive_url(&repo).unwrap();
+        let url = repo_archive_url(&repo).expect("nested-group GitLab archive URL should be built");
         assert_eq!(
             url,
             "https://gitlab.com/group/subgroup/project/-/archive/abc123def456/project-abc123def456.tar.gz"

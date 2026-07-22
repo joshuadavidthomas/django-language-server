@@ -28,16 +28,13 @@ pub(crate) struct CapturedClosingTag {
 
 impl CapturedClosingTag {
     pub(crate) fn as_active(&self) -> ActiveTemplateTag<'_> {
-        let ActiveTemplateNode::Tag(tag) = ActiveTemplateNode::tag(
+        ActiveTemplateTag::new(
             &self.tag,
             self.name_span,
             &self.bits,
             self.full_span,
             StructuralOccurrenceMeaning::CapturedCloser,
-        ) else {
-            unreachable!("tag constructor always returns a tag")
-        };
-        tag
+        )
     }
 }
 
@@ -49,6 +46,32 @@ pub(crate) struct ActiveTemplateTag<'a> {
     pub span: Span,
     pub full_span: Span,
     pub structural_meaning: StructuralOccurrenceMeaning,
+}
+
+impl<'a> ActiveTemplateTag<'a> {
+    fn new(
+        tag: &'a str,
+        name_span: Span,
+        bits: &'a [TagBit],
+        full_span: Span,
+        structural_meaning: StructuralOccurrenceMeaning,
+    ) -> Self {
+        Self {
+            tag,
+            name_span,
+            bits,
+            span: Span::saturating_from_bounds_usize(
+                full_span
+                    .start_usize()
+                    .saturating_add(TagDelimiter::LENGTH_U32 as usize),
+                full_span
+                    .end_usize()
+                    .saturating_sub(TagDelimiter::LENGTH_U32 as usize),
+            ),
+            full_span,
+            structural_meaning,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,21 +96,13 @@ impl<'a> ActiveTemplateNode<'a> {
         full_span: Span,
         structural_meaning: StructuralOccurrenceMeaning,
     ) -> Self {
-        Self::Tag(ActiveTemplateTag {
+        Self::Tag(ActiveTemplateTag::new(
             tag,
             name_span,
             bits,
-            span: Span::saturating_from_bounds_usize(
-                full_span
-                    .start_usize()
-                    .saturating_add(TagDelimiter::LENGTH_U32 as usize),
-                full_span
-                    .end_usize()
-                    .saturating_sub(TagDelimiter::LENGTH_U32 as usize),
-            ),
             full_span,
             structural_meaning,
-        })
+        ))
     }
 
     fn variable(var: &'a str, var_span: Span, filters: &'a [Filter], span: Span) -> Self {
@@ -232,7 +247,15 @@ fn collect_active_nodes_for_block_body<'a>(
             } if *full_span == opener_span => {
                 collect_active_nodes_for_region(regions, *segment_body, nodes);
             }
-            _ => collect_active_nodes_for_node(regions, node, nodes),
+            TemplateNode::Block { .. }
+            | TemplateNode::Opaque { .. }
+            | TemplateNode::StandaloneTag { .. }
+            | TemplateNode::Variable { .. }
+            | TemplateNode::Comment { .. }
+            | TemplateNode::Text { .. }
+            | TemplateNode::Error { .. } => {
+                collect_active_nodes_for_node(regions, node, nodes);
+            }
         }
     }
 }
@@ -247,10 +270,14 @@ mod tests {
 
     #[test]
     fn active_template_nodes_preserve_source_order() {
-        let mut regions = Regions::default();
-        let root = regions.alloc(Span::new(0, 0), None);
-        let if_container = regions.alloc(Span::new(20, 0), Some(root));
-        let if_segment = regions.alloc(Span::new(30, 0), Some(if_container));
+        let root = RegionId::new(0);
+        let if_container = RegionId::new(1);
+        let if_segment = RegionId::new(2);
+        let mut regions = Regions::from_allocations([
+            (Span::new(0, 0), None),
+            (Span::new(20, 0), Some(root)),
+            (Span::new(30, 0), Some(if_container)),
+        ]);
         let bits = empty_bits();
 
         regions.push_node(
@@ -319,8 +346,8 @@ mod tests {
 
     #[test]
     fn active_template_queries_skip_opaque_body_content() {
-        let mut regions = Regions::default();
-        let root = regions.alloc(Span::new(0, 0), None);
+        let root = RegionId::new(0);
+        let mut regions = Regions::from_allocations([(Span::new(0, 0), None)]);
         let bits = empty_bits();
 
         regions.push_node(

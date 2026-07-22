@@ -523,9 +523,10 @@ mod tests {
     fn target(source: &str) -> Option<(String, Vec<PythonMutationPathSegment>)> {
         let parsed = parse_module(source).expect("test expression should parse");
         let module = parsed.into_syntax();
-        let [ast::Stmt::Expr(statement)] = module.body.as_slice() else {
-            panic!("test source should contain one expression statement");
-        };
+        let statement = match module.body.as_slice() {
+            [ast::Stmt::Expr(statement)] => Some(statement),
+            _ => None,
+        }?;
         MutationTarget::from_expr(&statement.value).map(|target| {
             (
                 target.binding.to_string(),

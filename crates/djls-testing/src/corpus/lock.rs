@@ -110,8 +110,10 @@ pub fn lock_corpus(
                 let Some(name) = entry.file_name().to_str().map(String::from) else {
                     continue;
                 };
-                if !locked_names.contains(name.as_str()) {
-                    let _ = std::fs::remove_file(entry.path());
+                if !locked_names.contains(name.as_str())
+                    && let Err(error) = std::fs::remove_file(entry.path())
+                {
+                    tracing::warn!(name, %error, "failed to remove stale license file");
                 }
             }
         }
@@ -317,7 +319,10 @@ fn resolve_latest_tag(url: &str) -> anyhow::Result<(String, String)> {
     // No version-like tags; pick first alphabetically
     let mut entries: Vec<_> = tags.into_iter().collect();
     entries.sort_by(|a, b| a.0.cmp(&b.0));
-    let (tag, sha) = entries.into_iter().next().unwrap();
+    let (tag, sha) = entries
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No tags found for {url}"))?;
     Ok((tag, sha))
 }
 
@@ -421,28 +426,32 @@ mod tests {
 
     #[test]
     fn parse_git_host_github() {
-        let (host, path) = parse_git_host("https://github.com/getsentry/sentry.git").unwrap();
+        let (host, path) = parse_git_host("https://github.com/getsentry/sentry.git")
+            .expect("valid GitHub URL should parse");
         assert!(matches!(host, GitHost::GitHub));
         assert_eq!(path, "getsentry/sentry");
     }
 
     #[test]
     fn parse_git_host_github_no_dot_git() {
-        let (host, path) = parse_git_host("https://github.com/django/djangoproject.com").unwrap();
+        let (host, path) = parse_git_host("https://github.com/django/djangoproject.com")
+            .expect("valid GitHub URL without .git should parse");
         assert!(matches!(host, GitHost::GitHub));
         assert_eq!(path, "django/djangoproject.com");
     }
 
     #[test]
     fn parse_git_host_gitlab_com() {
-        let (host, path) = parse_git_host("https://gitlab.com/group/project.git").unwrap();
+        let (host, path) = parse_git_host("https://gitlab.com/group/project.git")
+            .expect("valid GitLab.com URL should parse");
         assert!(matches!(host, GitHost::GitLab("gitlab.com")));
         assert_eq!(path, "group/project");
     }
 
     #[test]
     fn parse_git_host_gitlab_self_hosted() {
-        let (host, path) = parse_git_host("https://gitlab.example.com/team/project.git").unwrap();
+        let (host, path) = parse_git_host("https://gitlab.example.com/team/project.git")
+            .expect("valid self-hosted GitLab URL should parse");
         assert!(matches!(host, GitHost::GitLab("gitlab.example.com")));
         assert_eq!(path, "team/project");
     }

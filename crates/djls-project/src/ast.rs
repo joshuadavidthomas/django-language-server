@@ -75,19 +75,24 @@ where
         }
 
         match self.policy {
-            Recurse::ControlFlow => match stmt {
-                Stmt::If(_)
-                | Stmt::For(_)
-                | Stmt::While(_)
-                | Stmt::Try(_)
-                | Stmt::With(_)
-                | Stmt::Match(_) => walk_stmt(self, stmt),
-                _ => {}
-            },
-            Recurse::WithinScope => match stmt {
-                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
-                _ => walk_stmt(self, stmt),
-            },
+            Recurse::ControlFlow => {
+                if matches!(
+                    stmt,
+                    Stmt::If(_)
+                        | Stmt::For(_)
+                        | Stmt::While(_)
+                        | Stmt::Try(_)
+                        | Stmt::With(_)
+                        | Stmt::Match(_)
+                ) {
+                    walk_stmt(self, stmt);
+                }
+            }
+            Recurse::WithinScope => {
+                if !matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+                    walk_stmt(self, stmt);
+                }
+            }
             Recurse::IntoClasses => {
                 if let Stmt::ClassDef(_) = stmt {
                     walk_stmt(self, stmt);
@@ -172,10 +177,10 @@ impl ExprExt for Expr {
     }
 
     fn bool_literal(&self) -> Option<bool> {
-        match self {
-            Expr::BooleanLiteral(literal) => Some(literal.value),
-            _ => None,
-        }
+        let Expr::BooleanLiteral(literal) = self else {
+            return None;
+        };
+        Some(literal.value)
     }
 
     fn non_negative_integer(&self) -> Option<usize> {
@@ -201,11 +206,14 @@ impl ExprExt for Expr {
     }
 
     fn collection_map<T>(&self, f: impl Fn(&Expr) -> Option<T>) -> Option<Vec<T>> {
-        let elements = match self {
-            Expr::Tuple(t) => &t.elts,
-            Expr::List(l) => &l.elts,
-            Expr::Set(s) => &s.elts,
-            _ => return None,
+        let elements = if let Expr::Tuple(tuple) = self {
+            &tuple.elts
+        } else if let Expr::List(list) = self {
+            &list.elts
+        } else if let Expr::Set(set) = self {
+            &set.elts
+        } else {
+            return None;
         };
         let mut values = Vec::new();
         for elt in elements {
@@ -237,9 +245,12 @@ mod tests {
         let mut body = parsed.into_syntax().body;
         assert_eq!(body.len(), 1);
         let stmt = body.pop().expect("module should contain expression");
-        let Stmt::Expr(stmt) = stmt else {
-            panic!("source should parse as an expression statement");
-        };
+        let stmt = if let Stmt::Expr(stmt) = stmt {
+            Some(stmt)
+        } else {
+            None
+        }
+        .expect("source should parse as an expression statement");
         *stmt.value
     }
 

@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::fmt::Write;
 
+use anyhow::Context as _;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
@@ -120,29 +120,25 @@ enum TemplateSymbolLibraryFixture {
 }
 
 /// Build Template Library facts from JSON fixture rows.
-///
-/// # Panics
-///
-/// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
 pub fn make_template_library_catalog(
     db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
-) -> TemplateLibraryCatalog {
-    let mut builtin_symbols = builtin_symbol_buckets(builtins);
-    let mut loadable_symbols = loadable_symbol_buckets(libraries);
+) -> anyhow::Result<TemplateLibraryCatalog> {
+    let mut builtin_symbols = builtin_symbol_buckets(builtins)?;
+    let mut loadable_symbols = loadable_symbol_buckets(libraries)?;
 
-    for fixture in tags
+    let fixtures = tags
         .iter()
         .chain(filters.iter())
         .cloned()
         .map(from_value)
         .collect::<Result<Vec<TemplateSymbolFixture>, _>>()
-        .unwrap()
-    {
-        add_fixture_symbol(fixture, &mut builtin_symbols, &mut loadable_symbols);
+        .context("failed to deserialize template symbol fixture")?;
+    for fixture in fixtures {
+        add_fixture_symbol(fixture, &mut builtin_symbols, &mut loadable_symbols)?;
     }
 
     let mut library_inputs = Vec::new();
@@ -162,41 +158,42 @@ pub fn make_template_library_catalog(
                 },
             ),
     );
-    testing::template_library_catalog(db, library_inputs)
+    Ok(testing::template_library_catalog(db, library_inputs))
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;
 type LoadableLibrarySymbolBuckets = BTreeMap<LibraryName, (PythonModuleName, Vec<TemplateSymbol>)>;
 
-fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
+fn builtin_symbol_buckets(builtins: &[String]) -> anyhow::Result<BuiltinSymbolBuckets> {
     builtins
         .iter()
-        .filter_map(|module_name| PythonModuleName::parse(module_name).ok())
-        .map(|module| (module, Vec::new()))
+        .map(|module_name| {
+            PythonModuleName::parse(module_name)
+                .with_context(|| format!("invalid builtin fixture module `{module_name}`"))
+                .map(|module| (module, Vec::new()))
+        })
         .collect()
 }
 
 fn loadable_symbol_buckets(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-) -> LoadableLibrarySymbolBuckets {
+) -> anyhow::Result<LoadableLibrarySymbolBuckets> {
     let mut buckets = BTreeMap::new();
     for (load_name, module_name) in libraries {
-        let Ok(load_name) = LibraryName::parse(load_name) else {
-            continue;
-        };
-        let Ok(module) = PythonModuleName::parse(module_name) else {
-            continue;
-        };
+        let load_name = LibraryName::parse(load_name)
+            .with_context(|| format!("invalid fixture library name `{load_name}`"))?;
+        let module = PythonModuleName::parse(module_name)
+            .with_context(|| format!("invalid fixture library module `{module_name}`"))?;
         buckets.insert(load_name, (module, Vec::new()));
     }
-    buckets
+    Ok(buckets)
 }
 
 fn add_fixture_symbol(
     fixture: TemplateSymbolFixture,
     builtin_symbols: &mut BuiltinSymbolBuckets,
     loadable_symbols: &mut LoadableLibrarySymbolBuckets,
-) {
+) -> anyhow::Result<()> {
     let TemplateSymbolFixture {
         kind,
         name,
@@ -205,9 +202,8 @@ fn add_fixture_symbol(
         module,
         doc,
     } = fixture;
-    let Ok(name) = TemplateSymbolName::parse(&name) else {
-        return;
-    };
+    let name = TemplateSymbolName::parse(&name)
+        .with_context(|| format!("invalid fixture template symbol name `{name}`"))?;
     let definition = PythonModuleName::parse(&module)
         .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
     let symbol = TemplateSymbol {
@@ -219,27 +215,28 @@ fn add_fixture_symbol(
 
     match library {
         TemplateSymbolLibraryFixture::Builtin => {
-            add_builtin_symbol(builtin_symbols, &library_module, &symbol);
+            add_builtin_symbol(builtin_symbols, &library_module, &symbol)?;
         }
         TemplateSymbolLibraryFixture::Loadable { load_name } => {
-            add_loadable_symbol(loadable_symbols, &load_name, &library_module, symbol);
+            add_loadable_symbol(loadable_symbols, &load_name, &library_module, symbol)?;
         }
     }
+    Ok(())
 }
 
 fn add_builtin_symbol(
     buckets: &mut BuiltinSymbolBuckets,
     module_name: &str,
     symbol: &TemplateSymbol,
-) {
-    let Ok(module) = PythonModuleName::parse(module_name) else {
-        return;
-    };
+) -> anyhow::Result<()> {
+    let module = PythonModuleName::parse(module_name)
+        .with_context(|| format!("invalid builtin fixture module `{module_name}`"))?;
     for (builtin_module, symbols) in buckets.iter_mut() {
         if builtin_module == &module {
             symbols.push(symbol.clone());
         }
     }
+    Ok(())
 }
 
 fn add_loadable_symbol(
@@ -247,25 +244,24 @@ fn add_loadable_symbol(
     load_name: &str,
     module_name: &str,
     symbol: TemplateSymbol,
-) {
-    let Ok(load_name) = LibraryName::parse(load_name) else {
-        return;
-    };
-    let Ok(module) = PythonModuleName::parse(module_name) else {
-        return;
-    };
+) -> anyhow::Result<()> {
+    let load_name = LibraryName::parse(load_name)
+        .with_context(|| format!("invalid fixture library name `{load_name}`"))?;
+    let module = PythonModuleName::parse(module_name)
+        .with_context(|| format!("invalid fixture library module `{module_name}`"))?;
     let entry = buckets
         .entry(load_name)
         .or_insert_with(|| (module.clone(), Vec::new()));
     if entry.0 == module {
         entry.1.push(symbol);
     }
+    Ok(())
 }
 
 pub struct ProjectFixture {
     root: Utf8PathBuf,
     files: Vec<(Utf8PathBuf, String)>,
-    django_settings_module: Option<PythonModuleName>,
+    django_settings_module: anyhow::Result<Option<PythonModuleName>>,
     pythonpath: Vec<Utf8PathBuf>,
     env_vars: Vec<(String, String)>,
     interpreter: Interpreter,
@@ -281,7 +277,7 @@ impl ProjectFixture {
         Self {
             root: root.into(),
             files: Vec::new(),
-            django_settings_module: None,
+            django_settings_module: Ok(None),
             pythonpath: Vec::new(),
             env_vars: Vec::new(),
             interpreter: Interpreter::discover(settings.venv_path()),
@@ -298,17 +294,12 @@ impl ProjectFixture {
     }
 
     /// Set the fixture's Django settings module.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `module` is not a valid Python module name.
     #[must_use]
     pub fn django_settings_module(mut self, module: impl Into<String>) -> Self {
         let module = module.into();
-        self.django_settings_module = Some(
-            PythonModuleName::parse(&module)
-                .expect("fixture Django settings module should be a valid Python module name"),
-        );
+        self.django_settings_module = PythonModuleName::parse(&module)
+            .with_context(|| format!("invalid fixture Django settings module `{module}`"))
+            .map(Some);
         self
     }
 
@@ -336,9 +327,11 @@ impl ProjectFixture {
         self
     }
 
-    pub fn build(self, db: &TestDatabase) -> Project {
+    pub fn build(self, db: &TestDatabase) -> anyhow::Result<Project> {
+        let django_settings_module = self.django_settings_module?;
         for (path, source) in self.files {
-            db.add_file(path.as_str(), &source);
+            db.add_file(path.as_str(), &source)
+                .with_context(|| format!("failed to add fixture file `{path}`"))?;
         }
 
         let search_paths = self.search_paths.unwrap_or_else(|| {
@@ -353,19 +346,19 @@ impl ProjectFixture {
             search_paths.register_roots(db);
         }
 
-        Project::new(
+        Ok(Project::new(
             db,
             self.root,
             search_paths,
             self.interpreter,
-            self.django_settings_module,
+            django_settings_module,
             self.pythonpath,
             self.env_vars,
             self.tag_specs,
-        )
+        ))
     }
 
-    pub fn install(mut self, db: &mut TestDatabase) -> Project {
+    pub fn install(mut self, db: &mut TestDatabase) -> anyhow::Result<Project> {
         // Template-analysis fixtures model an installed Django package so project-scoped builtin
         // meaning is definite rather than supplied by a global fallback. Project-discovery-only
         // fixtures intentionally retain full control over their discovered file inventory.
@@ -394,13 +387,17 @@ impl ProjectFixture {
                 self.files.push((path, source.to_string()));
             }
         }
-        let project = self.build(db);
+        let project = self.build(db)?;
         db.set_project(project);
-        project
+        Ok(project)
     }
 }
 
-pub fn collect_errors(db: &TestDatabase, path: &str, source: &str) -> Vec<ValidationError> {
+pub fn collect_errors(
+    db: &TestDatabase,
+    path: &str,
+    source: &str,
+) -> anyhow::Result<Vec<ValidationError>> {
     collect_errors_with_revision(db, path, 0, source)
 }
 
@@ -409,16 +406,18 @@ pub fn collect_errors_with_revision(
     path: &str,
     revision: u64,
     source: &str,
-) -> Vec<ValidationError> {
-    db.add_file(path, source);
-    let file = db.create_file_with_revision(Utf8Path::new(path), revision);
+) -> anyhow::Result<Vec<ValidationError>> {
+    db.add_file(path, source)?;
+    let file = db.create_file_with_revision(Utf8Path::new(path), revision)?;
 
     validate_template_file(db, file);
 
-    validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
-        .into_iter()
-        .map(|acc| acc.0.clone())
-        .collect()
+    Ok(
+        validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .collect(),
+    )
 }
 
 #[must_use]
@@ -437,17 +436,19 @@ pub fn collect_argument_validation_errors_with_revision(
     path: &str,
     revision: u64,
     source: &str,
-) -> Vec<ValidationError> {
-    db.add_file(path, source);
-    let file = db.create_file_with_revision(Utf8Path::new(path), revision);
+) -> anyhow::Result<Vec<ValidationError>> {
+    db.add_file(path, source)?;
+    let file = db.create_file_with_revision(Utf8Path::new(path), revision)?;
 
     validate_template_file(db, file);
 
-    validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
-        .into_iter()
-        .map(|acc| acc.0.clone())
-        .filter(is_argument_validation_error)
-        .collect()
+    Ok(
+        validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .filter(is_argument_validation_error)
+            .collect(),
+    )
 }
 
 pub fn extract_and_merge(
@@ -455,20 +456,18 @@ pub fn extract_and_merge(
     dir: &Utf8Path,
     specs: &mut TagSpecs,
     arities: &mut FilterAritySpecs,
-) {
+) -> anyhow::Result<()> {
     let db = TestDatabase::new();
 
     for file_path in &Corpus::extraction_targets_in(dir) {
-        let Ok(source) = std::fs::read_to_string(file_path.as_std_path()) else {
-            continue;
-        };
+        let source = std::fs::read_to_string(file_path.as_std_path())
+            .with_context(|| format!("failed to read extraction fixture `{file_path}`"))?;
 
         let module_name = module_name_from_file(file_path);
-        let Ok(module_name) = PythonModuleName::parse(&module_name) else {
-            continue;
-        };
-        db.add_file(file_path.as_str(), &source);
-        let file = db.file(file_path);
+        let module_name = PythonModuleName::parse(&module_name)
+            .with_context(|| format!("invalid module name derived from `{file_path}`"))?;
+        db.add_file(file_path.as_str(), &source)?;
+        let file = db.file(file_path)?;
         let bundle = extract_bundle(&db, file, module_name);
 
         arities.merge_filter_arities(&bundle.filter_arities);
@@ -476,49 +475,50 @@ pub fn extract_and_merge(
             .merge_block_specs(&bundle.block_specs)
             .merge_tag_rules(&bundle.tag_rules);
     }
+    Ok(())
 }
 
-#[must_use]
 pub fn build_specs_from_extraction(
     corpus: &Corpus,
     entry_dir: &Utf8Path,
-) -> (TagSpecs, FilterAritySpecs) {
+) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
     let mut specs = builtin_tag_specs();
     let mut arities = FilterAritySpecs::new();
-    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities);
-    (specs, arities)
+    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities)?;
+    Ok((specs, arities))
 }
 
-#[must_use]
-pub fn build_entry_specs(corpus: &Corpus, entry_dir: &Utf8Path) -> (TagSpecs, FilterAritySpecs) {
+pub fn build_entry_specs(
+    corpus: &Corpus,
+    entry_dir: &Utf8Path,
+) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
     let mut specs = builtin_tag_specs();
     let mut arities = FilterAritySpecs::new();
 
     if !Corpus::is_django_entry(entry_dir)
         && let Some(django_dir) = corpus.latest_package("django")
     {
-        extract_and_merge(corpus, &django_dir, &mut specs, &mut arities);
+        extract_and_merge(corpus, &django_dir, &mut specs, &mut arities)?;
     }
 
-    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities);
+    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities)?;
 
-    (specs, arities)
+    Ok((specs, arities))
 }
 
 /// Render validation errors into a plain-text diagnostic snapshot.
-///
-/// # Panics
-///
-/// Panics if a validation error has no primary span.
-#[must_use]
-pub fn render_diagnostic_snapshot(path: &str, source: &str, errors: &[ValidationError]) -> String {
+pub fn render_diagnostic_snapshot(
+    path: &str,
+    source: &str,
+    errors: &[ValidationError],
+) -> anyhow::Result<String> {
     let renderer = DiagnosticRenderer::plain();
     let mut parts = Vec::new();
 
     for err in errors {
         let span = err
             .primary_span()
-            .expect("all validation errors have a span");
+            .ok_or_else(|| anyhow::anyhow!("validation error `{err}` has no primary span"))?;
         let message = err.to_string();
         let code = err.code();
 
@@ -535,21 +535,20 @@ pub fn render_diagnostic_snapshot(path: &str, source: &str, errors: &[Validation
         parts.push(renderer.render(&diag));
     }
 
-    parts.join("\n")
+    Ok(parts.join("\n"))
 }
 
-#[must_use]
 pub fn snapshot_validate_files<'a>(
     primary_path: &str,
     primary_source: &str,
     files: impl IntoIterator<Item = (&'a str, &'a str)>,
-) -> String {
-    let db = standard_validation_db();
+) -> anyhow::Result<String> {
+    let db = standard_validation_db()?;
     for (path, source) in files {
-        db.add_file(path, source);
+        db.add_file(path, source)?;
     }
 
-    let file = db.create_file_with_revision(Utf8Path::new(primary_path), 0);
+    let file = db.create_file_with_revision(Utf8Path::new(primary_path), 0)?;
 
     validate_template_file(&db, file);
 
@@ -569,18 +568,16 @@ pub fn snapshot_validate_files<'a>(
 /// This keeps diagnostic snapshots deterministic and easy to author. It is not
 /// a live Django project inspection fixture; add libraries, tags, and filters
 /// here when a scenario needs them.
-#[must_use]
-pub fn standard_validation_db() -> TestDatabase {
+pub fn standard_validation_db() -> anyhow::Result<TestDatabase> {
     validation_db(false)
 }
 
-#[must_use]
-pub fn partial_validation_db() -> TestDatabase {
+pub fn partial_validation_db() -> anyhow::Result<TestDatabase> {
     validation_db(true)
 }
 
 #[allow(clippy::too_many_lines)]
-fn validation_db(partial: bool) -> TestDatabase {
+fn validation_db(partial: bool) -> anyhow::Result<TestDatabase> {
     let specs = standard_tag_specs();
     let configured_tags = specs
         .keys()
@@ -589,7 +586,7 @@ fn validation_db(partial: bool) -> TestDatabase {
     let configured_fallback = from_value(json!({
         "libraries": [{"module": "djls.testing.fallback", "tags": configured_tags}]
     }))
-    .expect("validation fallback tag specs should deserialize");
+    .context("failed to deserialize validation fallback tag specs")?;
     let mut db = TestDatabase::new()
         .with_projectless_tag_specs(specs)
         .with_projectless_filter_arity_specs(standard_filter_arities());
@@ -605,22 +602,20 @@ fn validation_db(partial: bool) -> TestDatabase {
     let tags = |names: &[&str]| {
         let mut source = register.to_string();
         for (index, name) in names.iter().enumerate() {
-            writeln!(
-                source,
-                "@register.tag(name='{name}')\ndef tag_{index}(parser, token): pass"
-            )
-            .unwrap();
+            source.push_str("@register.tag(name='");
+            source.push_str(name);
+            source.push_str("')\ndef tag_");
+            source.push_str(&index.to_string());
+            source.push_str("(parser, token): pass\n");
         }
         source
     };
     let filters = |names: &[&str]| {
         let mut source = register.to_string();
         for name in names {
-            writeln!(
-                source,
-                "@register.filter\ndef {name}(value, arg=None): pass"
-            )
-            .unwrap();
+            source.push_str("@register.filter\ndef ");
+            source.push_str(name);
+            source.push_str("(value, arg=None): pass\n");
         }
         source
     };
@@ -768,8 +763,8 @@ def widthratio(parser, token):
             "/django/contrib/humanize/templatetags/humanize.py",
             filters(&["intcomma"]),
         )
-        .install(&mut db);
-    db
+        .install(&mut db)?;
+    Ok(db)
 }
 
 fn standard_tag_specs() -> TagSpecs {
@@ -1020,7 +1015,7 @@ pub fn render_validate_snapshot(
     path: &str,
     revision: u64,
     source: &str,
-) -> String {
+) -> anyhow::Result<String> {
     render_validate_snapshot_filtered(db, path, revision, source, |_| true)
 }
 
@@ -1030,14 +1025,15 @@ pub fn render_validate_snapshot_filtered<F>(
     revision: u64,
     source: &str,
     filter: F,
-) -> String
+) -> anyhow::Result<String>
 where
     F: Fn(&ValidationError) -> bool,
 {
-    let mut errors: Vec<ValidationError> = collect_errors_with_revision(db, path, revision, source)
-        .into_iter()
-        .filter(|e| filter(e))
-        .collect();
+    let mut errors: Vec<ValidationError> =
+        collect_errors_with_revision(db, path, revision, source)?
+            .into_iter()
+            .filter(|e| filter(e))
+            .collect();
 
     errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
 

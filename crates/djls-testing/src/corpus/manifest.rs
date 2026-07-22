@@ -131,7 +131,7 @@ mod tests {
 
     fn load_default_manifest() -> Manifest {
         let path = Utf8Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml"));
-        Manifest::load(path).unwrap()
+        Manifest::load(path).expect("default corpus manifest should load")
     }
 
     #[test]
@@ -151,7 +151,7 @@ mod tests {
                 .repos
                 .iter()
                 .find(|candidate| candidate.name == repo)
-                .unwrap_or_else(|| panic!("missing repo `{repo}`"));
+                .expect("expected repo should exist in default corpus manifest");
             assert_eq!(
                 repo.django_settings_modules()
                     .collect::<Vec<_>>()
@@ -164,7 +164,7 @@ mod tests {
             .fixtures
             .iter()
             .find(|candidate| candidate.name == "gh401-multisite")
-            .expect("missing GH-401 fixture");
+            .expect("default corpus manifest should contain the GH-401 fixture");
         assert_eq!(
             fixture
                 .django_settings_modules()

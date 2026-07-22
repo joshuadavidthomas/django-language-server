@@ -16,8 +16,11 @@
 //! ```no_run
 //! use djls_testing::Corpus;
 //!
-//! let corpus = Corpus::require();
-//! let django = corpus.latest_package("django").expect("no Django in corpus");
+//! let corpus = Corpus::require()?;
+//! let django = corpus
+//!     .latest_package("django")
+//!     .ok_or_else(|| anyhow::anyhow!("Django is missing from the synced corpus"))?;
+//! # Ok::<(), anyhow::Error>(())
 //! ```
 //!
 //! # Consumers
@@ -57,30 +60,23 @@ pub struct Corpus {
 }
 
 impl Corpus {
-    /// Check whether the corpus directory exists without panicking.
+    /// Check whether the corpus directory exists.
     #[must_use]
     pub fn is_available() -> bool {
         Utf8Path::new(CORPUS_DIR).as_std_path().exists()
     }
 
-    /// Get the corpus, panicking with a helpful message if not synced.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the corpus has not been synced.
-    #[must_use]
-    pub fn require() -> Self {
-        assert!(
-            Self::is_available(),
-            "Corpus not synced. Run: cargo run -p djls-testing --bin corpus -- sync",
-        );
+    /// Get the corpus after checking it against the lockfile.
+    pub fn require() -> anyhow::Result<Self> {
+        if !Self::is_available() {
+            anyhow::bail!("Corpus not synced. Run: cargo run -p djls-testing --bin corpus -- sync");
+        }
         let corpus = Self { _private: () };
-        let lockfile = lock::Lockfile::load(Utf8Path::new(LOCKFILE_PATH))
-            .expect("Corpus lockfile missing or invalid. Run: just corpus lock");
-        sync::validate_synced_corpus(&lockfile, corpus.root()).unwrap_or_else(|error| {
-            panic!("{error}");
-        });
-        corpus
+        let lockfile = lock::Lockfile::load(Utf8Path::new(LOCKFILE_PATH)).map_err(|error| {
+            anyhow::anyhow!("Corpus lockfile missing or invalid. Run: just corpus lock: {error}")
+        })?;
+        sync::validate_synced_corpus(&lockfile, corpus.root())?;
+        Ok(corpus)
     }
 
     /// The corpus root directory.
@@ -355,7 +351,10 @@ pub fn module_name_from_file(file: &Utf8Path) -> String {
         .components()
         .filter_map(|c| match c {
             Utf8Component::Normal(s) => Some(s),
-            _ => None,
+            Utf8Component::Prefix(_)
+            | Utf8Component::RootDir
+            | Utf8Component::CurDir
+            | Utf8Component::ParentDir => None,
         })
         .collect();
 

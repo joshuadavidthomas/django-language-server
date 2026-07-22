@@ -407,9 +407,11 @@ mod tests {
         };
 
         let item = candidate.to_lsp_completion_item(source, &line_index, PositionEncoding::Utf16);
-        let Some(ls_types::CompletionTextEdit::Edit(edit)) = item.text_edit else {
-            panic!("expected edit completion text edit");
-        };
+        let edit = match item.text_edit {
+            Some(ls_types::CompletionTextEdit::Edit(edit)) => Some(edit),
+            Some(ls_types::CompletionTextEdit::InsertAndReplace(_)) | None => None,
+        }
+        .expect("completion candidate should produce an edit text edit");
 
         assert_eq!(item.label, "static");
         assert_eq!(item.kind, Some(ls_types::CompletionItemKind::MODULE));
@@ -438,7 +440,9 @@ mod tests {
             kind: FoldKind::Region,
         };
 
-        let range = fold.to_lsp_folding_range(&line_index).unwrap();
+        let range = fold
+            .to_lsp_folding_range(&line_index)
+            .expect("test fold should produce an LSP folding range");
 
         assert_eq!(range.start_line, 0);
         assert_eq!(range.start_character, None);

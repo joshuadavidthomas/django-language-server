@@ -23,6 +23,7 @@ pub use module::resolve_package_dirs;
 pub use module::resolve_prefix;
 pub use name::InvalidModuleName;
 pub use name::PythonModuleName;
+pub(crate) use name::python_module_name;
 pub use parse::PythonSyntaxError;
 pub use parse::PythonSyntaxErrorClass;
 pub(crate) use parse::RecoveredPythonModule;

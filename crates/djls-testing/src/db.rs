@@ -1,5 +1,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use camino::Utf8Path;
 use djls_project::Db as ProjectDb;
@@ -9,7 +11,6 @@ use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::builtin_tag_specs;
-use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FileStatus;
 use djls_source::FileSystem;
@@ -23,44 +24,53 @@ use salsa::EventKind;
 #[derive(Clone, Default)]
 pub struct SalsaEventLog {
     events: Arc<Mutex<Vec<salsa::Event>>>,
+    poisoned: Arc<AtomicBool>,
 }
 
 impl SalsaEventLog {
     /// Drain and return all captured Salsa events.
-    ///
-    /// # Panics
-    ///
-    /// Panics if another test has poisoned the event log lock.
-    #[must_use]
-    pub fn take(&self) -> Vec<salsa::Event> {
-        std::mem::take(
-            &mut *self
-                .events
-                .lock()
-                .expect("salsa event log lock should not be poisoned"),
-        )
+    pub fn take(&self) -> anyhow::Result<Vec<salsa::Event>> {
+        if self.poisoned.load(Ordering::Acquire) {
+            anyhow::bail!("salsa event log lock was poisoned while recording an event");
+        }
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|_error| anyhow::anyhow!("salsa event log lock is poisoned"))?;
+        Ok(std::mem::take(&mut *events))
     }
 
     fn push(&self, event: salsa::Event) {
-        self.events
-            .lock()
-            .expect("salsa event log lock should not be poisoned")
-            .push(event);
+        match self.events.lock() {
+            Ok(mut events) => events.push(event),
+            Err(_) => self.poisoned.store(true, Ordering::Release),
+        }
     }
 
     /// Drain captured events and return the tracked functions that executed.
-    #[must_use]
-    pub fn take_will_execute_names(&self, db: &TestDatabase) -> Vec<String> {
-        self.take()
+    pub fn take_will_execute_names(&self, db: &TestDatabase) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .take()?
             .into_iter()
             .filter_map(|event| match event.kind {
                 EventKind::WillExecute { database_key } => Some(
                     db.ingredient_debug_name(database_key.ingredient_index())
                         .to_string(),
                 ),
-                _ => None,
+                EventKind::DidValidateMemoizedValue { .. }
+                | EventKind::WillBlockOn { .. }
+                | EventKind::WillIterateCycle { .. }
+                | EventKind::DidFinalizeCycle { .. }
+                | EventKind::WillCheckCancellation
+                | EventKind::DidSetCancellationFlag
+                | EventKind::WillDiscardStaleOutput { .. }
+                | EventKind::DidDiscard { .. }
+                | EventKind::DidDiscardAccumulated { .. }
+                | EventKind::DidInternValue { .. }
+                | EventKind::DidReuseInternedValue { .. }
+                | EventKind::DidValidateInternedValue { .. } => None,
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -136,27 +146,21 @@ impl TestDatabase {
     }
 
     /// Add an in-memory file to the test filesystem.
-    ///
-    /// # Panics
-    ///
-    /// Panics if another test has poisoned the in-memory filesystem lock.
-    pub fn add_file(&self, path: &str, content: &str) {
+    pub fn add_file(&self, path: &str, content: &str) -> anyhow::Result<()> {
         self.fs
             .lock()
-            .expect("in-memory filesystem lock should not be poisoned")
+            .map_err(|_error| anyhow::anyhow!("in-memory filesystem lock is poisoned"))?
             .add_file(path.into(), content.to_string());
+        Ok(())
     }
 
     /// Remove an in-memory file from the test filesystem.
-    ///
-    /// # Panics
-    ///
-    /// Panics if another test has poisoned the in-memory filesystem lock.
-    pub fn remove_file(&self, path: &str) {
+    pub fn remove_file(&self, path: &str) -> anyhow::Result<()> {
         self.fs
             .lock()
-            .expect("in-memory filesystem lock should not be poisoned")
+            .map_err(|_error| anyhow::anyhow!("in-memory filesystem lock is poisoned"))?
             .remove_file(Utf8Path::new(path));
+        Ok(())
     }
 
     pub fn set_project(&mut self, project: Project) {
@@ -164,27 +168,22 @@ impl TestDatabase {
     }
 
     /// Return an existing fixture file from the test filesystem.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the fixture has not been added to the in-memory filesystem.
-    #[must_use]
-    pub fn file(&self, path: &Utf8Path) -> File {
-        path_to_file(self, path).expect("test fixture file should exist; call add_file first")
+    pub fn file(&self, path: &Utf8Path) -> Result<File, djls_source::FileError> {
+        path_to_file(self, path)
     }
 
-    #[must_use]
-    pub(crate) fn create_file_with_revision(&self, path: &Utf8Path, revision: u64) -> File {
-        debug_assert!(
-            self.file_system().is_file(path),
-            "fixture file should exist before creating tracked file: {path}"
-        );
+    pub(crate) fn create_file_with_revision(
+        &self,
+        path: &Utf8Path,
+        revision: u64,
+    ) -> Result<File, djls_source::FileError> {
+        self.file(path)?;
         let file = File::builder(path.to_owned(), revision, FileStatus::Exists)
             .durability(salsa::Durability::LOW)
             .path_durability(salsa::Durability::HIGH)
             .new(self);
         self.files.register_file(self, file);
-        file
+        Ok(file)
     }
 }
 

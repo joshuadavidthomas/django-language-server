@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::io;
 
 use camino::Utf8Path;
 use djls_conf::TagDef;
@@ -21,16 +22,22 @@ use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
-fn source_and_offset(marked_source: &str) -> (String, Offset) {
+type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+fn source_and_offset(marked_source: &str) -> TestResult<(String, Offset)> {
     let offset = marked_source
         .find('§')
-        .expect("test source should contain a cursor marker");
+        .ok_or_else(|| io::Error::other("test source should contain a cursor marker"))?;
     let mut source = marked_source.to_string();
     source.remove(offset);
-    (source, Offset::new(u32::try_from(offset).unwrap()))
+    Ok((source, Offset::new(u32::try_from(offset)?)))
 }
 
-fn install_template_completion_project(db: &mut TestDatabase, child_path: &str, source: &str) {
+fn install_template_completion_project(
+    db: &mut TestDatabase,
+    child_path: &str,
+    source: &str,
+) -> TestResult<()> {
     ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file(
@@ -42,7 +49,8 @@ fn install_template_completion_project(db: &mut TestDatabase, child_path: &str, 
         .file("/test/project/templates/shared.html", "primary")
         .file("/test/project/app/templates/account/detail.html", "detail")
         .file("/test/project/app/templates/shared.html", "shadow")
-        .install(db);
+        .install(db)?;
+    Ok(())
 }
 
 #[test]
@@ -59,14 +67,22 @@ fn completion_dispatches_before_requesting_semantic_inventory() {
     for (name, marked_source, enumerates_tags, builds_projection) in cases {
         let event_log = SalsaEventLog::default();
         let db = TestDatabase::with_event_log(event_log.clone());
-        let (source, offset) = source_and_offset(marked_source);
+        let (source, offset) = source_and_offset(marked_source)
+            .expect("completion case should contain a valid cursor marker");
         let path = format!("/{name}.html");
-        db.add_file(&path, &source);
-        let file = db.file(Utf8Path::new(&path));
-        let _ = event_log.take();
+        db.add_file(&path, &source)
+            .expect("completion fixture should be added");
+        let file = db
+            .file(Utf8Path::new(&path))
+            .expect("completion fixture file should exist");
+        event_log
+            .take()
+            .expect("initial Salsa events should be cleared");
 
         let response = completion(&db, file, offset, PositionEncoding::Utf16, false);
-        let executed = event_log.take_will_execute_names(&db);
+        let executed = event_log
+            .take_will_execute_names(&db)
+            .expect("completion Salsa events should be read");
         let executed_query = |query: &str| executed.iter().any(|name| name.ends_with(query));
 
         assert_eq!(
@@ -112,12 +128,15 @@ fn captured_closer_does_not_offer_colliding_standalone_arguments() {
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
-    let (captured_source, captured_offset) = source_and_offset("{% if condition %}{% endif § %}");
-    db.add_file("/captured.html", &captured_source);
+    let (captured_source, captured_offset) = source_and_offset("{% if condition %}{% endif § %}")
+        .expect("captured closer fixture should contain a valid cursor marker");
+    db.add_file("/captured.html", &captured_source)
+        .expect("captured closer fixture should be added");
     assert!(
         completion(
             &db,
-            db.file(Utf8Path::new("/captured.html")),
+            db.file(Utf8Path::new("/captured.html"))
+                .expect("captured closer fixture file should exist"),
             captured_offset,
             PositionEncoding::Utf16,
             false,
@@ -126,11 +145,14 @@ fn captured_closer_does_not_offer_colliding_standalone_arguments() {
         "a captured endif must not offer arguments from the colliding standalone definition"
     );
 
-    let (standalone_source, standalone_offset) = source_and_offset("{% endif § %}");
-    db.add_file("/standalone.html", &standalone_source);
+    let (standalone_source, standalone_offset) = source_and_offset("{% endif § %}")
+        .expect("standalone closer fixture should contain a valid cursor marker");
+    db.add_file("/standalone.html", &standalone_source)
+        .expect("standalone closer fixture should be added");
     let response = completion(
         &db,
-        db.file(Utf8Path::new("/standalone.html")),
+        db.file(Utf8Path::new("/standalone.html"))
+            .expect("standalone closer fixture file should exist"),
         standalone_offset,
         PositionEncoding::Utf16,
         false,
@@ -146,8 +168,10 @@ fn captured_closer_does_not_offer_colliding_standalone_arguments() {
 #[test]
 fn shadowed_normal_tag_named_load_gets_no_library_completion() {
     let mut db = TestDatabase::new();
-    let (library_source, library_offset) = source_and_offset("{% load § %}");
-    let (symbol_source, symbol_offset) = source_and_offset("{% load custom_§ from custom %}");
+    let (library_source, library_offset) = source_and_offset("{% load § %}")
+        .expect("library completion fixture should contain a valid cursor marker");
+    let (symbol_source, symbol_offset) = source_and_offset("{% load custom_§ from custom %}")
+        .expect("symbol completion fixture should contain a valid cursor marker");
     ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file(
@@ -164,7 +188,8 @@ fn shadowed_normal_tag_named_load_gets_no_library_completion() {
         )
         .file("/test/project/templates/library.html", &library_source)
         .file("/test/project/templates/symbol.html", &symbol_source)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("shadowed-load project fixture should install");
 
     for (path, offset) in [
         ("/test/project/templates/library.html", library_offset),
@@ -173,7 +198,8 @@ fn shadowed_normal_tag_named_load_gets_no_library_completion() {
         assert!(
             completion(
                 &db,
-                db.file(Utf8Path::new(path)),
+                db.file(Utf8Path::new(path))
+                    .expect("completion fixture file should exist"),
                 offset,
                 PositionEncoding::Utf16,
                 false,
@@ -201,29 +227,35 @@ fn project_tag_completions_do_not_leak_conflicting_backend_libraries() {
         )
         .file("/test/project/a/alpha.html", "{% load shared %}\n{%  %}")
         .file("/test/project/b/beta.html", "{% load shared %}\n{%  %}")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("multi-backend completion project fixture should install");
 
-    let labels_for = |path: &str| {
-        let file = db.file(Utf8Path::new(path));
+    let labels_for = |path: &str| -> TestResult<Vec<String>> {
+        let file = db.file(Utf8Path::new(path))?;
         let response = completion(
             &db,
             file,
-            Offset::new(u32::try_from("{% load shared %}\n{% ".len()).unwrap()),
+            Offset::new(
+                u32::try_from("{% load shared %}\n{% ".len())
+                    .expect("test source offset should fit in u32"),
+            ),
             PositionEncoding::Utf16,
             false,
         )
-        .expect("tag completion should produce candidates");
-        match response {
+        .ok_or_else(|| io::Error::other("tag completion should produce candidates"))?;
+        Ok(match response {
             ls_types::CompletionResponse::Array(items) => items,
             ls_types::CompletionResponse::List(list) => list.items,
         }
         .into_iter()
         .map(|item| item.label)
-        .collect::<Vec<_>>()
+        .collect())
     };
 
-    let alpha = labels_for("/test/project/a/alpha.html");
-    let beta = labels_for("/test/project/b/beta.html");
+    let alpha = labels_for("/test/project/a/alpha.html")
+        .expect("alpha backend completion labels should be collected");
+    let beta = labels_for("/test/project/b/beta.html")
+        .expect("beta backend completion labels should be collected");
     assert!(alpha.iter().any(|label| label == "alpha"));
     assert!(!alpha.iter().any(|label| label == "beta"));
     assert!(beta.iter().any(|label| label == "beta"));
@@ -253,21 +285,24 @@ fn multi_backend_effective_symbols_disagree_when_implementations_differ() {
             "/test/project/shared/filter.html",
             "{% load shared %}\n{{ value|common_ }}",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("conflicting-backend completion project fixture should install");
 
-    let labels_at = |path: &str, source: &str| {
-        let file = db.file(Utf8Path::new(path));
-        let offset = Offset::new(u32::try_from(source.len()).unwrap() - 3);
-        let Some(response) = completion(&db, file, offset, PositionEncoding::Utf16, false) else {
-            return Vec::new();
-        };
-        match response {
-            ls_types::CompletionResponse::Array(items) => items,
-            ls_types::CompletionResponse::List(list) => list.items,
-        }
-        .into_iter()
-        .map(|item| item.label)
-        .collect::<Vec<_>>()
+    let labels_at = |path: &str, source: &str| -> TestResult<Vec<String>> {
+        let file = db.file(Utf8Path::new(path))?;
+        let offset = Offset::new(
+            u32::try_from(source.len()).expect("test source offset should fit in u32") - 3,
+        );
+        Ok(
+            match completion(&db, file, offset, PositionEncoding::Utf16, false) {
+                Some(ls_types::CompletionResponse::Array(items)) => items,
+                Some(ls_types::CompletionResponse::List(list)) => list.items,
+                None => Vec::new(),
+            }
+            .into_iter()
+            .map(|item| item.label)
+            .collect(),
+        )
     };
 
     assert!(
@@ -275,6 +310,7 @@ fn multi_backend_effective_symbols_disagree_when_implementations_differ() {
             "/test/project/shared/tag.html",
             "{% load shared %}\n{% com %}",
         )
+        .expect("tag completion labels should be collected")
         .contains(&"common".to_string())
     );
     assert!(
@@ -282,6 +318,7 @@ fn multi_backend_effective_symbols_disagree_when_implementations_differ() {
             "/test/project/shared/filter.html",
             "{% load shared %}\n{{ value|common_ }}",
         )
+        .expect("filter completion labels should be collected")
         .contains(&"common_filter".to_string())
     );
 }
@@ -303,10 +340,14 @@ fn multi_backend_same_definition_uses_loaded_availability_presentation() {
             "from django import template\nregister = template.Library()\n",
         )
         .file("/test/project/shared/tag.html", source)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("shared-definition completion fixture should install");
 
-    let file = db.file(Utf8Path::new("/test/project/shared/tag.html"));
-    let offset = Offset::new(u32::try_from(source.len()).unwrap() - 3);
+    let file = db
+        .file(Utf8Path::new("/test/project/shared/tag.html"))
+        .expect("shared tag template fixture should exist");
+    let offset =
+        Offset::new(u32::try_from(source.len()).expect("test source offset should fit in u32") - 3);
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
         .expect("the shared definition should complete");
     let items = match response {
@@ -324,7 +365,8 @@ fn multi_backend_same_definition_uses_loaded_availability_presentation() {
 #[test]
 fn configured_only_tag_survives_effective_candidates_and_completion() {
     let mut db = TestDatabase::new();
-    let (source, offset) = source_and_offset("{% load dynamic %}\n{% dynamic_§ %}");
+    let (source, offset) = source_and_offset("{% load dynamic %}\n{% dynamic_§ %}")
+        .expect("configured tag fixture should contain a valid cursor marker");
     let tag_specs = TagSpecDef {
         libraries: vec![TagLibraryDef {
             module: "dynamic_tags".to_string(),
@@ -357,8 +399,11 @@ fn configured_only_tag_survives_effective_candidates_and_completion() {
             "from django import template\nregister = template.Library()\n",
         )
         .file("/test/project/templates/page.html", &source)
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+        .install(&mut db)
+        .expect("configured-tag completion fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("configured-tag template fixture should exist");
     let configured_symbol =
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .resolved_libraries()
@@ -389,7 +434,8 @@ fn conflicting_backend_signatures_do_not_offer_argument_snippets() {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";
     let marked = "{% load shared %}\n{% shared_tag § %}";
-    let (source, offset) = source_and_offset(marked);
+    let (source, offset) = source_and_offset(marked)
+        .expect("conflicting signature fixture should contain a valid cursor marker");
     ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings)
@@ -402,8 +448,11 @@ fn conflicting_backend_signatures_do_not_offer_argument_snippets() {
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef beta(first, second):\n    pass\n",
         )
         .file("/test/project/shared/page.html", &source)
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/shared/page.html"));
+        .install(&mut db)
+        .expect("conflicting-signature project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .expect("shared template fixture should exist");
 
     assert!(
         completion(&db, file, offset, PositionEncoding::Utf16, true).is_none(),
@@ -414,7 +463,8 @@ fn conflicting_backend_signatures_do_not_offer_argument_snippets() {
 #[test]
 fn template_name_completions_do_not_leak_names_from_another_backend() {
     let mut db = TestDatabase::new();
-    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#);
+    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#)
+        .expect("multi-backend template fixture should contain a valid cursor marker");
     let settings = "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
     ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
@@ -422,8 +472,11 @@ fn template_name_completions_do_not_leak_names_from_another_backend() {
         .file("/test/project/a/child.html", &source)
         .file("/test/project/a/only-a.html", "a")
         .file("/test/project/b/only-b.html", "b")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/a/child.html"));
+        .install(&mut db)
+        .expect("multi-backend template completion fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("child template fixture should exist");
 
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
         .expect("template names should complete");
@@ -441,10 +494,14 @@ fn template_name_completions_do_not_leak_names_from_another_backend() {
 #[test]
 fn template_name_completions_use_resolvable_project_names() {
     let mut db = TestDatabase::new();
-    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#);
+    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#)
+        .expect("template name fixture should contain a valid cursor marker");
     let child_path = "/test/project/templates/child.html";
-    install_template_completion_project(&mut db, child_path, &source);
-    let file = db.file(Utf8Path::new(child_path));
+    install_template_completion_project(&mut db, child_path, &source)
+        .expect("template completion project fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
 
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
         .expect("template names should complete inside quoted references");
@@ -473,7 +530,8 @@ fn template_name_completions_use_resolvable_project_names() {
 #[test]
 fn template_name_completions_retain_known_templates_when_search_is_incomplete() {
     let mut db = TestDatabase::new();
-    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#);
+    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#)
+        .expect("incomplete-search fixture should contain a valid cursor marker");
     let child_path = "/test/project/templates/child.html";
     ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
@@ -483,8 +541,11 @@ fn template_name_completions_retain_known_templates_when_search_is_incomplete() 
         )
         .file(child_path, &source)
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new(child_path));
+        .install(&mut db)
+        .expect("incomplete-search completion fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
 
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
         .expect("known template names should remain completion candidates");
@@ -503,10 +564,14 @@ fn template_name_completions_retain_known_templates_when_search_is_incomplete() 
 #[test]
 fn template_name_completion_replaces_quoted_argument_interior() {
     let mut db = TestDatabase::new();
-    let (source, offset) = source_and_offset(r#"{% extends "acc§ount/detail.html" %}"#);
+    let (source, offset) = source_and_offset(r#"{% extends "acc§ount/detail.html" %}"#)
+        .expect("quoted template fixture should contain a valid cursor marker");
     let child_path = "/test/project/templates/child.html";
-    install_template_completion_project(&mut db, child_path, &source);
-    let file = db.file(Utf8Path::new(child_path));
+    install_template_completion_project(&mut db, child_path, &source)
+        .expect("template completion project fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
 
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
         .expect("template names should complete inside quoted references");
@@ -538,10 +603,14 @@ fn template_name_completion_replaces_quoted_argument_interior() {
 #[test]
 fn template_name_completion_preserves_existing_full_close_after_open_quote() {
     let mut db = TestDatabase::new();
-    let (source, offset) = source_and_offset(r#"{% extends "ba§ %}"#);
+    let (source, offset) = source_and_offset(r#"{% extends "ba§ %}"#)
+        .expect("open quote fixture should contain a valid cursor marker");
     let child_path = "/test/project/templates/child.html";
-    install_template_completion_project(&mut db, child_path, &source);
-    let file = db.file(Utf8Path::new(child_path));
+    install_template_completion_project(&mut db, child_path, &source)
+        .expect("template completion project fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
 
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
         .expect("template names should complete inside quoted references");
@@ -573,10 +642,14 @@ fn template_name_completion_preserves_existing_full_close_after_open_quote() {
 #[test]
 fn template_name_completion_repairs_autopaired_quote_before_lone_brace() {
     let mut db = TestDatabase::new();
-    let (source, offset) = source_and_offset(r#"{% include "ba§"}"#);
+    let (source, offset) = source_and_offset(r#"{% include "ba§"}"#)
+        .expect("autopaired quote fixture should contain a valid cursor marker");
     let child_path = "/test/project/templates/child.html";
-    install_template_completion_project(&mut db, child_path, &source);
-    let file = db.file(Utf8Path::new(child_path));
+    install_template_completion_project(&mut db, child_path, &source)
+        .expect("template completion project fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
 
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
         .expect("template names should complete inside quoted references");

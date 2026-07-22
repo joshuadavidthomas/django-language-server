@@ -210,7 +210,8 @@ mod tests {
     #[test]
     fn test_non_file_uri_returns_none() {
         // Step 1: Non-file URIs are rejected at the LSP boundary
-        let uri = ls_types::Uri::from_str("untitled:Untitled-1").unwrap();
+        let uri =
+            ls_types::Uri::from_str("untitled:Untitled-1").expect("test untitled URI should parse");
         assert!(uri.to_utf8_path_buf().is_none());
 
         // TODO(virtual-paths): In Step 2, this should return Some(DocumentPath::Virtual(...))
@@ -237,7 +238,8 @@ mod tests {
     #[test]
     fn test_text_document_item_sublime_html_to_template() {
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.html")
+                .expect("test HTML file URI should parse"),
             language_id: "html".to_string(),
             version: 1,
             text: String::new(),
@@ -251,7 +253,8 @@ mod tests {
     #[test]
     fn test_text_document_item_default_html_to_other() {
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.html")
+                .expect("test HTML file URI should parse"),
             language_id: "html".to_string(),
             version: 1,
             text: String::new(),
@@ -265,7 +268,8 @@ mod tests {
     #[test]
     fn test_text_document_item_django_html_to_template() {
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.html")
+                .expect("test HTML file URI should parse"),
             language_id: "django-html".to_string(),
             version: 1,
             text: String::new(),
@@ -279,7 +283,8 @@ mod tests {
     #[test]
     fn test_text_document_item_htmldjango_to_template() {
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.html")
+                .expect("test HTML file URI should parse"),
             language_id: "htmldjango".to_string(),
             version: 1,
             text: String::new(),
@@ -293,7 +298,8 @@ mod tests {
     #[test]
     fn test_text_document_item_python_to_python() {
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.py").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.py")
+                .expect("test Python file URI should parse"),
             language_id: "python".to_string(),
             version: 1,
             text: String::new(),
@@ -307,7 +313,8 @@ mod tests {
     #[test]
     fn test_text_document_item_unknown_to_other() {
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.rs").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.rs")
+                .expect("test Rust file URI should parse"),
             language_id: "rust".to_string(),
             version: 1,
             text: String::new(),

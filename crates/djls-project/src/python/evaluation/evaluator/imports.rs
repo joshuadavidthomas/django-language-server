@@ -40,41 +40,9 @@ use crate::python::module::PythonImportRequest;
 use crate::python::module::PythonSourceModule;
 
 impl PythonModuleEvaluator<'_> {
-    pub(super) fn evaluate_import_statement(&mut self, statement: &ast::Stmt) {
-        match statement {
-            ast::Stmt::Import(statement) => {
-                for clause in DirectImportClause::lower(statement) {
-                    self.evaluate_direct_clause(&clause);
-                }
-            }
-            ast::Stmt::ImportFrom(statement) => {
-                self.evaluate_from_import(statement);
-            }
-            ast::Stmt::Assign(_)
-            | ast::Stmt::AnnAssign(_)
-            | ast::Stmt::AugAssign(_)
-            | ast::Stmt::Delete(_)
-            | ast::Stmt::TypeAlias(_)
-            | ast::Stmt::Expr(_)
-            | ast::Stmt::FunctionDef(_)
-            | ast::Stmt::ClassDef(_)
-            | ast::Stmt::For(_)
-            | ast::Stmt::While(_)
-            | ast::Stmt::If(_)
-            | ast::Stmt::With(_)
-            | ast::Stmt::Try(_)
-            | ast::Stmt::Match(_)
-            | ast::Stmt::Return(_)
-            | ast::Stmt::Raise(_)
-            | ast::Stmt::Assert(_)
-            | ast::Stmt::Global(_)
-            | ast::Stmt::Nonlocal(_)
-            | ast::Stmt::Pass(_)
-            | ast::Stmt::Break(_)
-            | ast::Stmt::Continue(_)
-            | ast::Stmt::IpyEscapeCommand(_) => {
-                unreachable!("statement dispatcher passes only imports")
-            }
+    pub(super) fn evaluate_direct_import_statement(&mut self, statement: &ast::StmtImport) {
+        for clause in DirectImportClause::lower(statement) {
+            self.evaluate_direct_clause(&clause);
         }
     }
 
@@ -285,12 +253,13 @@ impl PythonModuleEvaluator<'_> {
             && let ImportChainTerminal::NotFound { module } = &load.leaf
             && let Some(intrinsic) =
                 PythonPathIntrinsic::from_direct_import(clause.requested(), clause.binds_root())
-        {
-            let external = PythonModuleName::parse(clause.requested())
-                .expect("a lowered direct import has a valid absolute module name");
-            self.state
+            && let Ok(external) = PythonModuleName::parse(clause.requested())
+            && self
+                .state
                 .import_trace
-                .recognize_external_intrinsic(module, external);
+                .recognize_external_intrinsic(module, external)
+                .is_some()
+        {
             self.state
                 .assign_path_intrinsic(clause.bound(), intrinsic, binding_origin);
             return;
@@ -331,7 +300,7 @@ impl PythonModuleEvaluator<'_> {
 
     /// Evaluate a `from ... import ...` statement through the shared chain, then
     /// apply named or star selection against the loaded terminal object.
-    fn evaluate_from_import(&mut self, statement: &ast::StmtImportFrom) {
+    pub(super) fn evaluate_from_import(&mut self, statement: &ast::StmtImportFrom) {
         let import = LoweredFromImport::lower(self, statement);
         let request = PythonImportRequest {
             level: import.level,
@@ -416,9 +385,14 @@ impl PythonModuleEvaluator<'_> {
             return false;
         }
 
-        self.state
+        if self
+            .state
             .import_trace
-            .recognize_external_intrinsic(missing, external.clone());
+            .recognize_external_intrinsic(missing, external.clone())
+            .is_none()
+        {
+            return false;
+        }
         self.apply_known_external_selection(import, external);
         true
     }
@@ -521,40 +495,48 @@ impl PythonModuleEvaluator<'_> {
                 module: Some(child_name.as_str()),
                 importer: &self.module,
             };
-            let (_resolved_name, resolution) =
-                PythonSourceModule::resolve_import_chain(self.db, self.project, request)
-                    .expect("an exact child request is a valid absolute import");
-            let child = self.load_import_chain(
-                &child_name,
-                resolution,
-                import_origin,
-                ChainLoadMode::ChildFallback {
-                    parent: source.object,
-                    fallback: &fallback_policy,
-                },
-            );
-            let fallback = match child.leaf {
-                ImportChainTerminal::Source { object, .. }
-                | ImportChainTerminal::Namespace { object }
-                | ImportChainTerminal::Cycle { object }
-                | ImportChainTerminal::External { object, .. }
-                    if child.leaf_reached =>
-                {
-                    Some(PythonBinding::bound(
-                        PythonValue::module(object, binding_origin),
+            let fallback =
+                match PythonSourceModule::resolve_import_chain(self.db, self.project, request) {
+                    Ok((_resolved_name, resolution)) => {
+                        let child = self.load_import_chain(
+                            &child_name,
+                            resolution,
+                            import_origin,
+                            ChainLoadMode::ChildFallback {
+                                parent: source.object,
+                                fallback: &fallback_policy,
+                            },
+                        );
+                        match child.leaf {
+                            ImportChainTerminal::Source { object, .. }
+                            | ImportChainTerminal::Namespace { object }
+                            | ImportChainTerminal::Cycle { object }
+                            | ImportChainTerminal::External { object, .. }
+                                if child.leaf_reached =>
+                            {
+                                Some(PythonBinding::bound(
+                                    PythonValue::module(object, binding_origin),
+                                    binding_origin,
+                                ))
+                            }
+                            ImportChainTerminal::Unreadable { error } => {
+                                Some(PythonBinding::unknown(
+                                    &PythonUnknownCause::Unreadable(error),
+                                    binding_origin,
+                                ))
+                            }
+                            ImportChainTerminal::NotFound { .. }
+                            | ImportChainTerminal::Source { .. }
+                            | ImportChainTerminal::Namespace { .. }
+                            | ImportChainTerminal::Cycle { .. }
+                            | ImportChainTerminal::External { .. } => None,
+                        }
+                    }
+                    Err(error) => Some(PythonBinding::unknown(
+                        &PythonUnknownCause::InvalidImport(error),
                         binding_origin,
-                    ))
-                }
-                ImportChainTerminal::Unreadable { error } => Some(PythonBinding::unknown(
-                    &PythonUnknownCause::Unreadable(error),
-                    binding_origin,
-                )),
-                ImportChainTerminal::NotFound { .. }
-                | ImportChainTerminal::Source { .. }
-                | ImportChainTerminal::Namespace { .. }
-                | ImportChainTerminal::Cycle { .. }
-                | ImportChainTerminal::External { .. } => None,
-            };
+                    )),
+                };
             if let Some(fallback) = fallback {
                 binding = binding
                     .replace_unbound_with(Some(fallback.clone()), binding_origin)
@@ -1439,11 +1421,11 @@ impl ChainLoadProgress {
             return Self::default();
         };
         let root = components.first().cloned();
-        let prefix_index = components
-            .iter()
-            .position(|component| component == parent)
-            .expect("an exact child chain retains its already-loaded parent prefix");
-        components.drain(..=prefix_index);
+        if let Some(prefix_index) = components.iter().position(|component| component == parent) {
+            components.drain(..=prefix_index);
+        } else {
+            components.clear();
+        }
         Self {
             root,
             parent: Some(parent.clone()),

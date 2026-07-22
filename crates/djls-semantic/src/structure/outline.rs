@@ -217,7 +217,13 @@ fn outline_items_for_node(
                     } if segment_tag == tag => {
                         outline_items_for_region(regions, roles, *segment_body)
                     }
-                    _ => outline_items_for_node(regions, roles, node),
+                    TemplateNode::Block { .. }
+                    | TemplateNode::Opaque { .. }
+                    | TemplateNode::StandaloneTag { .. }
+                    | TemplateNode::Variable { .. }
+                    | TemplateNode::Comment { .. }
+                    | TemplateNode::Text { .. }
+                    | TemplateNode::Error { .. } => outline_items_for_node(regions, roles, node),
                 })
                 .collect();
 

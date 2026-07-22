@@ -28,7 +28,7 @@ use rustc_hash::FxHashMap;
 
 #[derive(serde::Serialize)]
 struct TemplateTreeSnapshot {
-    root: u32,
+    root: usize,
     regions: Vec<RegionSnapshot>,
 }
 
@@ -56,7 +56,7 @@ impl TemplateTreeSnapshot {
 #[derive(serde::Serialize)]
 struct RegionSnapshot {
     span: Span,
-    parent: Option<u32>,
+    parent: Option<usize>,
     nodes: Vec<NodeSnapshot>,
 }
 
@@ -68,7 +68,7 @@ enum NodeSnapshot {
         name_span: Span,
         bits: Vec<TagBit>,
         full_span: Span,
-        body: u32,
+        body: usize,
         role: String,
     },
     Opaque {
@@ -277,8 +277,11 @@ fn test_template_tree_building() {
 {% endfor %}
 "#;
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
 
     insta::assert_yaml_snapshot!("nodelist", nodelist_view(nodelist.nodelist(&db)));
@@ -293,20 +296,30 @@ fn test_template_tree_building() {
 fn projectless_structure_queries_bypass_correlated_template_analysis() {
     let event_log = SalsaEventLog::default();
     let db = TestDatabase::with_event_log(event_log.clone());
-    db.add_file("/tree.html", "{% if value %}body{% endif %}");
+    db.add_file("/tree.html", "{% if value %}body{% endif %}")
+        .expect("fixture file should be added to the test database");
     db.add_file(
         "/opaque.html",
         "{% verbatim %}{% if ignored %}{% endverbatim %}",
-    );
-    let tree_file = db.file(Utf8Path::new("/tree.html"));
-    let opaque_file = db.file(Utf8Path::new("/opaque.html"));
+    )
+    .expect("opaque template fixture should be added to the test database");
+    let tree_file = db
+        .file(Utf8Path::new("/tree.html"))
+        .expect("fixture file should exist in the test database");
+    let opaque_file = db
+        .file(Utf8Path::new("/opaque.html"))
+        .expect("fixture file should exist in the test database");
     let tree_nodes = parse_template(&db, tree_file).expect("tree fixture should parse");
     let opaque_nodes = parse_template(&db, opaque_file).expect("opaque fixture should parse");
 
-    let _ = event_log.take();
+    event_log
+        .take()
+        .expect("Salsa event log should be readable before the projectless query");
     let tree = build_template_tree_for_file(&db, tree_file, tree_nodes);
     assert!(tree.regions(&db).iter().next().is_some());
-    let executed = event_log.take_will_execute_names(&db);
+    let executed = event_log
+        .take_will_execute_names(&db)
+        .expect("projectless tree query events should be readable");
     assert!(
         executed
             .iter()
@@ -322,7 +335,9 @@ fn projectless_structure_queries_bypass_correlated_template_analysis() {
 
     let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
     assert!(regions.is_opaque(20));
-    let executed = event_log.take_will_execute_names(&db);
+    let executed = event_log
+        .take_will_execute_names(&db)
+        .expect("projectless opaque query events should be readable");
     assert!(
         executed
             .iter()
@@ -355,16 +370,25 @@ fn project_backed_structure_queries_use_correlated_template_analysis() {
             "/project/templates/opaque.html",
             "{% verbatim %}{% if ignored %}{% endverbatim %}",
         )
-        .install(&mut db);
-    let tree_file = db.file(Utf8Path::new("/project/templates/tree.html"));
-    let opaque_file = db.file(Utf8Path::new("/project/templates/opaque.html"));
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
+    let tree_file = db
+        .file(Utf8Path::new("/project/templates/tree.html"))
+        .expect("fixture file should exist in the test database");
+    let opaque_file = db
+        .file(Utf8Path::new("/project/templates/opaque.html"))
+        .expect("fixture file should exist in the test database");
     let tree_nodes = parse_template(&db, tree_file).expect("tree fixture should parse");
     let opaque_nodes = parse_template(&db, opaque_file).expect("opaque fixture should parse");
 
-    let _ = event_log.take();
+    event_log
+        .take()
+        .expect("Salsa event log should be readable before the project-backed query");
     let tree = build_template_tree_for_file(&db, tree_file, tree_nodes);
     assert!(tree.regions(&db).iter().next().is_some());
-    let executed = event_log.take_will_execute_names(&db);
+    let executed = event_log
+        .take_will_execute_names(&db)
+        .expect("project-backed tree query events should be readable");
     assert!(
         executed
             .iter()
@@ -374,7 +398,9 @@ fn project_backed_structure_queries_use_correlated_template_analysis() {
 
     let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
     assert!(regions.is_opaque(20));
-    let executed = event_log.take_will_execute_names(&db);
+    let executed = event_log
+        .take_will_execute_names(&db)
+        .expect("project-backed opaque query events should be readable");
     assert!(
         executed
             .iter()
@@ -383,11 +409,17 @@ fn project_backed_structure_queries_use_correlated_template_analysis() {
     );
 }
 
-fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> TemplateTree<'db> {
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
-    let nodelist = parse_template(db, file).expect("should parse");
-    build_template_tree_for_file(db, file, nodelist)
+fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> anyhow::Result<TemplateTree<'db>> {
+    db.add_file("test.html", source)?;
+    let file = db.file(Utf8Path::new("test.html"))?;
+    let nodelist = match parse_template(db, file) {
+        djls_templates::TemplateParseResult::Parsed(nodelist) => nodelist,
+        djls_templates::TemplateParseResult::NotTemplate => {
+            anyhow::bail!("fixture file is not a template")
+        }
+        djls_templates::TemplateParseResult::Unreadable(error) => return Err(error.into()),
+    };
+    Ok(build_template_tree_for_file(db, file, nodelist))
 }
 
 fn root_region<'db>(tree: TemplateTree<'db>, db: &'db dyn Db) -> &'db TemplateRegion {
@@ -395,66 +427,113 @@ fn root_region<'db>(tree: TemplateTree<'db>, db: &'db dyn Db) -> &'db TemplateRe
     tree.regions(db).get(root)
 }
 
-fn first_block_body(region: &TemplateRegion, tag_name: &str) -> RegionId {
-    region
-        .nodes()
-        .iter()
-        .find_map(|node| match node {
-            TemplateNode::Block { tag, body, .. } if tag == tag_name => Some(*body),
-            _ => None,
-        })
-        .expect("expected block node")
+fn first_block_body(region: &TemplateRegion, tag_name: &str) -> Option<RegionId> {
+    region.nodes().iter().find_map(|node| match node {
+        TemplateNode::Block { tag, body, .. } if tag == tag_name => Some(*body),
+        TemplateNode::Block { .. }
+        | TemplateNode::Opaque { .. }
+        | TemplateNode::StandaloneTag { .. }
+        | TemplateNode::Variable { .. }
+        | TemplateNode::Comment { .. }
+        | TemplateNode::Text { .. }
+        | TemplateNode::Error { .. } => None,
+    })
 }
 
-fn segment_body(region: &TemplateRegion, tag_name: &str) -> RegionId {
-    region
-        .nodes()
-        .iter()
-        .find_map(|node| match node {
-            TemplateNode::Block {
-                tag,
-                body,
-                role: BlockRole::Segment,
-                ..
-            } if tag == tag_name => Some(*body),
-            _ => None,
-        })
-        .expect("expected segment node")
+fn segment_body(region: &TemplateRegion, tag_name: &str) -> Option<RegionId> {
+    region.nodes().iter().find_map(|node| match node {
+        TemplateNode::Block {
+            tag,
+            body,
+            role: BlockRole::Segment,
+            ..
+        } if tag == tag_name => Some(*body),
+        TemplateNode::Block { .. }
+        | TemplateNode::Opaque { .. }
+        | TemplateNode::StandaloneTag { .. }
+        | TemplateNode::Variable { .. }
+        | TemplateNode::Comment { .. }
+        | TemplateNode::Text { .. }
+        | TemplateNode::Error { .. } => None,
+    })
 }
 
-fn opaque_body_span(region: &TemplateRegion, tag_name: &str) -> Span {
-    region
-        .nodes()
-        .iter()
-        .find_map(|node| match node {
-            TemplateNode::Opaque { tag, body_span, .. } if tag == tag_name => Some(*body_span),
-            _ => None,
-        })
-        .expect("expected opaque node")
+fn opaque_body_span(region: &TemplateRegion, tag_name: &str) -> Option<Span> {
+    region.nodes().iter().find_map(|node| match node {
+        TemplateNode::Opaque { tag, body_span, .. } if tag == tag_name => Some(*body_span),
+        TemplateNode::Block { .. }
+        | TemplateNode::Opaque { .. }
+        | TemplateNode::StandaloneTag { .. }
+        | TemplateNode::Variable { .. }
+        | TemplateNode::Comment { .. }
+        | TemplateNode::Text { .. }
+        | TemplateNode::Error { .. } => None,
+    })
 }
 
-fn assert_position_inside(span: Span, source: &str, needle: &str) {
-    let position = u32::try_from(source.find(needle).expect("needle should exist")).unwrap();
-    assert!(
-        span.start() <= position && position < span.end(),
-        "expected {needle:?} at {position} inside {span:?}"
-    );
+fn assert_position_inside(span: Span, source: &str, needle: &str) -> Result<(), String> {
+    let position = source
+        .find(needle)
+        .ok_or_else(|| format!("fixture source does not contain {needle:?}"))?;
+    let position = u32::try_from(position)
+        .map_err(|error| format!("fixture needle offset does not fit in u32: {error}"))?;
+    if span.start() <= position && position < span.end() {
+        Ok(())
+    } else {
+        Err(format!("expected {needle:?} at {position} inside {span:?}"))
+    }
 }
 
 #[test]
 fn opaque_blocks_are_opaque_nodes_without_segments() {
     let db = TestDatabase::new();
     let source = "{% verbatim %}raw{% endverbatim %}{% if user %}visible{% endif %}";
-    let tree = tree_for_source(&db, source);
+    let tree = tree_for_source(&db, source).expect("template tree fixture should build");
     let root = root_region(tree, &db);
 
-    let body_span = opaque_body_span(root, "verbatim");
-    assert_position_inside(body_span, source, "raw");
+    let body_span =
+        opaque_body_span(root, "verbatim").expect("fixture should contain the opaque node");
+    assert_position_inside(body_span, source, "raw")
+        .expect("fixture position should fall inside the span");
     assert!(
         !root
             .nodes()
             .iter()
             .any(|node| matches!(node, TemplateNode::Block { tag, .. } if tag == "verbatim"))
+    );
+    assert!(root
+        .nodes()
+        .iter()
+        .any(|node| matches!(node, TemplateNode::Block { tag, role: BlockRole::Opener, .. } if tag == "if")));
+}
+
+#[test]
+fn nonmatching_tag_keeps_the_active_opaque_frame() {
+    let db = TestDatabase::new();
+    let source =
+        "{% verbatim %}{% endcomment %}tail{% endverbatim %}{% if user %}visible{% endif %}";
+    let tree = tree_for_source(&db, source);
+    assert!(tree.is_ok(), "template tree fixture should build");
+    let Some(tree) = tree.ok() else {
+        return;
+    };
+    let root = root_region(tree, &db);
+
+    let body_span = opaque_body_span(root, "verbatim");
+    assert!(
+        body_span.is_some(),
+        "fixture should contain the opaque node"
+    );
+    let Some(body_span) = body_span else {
+        return;
+    };
+    assert!(
+        assert_position_inside(body_span, source, "{% endcomment %}").is_ok(),
+        "nonmatching tag should stay inside the opaque body"
+    );
+    assert!(
+        assert_position_inside(body_span, source, "tail").is_ok(),
+        "content after the nonmatching tag should stay inside the opaque body"
     );
     assert!(root
         .nodes()
@@ -482,8 +561,11 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% opaque_if %}{% if cond %}first{% else %}second{% endif %}{% endopaque_if %}";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let tree = build_template_tree_for_file(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -497,8 +579,10 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
     );
 
     let root = root_region(tree, &db);
-    let body_span = opaque_body_span(root, "opaque_if");
-    assert_position_inside(body_span, source, "{% else %}");
+    let body_span =
+        opaque_body_span(root, "opaque_if").expect("fixture should contain the opaque node");
+    assert_position_inside(body_span, source, "{% else %}")
+        .expect("fixture position should fall inside the span");
     assert!(
         !tree
             .regions(&db)
@@ -543,8 +627,11 @@ fn opaque_closer_name_can_also_be_structured_opener() {
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% raw %}body{% panel %}";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let tree = build_template_tree_for_file(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -559,14 +646,19 @@ fn opaque_closer_name_can_also_be_structured_opener() {
         "opaque closer should win over colliding opener role: {errors:?}"
     );
     assert_position_inside(
-        opaque_body_span(root_region(tree, &db), "raw"),
+        opaque_body_span(root_region(tree, &db), "raw")
+            .expect("fixture should contain the opaque node"),
         source,
         "body",
-    );
+    )
+    .expect("fixture position should fall inside the span");
 
     let outside_source = "{% panel %}body{% endpanel %}";
-    db.add_file("outside.html", outside_source);
-    let outside_file = db.file(Utf8Path::new("outside.html"));
+    db.add_file("outside.html", outside_source)
+        .expect("fixture file should be added to the test database");
+    let outside_file = db
+        .file(Utf8Path::new("outside.html"))
+        .expect("fixture file should exist in the test database");
     let outside_nodelist = parse_template(&db, outside_file).expect("should parse");
     let outside_tree = build_template_tree_for_file(&db, outside_file, outside_nodelist);
     let outside_errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -606,8 +698,11 @@ fn standalone_definitions_win_over_top_level_structural_vocabulary() {
         .with_projectless_tag_specs(specs_with_standalone_structural_spellings());
     let source = "{% endif %}{% else %}{% empty %}";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let tree = build_template_tree_for_file(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -626,7 +721,12 @@ fn standalone_definitions_win_over_top_level_structural_vocabulary() {
         .iter()
         .filter_map(|node| match node {
             TemplateNode::StandaloneTag { tag, .. } => Some(tag.as_str()),
-            _ => None,
+            TemplateNode::Block { .. }
+            | TemplateNode::Opaque { .. }
+            | TemplateNode::Variable { .. }
+            | TemplateNode::Comment { .. }
+            | TemplateNode::Text { .. }
+            | TemplateNode::Error { .. } => None,
         })
         .collect::<Vec<_>>();
     assert_eq!(standalone_tags, ["endif", "else", "empty"]);
@@ -638,8 +738,11 @@ fn matching_branch_context_wins_but_other_collisions_stay_standalone_in_blocks()
         .with_projectless_tag_specs(specs_with_standalone_structural_spellings());
     let source = "{% if condition %}{% empty %}{% else %}after{% endif %}";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let tree = build_template_tree_for_file(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -653,8 +756,10 @@ fn matching_branch_context_wins_but_other_collisions_stay_standalone_in_blocks()
         errors.is_empty(),
         "matching if context should consume else/endif without consuming empty: {errors:?}"
     );
-    let if_container = first_block_body(root_region(tree, &db), "if");
-    let initial_segment = segment_body(tree.regions(&db).get(if_container), "if");
+    let if_container = first_block_body(root_region(tree, &db), "if")
+        .expect("fixture should contain the if block");
+    let initial_segment = segment_body(tree.regions(&db).get(if_container), "if")
+        .expect("fixture should contain the if segment");
     assert!(
         tree.regions(&db)
             .get(initial_segment)
@@ -688,8 +793,11 @@ fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% raw %}body";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let tree = build_template_tree_for_file(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -718,8 +826,11 @@ fn known_opener_and_closer_inside_opaque_block_have_no_structure() {
     let db = TestDatabase::new();
     let source = "{% verbatim %}{% if x %}body{% endif %}{% endverbatim %}";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let tree = build_template_tree_for_file(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -734,9 +845,12 @@ fn known_opener_and_closer_inside_opaque_block_have_no_structure() {
         "known tags inside opaque content should not affect structure: {errors:?}"
     );
 
-    let body_span = opaque_body_span(root_region(tree, &db), "verbatim");
-    assert_position_inside(body_span, source, "{% if x %}");
-    assert_position_inside(body_span, source, "{% endif %}");
+    let body_span = opaque_body_span(root_region(tree, &db), "verbatim")
+        .expect("fixture should contain the opaque node");
+    assert_position_inside(body_span, source, "{% if x %}")
+        .expect("fixture opener should fall inside the opaque span");
+    assert_position_inside(body_span, source, "{% endif %}")
+        .expect("fixture closer should fall inside the opaque span");
     assert!(!tree.regions(&db).iter().flat_map(TemplateRegion::nodes).any(
         |node| matches!(node, TemplateNode::StandaloneTag { tag, .. } if tag == "if" || tag == "endif")
             || matches!(node, TemplateNode::Block { tag, .. } if tag == "if")
@@ -748,8 +862,11 @@ fn outer_closer_inside_opaque_block_has_no_structure() {
     let db = TestDatabase::new();
     let source = "{% if outer %}{% verbatim %}{% endif %}{% endverbatim %}{% endif %}";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let tree = build_template_tree_for_file(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -764,10 +881,14 @@ fn outer_closer_inside_opaque_block_has_no_structure() {
         "outer closer inside opaque content should be raw content: {errors:?}"
     );
 
-    let if_container = first_block_body(root_region(tree, &db), "if");
-    let if_body = segment_body(tree.regions(&db).get(if_container), "if");
-    let body_span = opaque_body_span(tree.regions(&db).get(if_body), "verbatim");
-    assert_position_inside(body_span, source, "{% endif %}");
+    let if_container = first_block_body(root_region(tree, &db), "if")
+        .expect("fixture should contain the if block");
+    let if_body = segment_body(tree.regions(&db).get(if_container), "if")
+        .expect("fixture should contain the if segment");
+    let body_span = opaque_body_span(tree.regions(&db).get(if_body), "verbatim")
+        .expect("fixture should contain the opaque node");
+    assert_position_inside(body_span, source, "{% endif %}")
+        .expect("fixture closer should fall inside the opaque span");
 }
 
 #[test]
@@ -778,7 +899,8 @@ fn top_level_standalone_tags_are_visible() {
         r#"{% extends "base.html" %}
 {% load static i18n %}
 {% include "partials/nav.html" %}"#,
-    );
+    )
+    .expect("template tree fixture should build");
 
     let tags = root_region(tree, &db)
         .nodes()
@@ -788,7 +910,12 @@ fn top_level_standalone_tags_are_visible() {
                 tag.as_str(),
                 bits.iter().map(TagBit::as_str).collect::<Vec<_>>(),
             )),
-            _ => None,
+            TemplateNode::Block { .. }
+            | TemplateNode::Opaque { .. }
+            | TemplateNode::Variable { .. }
+            | TemplateNode::Comment { .. }
+            | TemplateNode::Text { .. }
+            | TemplateNode::Error { .. } => None,
         })
         .collect::<Vec<_>>();
 
@@ -806,13 +933,18 @@ fn nested_blocks_preserve_hierarchy() {
         r"{% block content %}
   {% block title %}Title{% endblock %}
 {% endblock %}",
-    );
+    )
+    .expect("template tree fixture should build");
 
     let root = root_region(tree, &db);
-    let content_container = first_block_body(root, "block");
-    let content_body = segment_body(tree.regions(&db).get(content_container), "block");
-    let title_container = first_block_body(tree.regions(&db).get(content_body), "block");
-    let title_body = segment_body(tree.regions(&db).get(title_container), "block");
+    let content_container =
+        first_block_body(root, "block").expect("fixture should contain the content block");
+    let content_body = segment_body(tree.regions(&db).get(content_container), "block")
+        .expect("fixture should contain the content segment");
+    let title_container = first_block_body(tree.regions(&db).get(content_body), "block")
+        .expect("fixture should contain the title block");
+    let title_body = segment_body(tree.regions(&db).get(title_container), "block")
+        .expect("fixture should contain the title segment");
 
     assert!(
         tree.regions(&db)
@@ -835,9 +967,11 @@ fn intermediate_tags_preserve_segments() {
 {% else %}
   Anonymous
 {% endif %}",
-    );
+    )
+    .expect("template tree fixture should build");
 
-    let if_container = first_block_body(root_region(tree, &db), "if");
+    let if_container = first_block_body(root_region(tree, &db), "if")
+        .expect("fixture should contain the if block");
     let segment_tags = tree
         .regions(&db)
         .get(if_container)
@@ -853,7 +987,13 @@ fn intermediate_tags_preserve_segments() {
                 tag.as_str(),
                 bits.iter().map(TagBit::as_str).collect::<Vec<_>>(),
             )),
-            _ => None,
+            TemplateNode::Block { .. }
+            | TemplateNode::Opaque { .. }
+            | TemplateNode::StandaloneTag { .. }
+            | TemplateNode::Variable { .. }
+            | TemplateNode::Comment { .. }
+            | TemplateNode::Text { .. }
+            | TemplateNode::Error { .. } => None,
         })
         .collect::<Vec<_>>();
 
@@ -871,10 +1011,13 @@ fn standalone_tags_inside_blocks_attach_to_block_region() {
         r#"{% block content %}
   {% include "card.html" %}
 {% endblock %}"#,
-    );
+    )
+    .expect("template tree fixture should build");
 
-    let content_container = first_block_body(root_region(tree, &db), "block");
-    let content_body = segment_body(tree.regions(&db).get(content_container), "block");
+    let content_container = first_block_body(root_region(tree, &db), "block")
+        .expect("fixture should contain the content block");
+    let content_body = segment_body(tree.regions(&db).get(content_container), "block")
+        .expect("fixture should contain the content segment");
     assert!(
         tree.regions(&db)
             .get(content_body)
@@ -896,8 +1039,11 @@ fn malformed_recovery_is_best_effort() {
   {% if user %}
 {% endblock %}";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let tree = build_template_tree_for_file(&db, file, nodelist);
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
@@ -931,7 +1077,8 @@ fn custom_block_tags_from_specs_are_blocks() {
         ),
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
-    let tree = tree_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
+    let tree = tree_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}")
+        .expect("template tree fixture should build");
 
     assert!(root_region(tree, &db).nodes().iter().any(|node| matches!(
         node,
@@ -951,8 +1098,11 @@ fn test_endblock_name_mismatch() {
 {% endblock fdsaf %}
 ";
 
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
+    db.add_file("test.html", source)
+        .expect("fixture file should be added to the test database");
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
         &db, file, nodelist,

@@ -170,10 +170,12 @@ mod tests {
 
         fn create_python_file(&self, source: &str) -> djls_source::File {
             let path = "test_module.py";
-            self.fs
-                .lock()
-                .unwrap()
-                .add_file(path.into(), source.to_string());
+            match self.fs.lock() {
+                Ok(mut fs) => fs.add_file(path.into(), source.to_string()),
+                Err(poisoned) => poisoned
+                    .into_inner()
+                    .add_file(path.into(), source.to_string()),
+            }
             path_to_file(self, Utf8Path::new(path))
                 .expect("inserted Python fixture should be visible")
         }
@@ -254,7 +256,7 @@ mod tests {
         let main_func = funcs
             .iter()
             .find(|f| f.name.as_str() == func_name)
-            .unwrap_or_else(|| panic!("function '{func_name}' not found in source"));
+            .expect("requested function should exist in source");
 
         let parser_param = main_func
             .parameters

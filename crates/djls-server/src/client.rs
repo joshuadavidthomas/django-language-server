@@ -311,7 +311,8 @@ mod tests {
             ClientOptions::default(),
         );
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.html")
+                .expect("test HTML file URI should parse"),
             language_id: "html".to_string(),
             version: 1,
             text: String::new(),
@@ -327,7 +328,8 @@ mod tests {
         let capabilities = ls_types::ClientCapabilities::default();
         let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.html")
+                .expect("test HTML file URI should parse"),
             language_id: "html".to_string(),
             version: 1,
             text: String::new(),
@@ -343,7 +345,8 @@ mod tests {
         let capabilities = ls_types::ClientCapabilities::default();
         let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
         let doc = ls_types::TextDocumentItem {
-            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
+            uri: ls_types::Uri::from_str("file:///test.html")
+                .expect("test HTML file URI should parse"),
             language_id: "django-html".to_string(),
             version: 1,
             text: String::new(),

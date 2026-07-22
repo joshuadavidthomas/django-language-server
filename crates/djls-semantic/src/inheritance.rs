@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use djls_project::Project;
+use djls_project::ScopedTemplateReferenceResolution;
 use djls_project::TemplateBackendScope;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
@@ -109,73 +110,109 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
             break ChainEnd::Unresolved { name: raw_name };
         }
 
-        let found_file = scoped
-            .first()
-            .and_then(|(outcome, _)| match outcome.result {
-                TemplateResolutionResult::Found(origin) => Some(origin.file(db)),
-                TemplateResolutionResult::DoesNotExist(_)
-                | TemplateResolutionResult::Inconclusive(_) => None,
-            });
-        if let Some(parent_file) = found_file
-            && scoped.iter().all(|(outcome, _)| {
-                matches!(outcome.result, TemplateResolutionResult::Found(origin) if origin.file(db) == parent_file)
-            })
-        {
-            let mut next_origins = Vec::new();
-            for (outcome, scope) in scoped {
-                let TemplateResolutionResult::Found(origin) = outcome.result else {
-                    unreachable!("the joined parent outcome was checked as found")
+        match join_parent_resolutions(db, &scoped) {
+            JoinedParentResolution::Found {
+                file: parent_file,
+                representative,
+                origins: next_origins,
+            } => {
+                current_file = parent_file;
+                ancestors.push(representative);
+                for (origin, _) in &next_origins {
+                    if !excluded.contains(origin) {
+                        excluded.push(*origin);
+                    }
+                }
+                current_origins = next_origins;
+            }
+            JoinedParentResolution::DoesNotExist => {
+                let cycle = scoped.iter().all(|(outcome, scope)| {
+                    resolution
+                        .resolve_reference_from_origin_in_scope(
+                            db,
+                            outcome.source,
+                            raw_template_name,
+                            &[],
+                            false,
+                            scope,
+                        )
+                        .is_some_and(|without_exclusions| {
+                            matches!(without_exclusions.result, TemplateResolutionResult::Found(origin) if excluded.iter().any(|excluded| excluded.file(db) == origin.file(db)))
+                        })
+                });
+                break if cycle {
+                    ChainEnd::Cycle
+                } else {
+                    ChainEnd::Unresolved { name: raw_name }
                 };
-                if !next_origins
-                    .iter()
-                    .any(|(existing, existing_scope)| *existing == origin && existing_scope == &scope)
-                {
-                    next_origins.push((origin, scope));
-                }
             }
-            let representative = next_origins[0].0;
-            current_file = parent_file;
-            ancestors.push(representative);
-            for (origin, _) in &next_origins {
-                if !excluded.contains(origin) {
-                    excluded.push(*origin);
-                }
+            // Different normalized names, backend-local winners, or incomplete searches cannot
+            // be collapsed to one safe parent chain.
+            JoinedParentResolution::Inconclusive => {
+                break ChainEnd::InconclusiveParent { name: raw_name };
             }
-            current_origins = next_origins;
-            continue;
         }
-
-        if scoped
-            .iter()
-            .all(|(outcome, _)| matches!(outcome.result, TemplateResolutionResult::DoesNotExist(_)))
-        {
-            let cycle = scoped.iter().all(|(outcome, scope)| {
-                resolution
-                    .resolve_reference_from_origin_in_scope(
-                        db,
-                        outcome.source,
-                        raw_template_name,
-                        &[],
-                        false,
-                        scope,
-                    )
-                    .is_some_and(|without_exclusions| {
-                        matches!(without_exclusions.result, TemplateResolutionResult::Found(origin) if excluded.iter().any(|excluded| excluded.file(db) == origin.file(db)))
-                    })
-            });
-            break if cycle {
-                ChainEnd::Cycle
-            } else {
-                ChainEnd::Unresolved { name: raw_name }
-            };
-        }
-
-        // Different normalized names, backend-local winners, or incomplete searches cannot be
-        // collapsed to one safe parent chain.
-        break ChainEnd::InconclusiveParent { name: raw_name };
     };
 
     TemplateInheritance::new(db, ancestors, end)
+}
+
+enum JoinedParentResolution<'db> {
+    Found {
+        file: File,
+        representative: TemplateOrigin<'db>,
+        origins: Vec<(TemplateOrigin<'db>, TemplateBackendScope)>,
+    },
+    DoesNotExist,
+    Inconclusive,
+}
+
+fn join_parent_resolutions<'db>(
+    db: &'db dyn Db,
+    scoped: &[(ScopedTemplateReferenceResolution<'db>, TemplateBackendScope)],
+) -> JoinedParentResolution<'db> {
+    let mut found = None;
+    let mut origins = Vec::new();
+    let mut missing = false;
+
+    for (outcome, scope) in scoped {
+        match &outcome.result {
+            TemplateResolutionResult::Found(origin) => {
+                let file = origin.file(db);
+                if missing || found.is_some_and(|(found_file, _)| found_file != file) {
+                    return JoinedParentResolution::Inconclusive;
+                }
+                if found.is_none() {
+                    found = Some((file, *origin));
+                }
+                if !origins
+                    .iter()
+                    .any(|(existing, existing_scope)| existing == origin && existing_scope == scope)
+                {
+                    origins.push((*origin, scope.clone()));
+                }
+            }
+            TemplateResolutionResult::DoesNotExist(_) => {
+                if found.is_some() {
+                    return JoinedParentResolution::Inconclusive;
+                }
+                missing = true;
+            }
+            TemplateResolutionResult::Inconclusive(_) => {
+                return JoinedParentResolution::Inconclusive;
+            }
+        }
+    }
+
+    match found {
+        Some((file, representative)) => JoinedParentResolution::Found {
+            file,
+            representative,
+            origins,
+        },
+        None if missing => JoinedParentResolution::DoesNotExist,
+        None => JoinedParentResolution::Inconclusive,
+    }
 }
 
 fn inheritance_origins<'db>(

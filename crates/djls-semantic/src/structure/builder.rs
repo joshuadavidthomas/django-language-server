@@ -60,16 +60,14 @@ pub(crate) struct TemplateTreeBuilder<'grammar> {
 
 impl<'grammar> TemplateTreeBuilder<'grammar> {
     pub(crate) fn new(_db: &dyn Db, grammar: &'grammar SparseTagGrammar) -> Self {
-        let mut builder = Self {
+        Self {
             grammar,
             root: RegionId::new(0),
             stack: Vec::new(),
-            region_allocs: Vec::new(),
+            region_allocs: vec![(Span::new(0, 0), None)],
             captured_closers: Vec::new(),
             ops: Vec::new(),
-        };
-        builder.root = builder.alloc_region_id(Span::new(0, 0), None);
-        builder
+        }
     }
 
     pub(crate) fn model_data(mut self, db: &dyn Db, nodelist: NodeList<'_>) -> TemplateTreeData {
@@ -80,12 +78,21 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
         self.apply_operations()
     }
 
-    fn alloc_region_id(&mut self, span: Span, parent: Option<RegionId>) -> RegionId {
-        let id = RegionId::new(
-            u32::try_from(self.region_allocs.len()).expect("template region count overflow"),
-        );
-        self.region_allocs.push((span, parent));
+    fn alloc_region(&mut self, span: Span, parent: RegionId) -> RegionId {
+        let id = RegionId::new(self.region_allocs.len());
+        self.region_allocs.push((span, Some(parent)));
         id
+    }
+
+    fn alloc_block_regions(
+        &mut self,
+        container_span: Span,
+        segment_span: Span,
+        parent: RegionId,
+    ) -> (RegionId, RegionId) {
+        let container_id = self.alloc_region(container_span, parent);
+        let segment_id = self.alloc_region(segment_span, container_id);
+        (container_id, segment_id)
     }
 
     fn apply_operations(self) -> TemplateTreeData {
@@ -97,12 +104,8 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
             ..
         } = self;
 
-        let mut regions = Regions::default();
+        let mut regions = Regions::from_allocations(region_allocs);
         let mut diagnostics = Vec::new();
-
-        for (span, parent) in region_allocs {
-            regions.alloc(span, parent);
-        }
 
         for op in ops {
             match op {
@@ -179,11 +182,9 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                     return;
                 }
 
-                let container = self.alloc_region_id(span, Some(parent));
-                let segment = self.alloc_region_id(
-                    Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0),
-                    Some(container),
-                );
+                let segment_span =
+                    Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0);
+                let (container, segment) = self.alloc_block_regions(span, segment_span, parent);
 
                 self.ops.push(TreeOp::AddNode {
                     target: parent,
@@ -243,16 +244,14 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
         span: Span,
         full_span: Span,
     ) -> bool {
-        let should_close = matches!(
-            self.stack.last(),
-            Some(TreeFrame::Opaque(frame)) if frame.contract.closer == closer_name
-        );
-        if !should_close {
-            return false;
-        }
-
-        let Some(TreeFrame::Opaque(frame)) = self.stack.pop() else {
-            unreachable!("checked active opaque frame before pop")
+        let frame = match self.stack.pop() {
+            Some(TreeFrame::Opaque(frame)) if frame.contract.closer == closer_name => frame,
+            Some(frame) => {
+                // Returning false promises the caller that this tag did not change frame state.
+                self.stack.push(frame);
+                return false;
+            }
+            None => return false,
         };
         self.capture_closer(closer_name, name_span, closer_bits, full_span);
         match OpeningContract::validate_close(&frame.bits, closer_bits) {
@@ -331,7 +330,9 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
             }
         }
 
-        let frame = self.stack.pop().unwrap();
+        let Some(frame) = self.stack.pop() else {
+            return;
+        };
         self.capture_closer(closer_name, name_span, closer_bits, full_span);
         match OpeningContract::validate_close(frame.opener_bits(), closer_bits) {
             CloseValidation::Valid => {
@@ -420,14 +421,13 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
             let segment_to_finalize = frame.segment_body;
             let container = frame.container_body;
 
+            let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+            let new_segment_id = self.alloc_region(Span::new(body_start, 0), container);
+
             self.ops.push(TreeOp::FinalizeSpanTo {
                 id: segment_to_finalize,
                 end: content_end,
             });
-
-            let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-            let new_segment_id = self.alloc_region_id(Span::new(body_start, 0), Some(container));
-
             self.ops.push(TreeOp::AddNode {
                 target: container,
                 node: TemplateNode::Block {

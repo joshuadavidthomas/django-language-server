@@ -56,7 +56,7 @@ impl ProgressReporter {
         let create_token = token.clone();
         tokio::spawn(async move {
             let result = create_client.create_work_done_progress(create_token).await;
-            let _ = created_tx.send(result);
+            drop(created_tx.send(result));
         });
 
         match tokio::time::timeout(CREATE_PROGRESS_TIMEOUT, created_rx).await {

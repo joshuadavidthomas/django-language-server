@@ -506,7 +506,7 @@ fn unresolved_import_path_reason(
                 binding: binding.unwrap_or_default().to_string(),
             }
         }
-        ModelImportPathResolutionError::InvalidTarget(target) => {
+        ModelImportPathResolutionError::InvalidTarget { target, .. } => {
             RelationTargetUnresolvedReason::InvalidImportedTarget { target }
         }
     }
@@ -1031,13 +1031,15 @@ mod tests {
     use super::*;
 
     fn module_name(name: &str) -> PythonModuleName {
-        PythonModuleName::parse(name).unwrap()
+        PythonModuleName::parse(name).expect("test Python module name should be valid")
     }
 
     fn test_file() -> File {
         let db = TestDatabase::new();
-        db.add_file("/test.py", "");
+        db.add_file("/test.py", "")
+            .expect("model graph fixture should be added to the test database");
         db.file(Utf8Path::new("/test.py"))
+            .expect("model graph fixture should exist in the test database")
     }
 
     fn test_span(start: u32) -> Span {
@@ -1540,7 +1542,9 @@ mod tests {
         graph.add_model(model_def("User", module_name("auth.models"), 1));
         graph.add_model(model_def("User", module_name("auth.models"), 2));
 
-        let expected_id = "auth.models.User".parse::<ModelId>().unwrap();
+        let expected_id = "auth.models.User"
+            .parse::<ModelId>()
+            .expect("test model ID should be valid");
         let model = graph
             .lookup("auth", "User")
             .expect("overwritten model should exist");
@@ -1558,7 +1562,9 @@ mod tests {
         g2.add_model(model_def("User", module_name("auth.models"), 2));
 
         g1.merge(g2);
-        let expected_id = "auth.models.User".parse::<ModelId>().unwrap();
+        let expected_id = "auth.models.User"
+            .parse::<ModelId>()
+            .expect("test model ID should be valid");
         let model = g1
             .lookup("auth", "User")
             .expect("merged model should exist");

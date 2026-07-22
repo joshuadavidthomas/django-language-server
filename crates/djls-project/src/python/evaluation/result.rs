@@ -121,6 +121,21 @@ impl PythonModuleEvaluation {
     }
 }
 
+impl PythonModuleFacts {
+    /// Conservative facts for a cycle seed observed before evaluation reaches a fixed point.
+    pub(super) fn cycle_seed() -> Self {
+        Self {
+            namespace_remainder: Some(PythonNamespaceRemainder::new(vec![
+                PythonNamespaceCause::unconstrained(PythonUnknown::new(
+                    PythonUnknownCause::Cycle,
+                    None,
+                )),
+            ])),
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct EvaluatedPythonModule {
     facts: Result<PythonModuleFacts, FileReadError>,
@@ -169,11 +184,14 @@ impl PythonImportTrace {
     /// Replace the loader's terminal not-found evidence when import
     /// application recognizes a supported standard-library intrinsic whose
     /// body remains deliberately external to static evaluation.
+    ///
+    /// Returns the replaced outcome's origin, or `None` when the trace has no
+    /// matching not-found outcome and remains unchanged.
     pub(super) fn recognize_external_intrinsic(
         &mut self,
         missing: &PythonModuleName,
         external: PythonModuleName,
-    ) {
+    ) -> Option<Origin> {
         let origin = self
             .imports
             .iter()
@@ -187,8 +205,7 @@ impl PythonImportTrace {
                 | PythonImportOutcome::NotFound { .. }
                 | PythonImportOutcome::SkippedExternal { .. }
                 | PythonImportOutcome::Unreadable { .. } => None,
-            })
-            .expect("an intrinsic fallback replaces its recorded not-found outcome");
+            })?;
         self.imports.retain(|outcome| {
             !matches!(
                 outcome,
@@ -202,6 +219,7 @@ impl PythonImportTrace {
             origin,
             module: external,
         });
+        Some(origin)
     }
 
     pub(super) fn absorb(&mut self, other: &Self) {
@@ -279,24 +297,8 @@ pub(crate) enum PythonImportEvaluationStatus {
     },
 }
 
-impl PythonImportEvaluationStatus {
-    /// Status precedence preserves the former variant-name ordering:
-    /// Cycle < Resolved < `SyntaxErrors`.
-    fn structural_rank(&self) -> u8 {
-        match self {
-            Self::Cycle { .. } => 0,
-            Self::Resolved => 1,
-            Self::SyntaxErrors(_) => 2,
-        }
-    }
-}
-
 impl StructuralOrd for PythonImportEvaluationStatus {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        let ordering = self.structural_rank().cmp(&other.structural_rank());
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
         match (self, other) {
             (Self::Resolved, Self::Resolved) => Ordering::Equal,
             (Self::SyntaxErrors(left), Self::SyntaxErrors(right))
@@ -308,10 +310,10 @@ impl StructuralOrd for PythonImportEvaluationStatus {
                     syntax_errors: right,
                 },
             ) => left.as_slice().structural_cmp(right.as_slice()),
-            (
-                Self::Resolved | Self::SyntaxErrors(_) | Self::Cycle { .. },
-                Self::Resolved | Self::SyntaxErrors(_) | Self::Cycle { .. },
-            ) => unreachable!("equal import-status ranks identify the same variant"),
+            (Self::Cycle { .. }, Self::Resolved | Self::SyntaxErrors(_))
+            | (Self::Resolved, Self::SyntaxErrors(_)) => Ordering::Less,
+            (Self::Resolved | Self::SyntaxErrors(_), Self::Cycle { .. })
+            | (Self::SyntaxErrors(_), Self::Resolved) => Ordering::Greater,
         }
     }
 }
@@ -379,25 +381,8 @@ pub(crate) enum PythonImportOutcome {
     },
 }
 
-impl PythonImportOutcome {
-    /// Outcome precedence preserves the established observable variant order.
-    fn structural_rank(&self) -> u8 {
-        match self {
-            Self::Evaluated { .. } => 0,
-            Self::InvalidImport { .. } => 1,
-            Self::NotFound { .. } => 2,
-            Self::SkippedExternal { .. } => 3,
-            Self::Unreadable { .. } => 4,
-        }
-    }
-}
-
 impl StructuralOrd for PythonImportOutcome {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        let ordering = self.structural_rank().cmp(&other.structural_rank());
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
         match (self, other) {
             (
                 Self::Evaluated {
@@ -458,17 +443,31 @@ impl StructuralOrd for PythonImportOutcome {
                 .structural_cmp(right_edge)
                 .then_with(|| left_error.structural_cmp(right_error)),
             (
-                Self::Evaluated { .. }
-                | Self::InvalidImport { .. }
+                Self::Evaluated { .. },
+                Self::InvalidImport { .. }
                 | Self::NotFound { .. }
                 | Self::SkippedExternal { .. }
                 | Self::Unreadable { .. },
-                Self::Evaluated { .. }
-                | Self::InvalidImport { .. }
+            )
+            | (
+                Self::InvalidImport { .. },
+                Self::NotFound { .. } | Self::SkippedExternal { .. } | Self::Unreadable { .. },
+            )
+            | (Self::NotFound { .. }, Self::SkippedExternal { .. } | Self::Unreadable { .. })
+            | (Self::SkippedExternal { .. }, Self::Unreadable { .. }) => Ordering::Less,
+            (
+                Self::InvalidImport { .. }
                 | Self::NotFound { .. }
                 | Self::SkippedExternal { .. }
                 | Self::Unreadable { .. },
-            ) => unreachable!("equal import-outcome ranks identify the same variant"),
+                Self::Evaluated { .. },
+            )
+            | (
+                Self::NotFound { .. } | Self::SkippedExternal { .. } | Self::Unreadable { .. },
+                Self::InvalidImport { .. },
+            )
+            | (Self::SkippedExternal { .. } | Self::Unreadable { .. }, Self::NotFound { .. })
+            | (Self::Unreadable { .. }, Self::SkippedExternal { .. }) => Ordering::Greater,
         }
     }
 }
@@ -720,19 +719,12 @@ impl ImportGraph {
                     } else {
                         CycleMembership::Acyclic
                     };
-                    if let Some(index) = normalized.iter().position(|outcome| {
+                    if let Some(PythonImportOutcome::Evaluated {
+                        status: existing, ..
+                    }) = normalized.iter_mut().find(|outcome| {
                         matches!(outcome, PythonImportOutcome::Evaluated { edge: candidate, .. } if candidate == &edge)
                     }) {
-                        let PythonImportOutcome::Evaluated {
-                            status: existing, ..
-                        } = normalized.remove(index)
-                        else {
-                            unreachable!("matched evaluated import outcome")
-                        };
-                        normalized.push(PythonImportOutcome::Evaluated {
-                            edge,
-                            status: existing.merged(status, membership),
-                        });
+                        *existing = existing.clone().merged(status, membership);
                     } else {
                         normalized.push(PythonImportOutcome::Evaluated {
                             edge,
@@ -916,14 +908,16 @@ mod tests {
         assert!(bound.value.origins().next().is_none());
         assert!(bound.binding_origins().next().is_none());
 
-        let [cause] = facts
+        let cause = match facts
             .namespace_remainder
             .as_ref()
             .expect("changed namespace should widen")
             .as_slice()
-        else {
-            panic!("namespace widening should produce one cycle cause");
-        };
+        {
+            [cause] => Some(cause),
+            _ => None,
+        }
+        .expect("namespace widening should produce one cycle cause");
         assert_eq!(cause.unknown.cause, PythonUnknownCause::Cycle);
         assert!(cause.unknown.origins().next().is_none());
     }
@@ -977,7 +971,7 @@ mod tests {
     fn module(name: &str, id: u64) -> PythonSourceModule {
         let path = format!("/project/{name}.py");
         PythonSourceModule::file_module(
-            PythonModuleName::parse(name).unwrap(),
+            PythonModuleName::parse(name).expect("test Python module name should be valid"),
             Utf8PathBuf::from(&path),
             File::from_id(Id::from_bits(id)),
             SearchPath::FirstParty(Utf8PathBuf::from("/project")),
@@ -1003,6 +997,51 @@ mod tests {
         PythonImportEvaluationStatus::Cycle {
             syntax_errors: Vec::new(),
         }
+    }
+
+    #[test]
+    fn cycle_seed_facts_keep_the_namespace_open_with_cycle_evidence() {
+        let facts = PythonModuleFacts::cycle_seed();
+
+        assert!(facts.bindings.is_empty());
+        assert_eq!(
+            facts
+                .namespace_remainder
+                .as_ref()
+                .and_then(|remainder| remainder.as_slice().first())
+                .map(|cause| &cause.unknown.cause),
+            Some(&PythonUnknownCause::Cycle)
+        );
+    }
+
+    #[test]
+    fn external_intrinsic_recognition_requires_matching_not_found_evidence() {
+        let missing = module("missing", 1).name().clone();
+        let external = module("external", 2).name().clone();
+        let outcome_origin = origin(1, 4);
+        let mut trace = PythonImportTrace::default();
+
+        assert_eq!(
+            trace.recognize_external_intrinsic(&missing, external.clone()),
+            None
+        );
+        assert!(trace.imports().next().is_none());
+
+        trace.record_outcome(PythonImportOutcome::NotFound {
+            origin: outcome_origin,
+            module: missing.clone(),
+        });
+        assert_eq!(
+            trace.recognize_external_intrinsic(&missing, external.clone()),
+            Some(outcome_origin)
+        );
+        assert_eq!(
+            trace.imports().collect::<Vec<_>>(),
+            vec![&PythonImportOutcome::SkippedExternal {
+                origin: outcome_origin,
+                module: external,
+            }]
+        );
     }
 
     #[test]
@@ -1100,11 +1139,13 @@ mod tests {
             },
             PythonImportOutcome::NotFound {
                 origin: edge.origin,
-                module: PythonModuleName::parse("missing").unwrap(),
+                module: PythonModuleName::parse("missing")
+                    .expect("test Python module name should be valid"),
             },
             PythonImportOutcome::SkippedExternal {
                 origin: edge.origin,
-                module: PythonModuleName::parse("external").unwrap(),
+                module: PythonModuleName::parse("external")
+                    .expect("test Python module name should be valid"),
             },
             PythonImportOutcome::Unreadable {
                 edge,
@@ -1176,21 +1217,25 @@ mod tests {
             (
                 PythonImportOutcome::NotFound {
                     origin: edge.origin,
-                    module: PythonModuleName::parse("a").unwrap(),
+                    module: PythonModuleName::parse("a")
+                        .expect("test Python module name should be valid"),
                 },
                 PythonImportOutcome::NotFound {
                     origin: Origin::new(edge.origin.file, Span::new(2, 1)),
-                    module: PythonModuleName::parse("b").unwrap(),
+                    module: PythonModuleName::parse("b")
+                        .expect("test Python module name should be valid"),
                 },
             ),
             (
                 PythonImportOutcome::SkippedExternal {
                     origin: edge.origin,
-                    module: PythonModuleName::parse("a").unwrap(),
+                    module: PythonModuleName::parse("a")
+                        .expect("test Python module name should be valid"),
                 },
                 PythonImportOutcome::SkippedExternal {
                     origin: edge.origin,
-                    module: PythonModuleName::parse("b").unwrap(),
+                    module: PythonModuleName::parse("b")
+                        .expect("test Python module name should be valid"),
                 },
             ),
             (
@@ -1298,13 +1343,9 @@ mod tests {
         let second = module("same", 16);
         let forward = evaluated_edge(&first, &second, cycle_status());
         let reverse = evaluated_edge(&second, &first, cycle_status());
-        let PythonImportOutcome::Evaluated {
-            edge: expected_edge,
-            ..
-        } = &forward
-        else {
-            unreachable!("helper always creates an evaluated edge")
-        };
+        let expected_edge = forward
+            .edge()
+            .expect("the evaluated-edge fixture should contain an import edge");
 
         let first_order =
             ImportGraph::new([forward.clone(), reverse.clone()].into_iter().collect())

@@ -262,7 +262,7 @@ mod tests {
             .count()
     }
 
-    fn install_project_fixture(db: &mut TestDatabase) {
+    fn install_project_fixture(db: &mut TestDatabase) -> Result<(), Box<dyn std::error::Error>> {
         ProjectFixture::new("/project")
             .django_settings_module("settings")
             .file(
@@ -274,15 +274,18 @@ mod tests {
                 "from django import template\nregister = template.Library()\n@register.simple_tag\ndef hello(): pass\n@register.filter\ndef shout(value): pass\n",
             )
             .file("/project/templates/page.html", "{% hello %}{{ value|shout }}")
-            .install(db);
+            .install(db)?;
+        Ok(())
     }
 
     #[test]
     fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
         let events = SalsaEventLog::default();
         let mut db = TestDatabase::with_event_log(events.clone());
-        install_project_fixture(&mut db);
-        let _ = events.take();
+        install_project_fixture(&mut db).expect("warmup project fixture should install");
+        events
+            .take()
+            .expect("initial warmup Salsa events should be cleared");
 
         let primed = prime_template_library_products(&db).expect("fixture has a Project");
         let covered_paths: Vec<_> = primed
@@ -300,7 +303,9 @@ mod tests {
         );
         assert_eq!(primed.full_reload_files().len(), 1);
 
-        let names = events.take_will_execute_names(&db);
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("warmup Salsa events should be read");
         assert_eq!(
             execution_count(&names, "library_tag_specs"),
             primed.library_count()
@@ -324,7 +329,9 @@ mod tests {
 
         let repeated = prime_template_library_products(&db).expect("fixture has a Project");
         assert_eq!(repeated, primed);
-        let names = events.take_will_execute_names(&db);
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("repeated warmup Salsa events should be read");
         for intrinsic in [
             "template_library_definition_facts",
             "library_tag_specs",
@@ -343,14 +350,18 @@ mod tests {
     fn project_template_preparation_orders_and_reuses_shared_products() {
         let events = SalsaEventLog::default();
         let mut db = TestDatabase::with_event_log(events.clone());
-        install_project_fixture(&mut db);
-        let _ = events.take();
+        install_project_fixture(&mut db).expect("warmup project fixture should install");
+        events
+            .take()
+            .expect("initial warmup Salsa events should be cleared");
 
         prepare_project_template_analysis(&db).expect("fixture has a Project");
         let project = db.project().expect("fixture has a Project");
         assert_eq!(template_resolution(&db, project).origins(&db).count(), 1);
 
-        let names = events.take_will_execute_names(&db);
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("preparation Salsa events should be read");
         let intrinsic_position = names
             .iter()
             .position(|name| name.rsplit("::").next() == Some("semantic_grammar_vocabulary"))
@@ -362,7 +373,9 @@ mod tests {
         assert!(intrinsic_position < index_position);
 
         assert_eq!(prepare_project_template_analysis(&db), Some(()));
-        let repeated_names = events.take_will_execute_names(&db);
+        let repeated_names = events
+            .take_will_execute_names(&db)
+            .expect("repeated preparation Salsa events should be read");
         for shared_query in ["semantic_grammar_vocabulary", "template_directory_index"] {
             assert_eq!(
                 execution_count(&repeated_names, shared_query),

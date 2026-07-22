@@ -12,22 +12,22 @@ pub struct TemplateTree<'db> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
-pub struct RegionId(u32);
+pub struct RegionId(usize);
 
 impl RegionId {
     #[must_use]
-    pub(crate) fn new(id: u32) -> Self {
+    pub(crate) fn new(id: usize) -> Self {
         Self(id)
     }
 
     #[must_use]
-    pub fn id(self) -> u32 {
+    pub fn id(self) -> usize {
         self.0
     }
 
     #[must_use]
     fn index(self) -> usize {
-        self.0 as usize
+        self.0
     }
 }
 
@@ -44,16 +44,15 @@ impl Regions {
         self.0.iter()
     }
 
-    /// Allocate a new region in the template tree.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the number of regions exceeds `u32::MAX`.
-    pub(crate) fn alloc(&mut self, span: Span, parent: Option<RegionId>) -> RegionId {
-        let next = self.0.len();
-        let id = u32::try_from(next).expect("too many regions (overflow u32::MAX)");
-        self.0.push(TemplateRegion::new(span, parent));
-        RegionId(id)
+    pub(crate) fn from_allocations(
+        allocations: impl IntoIterator<Item = (Span, Option<RegionId>)>,
+    ) -> Self {
+        Self(
+            allocations
+                .into_iter()
+                .map(|(span, parent)| TemplateRegion::new(span, parent))
+                .collect(),
+        )
     }
 
     pub(crate) fn extend_region(&mut self, id: RegionId, span: Span) {
@@ -210,5 +209,20 @@ impl TemplateNode {
             | TemplateNode::Comment { span }
             | TemplateNode::Text { span } => *span,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::size_of;
+
+    use super::RegionId;
+
+    #[test]
+    fn region_id_preserves_the_platform_index_range() {
+        let id = RegionId::new(usize::MAX);
+
+        assert_eq!(id.id(), usize::MAX);
+        assert_eq!(size_of::<RegionId>(), size_of::<usize>());
     }
 }

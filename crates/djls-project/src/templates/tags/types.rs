@@ -170,8 +170,8 @@ pub enum ArgumentCountConstraint {
 /// - `Backward(1)` is the last element
 ///
 /// The evaluator in `djls-semantic` works with `bits` (arguments only, tag name
-/// excluded). Use `arg_index()` to convert to the 0-based argument index, or
-/// `to_bits_index(bits_len)` to resolve backward positions.
+/// excluded). Use `to_bits_index(bits_len)` to convert to a 0-based argument
+/// index and resolve backward positions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SplitPosition {
     /// Absolute position from start (0 = tag name, 1 = first arg, ...)
@@ -181,19 +181,6 @@ pub enum SplitPosition {
 }
 
 impl SplitPosition {
-    /// Convert to a 0-based argument index (in `bits` coordinates where tag
-    /// name is excluded).
-    ///
-    /// Returns `None` for the tag name position (`Forward(0)`) and for backward
-    /// positions (which require knowing the total length to resolve).
-    #[must_use]
-    pub(crate) fn arg_index(&self) -> Option<usize> {
-        match self {
-            Self::Forward(0) | Self::Backward(_) => None,
-            Self::Forward(n) => Some(n - 1),
-        }
-    }
-
     /// Resolve this position to a `bits` index given the `bits` length
     /// (arguments only, tag name excluded).
     ///

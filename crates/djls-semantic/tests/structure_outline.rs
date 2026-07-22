@@ -15,11 +15,20 @@ use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
 
-fn outline_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Vec<OutlineItem> {
-    db.add_file("test.html", source);
-    let file = db.file(Utf8Path::new("test.html"));
-    let nodelist = parse_template(db, file).expect("should parse");
-    build_template_outline_for_file(db, file, nodelist)
+fn outline_for_source<'db>(
+    db: &'db TestDatabase,
+    source: &str,
+) -> anyhow::Result<&'db Vec<OutlineItem>> {
+    db.add_file("test.html", source)?;
+    let file = db.file(Utf8Path::new("test.html"))?;
+    let nodelist = match parse_template(db, file) {
+        djls_templates::TemplateParseResult::Parsed(nodelist) => nodelist,
+        djls_templates::TemplateParseResult::NotTemplate => {
+            anyhow::bail!("fixture file is not a template")
+        }
+        djls_templates::TemplateParseResult::Unreadable(error) => return Err(error.into()),
+    };
+    Ok(build_template_outline_for_file(db, file, nodelist))
 }
 
 fn labels(items: &[OutlineItem]) -> Vec<&str> {
@@ -32,7 +41,7 @@ fn header_tags_produce_outline_items() {
     let source = r#"{% extends "base.html" %}
 {% load static i18n %}
 {% include "partials/nav.html" %}"#;
-    let outline = outline_for_source(&db, source);
+    let outline = outline_for_source(&db, source).expect("template outline fixture should build");
 
     assert_eq!(
         labels(outline),
@@ -56,12 +65,19 @@ fn header_tags_produce_outline_items() {
     );
     assert_eq!(
         outline[0].selection_span,
-        Span::saturating_from_parts_usize(source.find("base.html").unwrap(), "base.html".len())
+        Span::saturating_from_parts_usize(
+            source
+                .find("base.html")
+                .expect("fixture should contain the parent template name"),
+            "base.html".len()
+        )
     );
     assert_eq!(
         outline[3].selection_span,
         Span::saturating_from_parts_usize(
-            source.find("partials/nav.html").unwrap(),
+            source
+                .find("partials/nav.html")
+                .expect("fixture should contain the included template name"),
             "partials/nav.html".len()
         )
     );
@@ -84,9 +100,12 @@ fn outline_roles_follow_load_position() {
             "/test/project/templates/page.html",
             "{% include 'before.html' %}{% load custom %}{% include 'after.html' %}",
         )
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
     db.set_project(project);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
 
     let outline = build_template_outline_for_file(&db, file, nodelist);
@@ -111,7 +130,8 @@ fn loader_role_outline_does_not_depend_on_load_spelling() {
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
-    let outline = outline_for_source(&db, "{% use_library custom_tags %}");
+    let outline = outline_for_source(&db, "{% use_library custom_tags %}")
+        .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["custom_tags"]);
     assert_eq!(outline[0].kind, OutlineKind::TemplateLibrary);
@@ -121,7 +141,8 @@ fn loader_role_outline_does_not_depend_on_load_spelling() {
 #[test]
 fn selective_load_uses_library_as_outline_item_with_imported_symbols() {
     let db = TestDatabase::new();
-    let outline = outline_for_source(&db, "{% load trans blocktrans from i18n %}");
+    let outline = outline_for_source(&db, "{% load trans blocktrans from i18n %}")
+        .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["i18n"]);
     assert_eq!(outline[0].kind, OutlineKind::TemplateLibrary);
@@ -150,7 +171,8 @@ fn nested_blocks_produce_nested_outline_items() {
         r"{% block content %}
   {% block title %}Title{% endblock %}
 {% endblock %}",
-    );
+    )
+    .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["content"]);
     assert_eq!(labels(&outline[0].children), vec!["title"]);
@@ -164,7 +186,8 @@ fn standalone_tag_items_inside_blocks_are_nested() {
         r#"{% block content %}
   {% include "card.html" %}
 {% endblock %}"#,
-    );
+    )
+    .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["content"]);
     assert_eq!(labels(&outline[0].children), vec!["card.html"]);
@@ -187,7 +210,8 @@ fn custom_callable_block_tags_produce_callable_outline_items() {
         .with_role(TagRole::TemplateTag),
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
-    let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
+    let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}")
+        .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["partialdef card"]);
     assert_eq!(outline[0].kind, OutlineKind::TemplateTag);
@@ -220,7 +244,8 @@ fn tags_without_role_hide_standalone_tags_but_keep_blocks() {
         ),
     ])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
-    let outline = outline_for_source(&db, "{% mytag %}{% myblock thing %}Body{% endmyblock %}");
+    let outline = outline_for_source(&db, "{% mytag %}{% myblock thing %}Body{% endmyblock %}")
+        .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["myblock thing"]);
     assert_eq!(outline[0].kind, OutlineKind::ControlTag);
@@ -241,7 +266,8 @@ fn control_structure_inside_blocks_is_visible() {
   {% endif %}
   <img src="{% static 'images/logo.png' %}" alt="Logo">
 {% endblock %}"#,
-    );
+    )
+    .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["static", "content"]);
     let block_children = &outline[1].children;
@@ -287,7 +313,8 @@ fn malformed_unclosed_blocks_produce_best_effort_outline_items() {
         r"{% block content %}
   {% if user %}
     {% block title %}Title",
-    );
+    )
+    .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["content"]);
     assert_eq!(labels(&outline[0].children), vec!["if user"]);

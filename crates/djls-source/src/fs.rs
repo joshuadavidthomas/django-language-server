@@ -655,7 +655,7 @@ impl FileSystem for OsFileSystem {
             for glob in &options.globs {
                 // OverrideBuilder only errors for invalid globs. Match ripgrep's
                 // lenient behavior and skip invalid overrides here.
-                let _ = overrides.add(glob);
+                drop(overrides.add(glob));
             }
             if let Ok(built) = overrides.build() {
                 builder.overrides(built);
@@ -714,7 +714,8 @@ mod tests {
         fs.add_file("/test.py".into(), "file content".to_string());
 
         assert_eq!(
-            fs.read_to_string(Utf8Path::new("/test.py")).unwrap(),
+            fs.read_to_string(Utf8Path::new("/test.py"))
+                .expect("existing in-memory file should be readable"),
             "file content"
         );
     }
@@ -725,7 +726,12 @@ mod tests {
 
         let result = fs.read_to_string(Utf8Path::new("/missing.py"));
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
+        assert_eq!(
+            result
+                .expect_err("missing in-memory file should return an error")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
     }
 
     #[test]
@@ -738,7 +744,7 @@ mod tests {
         assert!(fs.is_dir(Utf8Path::new("/project/PKG")));
         assert_eq!(
             fs.read_to_string(Utf8Path::new("/project/PKG/MODULE.py"))
-                .unwrap(),
+                .expect("wrong-cased in-memory path should resolve on a case-insensitive view"),
             "content"
         );
     }
@@ -889,7 +895,8 @@ mod tests {
     }
 
     fn temp_path(dir: &tempfile::TempDir) -> Utf8PathBuf {
-        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap()
+        Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary directory path should be valid UTF-8")
     }
 
     fn entry_names(entries: &[WalkEntry]) -> Vec<&str> {
@@ -907,16 +914,25 @@ mod tests {
                 assert_eq!(issues, Vec::new());
                 entries
             }
-            other => panic!("expected a traversed directory, got {other:?}"),
+            RootWalk::Missing => panic!("expected a traversed directory, got a missing root"),
+            RootWalk::File(entry) => {
+                panic!("expected a traversed directory, got file entry {entry:?}")
+            }
+            RootWalk::Inaccessible(kind) => {
+                panic!("expected a traversed directory, got inaccessible root: {kind:?}")
+            }
         }
     }
 
     #[test]
     fn os_walk_skips_hidden_directories_by_default() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".hidden")).unwrap();
-        std::fs::write(dir.path().join(".hidden/secret.html"), "secret").unwrap();
-        std::fs::write(dir.path().join("visible.html"), "visible").unwrap();
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        std::fs::create_dir_all(dir.path().join(".hidden"))
+            .expect("hidden test directory should be created");
+        std::fs::write(dir.path().join(".hidden/secret.html"), "secret")
+            .expect("hidden test file should be written");
+        std::fs::write(dir.path().join("visible.html"), "visible")
+            .expect("visible test file should be written");
 
         let entries = dir_entries(
             OsFileSystem::default().walk_root(&temp_path(&dir), &WalkOptions::default()),
@@ -929,10 +945,13 @@ mod tests {
 
     #[test]
     fn os_walk_can_include_hidden_directories() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".hidden")).unwrap();
-        std::fs::write(dir.path().join(".hidden/secret.html"), "secret").unwrap();
-        std::fs::write(dir.path().join("visible.html"), "visible").unwrap();
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        std::fs::create_dir_all(dir.path().join(".hidden"))
+            .expect("hidden test directory should be created");
+        std::fs::write(dir.path().join(".hidden/secret.html"), "secret")
+            .expect("hidden test file should be written");
+        std::fs::write(dir.path().join("visible.html"), "visible")
+            .expect("visible test file should be written");
 
         let options = WalkOptions {
             hidden: true,
@@ -947,16 +966,20 @@ mod tests {
 
     #[test]
     fn os_walk_respects_gitignore() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
         std::process::Command::new("git")
             .args(["init", "-q"])
             .current_dir(dir.path())
             .status()
-            .unwrap();
-        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
-        std::fs::create_dir_all(dir.path().join("ignored")).unwrap();
-        std::fs::write(dir.path().join("ignored/skip.html"), "skip").unwrap();
-        std::fs::write(dir.path().join("keep.html"), "keep").unwrap();
+            .expect("git should start when initializing the test repository");
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n")
+            .expect("test gitignore should be written");
+        std::fs::create_dir_all(dir.path().join("ignored"))
+            .expect("ignored test directory should be created");
+        std::fs::write(dir.path().join("ignored/skip.html"), "skip")
+            .expect("ignored test file should be written");
+        std::fs::write(dir.path().join("keep.html"), "keep")
+            .expect("kept test file should be written");
 
         let entries = dir_entries(
             OsFileSystem::default().walk_root(&temp_path(&dir), &WalkOptions::default()),
@@ -969,16 +992,20 @@ mod tests {
 
     #[test]
     fn os_walk_no_ignore_disables_gitignore() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
         std::process::Command::new("git")
             .args(["init", "-q"])
             .current_dir(dir.path())
             .status()
-            .unwrap();
-        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
-        std::fs::create_dir_all(dir.path().join("ignored")).unwrap();
-        std::fs::write(dir.path().join("ignored/found.html"), "found").unwrap();
-        std::fs::write(dir.path().join("keep.html"), "keep").unwrap();
+            .expect("git should start when initializing the test repository");
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n")
+            .expect("test gitignore should be written");
+        std::fs::create_dir_all(dir.path().join("ignored"))
+            .expect("ignored test directory should be created");
+        std::fs::write(dir.path().join("ignored/found.html"), "found")
+            .expect("ignored test file should be written");
+        std::fs::write(dir.path().join("keep.html"), "keep")
+            .expect("kept test file should be written");
 
         let options = WalkOptions {
             no_ignore: true,
@@ -993,10 +1020,13 @@ mod tests {
 
     #[test]
     fn os_walk_applies_glob_overrides() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("page.html"), "page").unwrap();
-        std::fs::write(dir.path().join("other.html"), "other").unwrap();
-        std::fs::write(dir.path().join("style.css"), "style").unwrap();
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        std::fs::write(dir.path().join("page.html"), "page")
+            .expect("matching HTML test file should be written");
+        std::fs::write(dir.path().join("other.html"), "other")
+            .expect("nonmatching HTML test file should be written");
+        std::fs::write(dir.path().join("style.css"), "style")
+            .expect("nonmatching CSS test file should be written");
 
         let options = WalkOptions {
             globs: vec!["page.*".to_string()],
@@ -1012,10 +1042,13 @@ mod tests {
 
     #[test]
     fn os_walk_limits_max_depth() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("top.html"), "top").unwrap();
-        std::fs::create_dir_all(dir.path().join("a/b")).unwrap();
-        std::fs::write(dir.path().join("a/b/deep.html"), "deep").unwrap();
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        std::fs::write(dir.path().join("top.html"), "top")
+            .expect("top-level test file should be written");
+        std::fs::create_dir_all(dir.path().join("a/b"))
+            .expect("nested test directory should be created");
+        std::fs::write(dir.path().join("a/b/deep.html"), "deep")
+            .expect("deep test file should be written");
 
         let options = WalkOptions {
             max_depth: Some(1),
@@ -1033,18 +1066,26 @@ mod tests {
     fn os_detailed_walk_retains_entries_when_another_entry_errors() {
         use std::os::unix::fs::symlink;
 
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("found.html"), "found").unwrap();
-        symlink(dir.path(), dir.path().join("loop")).unwrap();
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        std::fs::write(dir.path().join("found.html"), "found")
+            .expect("discoverable test file should be written");
+        symlink(dir.path(), dir.path().join("loop"))
+            .expect("recursive test symlink should be created");
         let options = WalkOptions {
             follow_links: true,
             ..WalkOptions::unrestricted()
         };
 
-        let RootWalk::Directory { entries, issues } =
-            OsFileSystem::default().walk_root(&temp_path(&dir), &options)
-        else {
-            panic!("expected a traversed directory");
+        let walk = OsFileSystem::default().walk_root(&temp_path(&dir), &options);
+        let (entries, issues) = match walk {
+            RootWalk::Directory { entries, issues } => (entries, issues),
+            RootWalk::Missing => panic!("expected a traversed directory, got a missing root"),
+            RootWalk::File(entry) => {
+                panic!("expected a traversed directory, got file entry {entry:?}")
+            }
+            RootWalk::Inaccessible(kind) => {
+                panic!("expected a traversed directory, got inaccessible root: {kind:?}")
+            }
         };
 
         assert_eq!(entry_names(&entries), ["found.html"]);
@@ -1053,14 +1094,24 @@ mod tests {
 
     #[test]
     fn os_walk_single_file_root_uses_file_name_as_relative_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = Utf8PathBuf::from_path_buf(dir.path().join("single.html")).unwrap();
-        std::fs::write(file_path.as_std_path(), "single").unwrap();
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        let file_path = Utf8PathBuf::from_path_buf(dir.path().join("single.html"))
+            .expect("temporary file path should be valid UTF-8");
+        std::fs::write(file_path.as_std_path(), "single")
+            .expect("single file root should be written");
 
-        let RootWalk::File(entry) =
-            OsFileSystem::default().walk_root(&file_path, &WalkOptions::default())
-        else {
-            panic!("expected a file root");
+        let walk = OsFileSystem::default().walk_root(&file_path, &WalkOptions::default());
+        let entry = match walk {
+            RootWalk::File(entry) => entry,
+            RootWalk::Missing => panic!("expected a file root, got a missing root"),
+            RootWalk::Directory { entries, issues } => panic!(
+                "expected a file root, got a directory with {} entries and {} issues",
+                entries.len(),
+                issues.len()
+            ),
+            RootWalk::Inaccessible(kind) => {
+                panic!("expected a file root, got inaccessible root: {kind:?}")
+            }
         };
 
         assert_eq!(entry.path, file_path);

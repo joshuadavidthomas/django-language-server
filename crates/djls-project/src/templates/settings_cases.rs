@@ -16,10 +16,19 @@ use crate::settings::types::TemplateBackendEvidence;
 use crate::settings::types::TemplateDirectoryEvidence;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) struct TemplateSettingsCaseId(u32);
+pub(super) struct TemplateSettingsCaseId(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) struct TemplateBackendId(u32);
+pub(super) struct TemplateBackendId {
+    settings_case: TemplateSettingsCaseId,
+    slot: usize,
+}
+
+impl TemplateBackendId {
+    pub(super) const fn settings_case(self) -> TemplateSettingsCaseId {
+        self.settings_case
+    }
+}
 
 /// Whether Template settings evidence is exhaustive or may omit additional values.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -59,14 +68,12 @@ pub(super) struct TemplateSettingsCases {
 pub(super) struct TemplateSettingsCase {
     id: TemplateSettingsCaseId,
     installed_apps: Vec<InstalledAppEvidence>,
-    backends: Vec<TemplateBackendCase>,
     slots: Vec<TemplateBackendSlot>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TemplateBackendCase {
     id: TemplateBackendId,
-    settings_case: TemplateSettingsCaseId,
     data: TemplateBackendSettings,
 }
 
@@ -83,9 +90,9 @@ struct TemplateBackendSettings {
     builtins_completeness: TemplateEvidenceCompleteness,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum TemplateBackendSlot {
-    Backend(TemplateBackendId),
+    Backend(TemplateBackendCase),
     Remainder,
 }
 
@@ -144,50 +151,31 @@ impl TemplateSettingsCases {
         installed_apps: Vec<InstalledAppEvidence>,
         backend_slots: Vec<Option<TemplateBackendSettings>>,
     ) {
-        let id = TemplateSettingsCaseId(
-            u32::try_from(self.settings_cases.len())
-                .expect("Template settings case count should fit in u32"),
-        );
-        let next_backend = self
-            .settings_cases
-            .iter()
-            .map(|settings_case| settings_case.backends.len())
-            .sum::<usize>();
-        let mut backends = Vec::new();
-        let mut slots = Vec::new();
-        for data in backend_slots {
-            let Some(data) = data else {
-                slots.push(TemplateBackendSlot::Remainder);
-                continue;
-            };
-            let backend_id = TemplateBackendId(
-                u32::try_from(next_backend + backends.len())
-                    .expect("template backend count should fit in u32"),
-            );
-            backends.push(TemplateBackendCase {
-                id: backend_id,
-                settings_case: id,
-                data,
-            });
-            slots.push(TemplateBackendSlot::Backend(backend_id));
-        }
+        let id = TemplateSettingsCaseId(self.settings_cases.len());
+        let slots = backend_slots
+            .into_iter()
+            .enumerate()
+            .map(|(slot, data)| {
+                data.map_or(TemplateBackendSlot::Remainder, |data| {
+                    TemplateBackendSlot::Backend(TemplateBackendCase {
+                        id: TemplateBackendId {
+                            settings_case: id,
+                            slot,
+                        },
+                        data,
+                    })
+                })
+            })
+            .collect();
         self.settings_cases.push(TemplateSettingsCase {
             id,
             installed_apps,
-            backends,
             slots,
         });
     }
 
     pub(super) fn settings_cases(&self) -> &[TemplateSettingsCase] {
         &self.settings_cases
-    }
-
-    pub(super) fn backend(&self, id: TemplateBackendId) -> Option<&TemplateBackendCase> {
-        self.settings_cases
-            .iter()
-            .flat_map(TemplateSettingsCase::backends)
-            .find(|backend| backend.id == id)
     }
 
     pub(super) fn for_testing(backend_counts: &[usize], has_remainder: bool) -> Self {
@@ -217,8 +205,11 @@ impl TemplateSettingsCase {
         &self.installed_apps
     }
 
-    pub(super) fn backends(&self) -> &[TemplateBackendCase] {
-        &self.backends
+    pub(super) fn backends(&self) -> impl Iterator<Item = &TemplateBackendCase> {
+        self.slots.iter().filter_map(|slot| match slot {
+            TemplateBackendSlot::Backend(backend) => Some(backend),
+            TemplateBackendSlot::Remainder => None,
+        })
     }
 
     pub(super) fn slots(&self) -> &[TemplateBackendSlot] {
@@ -323,10 +314,6 @@ impl TemplateBackendCase {
         self.id
     }
 
-    pub(super) fn settings_case(&self) -> TemplateSettingsCaseId {
-        self.settings_case
-    }
-
     pub(super) fn backend_name(&self) -> Option<&str> {
         self.data.backend_name.as_deref()
     }
@@ -400,8 +387,7 @@ mod tests {
             assert!(
                 settings_case
                     .backends()
-                    .iter()
-                    .all(|backend| backend.settings_case() == settings_case.id())
+                    .all(|backend| backend.id().settings_case() == settings_case.id())
             );
         }
     }
@@ -410,15 +396,12 @@ mod tests {
     fn testing_owner_exposes_ids_only_through_entries() {
         let settings_cases = TemplateSettingsCases::for_testing(&[1], false);
         let settings_case = &settings_cases.settings_cases()[0];
-        let backend = &settings_case.backends()[0];
+        let backend = settings_case
+            .backends()
+            .next()
+            .expect("testing settings case should contain one backend");
 
-        assert_eq!(backend.settings_case(), settings_case.id());
-        assert_eq!(
-            settings_cases
-                .backend(backend.id())
-                .map(TemplateBackendCase::id),
-            Some(backend.id())
-        );
+        assert_eq!(backend.id().settings_case(), settings_case.id());
     }
 
     #[test]
@@ -427,6 +410,6 @@ mod tests {
         let settings_case = &settings_cases.settings_cases()[0];
 
         assert_eq!(settings_case.slots(), [TemplateBackendSlot::Remainder]);
-        assert!(settings_case.backends().is_empty());
+        assert_eq!(settings_case.backends().count(), 0);
     }
 }

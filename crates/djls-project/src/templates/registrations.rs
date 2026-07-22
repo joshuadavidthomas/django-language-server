@@ -64,7 +64,29 @@ pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<Registration
                     collect_from_call_statement(call, &mut registrations);
                 }
             }
-            _ => {}
+            Stmt::ClassDef(_)
+            | Stmt::Return(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::Assign(_)
+            | Stmt::AugAssign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::If(_)
+            | Stmt::With(_)
+            | Stmt::Match(_)
+            | Stmt::Raise(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::IpyEscapeCommand(_) => {}
         }
         ControlFlow::Continue(())
     });
@@ -396,7 +418,38 @@ fn callable_name(expr: &Expr) -> Option<String> {
             let base = callable_name(value)?;
             Some(format!("{base}.{}", attr.as_str()))
         }
-        _ => None,
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Compare(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => None,
     }
 }
 
@@ -669,7 +722,38 @@ impl TemplateLibraryDefinitionFacts {
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
                 attr.as_str() == "Library" && value.name_target() == Some("template")
             }
-            expr => expr.name_target() == Some("Library"),
+            expr @ (Expr::BoolOp(_)
+            | Expr::Named(_)
+            | Expr::BinOp(_)
+            | Expr::UnaryOp(_)
+            | Expr::Lambda(_)
+            | Expr::If(_)
+            | Expr::Dict(_)
+            | Expr::Set(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_)
+            | Expr::Generator(_)
+            | Expr::Await(_)
+            | Expr::Yield(_)
+            | Expr::YieldFrom(_)
+            | Expr::Compare(_)
+            | Expr::Call(_)
+            | Expr::FString(_)
+            | Expr::TString(_)
+            | Expr::StringLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::EllipsisLiteral(_)
+            | Expr::Subscript(_)
+            | Expr::Starred(_)
+            | Expr::Name(_)
+            | Expr::List(_)
+            | Expr::Tuple(_)
+            | Expr::Slice(_)
+            | Expr::IpyEscapeCommand(_)) => expr.name_target() == Some("Library"),
         }
     }
 }
@@ -680,7 +764,7 @@ mod tests {
     use crate::templates::tags::testing::fixture_source;
 
     fn fixture(path: &str) -> &'static str {
-        fixture_source(path).unwrap_or_else(|| panic!("fixture '{path}' not found"))
+        fixture_source(path).expect("requested corpus fixture should exist")
     }
 
     fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
@@ -692,7 +776,7 @@ mod tests {
     fn find_reg<'a>(regs: &'a [RegistrationInfo], name: &str) -> &'a RegistrationInfo {
         regs.iter()
             .find(|r| r.name == name)
-            .unwrap_or_else(|| panic!("registration '{name}' not found"))
+            .expect("requested registration should have been collected")
     }
 
     // Corpus: `autoescape` in django/template/defaulttags.py uses `@register.tag` (bare)

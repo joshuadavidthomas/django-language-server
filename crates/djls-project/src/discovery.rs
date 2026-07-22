@@ -55,6 +55,15 @@ pub enum EnvironmentPhase {
     SearchPaths,
 }
 
+/// An invariant violation while assembling Django Environment phase results.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum EnvironmentAssemblyError {
+    #[error("Django environment is missing the {0:?} phase result")]
+    Missing(EnvironmentPhase),
+    #[error("Django environment contains a duplicate {0:?} phase result")]
+    Duplicate(EnvironmentPhase),
+}
+
 impl EnvironmentPhase {
     const fn next(self) -> Option<Self> {
         match self {
@@ -119,36 +128,37 @@ pub fn environment_phases() -> impl Iterator<Item = EnvironmentPhase> {
 }
 
 impl DjangoEnvironmentData {
-    /// Build environment data from the closed set of Environment phase results.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the parts do not contain exactly one result for each phase.
-    #[must_use]
-    pub fn assemble(parts: impl IntoIterator<Item = EnvironmentPart>) -> Self {
+    /// Build environment data from exactly one result for each Environment phase.
+    pub fn assemble(
+        parts: impl IntoIterator<Item = EnvironmentPart>,
+    ) -> Result<Self, EnvironmentAssemblyError> {
         let mut search_paths = None;
 
         for part in parts {
             match part.phase {
                 EnvironmentPhase::SearchPaths => {
-                    assert!(
-                        search_paths.is_none(),
-                        "environment data must not include duplicate phase results"
-                    );
-                    search_paths = Some(part.search_paths);
+                    if search_paths.replace(part.search_paths).is_some() {
+                        return Err(EnvironmentAssemblyError::Duplicate(part.phase));
+                    }
                 }
             }
         }
 
-        let Some(search_paths) = search_paths else {
-            panic!("environment data must include every Environment phase result")
-        };
-        Self { search_paths }
+        let search_paths = search_paths.ok_or(EnvironmentAssemblyError::Missing(
+            EnvironmentPhase::SearchPaths,
+        ))?;
+        Ok(Self { search_paths })
+    }
+
+    fn into_search_paths(self) -> SearchPaths {
+        self.search_paths
     }
 }
 
-#[must_use]
-pub fn compute_django_environment(db: &dyn ProjectDb, project: Project) -> DjangoEnvironmentData {
+pub fn compute_django_environment(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Result<DjangoEnvironmentData, EnvironmentAssemblyError> {
     DjangoEnvironmentData::assemble(environment_phases().map(|phase| phase.run(db, project)))
 }
 
@@ -161,7 +171,7 @@ pub fn apply_django_environment(db: &mut dyn ProjectDb, environment: DjangoEnvir
     let Some(project) = db.project() else {
         return;
     };
-    let DjangoEnvironmentData { search_paths } = environment;
+    let search_paths = environment.into_search_paths();
 
     if project.search_paths(db) != &search_paths {
         search_paths.register_roots(db);
@@ -374,15 +384,52 @@ pub fn apply_project_facts(db: &mut dyn ProjectDb, facts: &ProjectFactsData) {
 /// Environment application intentionally precedes Project Facts computation:
 /// it activates the resolved search paths and synchronizes their source roots
 /// before any Project Facts query reads from them.
-#[must_use]
-pub fn run_django_discovery(db: &mut dyn ProjectDb) -> Option<ProjectFactsData> {
-    let project = db.project()?;
+pub fn run_django_discovery(
+    db: &mut dyn ProjectDb,
+) -> Result<Option<ProjectFactsData>, EnvironmentAssemblyError> {
+    let Some(project) = db.project() else {
+        return Ok(None);
+    };
 
-    let environment = compute_django_environment(db, project);
+    let environment = compute_django_environment(db, project)?;
     apply_django_environment(db, environment);
 
     let facts = compute_project_facts(db, project);
     apply_project_facts(db, &facts);
 
-    Some(facts)
+    Ok(Some(facts))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DjangoEnvironmentData;
+    use super::EnvironmentAssemblyError;
+    use super::EnvironmentPart;
+    use super::EnvironmentPhase;
+    use crate::python::SearchPaths;
+
+    #[test]
+    fn environment_assembly_reports_exact_missing_phase() {
+        assert_eq!(
+            DjangoEnvironmentData::assemble([]),
+            Err(EnvironmentAssemblyError::Missing(
+                EnvironmentPhase::SearchPaths
+            ))
+        );
+    }
+
+    #[test]
+    fn environment_assembly_reports_exact_duplicate_phase() {
+        let part = EnvironmentPart {
+            phase: EnvironmentPhase::SearchPaths,
+            count: 0,
+            search_paths: SearchPaths::default(),
+        };
+        assert_eq!(
+            DjangoEnvironmentData::assemble([part.clone(), part]),
+            Err(EnvironmentAssemblyError::Duplicate(
+                EnvironmentPhase::SearchPaths
+            ))
+        );
+    }
 }

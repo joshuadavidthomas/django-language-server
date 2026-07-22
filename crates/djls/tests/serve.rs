@@ -10,7 +10,7 @@ fn serve_tcp_reports_unsupported_connection_type() {
     let output = Command::new(djls_binary())
         .args(["serve", "--connection-type", "tcp"])
         .output()
-        .unwrap();
+        .expect("djls serve process should run");
 
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);

@@ -145,7 +145,23 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
             }
         }
 
-        _ => {}
+        Stmt::FunctionDef(_)
+        | Stmt::ClassDef(_)
+        | Stmt::Return(_)
+        | Stmt::Delete(_)
+        | Stmt::TypeAlias(_)
+        | Stmt::AugAssign(_)
+        | Stmt::AnnAssign(_)
+        | Stmt::Raise(_)
+        | Stmt::Assert(_)
+        | Stmt::Import(_)
+        | Stmt::ImportFrom(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::Pass(_)
+        | Stmt::Break(_)
+        | Stmt::Continue(_)
+        | Stmt::IpyEscapeCommand(_) => {}
     }
 
     result
@@ -188,7 +204,36 @@ fn condition_involves_element_check(expr: &Expr, env: &mut Env) -> bool {
             .iter()
             .any(|v| condition_involves_element_check(v, env)),
         Expr::UnaryOp(unary) => condition_involves_element_check(&unary.operand, env),
-        _ => false,
+        Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => false,
     }
 }
 
@@ -277,7 +322,13 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
             }
         }
 
-        _ => {
+        AbstractValue::Unknown
+        | AbstractValue::Token
+        | AbstractValue::Parser
+        | AbstractValue::SplitElement { .. }
+        | AbstractValue::SplitLength(_)
+        | AbstractValue::Int(_)
+        | AbstractValue::Str(_) => {
             for target in targets {
                 if let Some(name) = target.name_target() {
                     env.set(name.to_string(), AbstractValue::Unknown);
@@ -870,7 +921,8 @@ def do_tag(parser, token):
     // duplicate check. Options: "noop", "context", "as". Rejects unknown.
     #[test]
     fn option_loop_with_duplicate_check() {
-        let func = django_function("django/templatetags/i18n.py", "do_translate").unwrap();
+        let func = django_function("django/templatetags/i18n.py", "do_translate")
+            .expect("expected Django fixture function should exist");
         let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(
@@ -913,7 +965,8 @@ def do_tag(parser, token):
     // Rejects unknown, rejects duplicates.
     #[test]
     fn option_loop_include_pattern() {
-        let func = django_function("django/template/loader_tags.py", "do_include").unwrap();
+        let func = django_function("django/template/loader_tags.py", "do_include")
+            .expect("expected Django fixture function should exist");
         let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
@@ -939,7 +992,8 @@ def do_tag(parser, token):
     // OneOf([2, 3]) constraint. Django 6.0+ match-based tag parsing.
     #[test]
     fn match_partialdef_pattern() {
-        let func = django_function("django/template/defaulttags.py", "partialdef_func").unwrap();
+        let func = django_function("django/template/defaulttags.py", "partialdef_func")
+            .expect("expected Django fixture function should exist");
         let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints.contains(
@@ -955,7 +1009,8 @@ def do_tag(parser, token):
     // Exact(2) constraint.
     #[test]
     fn match_partial_exact() {
-        let func = django_function("django/template/defaulttags.py", "partial_func").unwrap();
+        let func = django_function("django/template/defaulttags.py", "partial_func")
+            .expect("expected Django fixture function should exist");
         let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints

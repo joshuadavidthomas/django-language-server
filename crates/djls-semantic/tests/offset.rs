@@ -7,19 +7,20 @@ use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
-fn offset_of(source: &str, needle: &str) -> Offset {
-    Offset::new(u32::try_from(source.find(needle).unwrap()).unwrap())
+fn offset_of(source: &str, needle: &str) -> Option<Offset> {
+    let position = source.find(needle)?;
+    Some(Offset::new(u32::try_from(position).ok()?))
 }
 
 fn context_for_source<'db>(
     db: &'db TestDatabase,
     source: &str,
     offset: Offset,
-) -> SemanticOffsetContext<'db> {
+) -> anyhow::Result<SemanticOffsetContext<'db>> {
     let path = "test.html";
-    db.add_file(path, source);
-    let file = db.file(Utf8Path::new(path));
-    SemanticOffsetContext::from_offset(db, file, offset)
+    db.add_file(path, source)?;
+    let file = db.file(Utf8Path::new(path))?;
+    Ok(SemanticOffsetContext::from_offset(db, file, offset))
 }
 
 #[test]
@@ -27,7 +28,12 @@ fn identifies_template_reference_context() {
     let db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
 
-    let context = context_for_source(&db, source, offset_of(source, "base"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "base").expect("fixture offset should resolve"),
+    )
+    .expect("template reference context fixture should load");
 
     assert_eq!(
         context,
@@ -54,16 +60,27 @@ fn template_reference_context_follows_load_position() {
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='include')\ndef custom_include(value):\n    pass\n",
         )
         .file("/test/project/templates/page.html", source)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("project fixture should install into the test database");
     db.set_project(project);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("fixture file should exist in the test database");
 
     assert!(matches!(
-        SemanticOffsetContext::from_offset(&db, file, offset_of(source, "before.html")),
+        SemanticOffsetContext::from_offset(
+            &db,
+            file,
+            offset_of(source, "before.html").expect("fixture offset should resolve")
+        ),
         SemanticOffsetContext::TemplateReference { .. }
     ));
     assert_eq!(
-        SemanticOffsetContext::from_offset(&db, file, offset_of(source, "after.html")),
+        SemanticOffsetContext::from_offset(
+            &db,
+            file,
+            offset_of(source, "after.html").expect("fixture offset should resolve")
+        ),
         SemanticOffsetContext::None
     );
 }
@@ -73,7 +90,12 @@ fn identifies_template_reference_context_from_opening_quote() {
     let db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
 
-    let context = context_for_source(&db, source, offset_of(source, "\"base"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "\"base").expect("fixture offset should resolve"),
+    )
+    .expect("opening quote context fixture should load");
 
     assert_eq!(
         context,
@@ -90,7 +112,12 @@ fn ignores_dynamic_template_reference_context() {
     let db = TestDatabase::new();
     let source = "{% include partial_name %}";
 
-    let context = context_for_source(&db, source, offset_of(source, "partial"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "partial").expect("fixture offset should resolve"),
+    )
+    .expect("dynamic template reference context fixture should load");
 
     assert_eq!(context, SemanticOffsetContext::None);
 }
@@ -100,7 +127,12 @@ fn identifies_load_library_context() {
     let db = TestDatabase::new();
     let source = "{% load static i18n %}";
 
-    let context = context_for_source(&db, source, offset_of(source, "static"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "static").expect("fixture offset should resolve"),
+    )
+    .expect("load library context fixture should load");
 
     assert_eq!(
         context,
@@ -116,7 +148,12 @@ fn identifies_selective_load_symbol_context() {
     let db = TestDatabase::new();
     let source = "{% load trans blocktrans from i18n %}";
 
-    let context = context_for_source(&db, source, offset_of(source, "blocktrans"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "blocktrans").expect("fixture offset should resolve"),
+    )
+    .expect("selective load symbol context fixture should load");
 
     assert_eq!(
         context,
@@ -133,7 +170,12 @@ fn identifies_selective_load_library_context() {
     let db = TestDatabase::new();
     let source = "{% load trans from i18n %}";
 
-    let context = context_for_source(&db, source, offset_of(source, "i18n"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "i18n").expect("fixture offset should resolve"),
+    )
+    .expect("selective load library context fixture should load");
 
     assert_eq!(
         context,
@@ -149,7 +191,12 @@ fn identifies_tag_name_context() {
     let db = TestDatabase::new();
     let source = "{% if user %}";
 
-    let context = context_for_source(&db, source, offset_of(source, "if"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "if").expect("fixture offset should resolve"),
+    )
+    .expect("tag name context fixture should load");
 
     assert_eq!(
         context,
@@ -166,7 +213,12 @@ fn captured_intermediate_has_no_tag_definition_context() {
     let db = TestDatabase::new();
     let source = "{% if user %}{% else %}{% endif %}";
 
-    let context = context_for_source(&db, source, offset_of(source, "else"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "else").expect("fixture offset should resolve"),
+    )
+    .expect("intermediate tag context fixture should load");
 
     assert_eq!(context, SemanticOffsetContext::None);
 }
@@ -176,7 +228,12 @@ fn identifies_opaque_opener_tag_context() {
     let db = TestDatabase::new();
     let source = r#"{% verbatim %}{% include "partial.html" %}{% endverbatim %}"#;
 
-    let context = context_for_source(&db, source, offset_of(source, "verbatim"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "verbatim").expect("fixture offset should resolve"),
+    )
+    .expect("opaque opener context fixture should load");
 
     assert_eq!(
         context,
@@ -193,7 +250,12 @@ fn ignores_unrecognized_tag_arguments() {
     let db = TestDatabase::new();
     let source = "{% if user %}";
 
-    let context = context_for_source(&db, source, offset_of(source, "user"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "user").expect("fixture offset should resolve"),
+    )
+    .expect("unrecognized tag argument context fixture should load");
 
     assert_eq!(context, SemanticOffsetContext::None);
 }
@@ -203,7 +265,12 @@ fn ignores_template_reference_inside_verbatim() {
     let db = TestDatabase::new();
     let source = r#"{% verbatim %}{% include "partial.html" %}{% endverbatim %}"#;
 
-    let context = context_for_source(&db, source, offset_of(source, "partial.html"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "partial.html").expect("fixture offset should resolve"),
+    )
+    .expect("verbatim template reference context fixture should load");
 
     assert_eq!(context, SemanticOffsetContext::None);
 }
@@ -213,7 +280,12 @@ fn ignores_load_library_inside_comment() {
     let db = TestDatabase::new();
     let source = "{% comment %}{% load static %}{% endcomment %}";
 
-    let context = context_for_source(&db, source, offset_of(source, "static"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "static").expect("fixture offset should resolve"),
+    )
+    .expect("commented load library context fixture should load");
 
     assert_eq!(context, SemanticOffsetContext::None);
 }
@@ -223,7 +295,12 @@ fn identifies_filter_context() {
     let db = TestDatabase::new();
     let source = "{{ user.name|title }}";
 
-    let context = context_for_source(&db, source, offset_of(source, "title"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "title").expect("fixture offset should resolve"),
+    )
+    .expect("filter context fixture should load");
 
     assert_eq!(
         context,
@@ -240,7 +317,12 @@ fn identifies_variable_context() {
     let db = TestDatabase::new();
     let source = "{{ user.name|title }}";
 
-    let context = context_for_source(&db, source, offset_of(source, "user"));
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "user").expect("fixture offset should resolve"),
+    )
+    .expect("variable context fixture should load");
 
     assert_eq!(
         context,

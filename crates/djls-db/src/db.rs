@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 use std::sync::LazyLock;
+#[cfg(test)]
 use std::sync::Mutex;
 
 use camino::Utf8Path;
@@ -48,8 +49,8 @@ pub struct DjangoDatabase {
     /// `ProjectDatabase` (`ty_project/src/db.rs`).
     project: Option<Project>,
 
-    /// Configuration settings for the language server
-    pub(crate) settings: Arc<Mutex<Settings>>,
+    /// Configuration settings for this database snapshot.
+    pub(crate) settings: Arc<Settings>,
 
     storage: salsa::Storage<Self>,
 
@@ -70,13 +71,15 @@ impl Default for DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(Settings::default())),
+            settings: Arc::new(Settings::default()),
             storage: salsa::Storage::new(Some(Box::new({
-                let logs = logs.clone();
+                let logs = Arc::clone(&logs);
                 move |event| {
                     eprintln!("Event: {event:?}");
                     // Log interesting events, if logging is enabled
-                    if let Some(logs) = &mut *logs.lock().unwrap() {
+                    if let Some(logs) =
+                        &mut *logs.lock().expect("test mutex should not be poisoned")
+                    {
                         // only log interesting events
                         if let salsa::EventKind::WillExecute { .. } = event.kind {
                             logs.push(format!("Event: {event:?}"));
@@ -106,7 +109,7 @@ impl DjangoDatabase {
             fs: file_system,
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -191,6 +194,7 @@ mod marker_tests {
 
 #[cfg(test)]
 mod invalidation_tests {
+    use std::borrow::Cow;
     use std::collections::BTreeMap;
     use std::fs::write;
     use std::io;
@@ -261,7 +265,12 @@ mod invalidation_tests {
 
     impl EventLog {
         fn take(&self) -> Vec<salsa::Event> {
-            std::mem::take(&mut *self.events.lock().unwrap())
+            std::mem::take(
+                &mut *self
+                    .events
+                    .lock()
+                    .expect("test mutex should not be poisoned"),
+            )
         }
     }
 
@@ -281,7 +290,7 @@ mod invalidation_tests {
         fn walk_count(&self, root: &Utf8Path) -> usize {
             self.walk_counts
                 .lock()
-                .unwrap()
+                .expect("test mutex should not be poisoned")
                 .get(root)
                 .copied()
                 .unwrap_or_default()
@@ -317,49 +326,55 @@ mod invalidation_tests {
             *self
                 .walk_counts
                 .lock()
-                .unwrap()
+                .expect("test mutex should not be poisoned")
                 .entry(root.to_path_buf())
                 .or_default() += 1;
             self.inner.walk_root(root, options)
         }
     }
 
-    /// Check whether a tracked query with the given name was executed
-    /// (i.e., had a `WillExecute` event) in the captured events.
-    fn was_executed(db: &DjangoDatabase, events: &[salsa::Event], query_name: &str) -> bool {
-        events.iter().any(|event| match &event.kind {
-            salsa::EventKind::WillExecute { database_key } => {
-                let name = db.ingredient_debug_name(database_key.ingredient_index());
-                name.contains(query_name)
+    fn executed_query_name<'db>(db: &'db DjangoDatabase, event: &Event) -> Option<Cow<'db, str>> {
+        match &event.kind {
+            EventKind::WillExecute { database_key } => {
+                Some(db.ingredient_debug_name(database_key.ingredient_index()))
             }
-            _ => false,
-        })
+            EventKind::DidValidateMemoizedValue { .. }
+            | EventKind::WillBlockOn { .. }
+            | EventKind::WillIterateCycle { .. }
+            | EventKind::DidFinalizeCycle { .. }
+            | EventKind::WillCheckCancellation
+            | EventKind::DidSetCancellationFlag
+            | EventKind::WillDiscardStaleOutput { .. }
+            | EventKind::DidDiscard { .. }
+            | EventKind::DidDiscardAccumulated { .. }
+            | EventKind::DidInternValue { .. }
+            | EventKind::DidReuseInternedValue { .. }
+            | EventKind::DidValidateInternedValue { .. } => None,
+        }
     }
 
-    fn execution_count(db: &DjangoDatabase, events: &[salsa::Event], query_name: &str) -> usize {
+    /// Check whether a tracked query with the given name was executed
+    /// (i.e., had a `WillExecute` event) in the captured events.
+    fn was_executed(db: &DjangoDatabase, events: &[Event], query_name: &str) -> bool {
         events
             .iter()
-            .filter(|event| match &event.kind {
-                salsa::EventKind::WillExecute { database_key } => {
-                    let name = db.ingredient_debug_name(database_key.ingredient_index());
-                    name.contains(query_name)
-                }
-                _ => false,
-            })
+            .filter_map(|event| executed_query_name(db, event))
+            .any(|name| name.contains(query_name))
+    }
+
+    fn execution_count(db: &DjangoDatabase, events: &[Event], query_name: &str) -> usize {
+        events
+            .iter()
+            .filter_map(|event| executed_query_name(db, event))
+            .filter(|name| name.contains(query_name))
             .count()
     }
 
     fn exact_execution_count(db: &DjangoDatabase, events: &[Event], query_name: &str) -> usize {
         events
             .iter()
-            .filter(|event| match &event.kind {
-                EventKind::WillExecute { database_key } => db
-                    .ingredient_debug_name(database_key.ingredient_index())
-                    .rsplit("::")
-                    .next()
-                    .is_some_and(|name| name == query_name),
-                _ => false,
-            })
+            .filter_map(|event| executed_query_name(db, event))
+            .filter(|name| name.rsplit("::").next() == Some(query_name))
             .count()
     }
 
@@ -378,11 +393,14 @@ mod invalidation_tests {
             fs: Arc::new(fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -426,21 +444,23 @@ mod invalidation_tests {
 
     fn template_inheritance_fixture() -> TemplateInheritanceFixture {
         let event_log = EventLog::default();
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let templates_dir = root.join("templates");
         let child_path = templates_dir.join("child.html");
         let parent_path = templates_dir.join("base.html");
         let other_path = templates_dir.join("next.html");
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(
                 root.join("settings.py"),
@@ -465,14 +485,17 @@ mod invalidation_tests {
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -768,7 +791,7 @@ mod invalidation_tests {
             child_path,
             ..
         } = template_inheritance_fixture();
-        prime_template_library_products(&db).unwrap();
+        prime_template_library_products(&db).expect("test fixture should install a project");
         validate_template_file(&db, child_file);
         event_log.take();
 
@@ -789,7 +812,7 @@ mod invalidation_tests {
 
         for (source, expected_code) in cases {
             fs.lock()
-                .unwrap()
+                .expect("test mutex should not be poisoned")
                 .add_file(child_path.clone(), source.to_string());
             SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
                 .apply(&mut db);
@@ -837,15 +860,18 @@ mod invalidation_tests {
             child_path,
             ..
         } = template_inheritance_fixture();
-        prime_template_library_products(&db).unwrap();
+        prime_template_library_products(&db).expect("test fixture should install a project");
         validate_template_file(&db, child_file);
         validate_template_file(&db, other_file);
         event_log.take();
 
-        fs.lock().unwrap().add_file(
-            child_path,
-            "{% extends \"base.html\" %}\n{% block content %}{{ one }}{% endblock %} ".to_string(),
-        );
+        fs.lock()
+            .expect("test mutex should not be poisoned")
+            .add_file(
+                child_path,
+                "{% extends \"base.html\" %}\n{% block content %}{{ one }}{% endblock %} "
+                    .to_string(),
+            );
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
             .apply(&mut db);
         validate_template_file(&db, child_file);
@@ -907,7 +933,7 @@ mod invalidation_tests {
         );
 
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(other_file.path(&db).clone(), "unrelated edit".to_string());
         SourceChanges::new([ChangeEvent::ContentChanged(other_file.path(&db).clone())])
             .apply(&mut db);
@@ -926,13 +952,13 @@ mod invalidation_tests {
 
         let unrelated_python_path = project.root(&db).join("unrelated.py");
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(unrelated_python_path.clone(), "VALUE = 1\n".to_string());
         let unrelated_python =
             path_to_file(&db, &unrelated_python_path).expect("unrelated Python file should exist");
         event_log.take();
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(unrelated_python_path, "VALUE = 2\n".to_string());
         SourceChanges::new([ChangeEvent::ContentChanged(
             unrelated_python.path(&db).clone(),
@@ -956,10 +982,13 @@ mod invalidation_tests {
             0
         );
 
-        fs.lock().unwrap().add_file(
-            child_path,
-            "{% extends \"base.html\" %}\n{% block content %}{{ two }}{% endblock %}".to_string(),
-        );
+        fs.lock()
+            .expect("test mutex should not be poisoned")
+            .add_file(
+                child_path,
+                "{% extends \"base.html\" %}\n{% block content %}{{ two }}{% endblock %}"
+                    .to_string(),
+            );
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
             .apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("edited child should parse");
@@ -976,7 +1005,7 @@ mod invalidation_tests {
         );
 
         let loader_tags_path = project.root(&db).join("django/template/loader_tags.py");
-        fs.lock().unwrap().add_file(
+        fs.lock().expect("test mutex should not be poisoned").add_file(
             loader_tags_path.clone(),
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef block(value): pass\n@register.tag\ndef extends(parser, token): pass\n"
                 .to_string(),
@@ -1013,10 +1042,12 @@ mod invalidation_tests {
 
         // Template text nodes carry source positions, not their presentation text.
         // Keeping the same byte length therefore produces the same parsed NodeList.
-        fs.lock().unwrap().add_file(
-            parent_path,
-            "{% block content %}Next{% endblock %}".to_string(),
-        );
+        fs.lock()
+            .expect("test mutex should not be poisoned")
+            .add_file(
+                parent_path,
+                "{% block content %}Next{% endblock %}".to_string(),
+            );
         SourceChanges::new([ChangeEvent::ContentChanged(parent_file.path(&db).clone())])
             .apply(&mut db);
         let nodelist = parse_template(&db, parent_file).expect("edited parent should parse");
@@ -1058,7 +1089,7 @@ mod invalidation_tests {
         let settings_path = root.join("settings.py");
         let settings_file =
             path_to_file(&db, &settings_path).expect("settings fixture should exist");
-        fs.lock().unwrap().add_file(
+        fs.lock().expect("test mutex should not be poisoned").add_file(
             settings_path,
             format!(
                 "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'custom': 'missing.custom_tags'}}}}}}]\n"
@@ -1070,7 +1101,7 @@ mod invalidation_tests {
         let scoped_libraries = scoped_template_libraries_for_file(&db, child_file);
         assert_eq!(
             scoped_libraries.completion_library_names(),
-            [LibraryName::parse("custom").unwrap()]
+            [LibraryName::parse("custom").expect("test template library name should be valid")]
         );
         let events = event_log.take();
         assert_eq!(
@@ -1116,20 +1147,22 @@ mod invalidation_tests {
     #[test]
     fn settings_source_change_invalidates_template_library_extraction() {
         let event_log = EventLog::default();
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let settings_path = root.join("settings.py");
         let builtin_path = root.join("project_tags.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(
                 settings_path.clone(),
@@ -1142,14 +1175,17 @@ mod invalidation_tests {
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -1172,7 +1208,7 @@ mod invalidation_tests {
         event_log.take();
 
         let settings_file = path_to_file(&db, &settings_path).expect("fixture file should exist");
-        fs.lock().unwrap().add_file(
+        fs.lock().expect("test mutex should not be poisoned").add_file(
             settings_path,
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'builtins': []}}]\n".to_string(),
         );
@@ -1201,13 +1237,14 @@ mod invalidation_tests {
     #[test]
     fn root_revision_change_invalidates_project_template_searches() {
         let source = "{% extends \"base.html\" %}";
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
+        .expect("temporary test path should be valid UTF-8");
         let templates_dir = root.join("templates");
         let mut fs = InMemoryFileSystem::new();
         fs.add_file(root.join("manage.py"), String::new());
@@ -1222,16 +1259,20 @@ mod invalidation_tests {
         add_django_template_builtin_files(&mut fs, &root);
 
         let event_log = EventLog::default();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let mut db = DjangoDatabase {
             fs: Arc::new(fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -1239,17 +1280,27 @@ mod invalidation_tests {
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let project = db.project.unwrap();
+        let project = db.project.expect("test database should contain a project");
 
         let child_path = templates_dir.join("child.html");
         let child = path_to_file(&db, &child_path).expect("fixture file should exist");
-        let offset = Offset::try_from(source.find("base.html").unwrap()).unwrap();
+        let offset = Offset::try_from(
+            source
+                .find("base.html")
+                .expect("test source should contain the expected text"),
+        )
+        .expect("test source offset should fit in u32");
         {
-            let SemanticOffsetContext::TemplateReference { name, .. } =
-                SemanticOffsetContext::from_offset(&db, child, offset)
-            else {
-                panic!("expected extends argument to be a template reference");
-            };
+            let name = match SemanticOffsetContext::from_offset(&db, child, offset) {
+                SemanticOffsetContext::TemplateReference { name, .. } => Some(name),
+                SemanticOffsetContext::LoadLibrary { .. }
+                | SemanticOffsetContext::LoadSymbol { .. }
+                | SemanticOffsetContext::Tag { .. }
+                | SemanticOffsetContext::Filter { .. }
+                | SemanticOffsetContext::Variable { .. }
+                | SemanticOffsetContext::None => None,
+            }
+            .expect("extends argument should be a template reference");
             let _result = djls_project::template_resolution(&db, project).resolve(&db, name);
         }
         event_log.take();
@@ -1257,11 +1308,16 @@ mod invalidation_tests {
         let file_root = db.files().expect_root(&db, &child_path);
         db.bump_file_root_revision(file_root);
 
-        let SemanticOffsetContext::TemplateReference { name, .. } =
-            SemanticOffsetContext::from_offset(&db, child, offset)
-        else {
-            panic!("expected extends argument to be a template reference");
-        };
+        let name = match SemanticOffsetContext::from_offset(&db, child, offset) {
+            SemanticOffsetContext::TemplateReference { name, .. } => Some(name),
+            SemanticOffsetContext::LoadLibrary { .. }
+            | SemanticOffsetContext::LoadSymbol { .. }
+            | SemanticOffsetContext::Tag { .. }
+            | SemanticOffsetContext::Filter { .. }
+            | SemanticOffsetContext::Variable { .. }
+            | SemanticOffsetContext::None => None,
+        }
+        .expect("extends argument should be a template reference");
         let _result = djls_project::template_resolution(&db, project).resolve(&db, name);
         let events = event_log.take();
         assert!(
@@ -1272,14 +1328,16 @@ mod invalidation_tests {
 
     #[test]
     fn template_resolution_views_share_one_walk_per_root_revision() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let templates_dir = root.join("templates");
 
         let mut inner = InMemoryFileSystem::new();
@@ -1294,10 +1352,10 @@ mod invalidation_tests {
         let fs = Arc::new(CountingFileSystem::new(inner));
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<CountingFileSystem>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -1343,14 +1401,16 @@ mod invalidation_tests {
 
     #[test]
     fn template_directories_reports_incomplete_derivation() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let mut fs = InMemoryFileSystem::new();
         fs.add_file(root.join("manage.py"), String::new());
 
@@ -1358,7 +1418,7 @@ mod invalidation_tests {
             fs: Arc::new(fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -1371,14 +1431,16 @@ mod invalidation_tests {
     #[test]
     fn template_directories_does_not_index_templates() {
         let event_log = EventLog::default();
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let settings_path = root.join("settings.py");
         let templates_dir = root.join("templates");
 
@@ -1396,11 +1458,14 @@ mod invalidation_tests {
             fs: Arc::new(fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -1429,21 +1494,23 @@ mod invalidation_tests {
     #[test]
     fn settings_source_change_invalidates_template_directories() {
         let event_log = EventLog::default();
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let settings_path = root.join("settings.py");
         let templates_dir = root.join("templates");
         let other_templates_dir = root.join("other_templates");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(
                 settings_path.clone(),
@@ -1456,14 +1523,17 @@ mod invalidation_tests {
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -1480,7 +1550,7 @@ mod invalidation_tests {
         event_log.take();
 
         let settings_file = path_to_file(&db, &settings_path).expect("fixture file should exist");
-        fs.lock().unwrap().add_file(
+        fs.lock().expect("test mutex should not be poisoned").add_file(
             settings_path,
             format!(
                 "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{other_templates_dir}'], 'APP_DIRS': False}}]\n"
@@ -1505,14 +1575,16 @@ mod invalidation_tests {
     #[test]
     fn unrelated_file_revision_does_not_invalidate_template_directories() {
         let event_log = EventLog::default();
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let settings_path = root.join("settings.py");
         let templates_dir = root.join("templates");
         let other_path = root.join("other.py");
@@ -1532,11 +1604,14 @@ mod invalidation_tests {
             fs: Arc::new(fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -1572,20 +1647,22 @@ mod invalidation_tests {
     #[allow(clippy::too_many_lines)]
     fn module_detail_perturbations_do_not_recompute_settings_identity_consumers() {
         let event_log = EventLog::default();
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         let vendor = root.join("vendor");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             format!("django_settings_module = \"unrelated\"\npythonpath = [\"{vendor}\"]\n"),
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("test fixture file should be written");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let unrelated_path = root.join("unrelated.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(
                 unrelated_path.clone(),
@@ -1595,21 +1672,25 @@ mod invalidation_tests {
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
-        let name = PythonModuleName::parse("unrelated").unwrap();
+        let name =
+            PythonModuleName::parse("unrelated").expect("test Python module name should be valid");
 
         let module = PythonSourceModule::resolve(&db, project, name.clone())
             .expect("unrelated should resolve from the project root");
@@ -1628,7 +1709,7 @@ mod invalidation_tests {
         event_log.take();
 
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(vendor.join("unrelated/marker.txt"), String::new());
         db.bump_file_root_revision(vendor_root);
 
@@ -1653,7 +1734,7 @@ mod invalidation_tests {
         );
 
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(vendor.join("unrelated.py"), String::new());
         db.bump_file_root_revision(vendor_root);
 
@@ -1680,8 +1761,9 @@ mod invalidation_tests {
 
     #[test]
     fn tagspecs_settings_change_reports_semantic_change() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             r#"
@@ -1696,14 +1778,15 @@ name = "switch"
 type = "block"
 "#,
         )
-        .unwrap();
+        .expect("test tag-spec config should be written");
 
         let mut db = DjangoDatabase::new(
             Arc::new(InMemoryFileSystem::new()),
             &Settings::default(),
             Some(root.as_path()),
         );
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
 
         db.apply_project_settings(settings);
 
@@ -1719,11 +1802,14 @@ type = "block"
 
     #[test]
     fn initial_project_loads_disk_facts_into_same_handle() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         let extra_path = root.join("extra_python");
-        std::fs::create_dir_all(extra_path.as_std_path()).unwrap();
-        std::fs::write(root.join(".env.local").as_std_path(), "FROM_ENV=loaded\n").unwrap();
+        std::fs::create_dir_all(extra_path.as_std_path())
+            .expect("test fixture directory should be created");
+        std::fs::write(root.join(".env.local").as_std_path(), "FROM_ENV=loaded\n")
+            .expect("test fixture directory should be created");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             format!(
@@ -1734,7 +1820,7 @@ env_file = ".env.local"
 "#
             ),
         )
-        .unwrap();
+        .expect("test fixture file should be written");
 
         let mut db = DjangoDatabase::new(
             Arc::new(OsFileSystem::default()),
@@ -1754,9 +1840,11 @@ env_file = ".env.local"
             .collect();
         assert_eq!(initial_paths, vec![root.clone()]);
 
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         db.apply_project_settings(settings);
-        let environment = djls_project::testing::compute_django_environment(&db, project);
+        let environment = djls_project::testing::compute_django_environment(&db, project)
+            .expect("test Django environment should compute");
         djls_project::apply_django_environment(&mut db, environment);
 
         assert_eq!(db.project(), Some(project));
@@ -1875,14 +1963,16 @@ env_file = ".env.local"
     #[allow(clippy::too_many_lines)]
     fn final_state_matrix_10_reprime_is_independent_and_local() {
         let event_log = EventLog::default();
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let alpha_path = root.join("alpha_tags.py");
         let beta_path = root.join("beta_tags.py");
         let alpha_source = |tag_extra: &str, filter_extra: &str| {
@@ -1892,7 +1982,7 @@ env_file = ".env.local"
         };
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(
                 root.join("settings.py"),
@@ -1905,13 +1995,18 @@ env_file = ".env.local"
             );
         }
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: Storage::new(Some(Box::new({
                 let log = event_log.clone();
-                move |event| log.events.lock().unwrap().push(event)
+                move |event| {
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
+                }
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -1925,7 +2020,8 @@ env_file = ".env.local"
             .map(TemplateLibrary::id)
             .collect();
         assert_eq!(keys.len(), 2);
-        let primed = prime_template_library_products(&db).unwrap();
+        let primed =
+            prime_template_library_products(&db).expect("test fixture should install a project");
         assert_eq!(primed.reprime_files().len(), 2);
         assert_eq!(primed.full_reload_files().len(), 1);
         event_log.take();
@@ -1933,18 +2029,31 @@ env_file = ".env.local"
         let alpha_key = *keys
             .iter()
             .find(|key| key.module(&db).as_str() == "alpha_tags")
-            .unwrap();
+            .expect("test source should contain the expected text");
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(alpha_path.clone(), alpha_source("", ", arg"));
         SourceChanges::new([ChangeEvent::ContentChanged(alpha_path.clone())]).apply(&mut db);
-        let reprime = prime_template_library_products(&db).unwrap();
+        let reprime =
+            prime_template_library_products(&db).expect("test fixture should install a project");
         assert_eq!(reprime.reprime_files().len(), 2);
         assert_eq!(reprime.full_reload_files().len(), 1);
         let alpha_tags = library_tag_specs(&db, project, alpha_key);
         let alpha_filters = library_filter_specs(&db, alpha_key);
-        assert_eq!(alpha_tags.get("alpha_tag").unwrap().arguments().len(), 1);
-        assert!(alpha_filters.get("alpha_filter").unwrap().expects_arg);
+        assert_eq!(
+            alpha_tags
+                .get("alpha_tag")
+                .expect("expected test fixture entry should exist")
+                .arguments()
+                .len(),
+            1
+        );
+        assert!(
+            alpha_filters
+                .get("alpha_filter")
+                .expect("expected test fixture entry should exist")
+                .expects_arg
+        );
         for key in keys
             .iter()
             .filter(|key| key.module(&db).as_str() == "beta_tags")
@@ -1968,16 +2077,29 @@ env_file = ".env.local"
         );
 
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(alpha_path.clone(), alpha_source(", extra", ", arg"));
         SourceChanges::new([ChangeEvent::ContentChanged(alpha_path)]).apply(&mut db);
-        let reprime = prime_template_library_products(&db).unwrap();
+        let reprime =
+            prime_template_library_products(&db).expect("test fixture should install a project");
         assert_eq!(reprime.reprime_files().len(), 2);
         assert_eq!(reprime.full_reload_files().len(), 1);
         let alpha_tags = library_tag_specs(&db, project, alpha_key);
         let alpha_filters = library_filter_specs(&db, alpha_key);
-        assert_eq!(alpha_tags.get("alpha_tag").unwrap().arguments().len(), 2);
-        assert!(alpha_filters.get("alpha_filter").unwrap().expects_arg);
+        assert_eq!(
+            alpha_tags
+                .get("alpha_tag")
+                .expect("expected test fixture entry should exist")
+                .arguments()
+                .len(),
+            2
+        );
+        assert!(
+            alpha_filters
+                .get("alpha_filter")
+                .expect("expected test fixture entry should exist")
+                .expects_arg
+        );
         for key in keys
             .iter()
             .filter(|key| key.module(&db).as_str() == "beta_tags")
@@ -2012,7 +2134,8 @@ env_file = ".env.local"
         let library = TemplateLibraryId::new(
             &db,
             Some(file),
-            PythonModuleName::parse("test.project.tags").unwrap(),
+            PythonModuleName::parse("test.project.tags")
+                .expect("test Python module name should be valid"),
         );
 
         // First extraction
@@ -2042,7 +2165,8 @@ env_file = ".env.local"
         let library = TemplateLibraryId::new(
             &db,
             Some(file),
-            PythonModuleName::parse("test.project.tags").unwrap(),
+            PythonModuleName::parse("test.project.tags")
+                .expect("test Python module name should be valid"),
         );
         let _result = template_library_filter_facts(&db, library);
         event_log.take();
@@ -2086,11 +2210,14 @@ def my_filter(value, arg):
             fs: Arc::new(fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -2101,7 +2228,8 @@ def my_filter(value, arg):
         let library = TemplateLibraryId::new(
             &db,
             Some(file),
-            PythonModuleName::parse("test.project.tags").unwrap(),
+            PythonModuleName::parse("test.project.tags")
+                .expect("test Python module name should be valid"),
         );
         let result = template_library_filter_facts(&db, library);
 
@@ -2116,7 +2244,8 @@ def my_filter(value, arg):
         let other_library = TemplateLibraryId::new(
             &db,
             Some(file),
-            PythonModuleName::parse("other.project.tags").unwrap(),
+            PythonModuleName::parse("other.project.tags")
+                .expect("test Python module name should be valid"),
         );
         let other_module_result = template_library_filter_facts(&db, other_library);
         let other_key = SymbolKey::filter("other.project.tags", "my_filter");
@@ -2159,20 +2288,22 @@ def my_filter(value, arg):
     }
 
     fn assert_django_discovery_updates_star_imported_settings_source(settings_source: &str) {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"config.settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let settings_path = root.join("config/settings.py");
         let base_settings_path = root.join("config/base.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(root.join("config/__init__.py"), String::new());
             fs.add_file(settings_path, settings_source.to_string());
@@ -2191,10 +2322,10 @@ def my_filter(value, arg):
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -2204,7 +2335,7 @@ def my_filter(value, arg):
         assert_custom_library_module(&db, "old_tags");
 
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(base_settings_path, settings_with_custom_library("new_tags"));
         apply_project_discovery(&mut db);
 
@@ -2232,20 +2363,22 @@ def my_filter(value, arg):
 
     #[test]
     fn django_discovery_discovers_newly_star_imported_known_file() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"config.settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let settings_path = root.join("config/settings.py");
         let extra_settings_path = root.join("config/extra.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(root.join("config/__init__.py"), String::new());
             fs.add_file(settings_path.clone(), "INSTALLED_APPS = []\n".to_string());
@@ -2264,10 +2397,10 @@ def my_filter(value, arg):
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -2291,7 +2424,7 @@ def my_filter(value, arg):
         );
 
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(settings_path, "from .extra import *\n".to_string());
             fs.add_file(
                 extra_settings_path,
@@ -2305,19 +2438,21 @@ def my_filter(value, arg):
 
     #[test]
     fn one_reload_observes_deleted_and_recreated_settings_import() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"config.settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let base_settings_path = root.join("config/base.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(root.join("config/__init__.py"), String::new());
             fs.add_file(
@@ -2339,10 +2474,10 @@ def my_filter(value, arg):
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -2350,7 +2485,9 @@ def my_filter(value, arg):
         db.project = Some(project);
         assert_custom_library_module(&db, "old_tags");
 
-        fs.lock().unwrap().remove_file(&base_settings_path);
+        fs.lock()
+            .expect("test mutex should not be poisoned")
+            .remove_file(&base_settings_path);
         apply_project_discovery(&mut db);
         assert!(
             ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -2360,7 +2497,7 @@ def my_filter(value, arg):
         );
 
         fs.lock()
-            .unwrap()
+            .expect("test mutex should not be poisoned")
             .add_file(base_settings_path, settings_with_custom_library("new_tags"));
         apply_project_discovery(&mut db);
         assert_custom_library_module(&db, "new_tags");
@@ -2368,26 +2505,29 @@ def my_filter(value, arg):
 
     fn apply_project_discovery(db: &mut DjangoDatabase) {
         let project = db.project().expect("project should exist");
-        let environment = djls_project::testing::compute_django_environment(db, project);
+        let environment = djls_project::testing::compute_django_environment(db, project)
+            .expect("test Django environment should compute");
         djls_project::apply_django_environment(db, environment);
         let _facts = djls_project::testing::compute_project_facts(db, project);
     }
 
     #[test]
     fn environment_apply_bumps_roots_but_not_unchanged_file_contents() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let tag_path = root.join("blog/templatetags/custom.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(
                 root.join("settings.py"),
@@ -2402,14 +2542,15 @@ def my_filter(value, arg):
             fs,
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let environment = djls_project::testing::compute_django_environment(&db, project);
+        let environment = djls_project::testing::compute_django_environment(&db, project)
+            .expect("test Django environment should compute");
         djls_project::apply_django_environment(&mut db, environment);
         let facts = djls_project::testing::compute_project_facts(&db, project);
         let file_paths: Vec<_> = facts.file_paths().to_vec();
@@ -2433,7 +2574,8 @@ def my_filter(value, arg):
             .collect();
         assert!(!root_revisions.is_empty());
 
-        let environment = djls_project::testing::compute_django_environment(&db, project);
+        let environment = djls_project::testing::compute_django_environment(&db, project)
+            .expect("test Django environment should compute");
         djls_project::apply_django_environment(&mut db, environment);
         let _facts = djls_project::testing::compute_project_facts(&db, project);
 
@@ -2461,14 +2603,16 @@ def my_filter(value, arg):
 
     #[test]
     fn semantic_db_template_library_catalog_returns_derived_app_libraries() {
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
 
         let mut fs = InMemoryFileSystem::new();
         fs.add_file(root.join("manage.py"), String::new());
@@ -2487,19 +2631,18 @@ def my_filter(value, arg):
             fs: Arc::new(fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let djls_project::LoadableLibraryLookup::Found(custom) =
+        let custom =
             ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .loadable_library_str("custom")
-        else {
-            panic!("custom library should resolve definitively");
-        };
+                .found()
+                .expect("custom library should resolve definitively");
         assert_eq!(custom.module_name_str(), "blog.templatetags.custom");
         assert!(
             custom
@@ -2512,19 +2655,21 @@ def my_filter(value, arg):
     #[test]
     fn templatetag_source_change_invalidates_template_library_catalog() {
         let event_log = EventLog::default();
-        let tempdir = tempdir().unwrap();
-        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let tempdir = tempdir().expect("temporary test directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             "django_settings_module = \"settings\"\n",
         )
-        .unwrap();
-        let settings = Settings::new(root.as_path(), None).unwrap();
+        .expect("temporary test path should be valid UTF-8");
+        let settings =
+            Settings::new(root.as_path(), None).expect("test project settings should load");
         let tag_path = root.join("blog/templatetags/custom.py");
 
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(root.join("manage.py"), String::new());
             fs.add_file(
                 root.join("settings.py"),
@@ -2539,14 +2684,17 @@ def my_filter(value, arg):
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -2554,12 +2702,11 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let djls_project::LoadableLibraryLookup::Found(custom) =
+        let custom =
             ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .loadable_library_str("custom")
-        else {
-            panic!("custom library should resolve definitively");
-        };
+                .found()
+                .expect("custom library should resolve definitively");
         assert!(
             custom
                 .symbols()
@@ -2569,19 +2716,18 @@ def my_filter(value, arg):
         event_log.take();
 
         let tag_file = path_to_file(&db, &tag_path).expect("fixture file should exist");
-        fs.lock().unwrap().add_file(
+        fs.lock().expect("test mutex should not be poisoned").add_file(
             tag_path,
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n".to_string(),
         );
         SourceChanges::new([ChangeEvent::ContentChanged(tag_file.path(&db).clone())])
             .apply(&mut db);
 
-        let djls_project::LoadableLibraryLookup::Found(custom) =
+        let custom =
             ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
                 .loadable_library_str("custom")
-        else {
-            panic!("custom library should resolve definitively");
-        };
+                .found()
+                .expect("custom library should resolve definitively");
         assert!(
             custom
                 .symbols()
@@ -2636,7 +2782,7 @@ def my_filter(value, arg):
         let second_model_path = root.join("app2/models.py");
         let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         {
-            let mut fs = fs.lock().unwrap();
+            let mut fs = fs.lock().expect("test mutex should not be poisoned");
             fs.add_file(
                 first_model_path.clone(),
                 "from django.db import models\nclass First(models.Model):\n    pass\n".to_string(),
@@ -2648,14 +2794,17 @@ def my_filter(value, arg):
         }
 
         let mut db = DjangoDatabase {
-            fs: fs.clone(),
+            fs: Arc::<Mutex<InMemoryFileSystem>>::clone(&fs),
             files: SourceFiles::default(),
             project: None,
-            settings: Arc::new(Mutex::new(settings.clone())),
+            settings: Arc::new(settings.clone()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
-                    log.events.lock().unwrap().push(event);
+                    log.events
+                        .lock()
+                        .expect("test mutex should not be poisoned")
+                        .push(event);
                 }
             }))),
             logs: Arc::new(Mutex::new(None)),
@@ -2667,27 +2816,20 @@ def my_filter(value, arg):
         assert!(graph.models_named("First").next().is_some());
         assert!(graph.models_named("Second").next().is_some());
         let events = event_log.take();
-        let extracted_graph_count = events
-            .iter()
-            .filter(|event| match &event.kind {
-                salsa::EventKind::WillExecute { database_key } => {
-                    let name = db.ingredient_debug_name(database_key.ingredient_index());
-                    name.contains("extract_models")
-                }
-                _ => false,
-            })
-            .count();
+        let extracted_graph_count = execution_count(&db, &events, "extract_models");
         assert_eq!(
             extracted_graph_count, 2,
             "both model files should be extracted on first model graph computation"
         );
 
         let first_model = path_to_file(&db, &first_model_path).expect("fixture file should exist");
-        fs.lock().unwrap().add_file(
-            first_model_path,
-            "from django.db import models\nclass FirstRenamed(models.Model):\n    pass\n"
-                .to_string(),
-        );
+        fs.lock()
+            .expect("test mutex should not be poisoned")
+            .add_file(
+                first_model_path,
+                "from django.db import models\nclass FirstRenamed(models.Model):\n    pass\n"
+                    .to_string(),
+            );
         SourceChanges::new([ChangeEvent::ContentChanged(first_model.path(&db).clone())])
             .apply(&mut db);
 
@@ -2700,16 +2842,7 @@ def my_filter(value, arg):
             was_executed(&db, &events, "compute_model_graph"),
             "the aggregate model graph should re-run after one model file changes"
         );
-        let extracted_graph_count = events
-            .iter()
-            .filter(|event| match &event.kind {
-                salsa::EventKind::WillExecute { database_key } => {
-                    let name = db.ingredient_debug_name(database_key.ingredient_index());
-                    name.contains("extract_models")
-                }
-                _ => false,
-            })
-            .count();
+        let extracted_graph_count = execution_count(&db, &events, "extract_models");
         assert_eq!(
             extracted_graph_count, 1,
             "only the changed model file should re-run extraction"
@@ -2734,10 +2867,13 @@ def my_filter(value, arg):
         assert_eq!(inheritance.ancestors(&db).len(), 1);
         event_log.take();
 
-        fs.lock().unwrap().add_file(
-            child_path,
-            "{% extends \"base.html\" %}\n{% block content %}{{ two }}{% endblock %}".to_string(),
-        );
+        fs.lock()
+            .expect("test mutex should not be poisoned")
+            .add_file(
+                child_path,
+                "{% extends \"base.html\" %}\n{% block content %}{{ two }}{% endblock %}"
+                    .to_string(),
+            );
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
             .apply(&mut db);
 
@@ -2775,10 +2911,13 @@ def my_filter(value, arg):
         assert_eq!(inheritance.ancestors(&db).len(), 1);
         event_log.take();
 
-        fs.lock().unwrap().add_file(
-            child_path,
-            "{% extends \"next.html\" %}\n{% block content %}{{ one }}{% endblock %}".to_string(),
-        );
+        fs.lock()
+            .expect("test mutex should not be poisoned")
+            .add_file(
+                child_path,
+                "{% extends \"next.html\" %}\n{% block content %}{{ one }}{% endblock %}"
+                    .to_string(),
+            );
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
             .apply(&mut db);
 
@@ -2808,10 +2947,12 @@ def my_filter(value, arg):
         assert!(inheritance.ancestors(&db)[0].file(&db) == parent_file);
         event_log.take();
 
-        fs.lock().unwrap().add_file(
-            parent_path,
-            "{% block sidebar %}Base{% endblock %}".to_string(),
-        );
+        fs.lock()
+            .expect("test mutex should not be poisoned")
+            .add_file(
+                parent_path,
+                "{% block sidebar %}Base{% endblock %}".to_string(),
+            );
         SourceChanges::new([ChangeEvent::ContentChanged(parent_file.path(&db).clone())])
             .apply(&mut db);
 

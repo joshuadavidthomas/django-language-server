@@ -17,8 +17,11 @@ fn document_links_do_not_leak_templates_from_another_backend() {
         .file("/test/project/testproject/settings.py", settings)
         .file("/test/project/a/child.html", "{% include 'only-b.html' %}")
         .file("/test/project/b/only-b.html", "other backend")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/a/child.html"));
+        .install(&mut db)
+        .expect("multi-backend project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("child template fixture should exist");
 
     assert!(document_links(&db, file).is_empty());
 }
@@ -36,8 +39,11 @@ fn document_links_resolve_absolute_references_from_originless_files() {
         )
         .file("/test/project/scratch.html", source)
         .file("/test/project/templates/card.html", "card")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+        .install(&mut db)
+        .expect("originless template project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("scratch template fixture should exist");
 
     let links = document_links(&db, file);
 
@@ -70,9 +76,12 @@ fn document_links_resolve_template_references_with_interior_ranges() {
         .file(child_path, source)
         .file(base_path, "base")
         .file(partial_path, "partial")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("template reference project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
     let links = document_links(&db, file);
 
     assert_eq!(links.len(), 2);
@@ -124,9 +133,12 @@ fn document_links_skip_inconclusive_template_references() {
         )
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("incomplete-search project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
 
     assert!(document_links(&db, file).is_empty());
 }
@@ -158,8 +170,11 @@ fn document_links_do_not_invent_origin_for_source_less_configured_library() {
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
         )
         .file(template_path, "{% load panels %}")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new(template_path));
+        .install(&mut db)
+        .expect("configured-library project fixture should install");
+    let file = db
+        .file(Utf8Path::new(template_path))
+        .expect("load template fixture should exist");
 
     assert!(document_links(&db, file).is_empty());
 }
@@ -179,8 +194,11 @@ fn document_links_skip_library_candidate_beside_open_backend_alternative() {
             "from django import template\nregister = template.Library()\n",
         )
         .file(template_path, "{% load custom %}")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new(template_path));
+        .install(&mut db)
+        .expect("open-backend project fixture should install");
+    let file = db
+        .file(Utf8Path::new(template_path))
+        .expect("load template fixture should exist");
 
     assert!(document_links(&db, file).is_empty());
 }
@@ -200,9 +218,12 @@ fn document_links_resolve_relative_include_to_sibling_template() {
         )
         .file(child_path, source)
         .file(target_path, "target")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("relative-include project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
     let links = document_links(&db, file);
 
     assert_eq!(
@@ -246,8 +267,11 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
             "from django import template\nregister = template.Library()\n",
         )
         .file(template_path, source)
-        .install(&mut db);
-    let file = db.file(Utf8Path::new(template_path));
+        .install(&mut db)
+        .expect("template-library project fixture should install");
+    let file = db
+        .file(Utf8Path::new(template_path))
+        .expect("load template fixture should exist");
     let links = document_links(&db, file);
 
     assert_eq!(

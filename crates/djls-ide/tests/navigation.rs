@@ -16,14 +16,24 @@ fn goto_definition_does_not_leak_a_template_from_another_backend() {
         .file("/test/project/testproject/settings.py", settings)
         .file("/test/project/a/child.html", source)
         .file("/test/project/b/base.html", "other backend")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/a/child.html"));
+        .install(&mut db)
+        .expect("multi-backend project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("child template fixture should exist");
 
     assert!(
         goto_definition(
             &db,
             file,
-            Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+            Offset::new(
+                u32::try_from(
+                    source
+                        .find("base")
+                        .expect("test source should contain the expected text")
+                )
+                .expect("test source offset should fit in u32")
+            ),
             true,
         )
         .is_none()
@@ -44,13 +54,23 @@ fn goto_definition_reports_location_link_with_origin_range() {
         )
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("location-link project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
     let response = goto_definition(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
         true,
     )
     .expect("template reference should resolve to the target template");
@@ -84,13 +104,23 @@ fn goto_definition_resolves_absolute_reference_from_originless_file() {
         )
         .file("/test/project/scratch.html", source)
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+        .install(&mut db)
+        .expect("originless template project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("scratch template fixture should exist");
 
     let response = goto_definition(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
         false,
     );
 
@@ -120,14 +150,24 @@ fn goto_definition_leaves_relative_reference_from_originless_file_unresolved() {
         )
         .file("/test/project/scratch.html", source)
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
-    let file = db.file(Utf8Path::new("/test/project/scratch.html"));
+        .install(&mut db)
+        .expect("originless relative-reference fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("scratch template fixture should exist");
 
     assert!(
         goto_definition(
             &db,
             file,
-            Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+            Offset::new(
+                u32::try_from(
+                    source
+                        .find("base")
+                        .expect("test source should contain the expected text")
+                )
+                .expect("test source offset should fit in u32")
+            ),
             false,
         )
         .is_none()
@@ -148,13 +188,23 @@ fn goto_definition_falls_back_to_location_without_link_support() {
         )
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("location fallback project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
     let response = goto_definition(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
         false,
     )
     .expect("template reference should resolve to the target template");
@@ -185,20 +235,33 @@ fn goto_definition_reports_the_known_possible_winner_for_inconclusive_search() {
         .file(child_path, source)
         .file("/test/project/templates/base.html", "first")
         .file("/test/project/app/templates/base.html", "second")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("incomplete-search project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
     let response = goto_definition(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
         true,
     )
     .expect("known possible origins should remain navigable");
 
-    let ls_types::GotoDefinitionResponse::Link(links) = response else {
-        panic!("location-link support should return location links");
-    };
+    let links = match response {
+        ls_types::GotoDefinitionResponse::Link(links) => Some(links),
+        ls_types::GotoDefinitionResponse::Scalar(_)
+        | ls_types::GotoDefinitionResponse::Array(_) => None,
+    }
+    .expect("location-link support should return location links");
     let target_uris = links
         .iter()
         .map(|link| link.target_uri.as_str())
@@ -226,13 +289,23 @@ fn goto_definition_returns_none_for_originless_inconclusive_search() {
             "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
         )
         .file(child_path, source)
-        .install(&mut db);
+        .install(&mut db)
+        .expect("originless incomplete-search fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("scratch template fixture should exist");
     let response = goto_definition(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("missing").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("missing")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
         false,
     );
 
@@ -257,13 +330,23 @@ fn find_references_resolves_extends_with_the_source_origin_skipped() {
             r#"{% include "base.html" %}"#,
         )
         .file("/test/project/second/base.html", "parent")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("shadowed-template project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("shadowing template fixture should exist");
     let locations = find_references(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
     )
     .expect("the shadowing template should reference the next origin");
 
@@ -299,13 +382,23 @@ fn find_references_skips_the_source_file_across_template_name_aliases() {
             r#"{% include "alias/base.html" %}"#,
         )
         .file("/test/project/fallback/alias/base.html", "parent")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("template-alias project fixture should install");
 
-    let file = db.file(Utf8Path::new(source_path));
+    let file = db
+        .file(Utf8Path::new(source_path))
+        .expect("source template fixture should exist");
     let locations = find_references(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("alias").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("alias")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
     )
     .expect("every source alias should resolve the extends reference to the parent");
 
@@ -332,13 +425,23 @@ fn find_references_reports_template_name_interior_range() {
         )
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
-        .install(&mut db);
+        .install(&mut db)
+        .expect("template-reference project fixture should install");
 
-    let file = db.file(Utf8Path::new(child_path));
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
     let locations = find_references(
         &db,
         file,
-        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+        Offset::new(
+            u32::try_from(
+                source
+                    .find("base")
+                    .expect("test source should contain the expected text"),
+            )
+            .expect("test source offset should fit in u32"),
+        ),
     )
     .expect("template reference should resolve to at least one reference");
 

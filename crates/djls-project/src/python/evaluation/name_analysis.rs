@@ -312,9 +312,11 @@ mod tests {
         let module = parse_module(&source)
             .expect("expression should parse")
             .into_syntax();
-        let [ast::Stmt::Assign(assignment)] = module.body.as_slice() else {
-            panic!("expected one assignment");
-        };
+        let assignment = match module.body.as_slice() {
+            [ast::Stmt::Assign(assignment)] => Some(assignment),
+            _ => None,
+        }
+        .expect("expected one assignment");
         expr_read_names(&assignment.value).into_iter().collect()
     }
 
@@ -406,9 +408,11 @@ mod tests {
         let module = parse_module("root.attr[index], [name, *rest] = value\n")
             .expect("assignment should parse")
             .into_syntax();
-        let [ast::Stmt::Assign(assignment)] = module.body.as_slice() else {
-            panic!("expected one assignment");
-        };
+        let assignment = match module.body.as_slice() {
+            [ast::Stmt::Assign(assignment)] => Some(assignment),
+            _ => None,
+        }
+        .expect("expected one assignment");
         assert_eq!(
             target_write_names(&assignment.targets[0]),
             ["root", "name", "rest"]
@@ -422,9 +426,11 @@ mod tests {
         )
         .expect("match should parse")
         .into_syntax();
-        let [ast::Stmt::Match(statement)] = module.body.as_slice() else {
-            panic!("expected one match statement");
-        };
+        let statement = match module.body.as_slice() {
+            [ast::Stmt::Match(statement)] => Some(statement),
+            _ => None,
+        }
+        .expect("expected one match statement");
         assert_eq!(
             pattern_bound_names(&statement.cases[0].pattern),
             ["first", "rest", "mapping", "whole"]

@@ -19,7 +19,18 @@ fn will_execute_count(db: &TestDatabase, events: &[Event], query_name: &str) -> 
             EventKind::WillExecute { database_key } => db
                 .ingredient_debug_name(database_key.ingredient_index())
                 .contains(query_name),
-            _ => false,
+            EventKind::DidValidateMemoizedValue { .. }
+            | EventKind::WillBlockOn { .. }
+            | EventKind::WillIterateCycle { .. }
+            | EventKind::DidFinalizeCycle { .. }
+            | EventKind::WillCheckCancellation
+            | EventKind::DidSetCancellationFlag
+            | EventKind::WillDiscardStaleOutput { .. }
+            | EventKind::DidDiscard { .. }
+            | EventKind::DidDiscardAccumulated { .. }
+            | EventKind::DidInternValue { .. }
+            | EventKind::DidReuseInternedValue { .. }
+            | EventKind::DidValidateInternedValue { .. } => false,
         })
         .count()
 }
@@ -28,7 +39,7 @@ fn project_with_templates(
     db: &mut TestDatabase,
     template_dirs: Vec<&str>,
     templates: Vec<(&str, &str, &str)>,
-) -> Project {
+) -> Result<Project, Box<dyn std::error::Error>> {
     let dirs_literal = template_dirs
         .into_iter()
         .map(|dir| format!("'{dir}'"))
@@ -40,12 +51,12 @@ fn project_with_templates(
     let fixture = ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings_source);
-    templates
+    Ok(templates
         .into_iter()
         .fold(fixture, |fixture, (_name, path, source)| {
             fixture.file(path, source)
         })
-        .build(db)
+        .build(db)?)
 }
 
 #[test]
@@ -66,11 +77,18 @@ fn scoped_template_libraries_correlate_with_resolving_backends() {
         .file("/test/project/a/alpha.html", "{% load shared %}")
         .file("/test/project/b/beta.html", "{% load shared %}")
         .file("/test/project/outside.html", "{% load shared %}")
-        .build(&db);
+        .build(&db)
+        .expect("backend-correlation project fixture should build");
 
-    let alpha_file = db.file(Utf8Path::new("/test/project/a/alpha.html"));
-    let beta_file = db.file(Utf8Path::new("/test/project/b/beta.html"));
-    let outside_file = db.file(Utf8Path::new("/test/project/outside.html"));
+    let alpha_file = db
+        .file(Utf8Path::new("/test/project/a/alpha.html"))
+        .expect("backend A template fixture should exist in the test database");
+    let beta_file = db
+        .file(Utf8Path::new("/test/project/b/beta.html"))
+        .expect("backend B template fixture should exist in the test database");
+    let outside_file = db
+        .file(Utf8Path::new("/test/project/outside.html"))
+        .expect("outside template fixture should exist in the test database");
     let alpha = scoped_template_libraries(&db, project, alpha_file)
         .loadable_library_str("shared")
         .found()
@@ -131,7 +149,8 @@ fn project_inventory_preserves_backend_remainder_slot_order() {
             "/test/project/beta_builtin.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef marker(): pass\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("backend-remainder project fixture should build");
 
     let definitions =
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -160,8 +179,11 @@ fn partial_known_backend_field_uncertainty_keeps_one_correlated_backend_alternat
             "from django import template\nregister = template.Library()\n",
         )
         .file("/test/project/templates/page.html", "{% load shared %}")
-        .build(&db);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+        .build(&db)
+        .expect("partial-backend project fixture should build");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("partial-backend template fixture should exist in the test database");
 
     let scoped_libraries = scoped_template_libraries(&db, project, file);
     assert!(matches!(
@@ -194,20 +216,28 @@ fn scoped_template_libraries_backend_index_invalidates_with_settings_evidence() 
             "from django import template\nregister = template.Library()\n",
         )
         .file("/test/project/templates/page.html", "{% load shared %}")
-        .build(&db);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+        .build(&db)
+        .expect("invalidating-scope project fixture should build");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("invalidating-scope template fixture should exist in the test database");
 
     let initial = scoped_template_libraries(&db, project, file)
         .loadable_library_str("shared")
         .found()
         .expect("initial direct file scope should select alpha");
     assert_eq!(initial.module_name_str(), "alpha_tags");
-    let _ = events.take();
+    drop(
+        events
+            .take()
+            .expect("Salsa event log should be readable before the settings edit"),
+    );
 
     db.add_file(
         settings_path,
         "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/other-templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n",
-    );
+    )
+    .expect("updated settings fixture should be added to the test database");
     SourceChanges::new([ChangeEvent::ContentChanged(settings_path.into())]).apply(&mut db);
 
     let updated = scoped_template_libraries(&db, project, file)
@@ -215,7 +245,9 @@ fn scoped_template_libraries_backend_index_invalidates_with_settings_evidence() 
         .found()
         .expect("invalidated direct file scope should select beta");
     assert_eq!(updated.module_name_str(), "beta_tags");
-    let executed = events.take();
+    let executed = events
+        .take()
+        .expect("Salsa event log should be readable after the settings edit");
     assert_eq!(
         will_execute_count(&db, &executed, "template_directory_index"),
         1
@@ -234,14 +266,20 @@ fn file_outside_template_roots_uses_open_project_inventory() {
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings)
         .file("/test/project/outside.html", "{% load shared %}")
-        .build(&db);
-    let file = db.file(Utf8Path::new("/test/project/outside.html"));
+        .build(&db)
+        .expect("outside-template project fixture should build");
+    let file = db
+        .file(Utf8Path::new("/test/project/outside.html"))
+        .expect("outside-template fixture should exist in the test database");
     let scoped_libraries = scoped_template_libraries(&db, project, file);
 
-    let LoadableLibraryLookup::Found(library) = scoped_libraries.loadable_library_str("shared")
-    else {
-        panic!("project inventory should remain available outside configured roots");
-    };
+    let library = match scoped_libraries.loadable_library_str("shared") {
+        LoadableLibraryLookup::Found(library) => Some(library),
+        LoadableLibraryLookup::Ambiguous(_)
+        | LoadableLibraryLookup::Inconclusive(_)
+        | LoadableLibraryLookup::Absent => None,
+    }
+    .expect("project inventory should remain available outside configured roots");
     assert_eq!(library.module_name_str(), "missing.shared_tags");
     assert!(library.source_file().is_none());
     assert!(library.symbols_are_unobserved());
@@ -279,9 +317,12 @@ fn locally_assembled_dirs_and_installed_apps_stay_on_the_same_branch() {
             "from django import template\nregister = template.Library()\n",
         )
         .file("/test/project/one-templates/page.html", "{% load shared %}")
-        .build(&db);
+        .build(&db)
+        .expect("correlated-settings project fixture should build");
 
-    let file = db.file(Utf8Path::new("/test/project/one-templates/page.html"));
+    let file = db
+        .file(Utf8Path::new("/test/project/one-templates/page.html"))
+        .expect("correlated-settings template fixture should exist in the test database");
     let library = scoped_template_libraries(&db, project, file)
         .loadable_library_str("shared")
         .found()
@@ -302,8 +343,11 @@ fn scoped_template_libraries_retain_wholly_unknown_settings_case() {
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef alpha(value):\n    pass\n",
         )
         .file("/test/project/templates/page.html", "{% load shared %}")
-        .build(&db);
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"));
+        .build(&db)
+        .expect("unknown-settings project fixture should build");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("unknown-settings template fixture should exist in the test database");
 
     assert!(matches!(
         scoped_template_libraries(&db, project, file).loadable_library_str("shared"),
@@ -328,9 +372,12 @@ fn duplicate_backend_memberships_preserve_conflicting_libraries() {
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef beta():\n    pass\n",
         )
         .file("/test/project/shared/page.html", "{% load shared %}")
-        .build(&db);
+        .build(&db)
+        .expect("duplicate-backend project fixture should build");
 
-    let file = db.file(Utf8Path::new("/test/project/shared/page.html"));
+    let file = db
+        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .expect("duplicate-backend template fixture should exist in the test database");
     assert!(matches!(
         scoped_template_libraries(&db, project, file).loadable_library_str("shared"),
         LoadableLibraryLookup::Ambiguous(libraries) if libraries.len() == 2
@@ -359,9 +406,12 @@ fn scoped_template_libraries_are_ambiguous_when_settings_cases_resolve_same_file
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef beta():\n    pass\n",
         )
         .file("/test/project/shared/page.html", "{% load shared %}")
-        .build(&db);
+        .build(&db)
+        .expect("ambiguous-settings project fixture should build");
 
-    let file = db.file(Utf8Path::new("/test/project/shared/page.html"));
+    let file = db
+        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .expect("ambiguous-settings template fixture should exist in the test database");
     assert!(matches!(
         scoped_template_libraries(&db, project, file).loadable_library_str("shared"),
         LoadableLibraryLookup::Ambiguous(libraries) if libraries.len() == 2
@@ -391,7 +441,8 @@ fn template_origins_preserve_django_search_order() {
                 "detail",
             ),
         ],
-    );
+    )
+    .expect("template-search-order project fixture should build");
 
     let names: Vec<_> = template_resolution(&db, project)
         .origins(&db)
@@ -419,7 +470,8 @@ fn derived_template_origins_keep_shadowed_names_in_template_dir_order() {
                 "project shared",
             ),
         ],
-    );
+    )
+    .expect("shadowed-template project fixture should build");
 
     let paths: Vec<_> = template_resolution(&db, project)
         .origins(&db)
@@ -458,7 +510,8 @@ fn template_names_returns_unique_resolvable_names() {
                 "detail",
             ),
         ],
-    );
+    )
+    .expect("template-name project fixture should build");
 
     let mut names: Vec<_> = template_resolution(&db, project)
         .template_names(&db)
@@ -487,7 +540,8 @@ fn origins_for_name_returns_origins_in_django_search_order() {
                 "project shared",
             ),
         ],
-    );
+    )
+    .expect("origin-order project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
     let paths: Vec<_> = template_resolution(&db, project)
@@ -523,7 +577,8 @@ fn origins_for_name_retains_duplicate_template_names() {
                 "app base",
             ),
         ],
-    );
+    )
+    .expect("duplicate-template-name project fixture should build");
 
     let name = TemplateName::new(&db, "base.html".to_string());
     let origins = template_resolution(&db, project).origins_for_name(&db, name);
@@ -538,7 +593,8 @@ fn origins_for_name_returns_empty_slice_for_unknown_template_name() {
         &mut db,
         vec!["/test/project/templates", "/test/project/app/templates"],
         Vec::new(),
-    );
+    )
+    .expect("unknown-template project fixture should build");
 
     let name = TemplateName::new(&db, "missing.html".to_string());
     let origins = template_resolution(&db, project).origins_for_name(&db, name);
@@ -568,9 +624,12 @@ fn template_names_for_file_returns_names_in_discovery_order() {
                 "shadow",
             ),
         ],
-    );
+    )
+    .expect("template-file-name project fixture should build");
 
-    let file = db.file(Utf8Path::new("/test/project/templates/account/detail.html"));
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/account/detail.html"))
+        .expect("detail template fixture should exist in the test database");
     let names: Vec<_> = template_resolution(&db, project)
         .template_names_for_file(&db, file)
         .iter()
@@ -598,13 +657,18 @@ fn resolve_returns_first_origin_for_duplicate_template_names() {
                 "app base",
             ),
         ],
-    );
+    )
+    .expect("duplicate-resolution project fixture should build");
 
     let name = TemplateName::new(&db, "base.html".to_string());
     let result = template_resolution(&db, project).resolve(&db, name);
-    let TemplateResolutionResult::Found(origin) = result else {
-        panic!("expected base.html to resolve");
-    };
+    let origin = match result {
+        TemplateResolutionResult::Found(origin) => Some(origin),
+        TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
+            None
+        }
+    }
+    .expect("base.html should resolve to an origin");
 
     assert_eq!(
         origin.file(&db).path(&db).as_str(),
@@ -619,14 +683,15 @@ fn resolve_reports_missing_template() {
         &mut db,
         vec!["/test/project/templates", "/test/project/app/templates"],
         Vec::new(),
-    );
+    )
+    .expect("missing-template project fixture should build");
 
     let name = TemplateName::new(&db, "missing.html".to_string());
-    let TemplateResolutionResult::DoesNotExist(error) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected missing template");
-    };
+    let error = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::DoesNotExist(error) => Some(error),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::Inconclusive(_) => None,
+    }
+    .expect("missing.html should not resolve in any template directory");
 
     assert_eq!(error.name, name);
     assert_eq!(
@@ -649,14 +714,15 @@ fn uncertainty_between_known_directories_weakens_a_later_candidate() {
         )
         .file("/test/project/first/other.html", "other")
         .file("/test/project/later/base.html", "later")
-        .build(&db);
+        .build(&db)
+        .expect("open-directory project fixture should build");
 
     let name = TemplateName::new(&db, "base.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected inconclusive search");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("directory uncertainty should make the template search inconclusive");
 
     assert_eq!(search.name, name);
     assert_eq!(search.possible_origins.len(), 1);
@@ -682,7 +748,8 @@ fn dynamic_installed_apps_preserve_uncertainty_position() {
         )
         .file("/test/project/known/__init__.py", "")
         .file("/test/project/known/templates/base.html", "known")
-        .build(&known_first_db);
+        .build(&known_first_db)
+        .expect("known-first project fixture should build");
     let name = TemplateName::new(&known_first_db, "base.html".to_string());
     assert!(matches!(
         template_resolution(&known_first_db, known_first).resolve(&known_first_db, name),
@@ -698,7 +765,8 @@ fn dynamic_installed_apps_preserve_uncertainty_position() {
         )
         .file("/test/project/known/__init__.py", "")
         .file("/test/project/known/templates/base.html", "known")
-        .build(&unknown_first_db);
+        .build(&unknown_first_db)
+        .expect("unknown-first project fixture should build");
     let name = TemplateName::new(&unknown_first_db, "base.html".to_string());
     assert!(matches!(
         template_resolution(&unknown_first_db, unknown_first).resolve(&unknown_first_db, name),
@@ -716,7 +784,8 @@ fn dynamic_template_backends_preserve_uncertainty_position() {
             "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}, UNKNOWN]\n",
         )
         .file("/test/project/templates/base.html", "known")
-        .build(&db);
+        .build(&db)
+        .expect("unknown-backend project fixture should build");
     let name = TemplateName::new(&db, "base.html".to_string());
 
     assert!(matches!(
@@ -736,14 +805,15 @@ fn wholly_dynamic_dirs_weakens_app_dirs_candidates() {
         )
         .file("/test/project/blog/__init__.py", "")
         .file("/test/project/blog/templates/base.html", "app base")
-        .build(&db);
+        .build(&db)
+        .expect("open-app-directories project fixture should build");
 
     let name = TemplateName::new(&db, "base.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected dynamic DIRS to precede and weaken the APP_DIRS candidate");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("dynamic DIRS should precede and weaken the APP_DIRS candidate");
 
     assert_eq!(search.possible_origins.len(), 1);
     assert_eq!(
@@ -769,25 +839,28 @@ fn scalar_path_alternatives_follow_unanimous_and_divergent_resolution_policy() {
         .file("/test/project/one/shared/conflict.html", "one")
         .file("/test/project/two/shared/conflict.html", "two")
         .file("/test/project/common/unanimous.html", "common")
-        .build(&db);
+        .build(&db)
+        .expect("alternative-directory project fixture should build");
 
     let unanimous = TemplateName::new(&db, "unanimous.html".to_string());
-    let TemplateResolutionResult::Found(origin) =
-        template_resolution(&db, project).resolve(&db, unanimous)
-    else {
-        panic!("the same winner in every scalar path alternative should be definitive");
-    };
+    let origin = match template_resolution(&db, project).resolve(&db, unanimous) {
+        TemplateResolutionResult::Found(origin) => Some(origin),
+        TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
+            None
+        }
+    }
+    .expect("the same winner in every scalar path alternative should be definitive");
     assert_eq!(
         origin.path_buf(&db),
         Utf8Path::new("/test/project/common/unanimous.html")
     );
 
     let divergent = TemplateName::new(&db, "conflict.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, divergent)
-    else {
-        panic!("different winners across scalar path alternatives should be inconclusive");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, divergent) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("different winners across scalar path alternatives should be inconclusive");
     let possible_paths = search
         .possible_origins
         .iter()
@@ -817,14 +890,15 @@ fn divergent_installed_app_alternatives_preserve_all_possible_origins() {
         .file("/test/project/first/templates/shared.html", "first")
         .file("/test/project/second/__init__.py", "")
         .file("/test/project/second/templates/shared.html", "second")
-        .build(&db);
+        .build(&db)
+        .expect("divergent installed-app project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("alternative installed app lists cannot select a definitive template");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("alternative installed app lists cannot select a definitive template");
     let possible_paths = search
         .possible_origins
         .iter()
@@ -856,14 +930,15 @@ fn same_branch_settings_exclude_impossible_template_roots() {
         .file("/test/project/first/templates/shared.html", "impossible")
         .file("/test/project/second/__init__.py", "")
         .file("/test/project/second/templates/shared.html", "second")
-        .build(&db);
+        .build(&db)
+        .expect("same-branch settings project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("the two feasible branches have different winners");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("the two feasible branches should have different winners");
     let possible_paths = search
         .possible_origins
         .iter()
@@ -902,14 +977,15 @@ fn conditional_star_import_keeps_imported_and_fallback_settings_correlated() {
         )
         .file("/test/project/local/__init__.py", "")
         .file("/test/project/local/templates/shared.html", "local")
-        .build(&db);
+        .build(&db)
+        .expect("installed-app alternative project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("the imported/imported and local/local branches have different winners");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("the imported/imported and local/local branches should have different winners");
     let possible_paths = search
         .possible_origins
         .iter()
@@ -938,14 +1014,17 @@ fn branch_local_namespace_uncertainty_only_pairs_with_its_template_arm() {
         )
         .file("/test/project/second/__init__.py", "")
         .file("/test/project/second/templates/shared.html", "second")
-        .build(&db);
+        .build(&db)
+        .expect("branch-local uncertainty project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let TemplateResolutionResult::Found(origin) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("all feasible arms should select the same physical template");
-    };
+    let origin = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Found(origin) => Some(origin),
+        TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
+            None
+        }
+    }
+    .expect("all feasible arms should select the same physical template");
     assert_eq!(
         origin.path_buf(&db).as_str(),
         "/test/project/second/templates/shared.html"
@@ -965,14 +1044,15 @@ fn independently_joined_settings_keep_cross_product_feasible_after_branch_transl
         .file("/test/project/first/__init__.py", "")
         .file("/test/project/first/templates/shared.html", "first")
         .file("/test/project/second/__init__.py", "")
-        .build(&db);
+        .build(&db)
+        .expect("unknown-app-directory project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("independent settings joins should retain both successful cross-product paths");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("independent settings joins should retain both successful cross-product paths");
     let possible_paths = search
         .possible_origins
         .iter()
@@ -1014,14 +1094,15 @@ fn branch_specific_apps_correlate_with_equal_relative_template_lists() {
         .file("/test/project/first/templates/shared.html", "impossible")
         .file("/test/project/second/__init__.py", "")
         .file("/test/project/second/templates/shared.html", "second")
-        .build(&db);
+        .build(&db)
+        .expect("branch-specific app project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("the feasible branches have different winners");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("the feasible branches should have different winners");
     let possible_paths = search
         .possible_origins
         .iter()
@@ -1056,14 +1137,17 @@ fn common_leading_installed_app_wins_across_alternatives() {
         .file("/test/project/first/templates/shared.html", "first")
         .file("/test/project/second/__init__.py", "")
         .file("/test/project/second/templates/shared.html", "second")
-        .build(&db);
+        .build(&db)
+        .expect("common-leading-app project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let TemplateResolutionResult::Found(origin) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("the common leading app should win in every alternative");
-    };
+    let origin = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Found(origin) => Some(origin),
+        TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
+            None
+        }
+    }
+    .expect("the common leading app should win in every alternative");
 
     assert_eq!(
         origin.path_buf(&db),
@@ -1084,14 +1168,15 @@ fn installed_app_found_and_miss_alternatives_are_inconclusive() {
         .file("/test/project/first/templates/shared.html", "first")
         .file("/test/project/second/__init__.py", "")
         .file("/test/project/second/templates/other.html", "other")
-        .build(&db);
+        .build(&db)
+        .expect("found-and-miss project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("a found/miss split cannot select a definitive template");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("a found/miss split should make template resolution inconclusive");
 
     assert_eq!(search.possible_origins.len(), 1);
     assert_eq!(
@@ -1113,14 +1198,15 @@ fn installed_app_alternatives_that_all_miss_report_does_not_exist() {
         .file("/test/project/first/templates/other.html", "first")
         .file("/test/project/second/__init__.py", "")
         .file("/test/project/second/templates/other.html", "second")
-        .build(&db);
+        .build(&db)
+        .expect("all-missing project fixture should build");
 
     let name = TemplateName::new(&db, "missing.html".to_string());
-    let TemplateResolutionResult::DoesNotExist(error) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("exhaustive misses in every alternative should report does not exist");
-    };
+    let error = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::DoesNotExist(error) => Some(error),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::Inconclusive(_) => None,
+    }
+    .expect("exhaustive misses in every alternative should report does not exist");
 
     assert_eq!(error.name, name);
     assert_eq!(
@@ -1142,7 +1228,8 @@ fn later_dynamic_directory_does_not_weaken_an_earlier_winner() {
             "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', UNKNOWN], 'APP_DIRS': False}]\n",
         )
         .file("/test/project/templates/base.html", "base")
-        .build(&db);
+        .build(&db)
+        .expect("later-dynamic-directory project fixture should build");
 
     let name = TemplateName::new(&db, "base.html".to_string());
     let result = template_resolution(&db, project).resolve(&db, name);
@@ -1160,7 +1247,8 @@ fn later_uncertainty_does_not_weaken_an_earlier_winner() {
             "INSTALLED_APPS = ['missing']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': True}]\n",
         )
         .file("/test/project/templates/base.html", "base")
-        .build(&db);
+        .build(&db)
+        .expect("later-uncertainty project fixture should build");
 
     let name = TemplateName::new(&db, "base.html".to_string());
     let result = template_resolution(&db, project).resolve(&db, name);
@@ -1177,14 +1265,15 @@ fn missing_template_with_directory_uncertainty_is_inconclusive() {
             "/test/project/testproject/settings.py",
             "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN], 'APP_DIRS': False}]\n",
         )
-        .build(&db);
+        .build(&db)
+        .expect("uncertain-directory project fixture should build");
 
     let name = TemplateName::new(&db, "missing.html".to_string());
-    let TemplateResolutionResult::Inconclusive(search) =
-        template_resolution(&db, project).resolve(&db, name)
-    else {
-        panic!("expected inconclusive search");
-    };
+    let search = match template_resolution(&db, project).resolve(&db, name) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("directory uncertainty should make the missing-template search inconclusive");
 
     assert_eq!(search.name, name);
     assert!(search.possible_origins.is_empty());
@@ -1201,9 +1290,12 @@ fn scoped_resolution_and_names_exclude_other_backends() {
         .file("/test/project/a/only-a.html", "a")
         .file("/test/project/b/page.html", "b")
         .file("/test/project/b/only-b.html", "b")
-        .build(&db);
+        .build(&db)
+        .expect("scoped-resolution project fixture should build");
     let resolution = template_resolution(&db, project);
-    let page = db.file(Utf8Path::new("/test/project/a/page.html"));
+    let page = db
+        .file(Utf8Path::new("/test/project/a/page.html"))
+        .expect("scoped-resolution template fixture should exist in the test database");
     let only_b = TemplateName::new(&db, "only-b.html".to_string());
 
     assert!(matches!(
@@ -1228,16 +1320,19 @@ fn scoped_missing_template_reports_only_selected_backend_roots() {
         .file("/test/project/testproject/settings.py", settings)
         .file("/test/project/a/page.html", "a")
         .file("/test/project/b/other.html", "b")
-        .build(&db);
+        .build(&db)
+        .expect("scoped-missing project fixture should build");
     let resolution = template_resolution(&db, project);
-    let page = db.file(Utf8Path::new("/test/project/a/page.html"));
+    let page = db
+        .file(Utf8Path::new("/test/project/a/page.html"))
+        .expect("scoped-missing template fixture should exist in the test database");
     let missing = TemplateName::new(&db, "missing.html".to_string());
 
-    let TemplateResolutionResult::DoesNotExist(error) =
-        resolution.resolve_for_file(&db, missing, page)
-    else {
-        panic!("the selected backend should exhaustively miss");
-    };
+    let error = match resolution.resolve_for_file(&db, missing, page) {
+        TemplateResolutionResult::DoesNotExist(error) => Some(error),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::Inconclusive(_) => None,
+    }
+    .expect("the selected backend should exhaustively miss the template");
     assert_eq!(error.tried, [Utf8Path::new("/test/project/a/missing.html")]);
 }
 
@@ -1254,9 +1349,12 @@ fn scoped_resolution_joins_duplicate_backend_memberships() {
         )
         .file("/test/project/a/parent.html", "a")
         .file("/test/project/b/parent.html", "b")
-        .build(&db);
+        .build(&db)
+        .expect("duplicate-membership project fixture should build");
     let resolution = template_resolution(&db, project);
-    let child = db.file(Utf8Path::new("/test/project/shared/child.html"));
+    let child = db
+        .file(Utf8Path::new("/test/project/shared/child.html"))
+        .expect("duplicate-membership child fixture should exist in the test database");
     let child_name = TemplateName::new(&db, "child.html".to_string());
     let child_origin = resolution
         .origins_for_name(&db, child_name)
@@ -1284,9 +1382,11 @@ fn scoped_resolution_joins_duplicate_backend_memberships() {
         "the direct file index must preserve origin-scan scope"
     );
 
-    let TemplateResolutionResult::Inconclusive(search) = indexed else {
-        panic!("different engine-local parents must be inconclusive");
-    };
+    let search = match indexed {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("different engine-local parents should make resolution inconclusive");
     let paths = search
         .possible_origins
         .iter()
@@ -1310,16 +1410,19 @@ fn scoped_resolution_retains_open_backend_after_concrete_membership() {
             "{% extends 'parent.html' %}",
         )
         .file("/test/project/shared/parent.html", "parent")
-        .build(&db);
+        .build(&db)
+        .expect("open-backend project fixture should build");
     let resolution = template_resolution(&db, project);
-    let child = db.file(Utf8Path::new("/test/project/shared/child.html"));
+    let child = db
+        .file(Utf8Path::new("/test/project/shared/child.html"))
+        .expect("open-backend child fixture should exist in the test database");
     let parent = TemplateName::new(&db, "parent.html".to_string());
 
-    let TemplateResolutionResult::Inconclusive(search) =
-        resolution.resolve_for_file(&db, parent, child)
-    else {
-        panic!("an additional open engine must keep scoped resolution inconclusive");
-    };
+    let search = match resolution.resolve_for_file(&db, parent, child) {
+        TemplateResolutionResult::Inconclusive(search) => Some(search),
+        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    }
+    .expect("an additional open engine should keep scoped resolution inconclusive");
     assert_eq!(search.possible_origins.len(), 1);
     assert_eq!(
         search.possible_origins[0].path_buf(&db),
@@ -1346,15 +1449,19 @@ fn resolve_excluding_skips_excluded_origins() {
                 "second",
             ),
         ],
-    );
+    )
+    .expect("excluded-origin project fixture should build");
     let resolution = template_resolution(&db, project);
     let name = TemplateName::new(&db, "base.html".to_string());
     let first = resolution.origins_for_name(&db, name)[0].file(&db);
 
-    let TemplateResolutionResult::Found(origin) = resolution.resolve_excluding(&db, name, &[first])
-    else {
-        panic!("expected the non-excluded origin");
-    };
+    let origin = match resolution.resolve_excluding(&db, name, &[first]) {
+        TemplateResolutionResult::Found(origin) => Some(origin),
+        TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
+            None
+        }
+    }
+    .expect("resolution should return the non-excluded origin");
 
     assert_eq!(
         origin.path_buf(&db).as_str(),

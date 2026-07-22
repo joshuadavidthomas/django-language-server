@@ -163,7 +163,7 @@ def hello():
         let result = parse_module(source);
         assert!(result.is_ok());
 
-        let parsed = result.unwrap();
+        let parsed = result.expect("test Python source should parse");
         let module = parsed.into_syntax();
         assert!(!module.body.is_empty());
     }

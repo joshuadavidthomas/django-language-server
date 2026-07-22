@@ -194,19 +194,14 @@ pub fn template_directories(db: &dyn ProjectDb, project: Project) -> TemplateDir
                 roots: Vec::new(),
             };
             for slot in settings_case.slots() {
-                match *slot {
-                    TemplateBackendSlot::Backend(backend) => {
-                        let backend = settings_cases
-                            .backend(backend)
-                            .expect("a canonical backend slot should resolve");
-                        add_backend_roots(
-                            db,
-                            project,
-                            backend,
-                            settings_case.installed_apps(),
-                            &mut alternative,
-                        );
-                    }
+                match slot {
+                    TemplateBackendSlot::Backend(backend) => add_backend_roots(
+                        db,
+                        project,
+                        backend,
+                        settings_case.installed_apps(),
+                        &mut alternative,
+                    ),
                     TemplateBackendSlot::Remainder => alternative.mark_unknown_roots(
                         TemplateBackendSelection::SettingsCaseRemainder(settings_case.id()),
                     ),
@@ -516,46 +511,35 @@ impl<'db> TemplateResolution<'db> {
                 .iter()
                 .map(|search| resolve_alternative(db, &search.evidence, name, &excluded))
                 .collect::<Vec<_>>(),
-            TemplateBackendScopeKind::Selected(selections) => {
-                let settings_cases = template_settings_cases(db, self.project(db));
-                selections
-                    .as_slice()
-                    .iter()
-                    .map(|selection| match *selection {
-                        TemplateBackendSelection::Backend(backend) => {
-                            let Some(settings_case) = settings_cases
-                                .backend(backend)
-                                .map(TemplateBackendCase::settings_case)
-                            else {
-                                return TemplateSearchOutcome::Inconclusive {
-                                    origins: Vec::new(),
-                                };
-                            };
-                            let Some(search) = index
-                                .searches(db)
-                                .iter()
-                                .find(|search| search.settings_case == settings_case)
-                            else {
-                                return TemplateSearchOutcome::Inconclusive {
-                                    origins: Vec::new(),
-                                };
-                            };
-                            let filtered = search
-                                .evidence
-                                .iter()
-                                .filter(|evidence| evidence.matches_backend(backend))
-                                .cloned()
-                                .collect::<Vec<_>>();
-                            resolve_alternative(db, &filtered, name, &excluded)
-                        }
-                        TemplateBackendSelection::SettingsCaseRemainder(_) => {
-                            TemplateSearchOutcome::Inconclusive {
+            TemplateBackendScopeKind::Selected(selections) => selections
+                .as_slice()
+                .iter()
+                .map(|selection| match *selection {
+                    TemplateBackendSelection::Backend(backend) => {
+                        let Some(search) = index
+                            .searches(db)
+                            .iter()
+                            .find(|search| search.settings_case == backend.settings_case())
+                        else {
+                            return TemplateSearchOutcome::Inconclusive {
                                 origins: Vec::new(),
-                            }
+                            };
+                        };
+                        let filtered = search
+                            .evidence
+                            .iter()
+                            .filter(|evidence| evidence.matches_backend(backend))
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        resolve_alternative(db, &filtered, name, &excluded)
+                    }
+                    TemplateBackendSelection::SettingsCaseRemainder(_) => {
+                        TemplateSearchOutcome::Inconclusive {
+                            origins: Vec::new(),
                         }
-                    })
-                    .collect::<Vec<_>>()
-            }
+                    }
+                })
+                .collect::<Vec<_>>(),
         };
 
         let unanimous_file = outcomes.first().and_then(|outcome| match outcome {
@@ -568,11 +552,9 @@ impl<'db> TemplateResolution<'db> {
             && outcomes.iter().all(
                 |outcome| matches!(outcome, TemplateSearchOutcome::Found { origin, .. } if origin.file(db) == file),
             )
+            && let Some(TemplateSearchOutcome::Found { origin, .. }) = outcomes.first()
         {
-            let TemplateSearchOutcome::Found { origin, .. } = outcomes[0] else {
-                unreachable!("the unanimous outcome was checked as found")
-            };
-            return TemplateResolutionResult::Found(origin);
+            return TemplateResolutionResult::Found(*origin);
         }
 
         if outcomes
@@ -1390,12 +1372,21 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn direct_backend_selection_indexes_match_scan_for_all_evidence() {
         let db = TestDatabase::new();
-        db.add_file("/templates/a/page.html", "a");
-        db.add_file("/templates/b/page.html", "b");
-        db.add_file("/outside/page.html", "outside");
-        let file_a = db.file(Utf8Path::new("/templates/a/page.html"));
-        let file_b = db.file(Utf8Path::new("/templates/b/page.html"));
-        let outside = db.file(Utf8Path::new("/outside/page.html"));
+        db.add_file("/templates/a/page.html", "a")
+            .expect("backend A template fixture should be added to the test database");
+        db.add_file("/templates/b/page.html", "b")
+            .expect("backend B template fixture should be added to the test database");
+        db.add_file("/outside/page.html", "outside")
+            .expect("outside template fixture should be added to the test database");
+        let file_a = db
+            .file(Utf8Path::new("/templates/a/page.html"))
+            .expect("backend A template fixture should exist in the test database");
+        let file_b = db
+            .file(Utf8Path::new("/templates/b/page.html"))
+            .expect("backend B template fixture should exist in the test database");
+        let outside = db
+            .file(Utf8Path::new("/outside/page.html"))
+            .expect("outside template fixture should exist in the test database");
         let page = TemplateName::new(&db, "page.html".to_string());
         let alias = TemplateName::new(&db, "alias.html".to_string());
         let origin_a = test_template_origin(&db, page, file_a);
@@ -1406,12 +1397,10 @@ mod tests {
         let second_settings_case = &identities.settings_cases()[1];
         let first_backends = first_settings_case
             .backends()
-            .iter()
             .map(TemplateBackendCase::id)
             .collect::<Vec<_>>();
         let second_backends = second_settings_case
             .backends()
-            .iter()
             .map(TemplateBackendCase::id)
             .collect::<Vec<_>>();
 
@@ -1529,8 +1518,13 @@ mod tests {
     fn selected_backend_scope_stably_deduplicates_canonical_order() {
         let settings_cases = TemplateSettingsCases::for_testing(&[2], true);
         let settings_case = &settings_cases.settings_cases()[0];
-        let first = settings_case.backends()[0].id();
-        let second = settings_case.backends()[1].id();
+        let mut backends = settings_case.backends().map(TemplateBackendCase::id);
+        let first = backends
+            .next()
+            .expect("testing settings case should contain its first backend");
+        let second = backends
+            .next()
+            .expect("testing settings case should contain its second backend");
         let remainder = TemplateBackendSelection::SettingsCaseRemainder(settings_case.id());
         let scope = TemplateBackendScope::selected(vec![
             TemplateBackendSelection::Backend(first),
@@ -1541,16 +1535,13 @@ mod tests {
         ])
         .expect("canonical selections should form a scope");
 
-        let TemplateBackendScopeKind::Selected(selections) = scope.kind() else {
-            panic!("non-empty selections should retain Selected scope")
-        };
         assert_eq!(
-            selections.as_slice(),
-            [
+            scope.kind(),
+            &TemplateBackendScopeKind::Selected(TemplateBackendSelections(vec![
                 TemplateBackendSelection::Backend(first),
                 remainder,
                 TemplateBackendSelection::Backend(second),
-            ]
+            ]))
         );
         assert!(
             TemplateBackendScope::selected(Vec::new()).is_none(),
@@ -1561,7 +1552,11 @@ mod tests {
     #[test]
     fn backend_scope_debug_is_opaque() {
         let settings_cases = TemplateSettingsCases::for_testing(&[1], false);
-        let backend = settings_cases.settings_cases()[0].backends()[0].id();
+        let backend = settings_cases.settings_cases()[0]
+            .backends()
+            .next()
+            .expect("testing settings case should contain one backend")
+            .id();
         let scope =
             TemplateBackendScope::selected(vec![TemplateBackendSelection::Backend(backend)])
                 .expect("one backend selection should form a scope");

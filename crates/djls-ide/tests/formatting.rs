@@ -17,8 +17,11 @@ fn formatting_options() -> ls_types::FormattingOptions {
 fn format_document_returns_full_document_edit() {
     let source = "<div style=\"background-image: url('{{ MEDIA_URL }}{{ picture }}');\">\n    Content\n</div>\n";
     let db = TestDatabase::new();
-    db.add_file("template.html", source);
-    let file = db.file(Utf8Path::new("template.html"));
+    db.add_file("template.html", source)
+        .expect("template fixture should be added");
+    let file = db
+        .file(Utf8Path::new("template.html"))
+        .expect("template fixture file should exist");
     let options = formatting_options();
 
     let edits = format_document(
