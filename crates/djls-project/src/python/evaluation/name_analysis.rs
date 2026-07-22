@@ -68,32 +68,34 @@ pub(super) fn expr_read_names(expression: &ast::Expr) -> FxHashSet<String> {
 
 pub(super) fn reachable_expr_read_names(
     expression: &ast::Expr,
-    truthiness: &impl Fn(&ast::Expr) -> Truthiness,
+    truthiness: &impl Fn(&ast::Expr) -> Option<Truthiness>,
 ) -> FxHashSet<String> {
     ReadNameCollector::collect(expression, false, Some(truthiness)).names
 }
 
 pub(super) fn reachable_expr_calls(
     expression: &ast::Expr,
-    truthiness: &impl Fn(&ast::Expr) -> Truthiness,
+    truthiness: &impl Fn(&ast::Expr) -> Option<Truthiness>,
 ) -> Vec<ast::ExprCall> {
     ReadNameCollector::collect(expression, true, Some(truthiness))
         .calls
         .unwrap_or_default()
 }
 
+type TruthinessCallback<'a> = dyn Fn(&ast::Expr) -> Option<Truthiness> + 'a;
+
 #[derive(Default)]
 struct ReadNameCollector<'a> {
     names: FxHashSet<String>,
     calls: Option<Vec<ast::ExprCall>>,
-    truthiness: Option<&'a dyn Fn(&ast::Expr) -> Truthiness>,
+    truthiness: Option<&'a TruthinessCallback<'a>>,
 }
 
 impl<'a> ReadNameCollector<'a> {
     fn collect(
         expression: &ast::Expr,
         collect_calls: bool,
-        truthiness: Option<&'a dyn Fn(&ast::Expr) -> Truthiness>,
+        truthiness: Option<&'a TruthinessCallback<'a>>,
     ) -> Self {
         let mut collector = Self {
             calls: collect_calls.then(Vec::new),
@@ -208,8 +210,8 @@ impl<'a> ReadNameCollector<'a> {
             };
             if matches!(
                 (boolean.op, truthiness),
-                (ast::BoolOp::And, Truthiness::AlwaysFalse)
-                    | (ast::BoolOp::Or, Truthiness::AlwaysTrue)
+                (ast::BoolOp::And, Some(Truthiness::Falsy))
+                    | (ast::BoolOp::Or, Some(Truthiness::Truthy))
             ) {
                 break;
             }

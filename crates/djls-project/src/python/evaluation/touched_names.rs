@@ -210,7 +210,7 @@ pub(super) fn collect_syntax_impacts(
 struct DefiniteWriteCollector {
     taint: AssignmentTaint,
     names: FxHashSet<String>,
-    known_name_truthiness: FxHashMap<String, bool>,
+    known_name_truthiness: FxHashMap<String, Truthiness>,
 }
 
 impl DefiniteWriteCollector {
@@ -237,7 +237,7 @@ impl DefiniteWriteCollector {
     fn visit_stmt(&mut self, statement: &ast::Stmt) {
         match statement {
             ast::Stmt::Assign(assign) => {
-                let value = self.exact_bool(&assign.value);
+                let value = self.known_truthiness(&assign.value);
                 let dominates = self.expression_is_independent(&assign.value);
                 for target in &assign.targets {
                     self.record_targets(target, value, dominates);
@@ -245,9 +245,9 @@ impl DefiniteWriteCollector {
             }
             ast::Stmt::AnnAssign(assign) => {
                 if let Some(value) = assign.value.as_deref() {
-                    let exact_bool = self.exact_bool(value);
+                    let truthiness = self.known_truthiness(value);
                     let dominates = self.expression_is_independent(value);
-                    self.record_targets(&assign.target, exact_bool, dominates);
+                    self.record_targets(&assign.target, truthiness, dominates);
                 }
             }
             ast::Stmt::Import(import) => {
@@ -299,7 +299,7 @@ impl DefiniteWriteCollector {
         }
     }
 
-    fn record_targets(&mut self, target: &ast::Expr, value: Option<bool>, dominates: bool) {
+    fn record_targets(&mut self, target: &ast::Expr, value: Option<Truthiness>, dominates: bool) {
         let exact_name = target.name_target();
         self.record_binding_targets(target, exact_name, value, dominates);
     }
@@ -308,7 +308,7 @@ impl DefiniteWriteCollector {
         &mut self,
         target: &ast::Expr,
         exact_name: Option<&str>,
-        value: Option<bool>,
+        value: Option<Truthiness>,
         dominates: bool,
     ) {
         if let Some(name) = target.name_target() {
@@ -363,7 +363,7 @@ impl DefiniteWriteCollector {
         }
     }
 
-    fn record_name(&mut self, name: &str, value: Option<bool>, dominates: bool) {
+    fn record_name(&mut self, name: &str, value: Option<Truthiness>, dominates: bool) {
         self.taint.record_write(name, dominates);
         if dominates {
             self.names.insert(name.to_string());
@@ -390,33 +390,25 @@ impl DefiniteWriteCollector {
 
     fn deterministic_if_body<'a>(&self, statement: &'a ast::StmtIf) -> Option<&'a [ast::Stmt]> {
         match self.known_truthiness(&statement.test) {
-            Truthiness::AlwaysTrue => Some(&statement.body),
-            Truthiness::AlwaysFalse => {
+            Some(Truthiness::Truthy) => Some(&statement.body),
+            Some(Truthiness::Falsy) => {
                 for clause in &statement.elif_else_clauses {
                     let Some(test) = &clause.test else {
                         return Some(&clause.body);
                     };
                     match self.known_truthiness(test) {
-                        Truthiness::AlwaysTrue => return Some(&clause.body),
-                        Truthiness::AlwaysFalse => {}
-                        Truthiness::Ambiguous => return None,
+                        Some(Truthiness::Truthy) => return Some(&clause.body),
+                        Some(Truthiness::Falsy) => {}
+                        None => return None,
                     }
                 }
                 Some(&[])
             }
-            Truthiness::Ambiguous => None,
+            None => None,
         }
     }
 
-    fn exact_bool(&self, expression: &ast::Expr) -> Option<bool> {
-        match self.known_truthiness(expression) {
-            Truthiness::AlwaysTrue => Some(true),
-            Truthiness::AlwaysFalse => Some(false),
-            Truthiness::Ambiguous => None,
-        }
-    }
-
-    fn known_truthiness(&self, expression: &ast::Expr) -> Truthiness {
+    fn known_truthiness(&self, expression: &ast::Expr) -> Option<Truthiness> {
         Truthiness::of_expr(expression, &|name| {
             self.known_name_truthiness.get(name).copied()
         })

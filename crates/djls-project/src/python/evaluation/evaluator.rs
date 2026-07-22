@@ -215,9 +215,14 @@ impl PythonModuleEvaluator<'_> {
             return;
         }
         let join = BranchJoin::predicate(self.module.clone(), identity);
-        let falsy_constraints =
-            constraints.intersection(&BranchConstraints::required(join.clone(), 0));
-        let truthy_constraints = constraints.intersection(&BranchConstraints::required(join, 1));
+        let falsy_constraints = constraints.intersection(&BranchConstraints::required(
+            join.clone(),
+            Truthiness::Falsy.branch_arm(),
+        ));
+        let truthy_constraints = constraints.intersection(&BranchConstraints::required(
+            join,
+            Truthiness::Truthy.branch_arm(),
+        ));
         merge_truth_guard(falsy, falsy_constraints);
         merge_truth_guard(truthy, truthy_constraints);
     }
@@ -635,9 +640,9 @@ impl PythonEvaluationState {
     /// The definite truthiness of a name, if any: a uniformly boolean binding
     /// yields its constant value, and a uniformly module-valued binding is
     /// always truthy (Python module objects are never falsy).
-    pub(super) fn known_truthiness(&self, name: &str) -> Option<bool> {
+    pub(super) fn known_truthiness(&self, name: &str) -> Option<Truthiness> {
         if let Some(value) = self.bool_value(name) {
-            return Some(value);
+            return Some(Truthiness::from_bool(value));
         }
         let binding = self.binding(name)?;
         let is_module = |state: &PythonBindingState| {
@@ -646,7 +651,7 @@ impl PythonEvaluationState {
         };
         let mut alternatives = binding.alternatives();
         let first = alternatives.next()?;
-        (is_module(first) && alternatives.all(is_module)).then_some(true)
+        (is_module(first) && alternatives.all(is_module)).then_some(Truthiness::Truthy)
     }
 
     fn degrade_all_bindings(
@@ -970,6 +975,7 @@ mod tests {
     use super::PythonUnknown;
     use super::PythonUnknownCause;
     use super::PythonValue;
+    use super::Truthiness;
     use crate::python::PythonModule;
     use crate::python::PythonModuleName;
     use crate::python::PythonNamespacePackage;
@@ -1023,7 +1029,7 @@ mod tests {
         );
         assert_eq!(
             state.known_truthiness("MOD"),
-            Some(true),
+            Some(Truthiness::Truthy),
             "a uniformly module-valued binding is always truthy",
         );
 
@@ -1046,7 +1052,7 @@ mod tests {
             "FLAG".to_string(),
             PythonBinding::bound(PythonValue::bool(true, origin(1)), origin(1)),
         );
-        assert_eq!(state.known_truthiness("FLAG"), Some(true));
+        assert_eq!(state.known_truthiness("FLAG"), Some(Truthiness::Truthy));
     }
 
     #[test]
