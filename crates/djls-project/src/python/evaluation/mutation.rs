@@ -11,7 +11,8 @@ use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use super::evaluator::PythonEvaluationState;
 use super::evaluator::PythonModuleEvaluator;
-use super::name_analysis::expr_read_names;
+use super::name_analysis::reachable_expr_read_names;
+use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -379,8 +380,9 @@ impl PythonEvaluationState {
 impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_expression_statement(&mut self, expression: &ast::Expr) {
         let ast::Expr::Call(call) = expression else {
+            self.record_unsupported_call_effects(expression);
             self.state.degrade_names(
-                expr_read_names(expression),
+                self.reachable_read_names(expression),
                 &PythonUnknownCause::UnsupportedExpression,
                 self.origin(expression),
             );
@@ -388,14 +390,14 @@ impl PythonModuleEvaluator<'_> {
         };
         let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
             self.state.degrade_unsupported_mutation_names(
-                expr_read_names(expression),
+                self.reachable_read_names(expression),
                 self.origin(expression),
             );
             return;
         };
         let Some(target) = MutationTarget::from_expr(&attribute.value) else {
             self.state.degrade_unsupported_mutation_names(
-                expr_read_names(expression),
+                self.reachable_read_names(expression),
                 self.origin(expression),
             );
             return;
@@ -409,7 +411,7 @@ impl PythonModuleEvaluator<'_> {
                 receiver_aliases.push(target.binding.to_string());
             }
             self.state
-                .degrade_unsupported_mutation_names(expr_read_names(expression), origin);
+                .degrade_unsupported_mutation_names(self.reachable_read_names(expression), origin);
             self.state.invalidate_names(
                 receiver_aliases,
                 &PythonUnknownCause::UnsupportedMutation,
@@ -435,13 +437,19 @@ impl PythonModuleEvaluator<'_> {
                 stale_aliases.push(target.binding.to_string());
             }
             self.state
-                .degrade_unsupported_mutation_names(expr_read_names(expression), origin);
+                .degrade_unsupported_mutation_names(self.reachable_read_names(expression), origin);
             self.state.invalidate_names(
                 stale_aliases,
                 &PythonUnknownCause::UnsupportedMutation,
                 origin,
             );
         }
+    }
+
+    fn reachable_read_names(&self, expression: &ast::Expr) -> rustc_hash::FxHashSet<String> {
+        reachable_expr_read_names(expression, &|value| {
+            Truthiness::of_expr(value, &|name| self.state.known_truthiness(name))
+        })
     }
 
     fn try_apply_mutation_call(

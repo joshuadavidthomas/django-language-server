@@ -80,6 +80,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed Django relative template paths (`./`, `../`) in `{% extends %}` and `{% include %}` resolution, including inheritance chains, document links, goto definition, and find references.
 - Fixed false tag argument errors for manually parsed tags that strip trailing assignment clauses, such as `{% now ... as var %}` and `{% url ... as var %}`.
 - Fixed static Django settings analysis hanging on projects with many conditional module effects.
+- Fixed static Python evaluation to honor short-circuiting `and` and `or` operands.
 
 ## [6.0.3]
 

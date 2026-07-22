@@ -9,6 +9,7 @@ use super::PythonValueKind;
 use super::ast;
 use crate::python::PythonPath;
 use crate::python::PythonPathIntrinsic;
+use crate::python::evaluation::truthiness::Truthiness;
 
 impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
@@ -63,8 +64,8 @@ impl PythonModuleEvaluator<'_> {
             ast::Expr::Call(call) => self.evaluate_call_binding(call, origin),
             ast::Expr::Dict(dict) => self.evaluate_dict_binding(dict, origin),
             ast::Expr::Attribute(attribute) => self.evaluate_attribute_binding(attribute, origin),
-            ast::Expr::BoolOp(_)
-            | ast::Expr::Named(_)
+            ast::Expr::BoolOp(boolean) => self.evaluate_bool_op_binding(boolean, origin),
+            ast::Expr::Named(_)
             | ast::Expr::BinOp(_)
             | ast::Expr::UnaryOp(_)
             | ast::Expr::Lambda(_)
@@ -94,6 +95,31 @@ impl PythonModuleEvaluator<'_> {
                 PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
             }
         }
+    }
+
+    fn evaluate_bool_op_binding(&self, boolean: &ast::ExprBoolOp, origin: Origin) -> PythonBinding {
+        let Some((last, preceding)) = boolean.values.split_last() else {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        };
+        for expression in preceding {
+            let truthiness =
+                Truthiness::of_expr(expression, &|name| self.state.known_truthiness(name));
+            match (boolean.op, truthiness) {
+                (ast::BoolOp::And, Truthiness::AlwaysFalse)
+                | (ast::BoolOp::Or, Truthiness::AlwaysTrue) => {
+                    return self.evaluate_binding(expression);
+                }
+                (ast::BoolOp::And, Truthiness::AlwaysTrue)
+                | (ast::BoolOp::Or, Truthiness::AlwaysFalse) => {}
+                (_, Truthiness::Ambiguous) => {
+                    return PythonBinding::unknown(
+                        &PythonUnknownCause::UnsupportedExpression,
+                        origin,
+                    );
+                }
+            }
+        }
+        self.evaluate_binding(last)
     }
 
     /// Read `receiver.member` through the receiver's nominal abstract value.
