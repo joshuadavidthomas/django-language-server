@@ -45,8 +45,8 @@ impl<'db> PythonModuleEvaluator<'db> {
             ast::Stmt::While(stmt_while) => {
                 self.record_unsupported_call_effects(&stmt_while.test);
                 match self.test_truthiness(&stmt_while.test) {
-                    Truthiness::AlwaysFalse => self.evaluate_body(&stmt_while.orelse),
-                    Truthiness::AlwaysTrue | Truthiness::Ambiguous => self.degrade_loop_bodies(
+                    Some(Truthiness::Falsy) => self.evaluate_body(&stmt_while.orelse),
+                    Some(Truthiness::Truthy) | None => self.degrade_loop_bodies(
                         &[&stmt_while.body, &stmt_while.orelse],
                         stmt_while.span(),
                     ),
@@ -458,7 +458,7 @@ impl<'db> PythonModuleEvaluator<'db> {
         }
     }
 
-    fn test_truthiness(&self, expression: &ast::Expr) -> Truthiness {
+    fn test_truthiness(&self, expression: &ast::Expr) -> Option<Truthiness> {
         Truthiness::of_expr(expression, &|name| self.state.known_truthiness(name))
     }
 }
