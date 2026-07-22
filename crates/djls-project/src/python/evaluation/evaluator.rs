@@ -169,6 +169,7 @@ impl PythonModuleEvaluator<'_> {
                             | PythonPathIntrinsic::PathlibPathType
                             | PythonPathIntrinsic::OsPathJoinFunction
                             | PythonPathIntrinsic::OsPathDirnameFunction
+                            | PythonPathIntrinsic::OsPathAbspathFunction
                     ) && !self
                         .state
                         .module_effects

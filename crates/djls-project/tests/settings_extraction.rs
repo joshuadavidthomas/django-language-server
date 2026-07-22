@@ -413,6 +413,50 @@ fn python_evaluator_produces_unbound_for_a_path_without_assignment() {
 }
 
 #[test]
+fn os_path_abspath_follows_import_and_assignment_aliases() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "import os as operating_system\nfrom os.path import abspath as path_abspath\nassigned_abspath = path_abspath\nROOT_ABS = operating_system.path.abspath(__file__)\nBASE_DIR = operating_system.path.dirname(operating_system.path.dirname(operating_system.path.abspath(__file__)))\nNORMALIZED_ABS = path_abspath('/project/one/../settings.py')\nASSIGNED_ABS = assigned_abspath(__file__)\nRELATIVE_ABS = path_abspath('relative')\nMISSING_ABS = path_abspath()\nKEYWORD_ABS = path_abspath(path=__file__)\n",
+    )
+    .expect("settings-extraction test file should be added");
+    let project = python_project(&db);
+    let settings = db
+        .file(Utf8Path::new("/project/settings.py"))
+        .expect("settings-extraction test file should exist");
+    let evaluation = python_module_evaluation(&db, project, settings)
+        .expect("Python file should map to a module");
+
+    let assert_kind = |name: &str, expected: PythonValueKindView| {
+        let binding = evaluation.binding(name).expect("binding should exist");
+        let bound =
+            only_bound(&binding.alternatives).expect("binding should have one bound alternative");
+        assert_eq!(bound.value.kind, expected, "unexpected value for {name}");
+    };
+    for name in ["path_abspath", "assigned_abspath"] {
+        assert_kind(
+            name,
+            PythonValueKindView::Path(PythonPathView::Intrinsic(
+                PythonPathIntrinsicView::OsPathAbspathFunction,
+            )),
+        );
+    }
+    for name in ["ROOT_ABS", "NORMALIZED_ABS", "ASSIGNED_ABS"] {
+        assert_kind(
+            name,
+            PythonValueKindView::Str("/project/settings.py".to_string()),
+        );
+    }
+    assert_kind("BASE_DIR", PythonValueKindView::Str("/".to_string()));
+    for name in ["RELATIVE_ABS", "MISSING_ABS", "KEYWORD_ABS"] {
+        let binding = evaluation.binding(name).expect("binding should exist");
+        let bound =
+            only_bound(&binding.alternatives).expect("binding should have one bound alternative");
+        assert!(matches!(bound.value.kind, PythonValueKindView::Unknown(_)));
+    }
+}
+
+#[test]
 fn python_path_intrinsics_follow_import_and_assignment_aliases() {
     let db = TestDatabase::new();
     db.add_file(

@@ -235,6 +235,7 @@ impl PythonModuleEvaluator<'_> {
             }
             PythonPathIntrinsic::OsPathJoinFunction
             | PythonPathIntrinsic::OsPathDirnameFunction
+            | PythonPathIntrinsic::OsPathAbspathFunction
                 if cfg!(windows) =>
             {
                 PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
@@ -262,6 +263,21 @@ impl PythonModuleEvaluator<'_> {
                     let path = string_path_from_value(value, origin);
                     project_bound_alternatives(&path, origin, |path| {
                         parent_string_path(path, origin)
+                    })
+                })
+            }
+            PythonPathIntrinsic::OsPathAbspathFunction => {
+                let Some(argument) = single_positional_argument(&call.arguments) else {
+                    return PythonBinding::unknown(
+                        &PythonUnknownCause::UnsupportedExpression,
+                        origin,
+                    );
+                };
+                let argument = self.evaluate_binding(argument);
+                project_bound_alternatives(&argument, origin, |value| {
+                    let path = string_path_from_value(value, origin);
+                    project_bound_alternatives(&path, origin, |path| {
+                        abspath_string_path(path, origin)
                     })
                 })
             }
@@ -589,6 +605,19 @@ fn parent_string_path(value: &PythonValue, origin: Origin) -> PythonBinding {
         PythonValue::string(os_path_dirname(path, cfg!(windows)), origin),
         origin,
     )
+}
+
+fn abspath_string_path(value: &PythonValue, origin: Origin) -> PythonBinding {
+    let PythonValueKind::Str(text) = &value.kind else {
+        return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+    };
+    let Some(path) = PythonPath::from_absolute_string(text) else {
+        return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+    };
+    let Some(PythonPath::Object(resolved)) = path.resolve() else {
+        return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+    };
+    PythonBinding::bound(PythonValue::string(resolved.to_string(), origin), origin)
 }
 
 fn os_path_dirname(path: &str, windows: bool) -> String {
