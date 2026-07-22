@@ -558,9 +558,11 @@ fn app_label_from_module_name(module_name: &str) -> Option<&str> {
 }
 
 fn django_name_matches(candidate: &str, query: &str) -> bool {
-    candidate == query
-        || candidate.eq_ignore_ascii_case(query)
-        || candidate.to_lowercase() == query.to_lowercase()
+    if candidate.is_ascii() && query.is_ascii() {
+        candidate.eq_ignore_ascii_case(query)
+    } else {
+        candidate.to_lowercase() == query.to_lowercase()
+    }
 }
 
 fn unresolved_import_path_reason(
@@ -1670,6 +1672,13 @@ mod tests {
         graph.add_standalone_model(order);
         graph.add_standalone_model(profile);
         graph
+    }
+
+    #[test]
+    fn django_name_matching_preserves_unicode_case_folding() {
+        assert!(django_name_matches("UserProfile", "userprofile"));
+        assert!(django_name_matches("Äccount", "äccount"));
+        assert!(!django_name_matches("User", "Group"));
     }
 
     #[test]

@@ -92,6 +92,7 @@ fn register_model_source(
 
 struct ModelExtractionInput {
     db: Db,
+    project: Project,
     files: Vec<(File, PythonModuleName)>,
 }
 
@@ -105,7 +106,8 @@ fn fixture_extraction_input(prefix: &str) -> Result<ModelExtractionInput, ModelS
         let module = parse_module(&format!("bench.models.fixture_{index}"))?;
         files.push((file, module));
     }
-    Ok(ModelExtractionInput { db, files })
+    let project = Project::initial(&db, Utf8Path::new("/bench"), &Settings::default());
+    Ok(ModelExtractionInput { db, project, files })
 }
 
 // Batch extraction: all fixtures in one iteration
@@ -142,13 +144,11 @@ fn assemble(bencher: Bencher) {
             )
         })
         .bench_local_values(|input| {
-            let project =
-                Project::initial(&input.db, Utf8Path::new("/bench"), &Settings::default());
             let mut assembled_models = 0;
             for _ in 0..REPEATED_INNER_ITERS {
                 let graph = resolve_model_graph_from_modules(
                     &input.db,
-                    project,
+                    input.project,
                     input.files.iter().cloned(),
                 );
                 assembled_models += graph.len();
@@ -175,6 +175,11 @@ fn build_auth_graph() -> Result<ModelGraph, ModelSetupError> {
         Utf8PathBuf::from("/bench/django/contrib/auth/models.py"),
         &auth.source,
     )?;
+    let base_user_file = register_model_source(
+        &mut db,
+        Utf8PathBuf::from("/bench/django/contrib/auth/base_user.py"),
+        "from django.db import models\n\nclass BaseUserManager:\n    pass\n\nclass AbstractBaseUser(models.Model):\n    class Meta:\n        abstract = True\n",
+    )?;
     let content_type_file = register_model_source(
         &mut db,
         Utf8PathBuf::from("/bench/django/contrib/contenttypes/models.py"),
@@ -186,6 +191,10 @@ fn build_auth_graph() -> Result<ModelGraph, ModelSetupError> {
         project,
         [
             (auth_file, parse_module("django.contrib.auth.models")?),
+            (
+                base_user_file,
+                parse_module("django.contrib.auth.base_user")?,
+            ),
             (
                 content_type_file,
                 parse_module("django.contrib.contenttypes.models")?,
@@ -229,9 +238,22 @@ fn resolve_relations(bencher: Bencher) {
         "find Group in auth model graph",
         model_id(graph, "Group", "django.contrib.auth.models"),
     );
+    let user = require(
+        "find User in auth model graph",
+        model_id(graph, "User", "django.contrib.auth.models"),
+    );
+
     let lookup_queries = [("auth", "Permission"), ("auth", "Group"), ("auth", "User")];
-    let forward_queries = [(permission, "content_type"), (group, "permissions")];
-    let relation_queries = [(permission, "group_set")];
+    let forward_queries = [
+        (permission, "content_type"),
+        (group, "permissions"),
+        (user, "groups"),
+    ];
+    let relation_queries = [
+        (group, "user_set"),
+        (permission, "group_set"),
+        (permission, "user_set"),
+    ];
 
     for &(model, field) in &forward_queries {
         require_some(
@@ -344,7 +366,8 @@ fn corpus_extraction_input(corpus: &CorpusModels) -> Result<ModelExtractionInput
         let file = register_model_source(&mut db, path, source)?;
         files.push((file, module_name.clone()));
     }
-    Ok(ModelExtractionInput { db, files })
+    let project = Project::initial(&db, Utf8Path::new("/bench"), &Settings::default());
+    Ok(ModelExtractionInput { db, project, files })
 }
 
 fn bench_corpus(
@@ -367,21 +390,17 @@ fn bench_corpus(
             )
         })
         .bench_local_values(|input| {
-            let project =
-                Project::initial(&input.db, Utf8Path::new("/bench"), &Settings::default());
-            let graph = resolve_model_graph_from_modules(&input.db, project, input.files);
+            let graph = resolve_model_graph_from_modules(&input.db, input.project, input.files);
             divan::black_box(graph);
         });
 }
 
-// Typed inheritance resolves the corpus as one project; these are assembly
-// workloads rather than the former per-file extraction-and-merge workloads.
 #[divan::bench]
-fn corpus_django_project_assembly(bencher: Bencher) {
+fn corpus_django(bencher: Bencher) {
     bench_corpus(bencher, load_django_models(), "Django");
 }
 
 #[divan::bench]
-fn corpus_all_project_assembly(bencher: Bencher) {
+fn corpus_all(bencher: Bencher) {
     bench_corpus(bencher, load_all_corpus_models(), "full");
 }
