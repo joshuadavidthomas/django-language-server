@@ -28,6 +28,22 @@ models:
             length: 24
         related_name: ~
     kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 739
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: wagtail.models.CollectionMember
+      - Unresolved:
+          span:
+            start: 757
+            length: 13
+          reason:
+            ImportNotFound:
+              requested: wagtail.search.index.Indexed
+    ancestry: Partial
   wagtail.documents.models.Document:
     name:
       value: Document
@@ -35,21 +51,6 @@ models:
         start: 6518
         length: 8
     module_name: wagtail.documents.models
-    relations:
-      - field_name:
-          value: uploaded_by_user
-          span:
-            start: 1023
-            length: 16
-        relation_type: ForeignKey
-        target:
-          value:
-            kind: Attribute
-            path:
-              - settings
-              - AUTH_USER_MODEL
-          span:
-            start: 1069
-            length: 24
-        related_name: ~
+    relations: []
     kind: concrete
+    ancestry: Partial

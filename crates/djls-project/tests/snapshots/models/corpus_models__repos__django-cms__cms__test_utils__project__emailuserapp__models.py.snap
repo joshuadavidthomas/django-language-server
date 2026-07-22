@@ -1,0 +1,40 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  cms.test_utils.project.emailuserapp.models.AbstractEmailUser:
+    name:
+      value: AbstractEmailUser
+      span:
+        start: 1335
+        length: 17
+    module_name: cms.test_utils.project.emailuserapp.models
+    relations: []
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1353
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: django.contrib.auth.models.AbstractBaseUser
+      - Unresolved:
+          span:
+            start: 1371
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: django.contrib.auth.models.PermissionsMixin
+    ancestry: Partial
+  cms.test_utils.project.emailuserapp.models.EmailUser:
+    name:
+      value: EmailUser
+      span:
+        start: 3378
+        length: 9
+    module_name: cms.test_utils.project.emailuserapp.models
+    relations: []
+    kind: concrete
+    ancestry: Partial

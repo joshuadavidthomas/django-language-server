@@ -62,6 +62,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Updated realistic template benchmarks to use project-backed source extraction, canonical builtin roles, and snapshot-backed workload contracts.
 - **Internal**: Moved corpus tooling and shared test fixtures into `djls-testing`.
 - **Internal**: Reworked Python settings evaluation around module identities, typed import outcomes, invariant-preserving collections, and correlated list alternatives.
+- **Internal**: Reworked Django model inheritance around typed base outcomes, C3 ordering, and declaration-owned relation bindings.
 
 ### Removed
 

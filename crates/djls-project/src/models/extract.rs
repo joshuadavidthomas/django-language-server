@@ -1,7 +1,4 @@
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::VecDeque;
-use std::mem::take;
 
 use djls_source::File;
 use djls_source::Spanned;
@@ -13,7 +10,6 @@ use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::models::graph::FieldName;
 use crate::models::graph::ModelDef;
-use crate::models::graph::ModelGraph;
 use crate::models::graph::ModelKind;
 use crate::models::graph::ModelName;
 use crate::models::graph::Relation;
@@ -28,37 +24,37 @@ use crate::python::import::ModuleKind;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ModelExtraction {
-    pub(super) graph: ModelGraph,
-    pub(super) deferred: Vec<DeferredModel>,
+    pub(super) candidates: Vec<ModelCandidate>,
 }
 
-impl ModelExtraction {
-    #[must_use]
-    pub(crate) fn graph(&self) -> &ModelGraph {
-        &self.graph
-    }
-}
-
+/// A class declaration with every statically recognized base expression.
+///
+/// Recognition happens after all project modules have been scanned. Keeping
+/// these source facts immutable prevents an early parent from hiding a later or
+/// unresolved base.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct DeferredModel {
+pub(super) struct ModelCandidate {
     pub(super) model: ModelDef,
-    pub(super) bases: Vec<DeferredBaseRef>,
+    pub(super) bases: Vec<Spanned<CandidateBaseRef>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum DeferredBaseRef {
+pub(super) enum CandidateBaseRef {
+    DjangoModelRoot,
     Qualified(PythonModuleName),
     SameModule(ModelName),
+    UnsupportedExpression,
+    Unresolved {
+        path: Vec<String>,
+        reason: CandidateBaseReferenceError,
+    },
 }
 
-/// A class whose bases are not yet known to be Django models.
-///
-/// Its body and bases are lowered at the source occurrence. Deferred resolution
-/// therefore never consults a later alias table or re-evaluates source syntax.
-#[derive(Clone)]
-struct DeferredCandidate {
-    model: ModelDef,
-    bases: Vec<DeferredBaseRef>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum CandidateBaseReferenceError {
+    MissingBinding,
+    ShadowedBinding,
+    InvalidTarget { target: String },
 }
 
 #[derive(Clone, Copy)]
@@ -70,8 +66,7 @@ struct ModelExtractionContext<'a> {
 
 enum ModelExtractionTarget<'out> {
     Module {
-        graph: &'out mut ModelGraph,
-        deferred: &'out mut Vec<DeferredCandidate>,
+        candidates: &'out mut Vec<ModelCandidate>,
     },
     Class {
         model: &'out mut ModelDef,
@@ -90,13 +85,9 @@ fn scan_class(
     target: &mut ModelExtractionTarget<'_>,
     context: ModelExtractionContext<'_>,
 ) {
-    let ModelExtractionTarget::Module { graph, deferred } = target else {
+    let ModelExtractionTarget::Module { candidates } = target else {
         return;
     };
-    let Some(args) = class.arguments.as_ref() else {
-        return;
-    };
-
     let mut model = ModelDef::new(
         class.name.to_string(),
         context.module_name.clone(),
@@ -105,21 +96,21 @@ fn scan_class(
     );
     let mut class_state = aliases.clone();
     let mut class_target = ModelExtractionTarget::Class { model: &mut model };
-    scan_statements(&class.body, &mut class_state, &mut class_target, context);
+    scan_statements(
+        &class.body,
+        &mut class_state,
+        &mut class_target,
+        context,
+        true,
+    );
 
-    if is_django_model(args.args.iter(), aliases) {
-        graph.add_model(model);
-        return;
-    }
-
-    let bases: Vec<_> = args
-        .args
+    let bases = class
+        .arguments
         .iter()
-        .filter_map(|arg| DeferredBaseRef::from_expr(arg, aliases))
+        .flat_map(|arguments| &arguments.args)
+        .map(|arg| Spanned::new(CandidateBaseRef::from_expr(arg, aliases), arg.span()))
         .collect();
-    if !bases.is_empty() {
-        deferred.push(DeferredCandidate { model, bases });
-    }
+    candidates.push(ModelCandidate { model, bases });
 }
 
 /// Scan Model-relevant occurrences in source order.
@@ -133,8 +124,17 @@ fn scan_statements(
     state: &mut ModelImportState,
     target: &mut ModelExtractionTarget<'_>,
     context: ModelExtractionContext<'_>,
+    record_local_bindings: bool,
 ) {
     for stmt in stmts {
+        if record_local_bindings && let ModelExtractionTarget::Class { model } = target {
+            let mut names = BTreeSet::new();
+            collect_touched_roots(stmt, &mut names);
+            for name in names {
+                model.bind_local_other(FieldName::new(name));
+            }
+        }
+
         if let Stmt::Import(import) = stmt {
             state.apply_direct_import(&DirectImportClause::lower(import));
             continue;
@@ -154,7 +154,7 @@ fn scan_statements(
                     state.bind_local_class(class.name.as_str());
                 }
                 ModelExtractionTarget::Class { model } => {
-                    process_class_body(stmt, context.file, model, state);
+                    process_class_body(stmt, context.file, model, state, record_local_bindings);
                     state.invalidate_root(class.name.as_str());
                 }
             }
@@ -162,7 +162,7 @@ fn scan_statements(
         }
 
         if let ModelExtractionTarget::Class { model } = target {
-            process_class_body(stmt, context.file, model, state);
+            process_class_body(stmt, context.file, model, state, record_local_bindings);
         }
         scan_compound(stmt, state, target, context);
 
@@ -181,7 +181,7 @@ fn scan_compound(
     let mut scan = |body: &[Stmt], invalidated: &BTreeSet<String>| {
         let mut state = entry.clone();
         invalidate_names(&mut state, invalidated);
-        scan_statements(body, &mut state, target, context);
+        scan_statements(body, &mut state, target, context, false);
     };
     let none = BTreeSet::new();
 
@@ -237,73 +237,13 @@ fn scan_compound(
     }
 }
 
-fn resolve_children(
-    graph: &mut ModelGraph,
-    children: &[DeferredCandidate],
-) -> Vec<DeferredCandidate> {
-    let mut remaining = children.to_vec();
-
-    // Fixed-point loop: each iteration may resolve new models, which in turn
-    // unblock children that inherit from them. Converges when no progress is
-    // made.
-    loop {
-        let before = remaining.len();
-        let mut unresolved = Vec::new();
-        let abstract_data: Vec<(ModelName, Vec<Relation>)> = graph
-            .models()
-            .filter(|model| model.kind == ModelKind::Abstract)
-            .map(|model| (model.name.value().clone(), model.relations.clone()))
-            .collect();
-        let known_names: Vec<ModelName> = graph
-            .models()
-            .map(|model| model.name.value().clone())
-            .collect();
-
-        for candidate in &remaining {
-            let has_model_parent = candidate.bases.iter().any(|base| {
-                let DeferredBaseRef::SameModule(name) = base else {
-                    return false;
-                };
-                known_names.iter().any(|known| known == name)
-            });
-            if !has_model_parent {
-                unresolved.push(candidate.clone());
-                continue;
-            }
-
-            let mut model = candidate.model.clone();
-            let own_relations = take(&mut model.relations);
-            for base in &candidate.bases {
-                let DeferredBaseRef::SameModule(parent_name) = base else {
-                    continue;
-                };
-                if let Some((_, relations)) =
-                    abstract_data.iter().find(|(name, _)| name == parent_name)
-                {
-                    model.relations.extend(relations.iter().cloned());
-                }
-            }
-            model.relations.extend(own_relations);
-            graph.add_model(model);
-        }
-
-        remaining = unresolved;
-        if remaining.len() == before {
-            break;
-        }
-    }
-
-    remaining
-}
-
 pub(super) fn extract_models_impl(
     stmts: &[Stmt],
     module_name: &PythonModuleName,
     file: File,
     module_kind: ModuleKind,
 ) -> ModelExtraction {
-    let mut graph = ModelGraph::new();
-    let mut deferred = Vec::new();
+    let mut candidates = Vec::new();
     let mut state = ModelImportState::default();
     let context = ModelExtractionContext {
         module_name,
@@ -311,145 +251,98 @@ pub(super) fn extract_models_impl(
         module_kind,
     };
     let mut target = ModelExtractionTarget::Module {
-        graph: &mut graph,
-        deferred: &mut deferred,
+        candidates: &mut candidates,
     };
-    scan_statements(stmts, &mut state, &mut target, context);
+    scan_statements(stmts, &mut state, &mut target, context, false);
 
-    let deferred = viable_deferred_candidates(resolve_children(&mut graph, &deferred))
-        .into_iter()
-        .map(DeferredModel::from_candidate)
-        .collect();
-    ModelExtraction { graph, deferred }
+    ModelExtraction { candidates }
 }
 
-fn viable_deferred_candidates(candidates: Vec<DeferredCandidate>) -> Vec<DeferredCandidate> {
-    let mut viable_names = BTreeSet::new();
-    let mut queue = VecDeque::new();
-    let mut children_by_base: BTreeMap<ModelName, Vec<usize>> = BTreeMap::new();
-
-    // Same-module models can only come from this file, so a deferred child that
-    // reaches no qualified base through the same-file deferred graph can never
-    // resolve during the project pass. Build the reverse same-file inheritance
-    // graph once, then mark viability from qualified-base roots in one walk.
-    for (index, candidate) in candidates.iter().enumerate() {
-        let candidate_name = candidate.model.name.value().clone();
-        if candidate
-            .bases
-            .iter()
-            .any(|base| matches!(base, DeferredBaseRef::Qualified(_)))
-            && viable_names.insert(candidate_name.clone())
-        {
-            queue.push_back(candidate_name);
-        }
-
-        for base in &candidate.bases {
-            if let DeferredBaseRef::SameModule(name) = base {
-                children_by_base
-                    .entry(name.clone())
-                    .or_default()
-                    .push(index);
-            }
-        }
-    }
-
-    while let Some(base_name) = queue.pop_front() {
-        let Some(children) = children_by_base.get(&base_name) else {
-            continue;
+impl CandidateBaseRef {
+    fn from_expr(expr: &Expr, aliases: &ModelImportState) -> Self {
+        let Some(path) = expr.path_segments() else {
+            return Self::UnsupportedExpression;
         };
-
-        for &index in children {
-            let candidate_name = candidates[index].model.name.value().clone();
-            if viable_names.insert(candidate_name.clone()) {
-                queue.push_back(candidate_name);
-            }
-        }
-    }
-
-    candidates
-        .into_iter()
-        .filter(|candidate| viable_names.contains(candidate.model.name.value()))
-        .collect()
-}
-
-impl DeferredModel {
-    fn from_candidate(candidate: DeferredCandidate) -> Self {
-        Self {
-            model: candidate.model,
-            bases: candidate.bases,
-        }
-    }
-}
-
-impl DeferredBaseRef {
-    fn from_expr(expr: &Expr, aliases: &ModelImportState) -> Option<Self> {
-        let path = expr.path_segments()?;
-        let (root, tail) = path.split_first()?;
+        let Some((root, tail)) = path.split_first() else {
+            return Self::UnsupportedExpression;
+        };
         match aliases.resolve_qualified_path(root, tail) {
-            Ok(path) => Some(Self::Qualified(path)),
-            Err(ModelImportPathResolutionError::MissingBinding) if path.len() == 1 => {
-                Some(Self::SameModule(ModelName::new(path[0].clone())))
+            Ok(path)
+                if matches!(
+                    path.as_str(),
+                    "django.db.models.Model" | "django.contrib.gis.db.models.Model"
+                ) =>
+            {
+                Self::DjangoModelRoot
             }
-            Err(
-                ModelImportPathResolutionError::MissingBinding
-                | ModelImportPathResolutionError::ShadowedBinding
-                | ModelImportPathResolutionError::InvalidTarget { .. },
-            ) => None,
+            Ok(path) => Self::Qualified(path),
+            Err(ModelImportPathResolutionError::MissingBinding) if path.len() == 1 => {
+                Self::SameModule(ModelName::new(path[0].clone()))
+            }
+            Err(error) => Self::Unresolved {
+                path,
+                reason: match error {
+                    ModelImportPathResolutionError::MissingBinding => {
+                        CandidateBaseReferenceError::MissingBinding
+                    }
+                    ModelImportPathResolutionError::ShadowedBinding => {
+                        CandidateBaseReferenceError::ShadowedBinding
+                    }
+                    ModelImportPathResolutionError::InvalidTarget { target, .. } => {
+                        CandidateBaseReferenceError::InvalidTarget { target }
+                    }
+                },
+            },
         }
     }
 }
 
-fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ModelImportState) -> bool {
-    bases
-        .filter_map(ExprExt::path_segments)
-        .filter_map(|path| {
-            let (root, tail) = path.split_first()?;
-            aliases.resolve_qualified_path(root, tail).ok()
-        })
-        .any(|path| {
-            matches!(
-                path.as_str(),
-                "django.db.models.Model" | "django.contrib.gis.db.models.Model"
-            )
-        })
-}
-
-fn process_class_body(stmt: &Stmt, file: File, model: &mut ModelDef, aliases: &ModelImportState) {
-    // Check for Meta.abstract
-    if let Stmt::ClassDef(meta) = stmt
+fn process_class_body(
+    stmt: &Stmt,
+    file: File,
+    model: &mut ModelDef,
+    aliases: &ModelImportState,
+    record_local_binding: bool,
+) {
+    if record_local_binding
+        && let Stmt::ClassDef(meta) = stmt
         && meta.name.as_str() == "Meta"
     {
+        // A class statement rebinds `Meta` when it finishes. Start each
+        // top-level declaration from Django's concrete default so an earlier
+        // `Meta.abstract` value cannot survive a later replacement class.
+        model.kind = ModelKind::Concrete;
         for meta_stmt in &meta.body {
-            if is_abstract_assignment(meta_stmt) {
-                model.kind = ModelKind::Abstract;
-                return;
+            if let Some(is_abstract) = static_abstract_assignment(meta_stmt) {
+                model.kind = if is_abstract {
+                    ModelKind::Abstract
+                } else {
+                    ModelKind::Concrete
+                };
             }
         }
     }
 
-    // Extract relation fields (FK, O2O, M2M)
-    if let Some(relation) = extract_relation(stmt, file, aliases) {
-        model.relations.push(relation);
+    let relation =
+        extract_relation(stmt, file, aliases).or_else(|| extract_generic_foreign_key(stmt, file));
+    let Some(relation) = relation else {
         return;
-    }
-
-    // Extract GenericForeignKey fields
-    if let Some(gfk) = extract_generic_foreign_key(stmt, file) {
-        model.relations.push(gfk);
-    }
+    };
+    model.push_local_relation(relation);
 }
 
-fn is_abstract_assignment(stmt: &Stmt) -> bool {
+fn static_abstract_assignment(stmt: &Stmt) -> Option<bool> {
     let Stmt::Assign(assign) = stmt else {
-        return false;
+        return None;
     };
-    let Some(target) = assign.targets.first() else {
-        return false;
-    };
+    let target = assign.targets.first()?;
     if target.name_target() != Some("abstract") {
-        return false;
+        return None;
     }
-    matches!(assign.value.as_ref(), Expr::BooleanLiteral(b) if b.value)
+    let Expr::BooleanLiteral(value) = assign.value.as_ref() else {
+        return None;
+    };
+    Some(value.value)
 }
 
 fn relation_target_expr(call: &ruff_python_ast::ExprCall) -> Option<&Expr> {
@@ -797,10 +690,12 @@ mod tests {
 
     use super::extract_models_impl;
     use super::*;
+    use crate::models::graph::ModelGraph;
     use crate::models::graph::ModelId;
     use crate::models::graph::RelatedName;
+    use crate::models::resolve::resolve_local_model_graph;
 
-    fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
+    fn extract_model_facts(source: &str, module_name: &str) -> ModelExtraction {
         let db = TestDatabase::new();
         db.add_file("/test.py", source)
             .expect("model extraction fixture should be added to the test database");
@@ -810,10 +705,22 @@ mod tests {
         let module_name =
             PythonModuleName::parse(module_name).expect("test Python module name should be valid");
         let Ok(parsed) = ruff_python_parser::parse_module(source) else {
-            return ModelGraph::default();
+            return ModelExtraction::default();
         };
         let module = parsed.into_syntax();
-        extract_models_impl(&module.body, &module_name, file, ModuleKind::Module).graph
+        extract_models_impl(&module.body, &module_name, file, ModuleKind::Module)
+    }
+
+    fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
+        resolve_local_model_graph(&extract_model_facts(source, module_name))
+    }
+
+    fn candidate<'a>(extraction: &'a ModelExtraction, name: &str) -> &'a ModelCandidate {
+        extraction
+            .candidates
+            .iter()
+            .find(|candidate| candidate.model.name.value().as_str() == name)
+            .expect("model candidate should exist")
     }
 
     fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {
@@ -969,29 +876,41 @@ class Location(GeoModel):
     }
 
     #[test]
-    fn unrelated_alias_not_matched() {
-        // foo.Model should NOT be detected as a Django model
+    fn unrelated_alias_is_retained_as_a_qualified_candidate() {
         let source = r"
 import foo
 
 class NotAModel(foo.Model):
     pass
 ";
-        let graph = extract_model_graph(source, "app.models");
-        assert!(graph.is_empty());
+        let extraction = extract_model_facts(source, "app.models");
+        let candidate = candidate(&extraction, "NotAModel");
+        assert!(matches!(
+            candidate.bases.as_slice(),
+            [base] if matches!(
+                base.value(),
+                CandidateBaseRef::Qualified(path) if path.as_str() == "foo.Model"
+            )
+        ));
     }
 
     #[test]
-    fn unrelated_model_name_not_matched() {
-        // A bare name that happens to not be "Model" should not match
+    fn imported_non_django_base_is_retained_as_a_qualified_candidate() {
         let source = r"
 from pydantic import BaseModel
 
 class NotDjango(BaseModel):
     pass
 ";
-        let graph = extract_model_graph(source, "app.models");
-        assert!(graph.is_empty());
+        let extraction = extract_model_facts(source, "app.models");
+        let candidate = candidate(&extraction, "NotDjango");
+        assert!(matches!(
+            candidate.bases.as_slice(),
+            [base] if matches!(
+                base.value(),
+                CandidateBaseRef::Qualified(path) if path.as_str() == "pydantic.BaseModel"
+            )
+        ));
     }
 
     #[test]
@@ -1235,19 +1154,19 @@ class BaseOrder(models.Model):
 class ConcreteOrder(BaseOrder):
     seller = models.ForeignKey(Seller, on_delete=models.CASCADE)
 ";
-        let graph = extract_model_graph(source, "shop.models");
+        let extraction = extract_model_facts(source, "shop.models");
+        let concrete = candidate(&extraction, "ConcreteOrder");
 
-        let concrete = model(&graph, "ConcreteOrder");
-        assert_eq!(concrete.kind, ModelKind::Concrete);
-        assert_eq!(concrete.relations.len(), 2);
-
-        let targets: Vec<&str> = concrete
-            .relations
-            .iter()
-            .filter_map(bare_target_name)
-            .collect();
-        assert!(targets.contains(&"User"));
-        assert!(targets.contains(&"Seller"));
+        assert_eq!(concrete.model.kind, ModelKind::Concrete);
+        assert_eq!(concrete.model.relations.len(), 1);
+        assert_eq!(
+            bare_target_name(&concrete.model.relations[0]),
+            Some("Seller")
+        );
+        assert!(matches!(
+            concrete.bases.as_slice(),
+            [base] if matches!(base.value(), CandidateBaseRef::SameModule(name) if name.as_str() == "BaseOrder")
+        ));
     }
 
     #[test]
@@ -1267,14 +1186,16 @@ class BaseOrder(models.Model):
 class SpecialOrder(BaseOrder):
     pass
 "#;
-        let graph = extract_model_graph(source, "shop.models");
+        let extraction = extract_model_facts(source, "shop.models");
+        let base = candidate(&extraction, "BaseOrder");
+        let special = candidate(&extraction, "SpecialOrder");
 
-        let special = model(&graph, "SpecialOrder");
-        let rel = &special.relations[0];
-        assert_eq!(
-            rel.effective_related_name("SpecialOrder", "shop.models"),
-            Some("specialorder_set".into())
-        );
+        assert_eq!(base.model.relations.len(), 1);
+        assert!(special.model.relations.is_empty());
+        assert!(matches!(
+            special.bases.as_slice(),
+            [parent] if matches!(parent.value(), CandidateBaseRef::SameModule(name) if name.as_str() == "BaseOrder")
+        ));
     }
 
     #[test]
@@ -1406,14 +1327,19 @@ class AuditMixin(models.Model):
 class Document(TimestampMixin, AuditMixin):
     pass
 ";
-        let graph = extract_model_graph(source, "app.models");
+        let extraction = extract_model_facts(source, "app.models");
+        let document = candidate(&extraction, "Document");
 
-        let doc = model(&graph, "Document");
-        assert_eq!(doc.relations.len(), 2);
-
-        let targets: Vec<&str> = doc.relations.iter().filter_map(bare_target_name).collect();
-        assert!(targets.contains(&"User"));
-        assert!(targets.contains(&"Approver"));
+        assert!(document.model.relations.is_empty());
+        assert_eq!(document.bases.len(), 2);
+        assert!(matches!(
+            document.bases[0].value(),
+            CandidateBaseRef::SameModule(name) if name.as_str() == "TimestampMixin"
+        ));
+        assert!(matches!(
+            document.bases[1].value(),
+            CandidateBaseRef::SameModule(name) if name.as_str() == "AuditMixin"
+        ));
     }
 
     #[test]
@@ -1430,16 +1356,22 @@ class Place(models.Model):
 class Restaurant(Place):
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
 ";
-        let graph = extract_model_graph(source, "app.models");
+        let extraction = extract_model_facts(source, "app.models");
+        let restaurant = candidate(&extraction, "Restaurant");
 
-        let restaurant = model(&graph, "Restaurant");
-        assert_eq!(restaurant.relations.len(), 1);
-        assert_eq!(restaurant.relations[0].field_name.value().as_str(), "owner");
-        assert_eq!(bare_target_name(&restaurant.relations[0]), Some("User"));
+        assert_eq!(restaurant.model.relations.len(), 1);
+        assert_eq!(
+            restaurant.model.relations[0].field_name.value().as_str(),
+            "owner"
+        );
+        assert_eq!(
+            bare_target_name(&restaurant.model.relations[0]),
+            Some("User")
+        );
     }
 
     #[test]
-    fn unresolved_qualified_base_is_not_treated_as_same_module() {
+    fn unresolved_qualified_base_is_retained_without_becoming_same_module() {
         let source = r"
 from django.db import models
 
@@ -1455,9 +1387,17 @@ class BaseOrder(models.Model):
 class ConcreteOrder(some_module.BaseOrder):
     pass
 ";
-        let graph = extract_model_graph(source, "shop.models");
+        let extraction = extract_model_facts(source, "shop.models");
+        let concrete = candidate(&extraction, "ConcreteOrder");
 
-        assert!(!has_model(&graph, "ConcreteOrder"));
+        assert!(matches!(
+            concrete.bases.as_slice(),
+            [base] if matches!(
+                base.value(),
+                CandidateBaseRef::Unresolved { path, .. }
+                    if path == &["some_module".to_string(), "BaseOrder".to_string()]
+            )
+        ));
     }
 
     #[test]
@@ -1481,19 +1421,14 @@ class MiddleMixin(BaseMixin):
 class Concrete(MiddleMixin):
     pass
 ";
-        let graph = extract_model_graph(source, "app.models");
+        let extraction = extract_model_facts(source, "app.models");
+        let middle = candidate(&extraction, "MiddleMixin");
+        let concrete = candidate(&extraction, "Concrete");
 
-        // MiddleMixin inherits BaseMixin's FK to User
-        let middle = model(&graph, "MiddleMixin");
-        assert_eq!(middle.kind, ModelKind::Abstract);
-        assert_eq!(middle.relations.len(), 1);
-        assert_eq!(bare_target_name(&middle.relations[0]), Some("User"));
-
-        // Concrete inherits through MiddleMixin
-        let concrete = model(&graph, "Concrete");
-        assert_eq!(concrete.kind, ModelKind::Concrete);
-        assert_eq!(concrete.relations.len(), 1);
-        assert_eq!(bare_target_name(&concrete.relations[0]), Some("User"));
+        assert_eq!(middle.model.kind, ModelKind::Abstract);
+        assert!(middle.model.relations.is_empty());
+        assert_eq!(concrete.model.kind, ModelKind::Concrete);
+        assert!(concrete.model.relations.is_empty());
     }
 
     #[test]
@@ -1610,18 +1545,16 @@ class GenericMixin(models.Model):
 class TaggedItem(GenericMixin):
     pass
 "#;
-        let graph = extract_model_graph(source, "tagging.models");
+        let extraction = extract_model_facts(source, "tagging.models");
+        let mixin = candidate(&extraction, "GenericMixin");
+        let tagged = candidate(&extraction, "TaggedItem");
 
-        let tagged = model(&graph, "TaggedItem");
-        assert_eq!(tagged.relations.len(), 1);
-        assert_eq!(
-            tagged.relations[0].field_name.value().as_str(),
-            "content_object"
-        );
+        assert_eq!(mixin.model.relations.len(), 1);
         assert!(matches!(
-            tagged.relations[0].relation_type,
+            mixin.model.relations[0].relation_type,
             RelationType::GenericForeignKey { .. }
         ));
+        assert!(tagged.model.relations.is_empty());
     }
 
     #[test]

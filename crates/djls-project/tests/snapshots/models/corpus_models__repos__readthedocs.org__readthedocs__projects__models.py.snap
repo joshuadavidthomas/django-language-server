@@ -12,6 +12,16 @@ models:
     module_name: readthedocs.projects.models
     relations: []
     kind: concrete
+  readthedocs.projects.models.EmailHook:
+    name:
+      value: EmailHook
+      span:
+        start: 61194
+        length: 9
+    module_name: readthedocs.projects.models
+    relations: []
+    kind: concrete
+    ancestry: Partial
   readthedocs.projects.models.EnvironmentVariable:
     name:
       value: EnvironmentVariable
@@ -35,6 +45,15 @@ models:
             length: 7
         related_name: ~
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 75542
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: django_extensions.db.models.TimeStampedModel
+    ancestry: Partial
   readthedocs.projects.models.Feature:
     name:
       value: Feature
@@ -90,6 +109,15 @@ models:
             length: 6
         related_name: http_headers
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 69122
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: django_extensions.db.models.TimeStampedModel
+    ancestry: Partial
   readthedocs.projects.models.ImportedFile:
     name:
       value: ImportedFile
@@ -128,6 +156,38 @@ models:
             length: 16
         related_name: imported_files
     kind: concrete
+  readthedocs.projects.models.Notification:
+    name:
+      value: Notification
+      span:
+        start: 60548
+        length: 12
+    module_name: readthedocs.projects.models
+    relations:
+      - field_name:
+          value: project
+          span:
+            start: 60961
+            length: 7
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Project
+          span:
+            start: 60998
+            length: 7
+        related_name: "%(class)s_notifications"
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 60561
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: django_extensions.db.models.TimeStampedModel
+    ancestry: Partial
   readthedocs.projects.models.Project:
     name:
       value: Project
@@ -246,6 +306,30 @@ models:
             length: 18
         related_name: superprojects
     kind: concrete
+  readthedocs.projects.models.WebHook:
+    name:
+      value: WebHook
+      span:
+        start: 61764
+        length: 7
+    module_name: readthedocs.projects.models
+    relations:
+      - field_name:
+          value: events
+          span:
+            start: 62088
+            length: 6
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Bare
+            name: WebHookEvent
+          span:
+            start: 62129
+            length: 12
+        related_name: webhooks
+    kind: concrete
+    ancestry: Partial
   readthedocs.projects.models.WebHookEvent:
     name:
       value: WebHookEvent

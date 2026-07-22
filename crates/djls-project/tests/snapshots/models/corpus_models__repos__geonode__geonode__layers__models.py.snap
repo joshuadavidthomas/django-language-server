@@ -35,3 +35,12 @@ models:
     module_name: geonode.layers.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 2130
+            length: 20
+          reason:
+            ImportNotFound:
+              requested: geonode.security.models.PermissionLevelMixin
+    ancestry: Partial

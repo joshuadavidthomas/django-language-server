@@ -248,20 +248,6 @@ models:
     module_name: src.backend.InvenTree.common.models
     relations:
       - field_name:
-          value: updated_by
-          span:
-            start: 4235
-            length: 10
-        relation_type: ForeignKey
-        target:
-          value:
-            kind: Bare
-            name: User
-          span:
-            start: 4275
-            length: 4
-        related_name: "%(class)s_updated"
-      - field_name:
           value: model_type
           span:
             start: 87810
@@ -298,6 +284,22 @@ models:
             length: 17
         related_name: parameters
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 81343
+            length: 30
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.MetadataMixin
+      - Unresolved:
+          span:
+            start: 81375
+            length: 31
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.InvenTreeModel
+    ancestry: Partial
   src.backend.InvenTree.common.models.PriceBreak:
     name:
       value: PriceBreak

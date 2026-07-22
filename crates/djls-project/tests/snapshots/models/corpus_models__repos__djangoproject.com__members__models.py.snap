@@ -12,6 +12,15 @@ models:
     module_name: members.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 2692
+            length: 18
+          reason:
+            ImportNotFound:
+              requested: djangoproject.thumbnails.LogoThumbnailMixin
+    ancestry: Partial
   members.models.IndividualMember:
     name:
       value: IndividualMember

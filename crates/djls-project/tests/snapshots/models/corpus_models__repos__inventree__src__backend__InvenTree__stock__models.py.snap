@@ -12,3 +12,12 @@ models:
     module_name: src.backend.InvenTree.stock.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1855
+            length: 30
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.MetadataMixin
+    ancestry: Partial

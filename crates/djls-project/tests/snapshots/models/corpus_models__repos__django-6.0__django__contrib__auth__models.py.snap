@@ -10,36 +10,17 @@ models:
         start: 15591
         length: 12
     module_name: django.contrib.auth.models
-    relations:
-      - field_name:
-          value: groups
-          span:
-            start: 11349
-            length: 6
-        relation_type: ManyToMany
-        target:
-          value:
-            kind: Bare
-            name: Group
-          span:
-            start: 11390
-            length: 5
-        related_name: user_set
-      - field_name:
-          value: user_permissions
-          span:
-            start: 11688
-            length: 16
-        relation_type: ManyToMany
-        target:
-          value:
-            kind: Bare
-            name: Permission
-          span:
-            start: 11739
-            length: 10
-        related_name: user_set
+    relations: []
     kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 15604
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: django.contrib.auth.base_user.AbstractBaseUser
+    ancestry: Partial
   django.contrib.auth.models.Group:
     name:
       value: Group
@@ -130,33 +111,6 @@ models:
         start: 17861
         length: 4
     module_name: django.contrib.auth.models
-    relations:
-      - field_name:
-          value: groups
-          span:
-            start: 11349
-            length: 6
-        relation_type: ManyToMany
-        target:
-          value:
-            kind: Bare
-            name: Group
-          span:
-            start: 11390
-            length: 5
-        related_name: user_set
-      - field_name:
-          value: user_permissions
-          span:
-            start: 11688
-            length: 16
-        relation_type: ManyToMany
-        target:
-          value:
-            kind: Bare
-            name: Permission
-          span:
-            start: 11739
-            length: 10
-        related_name: user_set
+    relations: []
     kind: concrete
+    ancestry: Partial

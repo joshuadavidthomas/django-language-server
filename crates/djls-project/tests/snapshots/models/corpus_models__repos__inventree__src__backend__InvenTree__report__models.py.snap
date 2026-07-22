@@ -3,6 +3,16 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
+  src.backend.InvenTree.report.models.LabelTemplate:
+    name:
+      value: LabelTemplate
+      span:
+        start: 23017
+        length: 13
+    module_name: src.backend.InvenTree.report.models
+    relations: []
+    kind: concrete
+    ancestry: Partial
   src.backend.InvenTree.report.models.ReportAsset:
     name:
       value: ReportAsset
@@ -21,3 +31,38 @@ models:
     module_name: src.backend.InvenTree.report.models
     relations: []
     kind: concrete
+  src.backend.InvenTree.report.models.ReportTemplate:
+    name:
+      value: ReportTemplate
+      span:
+        start: 11472
+        length: 14
+    module_name: src.backend.InvenTree.report.models
+    relations: []
+    kind: concrete
+    ancestry: Partial
+  src.backend.InvenTree.report.models.ReportTemplateBase:
+    name:
+      value: ReportTemplateBase
+      span:
+        start: 6245
+        length: 18
+    module_name: src.backend.InvenTree.report.models
+    relations: []
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 6264
+            length: 13
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.MetadataMixin
+      - Unresolved:
+          span:
+            start: 6279
+            length: 31
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.InvenTreeModel
+    ancestry: Partial

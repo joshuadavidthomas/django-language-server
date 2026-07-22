@@ -12,6 +12,51 @@ models:
     module_name: wagtail.contrib.forms.models
     relations: []
     kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 11926
+            length: 4
+          reason:
+            ImportNotFound:
+              requested: wagtail.models.Page
+    ancestry: Partial
+  wagtail.contrib.forms.models.AbstractForm:
+    name:
+      value: AbstractForm
+      span:
+        start: 9888
+        length: 12
+    module_name: wagtail.contrib.forms.models
+    relations: []
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 9912
+            length: 4
+          reason:
+            ImportNotFound:
+              requested: wagtail.models.Page
+    ancestry: Partial
+  wagtail.contrib.forms.models.AbstractFormField:
+    name:
+      value: AbstractFormField
+      span:
+        start: 2065
+        length: 17
+    module_name: wagtail.contrib.forms.models
+    relations: []
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 2083
+            length: 9
+          reason:
+            ImportNotFound:
+              requested: wagtail.models.Orderable
+    ancestry: Partial
   wagtail.contrib.forms.models.AbstractFormSubmission:
     name:
       value: AbstractFormSubmission

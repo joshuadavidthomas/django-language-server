@@ -4,15 +4,22 @@ mod graph;
 mod imports;
 mod resolve;
 
+use std::collections::BTreeMap;
+
 pub use discovery::model_modules;
 use djls_source::File;
+pub(crate) use graph::AncestryOutcome;
+pub(crate) use graph::BaseOutcome;
+pub(crate) use graph::BaseUnresolvedReason;
+pub(crate) use graph::InheritanceError;
 pub use graph::ModelGraph;
 pub use graph::ModelId;
+pub(crate) use resolve::resolve_local_model_graph;
 
 use crate::db::Db;
 use crate::models::extract::ModelExtraction;
 use crate::models::extract::extract_models_impl;
-use crate::models::resolve::resolve_deferred_models;
+use crate::models::resolve::resolve_model_inheritance;
 use crate::project::Project;
 use crate::python::PythonModuleName;
 use crate::python::RecoveredPythonModule;
@@ -21,8 +28,8 @@ use crate::python::import::ModuleKind;
 /// Compute a merged `ModelGraph` from discovered model sources.
 #[salsa::tracked(returns(ref))]
 pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
-    // `ModelGraph::merge` is last-wins. Iterate search paths in reverse so
-    // earlier Python search paths keep normal import precedence.
+    // Module selection is last-wins. Iterate search paths in reverse so the
+    // earlier Python search path supplies the final file for each module.
     resolve_model_graph_from_modules(
         db,
         project,
@@ -38,18 +45,22 @@ pub fn resolve_model_graph_from_modules(
     project: Project,
     modules: impl IntoIterator<Item = (File, PythonModuleName)>,
 ) -> ModelGraph {
-    let mut graph = ModelGraph::new();
-    let mut deferred = Vec::new();
-
+    let mut selected_modules = BTreeMap::new();
     for (file, module_name) in modules {
-        let extraction = extract_models(db, file, module_name);
-        if !extraction.graph.is_empty() {
-            graph.merge(extraction.graph.clone());
-        }
-        deferred.extend(extraction.deferred.iter().cloned());
+        selected_modules.insert(module_name, file);
     }
 
-    resolve_deferred_models(db, project, &mut graph, deferred);
+    let mut candidates = Vec::new();
+    for (module_name, file) in selected_modules {
+        candidates.extend(
+            extract_models(db, file, module_name)
+                .candidates
+                .iter()
+                .cloned(),
+        );
+    }
+
+    let mut graph = resolve_model_inheritance(db, project, candidates);
     graph.resolve_relation_targets(db, project);
     #[cfg(debug_assertions)]
     graph.debug_assert_no_file_local_placeholders();

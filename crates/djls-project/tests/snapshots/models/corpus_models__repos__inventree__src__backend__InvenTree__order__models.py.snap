@@ -3,6 +3,205 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
+  src.backend.InvenTree.order.models.Order:
+    name:
+      value: Order
+      span:
+        start: 9132
+        length: 5
+    module_name: src.backend.InvenTree.order.models
+    relations:
+      - field_name:
+          value: project_code
+          span:
+            start: 15402
+            length: 12
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Attribute
+            path:
+              - common_models
+              - ProjectCode
+          span:
+            start: 15444
+            length: 25
+        related_name: ~
+      - field_name:
+          value: created_by
+          span:
+            start: 16342
+            length: 10
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: User
+          span:
+            start: 16382
+            length: 4
+        related_name: ~
+      - field_name:
+          value: responsible
+          span:
+            start: 16702
+            length: 11
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Attribute
+            path:
+              - UserModels
+              - Owner
+          span:
+            start: 16743
+            length: 16
+        related_name: ~
+      - field_name:
+          value: contact
+          span:
+            start: 16976
+            length: 7
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Contact
+          span:
+            start: 17013
+            length: 7
+        related_name: ~
+      - field_name:
+          value: address
+          span:
+            start: 17224
+            length: 7
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Address
+          span:
+            start: 17261
+            length: 7
+        related_name: ~
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 9143
+            length: 15
+          reason:
+            ImportNotFound:
+              requested: generic.states.StatusCodeMixin
+      - Unresolved:
+          span:
+            start: 9164
+            length: 20
+          reason:
+            ImportNotFound:
+              requested: generic.states.StateTransitionMixin
+      - Unresolved:
+          span:
+            start: 9190
+            length: 40
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.InvenTreeParameterMixin
+      - Unresolved:
+          span:
+            start: 9236
+            length: 41
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.InvenTreeAttachmentMixin
+      - Unresolved:
+          span:
+            start: 9283
+            length: 38
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.InvenTreeBarcodeMixin
+      - Unresolved:
+          span:
+            start: 9327
+            length: 36
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.InvenTreeNotesMixin
+      - Unresolved:
+          span:
+            start: 9369
+            length: 34
+          reason:
+            ImportNotFound:
+              requested: report.mixins.InvenTreeReportMixin
+      - Unresolved:
+          span:
+            start: 9409
+            length: 30
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.MetadataMixin
+      - Unresolved:
+          span:
+            start: 9445
+            length: 39
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.ReferenceIndexingMixin
+      - Unresolved:
+          span:
+            start: 9490
+            length: 31
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.InvenTreeModel
+    ancestry: Partial
+  src.backend.InvenTree.order.models.OrderExtraLine:
+    name:
+      value: OrderExtraLine
+      span:
+        start: 61918
+        length: 14
+    module_name: src.backend.InvenTree.order.models
+    relations: []
+    kind: abstract
+    ancestry: Partial
+  src.backend.InvenTree.order.models.OrderLineItem:
+    name:
+      value: OrderLineItem
+      span:
+        start: 59042
+        length: 13
+    module_name: src.backend.InvenTree.order.models
+    relations:
+      - field_name:
+          value: project_code
+          span:
+            start: 61662
+            length: 12
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Attribute
+            path:
+              - common_models
+              - ProjectCode
+          span:
+            start: 61704
+            length: 25
+        related_name: ~
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 59056
+            length: 39
+          reason:
+            ImportNotFound:
+              requested: InvenTree.models.InvenTreeMetadataModel
+    ancestry: Partial
   src.backend.InvenTree.order.models.PurchaseOrder:
     name:
       value: PurchaseOrder
@@ -40,6 +239,84 @@ models:
             length: 4
         related_name: ~
     kind: concrete
+    ancestry: Partial
+  src.backend.InvenTree.order.models.PurchaseOrderExtraLine:
+    name:
+      value: PurchaseOrderExtraLine
+      span:
+        start: 68718
+        length: 22
+    module_name: src.backend.InvenTree.order.models
+    relations:
+      - field_name:
+          value: order
+          span:
+            start: 69198
+            length: 5
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: PurchaseOrder
+          span:
+            start: 69233
+            length: 13
+        related_name: extra_lines
+    kind: concrete
+    ancestry: Partial
+  src.backend.InvenTree.order.models.PurchaseOrderLineItem:
+    name:
+      value: PurchaseOrderLineItem
+      span:
+        start: 62802
+        length: 21
+    module_name: src.backend.InvenTree.order.models
+    relations:
+      - field_name:
+          value: order
+          span:
+            start: 65468
+            length: 5
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: PurchaseOrder
+          span:
+            start: 65503
+            length: 13
+        related_name: lines
+      - field_name:
+          value: part
+          span:
+            start: 65914
+            length: 4
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: SupplierPart
+          span:
+            start: 65948
+            length: 12
+        related_name: purchase_order_line_items
+      - field_name:
+          value: build_order
+          span:
+            start: 66723
+            length: 11
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Qualified
+            app_label: build
+            name: Build
+          span:
+            start: 66764
+            length: 13
+        related_name: external_line_items
+    kind: concrete
+    ancestry: Partial
   src.backend.InvenTree.order.models.ReturnOrder:
     name:
       value: ReturnOrder
@@ -63,6 +340,80 @@ models:
             length: 7
         related_name: sales_orders
     kind: concrete
+    ancestry: Partial
+  src.backend.InvenTree.order.models.ReturnOrderExtraLine:
+    name:
+      value: ReturnOrderExtraLine
+      span:
+        start: 101711
+        length: 20
+    module_name: src.backend.InvenTree.order.models
+    relations:
+      - field_name:
+          value: order
+          span:
+            start: 102111
+            length: 5
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: ReturnOrder
+          span:
+            start: 102146
+            length: 11
+        related_name: extra_lines
+    kind: concrete
+    ancestry: Partial
+  src.backend.InvenTree.order.models.ReturnOrderLineItem:
+    name:
+      value: ReturnOrderLineItem
+      span:
+        start: 98984
+        length: 19
+    module_name: src.backend.InvenTree.order.models
+    relations:
+      - field_name:
+          value: order
+          span:
+            start: 100233
+            length: 5
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: ReturnOrder
+          span:
+            start: 100268
+            length: 11
+        related_name: lines
+      - field_name:
+          value: item
+          span:
+            start: 100426
+            length: 4
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Attribute
+            path:
+              - stock
+              - models
+              - StockItem
+          span:
+            start: 100460
+            length: 22
+        related_name: return_order_lines
+    kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 99004
+            length: 15
+          reason:
+            ImportNotFound:
+              requested: generic.states.StatusCodeMixin
+    ancestry: Partial
   src.backend.InvenTree.order.models.SalesOrder:
     name:
       value: SalesOrder
@@ -100,6 +451,7 @@ models:
             length: 4
         related_name: ~
     kind: concrete
+    ancestry: Partial
   src.backend.InvenTree.order.models.SalesOrderAllocation:
     name:
       value: SalesOrderAllocation
@@ -152,6 +504,69 @@ models:
             length: 17
         related_name: sales_order_allocations
     kind: concrete
+  src.backend.InvenTree.order.models.SalesOrderExtraLine:
+    name:
+      value: SalesOrderExtraLine
+      span:
+        start: 81921
+        length: 19
+    module_name: src.backend.InvenTree.order.models
+    relations:
+      - field_name:
+          value: order
+          span:
+            start: 82379
+            length: 5
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: SalesOrder
+          span:
+            start: 82414
+            length: 10
+        related_name: extra_lines
+    kind: concrete
+    ancestry: Partial
+  src.backend.InvenTree.order.models.SalesOrderLineItem:
+    name:
+      value: SalesOrderLineItem
+      span:
+        start: 69404
+        length: 18
+    module_name: src.backend.InvenTree.order.models
+    relations:
+      - field_name:
+          value: order
+          span:
+            start: 70723
+            length: 5
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: SalesOrder
+          span:
+            start: 70758
+            length: 10
+        related_name: lines
+      - field_name:
+          value: part
+          span:
+            start: 70914
+            length: 4
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Qualified
+            app_label: part
+            name: Part
+          span:
+            start: 70948
+            length: 11
+        related_name: sales_order_line_items
+    kind: concrete
+    ancestry: Partial
   src.backend.InvenTree.order.models.TotalPriceMixin:
     name:
       value: TotalPriceMixin

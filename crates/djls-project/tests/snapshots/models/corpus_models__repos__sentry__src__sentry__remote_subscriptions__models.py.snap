@@ -4,8 +4,20 @@ expression: graph
 ---
 models:
   src.sentry.remote_subscriptions.models.BaseRemoteSubscription:
-    name: BaseRemoteSubscription
+    name:
+      value: BaseRemoteSubscription
+      span:
+        start: 96
+        length: 22
     module_name: src.sentry.remote_subscriptions.models
-    line: 8
     relations: []
     kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 119
+            length: 5
+          reason:
+            ImportNotFound:
+              requested: sentry.db.models.Model
+    ancestry: Partial

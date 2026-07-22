@@ -3,6 +3,24 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
+  cms.test_utils.project.mti_pluginapp.models.AbstractPluginParent:
+    name:
+      value: AbstractPluginParent
+      span:
+        start: 1229
+        length: 20
+    module_name: cms.test_utils.project.mti_pluginapp.models
+    relations: []
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1250
+            length: 9
+          reason:
+            ImportNotFound:
+              requested: cms.models.CMSPlugin
+    ancestry: Partial
   cms.test_utils.project.mti_pluginapp.models.LessMixedPlugin:
     name:
       value: LessMixedPlugin
@@ -12,6 +30,15 @@ models:
     module_name: cms.test_utils.project.mti_pluginapp.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 2125
+            length: 9
+          reason:
+            ImportNotFound:
+              requested: cms.models.CMSPlugin
+    ancestry: Partial
   cms.test_utils.project.mti_pluginapp.models.MixedPlugin:
     name:
       value: MixedPlugin
@@ -21,6 +48,7 @@ models:
     module_name: cms.test_utils.project.mti_pluginapp.models
     relations: []
     kind: concrete
+    ancestry: Partial
   cms.test_utils.project.mti_pluginapp.models.NonPluginModel:
     name:
       value: NonPluginModel
@@ -30,3 +58,13 @@ models:
     module_name: cms.test_utils.project.mti_pluginapp.models
     relations: []
     kind: concrete
+  cms.test_utils.project.mti_pluginapp.models.TestPluginGammaModel:
+    name:
+      value: TestPluginGammaModel
+      span:
+        start: 1435
+        length: 20
+    module_name: cms.test_utils.project.mti_pluginapp.models
+    relations: []
+    kind: concrete
+    ancestry: Partial

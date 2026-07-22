@@ -21,6 +21,15 @@ models:
     module_name: cms.test_utils.project.extensionapp.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1424
+            length: 20
+          reason:
+            ImportNotFound:
+              requested: cms.extensions.PageContentExtension
+    ancestry: Partial
   cms.test_utils.project.extensionapp.models.MultiTablePageExtension:
     name:
       value: MultiTablePageExtension
@@ -30,6 +39,15 @@ models:
     module_name: cms.test_utils.project.extensionapp.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1054
+            length: 13
+          reason:
+            ImportNotFound:
+              requested: cms.extensions.PageExtension
+    ancestry: Partial
   cms.test_utils.project.extensionapp.models.MultiTablePageExtensionParent:
     name:
       value: MultiTablePageExtensionParent

@@ -30,9 +30,15 @@ use serde::Serialize;
 use crate::db::Db;
 pub use crate::discovery::compute_django_environment;
 pub use crate::discovery::compute_project_facts;
+use crate::models::AncestryOutcome;
+use crate::models::BaseOutcome;
+use crate::models::BaseUnresolvedReason;
+use crate::models::InheritanceError;
 use crate::models::ModelGraph;
+use crate::models::ModelId;
 use crate::models::extract_models;
 pub use crate::models::model_modules;
+use crate::models::resolve_local_model_graph;
 pub use crate::models::resolve_model_graph_from_modules;
 use crate::project::Project;
 use crate::python::PythonModuleName;
@@ -56,8 +62,8 @@ pub fn extract_model_graph(
     db: &dyn SourceDb,
     file: File,
     module_name: PythonModuleName,
-) -> &ModelGraph {
-    extract_models(db, file, module_name).graph()
+) -> ModelGraph {
+    resolve_local_model_graph(extract_models(db, file, module_name))
 }
 
 #[must_use]
@@ -73,6 +79,167 @@ pub fn model_location(
 }
 
 #[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelBaseOutcomeView {
+    DjangoModelRoot {
+        span: Span,
+    },
+    Model {
+        model: ModelId,
+        span: Span,
+    },
+    NonModelClass {
+        class: ModelId,
+        span: Span,
+    },
+    Unresolved {
+        span: Span,
+        reason: ModelBaseUnresolvedReasonView,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelBaseUnresolvedReasonView {
+    UnsupportedExpression,
+    MissingImportBinding {
+        path: Vec<String>,
+    },
+    ShadowedImportBinding {
+        path: Vec<String>,
+    },
+    InvalidImportedTarget {
+        target: String,
+    },
+    ImportNotFound {
+        requested: PythonModuleName,
+    },
+    ImportedTargetIsModule {
+        module: PythonModuleName,
+    },
+    PartialImport {
+        resolved_prefix: PythonModuleName,
+        unresolved_tail: Vec<String>,
+    },
+    ModelNotFound {
+        model: ModelId,
+    },
+    ReboundLocalBase {
+        model: ModelId,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelAncestryOutcomeView {
+    Complete { mro: Vec<ModelId> },
+    Partial,
+    Invalid { error: ModelInheritanceErrorView },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelInheritanceErrorView {
+    Cycle,
+    DuplicateDjangoModelRoot,
+    DuplicateModelBase { model: ModelId },
+    InconsistentC3,
+}
+
+#[must_use]
+pub fn model_inheritance_outcomes(
+    graph: &ModelGraph,
+    module_name: &str,
+    model_name: &str,
+) -> Option<(Vec<ModelBaseOutcomeView>, ModelAncestryOutcomeView)> {
+    let (id, _model) = graph
+        .models_named(model_name)
+        .find(|(id, _model)| id.module_name().as_str() == module_name)?;
+    let record = graph.inheritance(id)?;
+    let bases = record
+        .bases
+        .iter()
+        .map(|base| match base {
+            BaseOutcome::DjangoModelRoot { .. } => {
+                ModelBaseOutcomeView::DjangoModelRoot { span: base.span() }
+            }
+            BaseOutcome::Model { model, .. } => ModelBaseOutcomeView::Model {
+                model: model.clone(),
+                span: base.span(),
+            },
+            BaseOutcome::NonModelClass { class, .. } => ModelBaseOutcomeView::NonModelClass {
+                class: class.clone(),
+                span: base.span(),
+            },
+            BaseOutcome::Unresolved { reason, .. } => ModelBaseOutcomeView::Unresolved {
+                span: base.span(),
+                reason: match reason {
+                    BaseUnresolvedReason::UnsupportedExpression => {
+                        ModelBaseUnresolvedReasonView::UnsupportedExpression
+                    }
+                    BaseUnresolvedReason::MissingImportBinding { path } => {
+                        ModelBaseUnresolvedReasonView::MissingImportBinding { path: path.clone() }
+                    }
+                    BaseUnresolvedReason::ShadowedImportBinding { path } => {
+                        ModelBaseUnresolvedReasonView::ShadowedImportBinding { path: path.clone() }
+                    }
+                    BaseUnresolvedReason::InvalidImportedTarget { target } => {
+                        ModelBaseUnresolvedReasonView::InvalidImportedTarget {
+                            target: target.clone(),
+                        }
+                    }
+                    BaseUnresolvedReason::ImportNotFound { requested } => {
+                        ModelBaseUnresolvedReasonView::ImportNotFound {
+                            requested: requested.clone(),
+                        }
+                    }
+                    BaseUnresolvedReason::ImportedTargetIsModule { module } => {
+                        ModelBaseUnresolvedReasonView::ImportedTargetIsModule {
+                            module: module.clone(),
+                        }
+                    }
+                    BaseUnresolvedReason::PartialImport {
+                        resolved_prefix,
+                        unresolved_tail,
+                    } => ModelBaseUnresolvedReasonView::PartialImport {
+                        resolved_prefix: resolved_prefix.clone(),
+                        unresolved_tail: unresolved_tail.clone(),
+                    },
+                    BaseUnresolvedReason::ModelNotFound { model } => {
+                        ModelBaseUnresolvedReasonView::ModelNotFound {
+                            model: model.clone(),
+                        }
+                    }
+                    BaseUnresolvedReason::ReboundLocalBase { model } => {
+                        ModelBaseUnresolvedReasonView::ReboundLocalBase {
+                            model: model.clone(),
+                        }
+                    }
+                },
+            },
+        })
+        .collect();
+    let ancestry = match &record.ancestry {
+        AncestryOutcome::Complete { mro } => {
+            ModelAncestryOutcomeView::Complete { mro: mro.clone() }
+        }
+        AncestryOutcome::Partial => ModelAncestryOutcomeView::Partial,
+        AncestryOutcome::Invalid { error } => ModelAncestryOutcomeView::Invalid {
+            error: match error {
+                InheritanceError::Cycle => ModelInheritanceErrorView::Cycle,
+                InheritanceError::DuplicateDjangoModelRoot => {
+                    ModelInheritanceErrorView::DuplicateDjangoModelRoot
+                }
+                InheritanceError::DuplicateModelBase { model } => {
+                    ModelInheritanceErrorView::DuplicateModelBase {
+                        model: model.clone(),
+                    }
+                }
+                InheritanceError::InconsistentC3 => ModelInheritanceErrorView::InconsistentC3,
+            },
+        },
+    };
+    Some((bases, ancestry))
+}
+
+#[must_use]
 pub fn model_relation_locations(
     graph: &ModelGraph,
     module_name: &str,
@@ -81,11 +248,10 @@ pub fn model_relation_locations(
     graph
         .models_named(model_name)
         .find(|(id, _model)| id.module_name().as_str() == module_name)
-        .map(|(_id, model)| {
-            model
-                .relations
-                .iter()
-                .map(|relation| {
+        .map(|(id, _model)| {
+            graph
+                .owned_relation_entries(id)
+                .map(|(relation, _resolution)| {
                     (
                         relation.field_name.value().as_str().to_string(),
                         relation.file,
