@@ -73,4 +73,22 @@ uv sync --frozen
 echo "==> Fetching locked Rust dependencies"
 cargo fetch --locked
 
+if ! command -v prek >/dev/null 2>&1; then
+    echo "==> Installing prek"
+    uv tool install prek
+fi
+
+echo "==> Installing pre-commit hooks"
+hooks_path="$(git config --path core.hooksPath || true)"
+if [[ -n "$hooks_path" && "$hooks_path" == /* && "$(basename "$hooks_path")" == hooks ]]; then
+    # Amp uses a global hooks directory for its prepare-commit-msg hook. Install
+    # prek alongside it instead of replacing the directory at repository scope.
+    prek install --git-dir "$(dirname "$hooks_path")" --prepare-hooks
+else
+    prek install --prepare-hooks
+fi
+
+echo "==> Syncing the locked test corpus"
+just corpus sync
+
 echo "==> Orb setup complete"
