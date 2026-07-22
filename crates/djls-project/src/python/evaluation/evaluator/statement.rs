@@ -16,7 +16,7 @@ use super::PythonModuleEvaluator;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 
-impl PythonModuleEvaluator<'_> {
+impl<'db> PythonModuleEvaluator<'db> {
     pub(super) fn evaluate_body(&mut self, body: &[ast::Stmt]) {
         for stmt in body {
             self.walk_stmt(stmt);
@@ -96,96 +96,60 @@ impl PythonModuleEvaluator<'_> {
         let arm_count = 1
             + clauses.len()
             + usize::from(clauses.last().is_none_or(|clause| clause.test.is_some()));
-        self.record_unsupported_call_effects(&stmt_if.test);
-        match self.test_truthiness(&stmt_if.test) {
-            Truthiness::AlwaysTrue => self.evaluate_body(&stmt_if.body),
-            Truthiness::AlwaysFalse => {
-                let control_span = stmt_if.span();
-                for (index, clause) in clauses.iter().enumerate() {
-                    let Some(test) = &clause.test else {
-                        self.evaluate_body(&clause.body);
-                        return;
-                    };
+        let mut remaining = self.active_constraints.clone();
+        let mut branches = Vec::with_capacity(arm_count);
 
-                    self.record_unsupported_call_effects(test);
-                    match self.test_truthiness(test) {
-                        Truthiness::AlwaysTrue => {
-                            self.evaluate_body(&clause.body);
-                            return;
-                        }
-                        Truthiness::AlwaysFalse => {}
-                        Truthiness::Ambiguous => {
-                            self.join_reachable_if_bodies(
-                                None,
-                                &clauses[index..],
-                                index + 1,
-                                arm_count,
-                                control_span,
-                                true,
-                            );
-                            return;
-                        }
-                    }
-                }
+        self.add_guarded_if_body(
+            0,
+            &stmt_if.test,
+            &stmt_if.body,
+            &mut remaining,
+            &mut branches,
+        );
+        for (index, clause) in clauses.iter().enumerate() {
+            if remaining.is_impossible() {
+                break;
             }
-            Truthiness::Ambiguous => self.join_reachable_if_bodies(
-                Some((0, &stmt_if.body)),
-                clauses,
-                1,
-                arm_count,
-                stmt_if.span(),
-                false,
-            ),
+            let arm = index + 1;
+            if let Some(test) = &clause.test {
+                self.add_guarded_if_body(arm, test, &clause.body, &mut remaining, &mut branches);
+            } else {
+                let mut branch = self.fork();
+                branch.active_constraints = remaining.clone();
+                branch.evaluate_body(&clause.body);
+                branches.push((arm, branch));
+                remaining = super::BranchConstraints::impossible();
+                break;
+            }
         }
+
+        if !remaining.is_impossible() {
+            let mut fallthrough = self.fork();
+            fallthrough.active_constraints = remaining;
+            branches.push((arm_count - 1, fallthrough));
+        }
+        self.join_guarded_forks(branches, self.origin(stmt_if), arm_count);
     }
 
-    fn join_reachable_if_bodies(
+    fn add_guarded_if_body(
         &mut self,
-        first_body: Option<(usize, &[ast::Stmt])>,
-        clauses: &[ast::ElifElseClause],
-        first_clause_arm: usize,
-        arm_count: usize,
-        control_span: Span,
-        first_test_already_evaluated: bool,
+        arm: usize,
+        test: &ast::Expr,
+        body: &[ast::Stmt],
+        remaining: &mut super::BranchConstraints,
+        branches: &mut Vec<(usize, PythonModuleEvaluator<'db>)>,
     ) {
-        let mut bodies = Vec::with_capacity(clauses.len() + 2);
-        if let Some(body) = first_body {
-            bodies.push(body);
-        }
-
-        let mut has_fallthrough = true;
-        for (offset, clause) in clauses.iter().enumerate() {
-            let arm = first_clause_arm + offset;
-            let Some(test) = &clause.test else {
-                bodies.push((arm, clause.body.as_slice()));
-                has_fallthrough = false;
-                break;
-            };
-
-            if offset != 0 || !first_test_already_evaluated {
-                self.record_unsupported_call_effects(test);
-            }
-            match self.test_truthiness(test) {
-                Truthiness::AlwaysTrue => {
-                    bodies.push((arm, clause.body.as_slice()));
-                    has_fallthrough = false;
-                    break;
-                }
-                Truthiness::AlwaysFalse => {}
-                Truthiness::Ambiguous => bodies.push((arm, clause.body.as_slice())),
-            }
-        }
-        if has_fallthrough {
-            bodies.push((arm_count - 1, &[]));
-        }
-
-        let mut branches = Vec::with_capacity(bodies.len());
-        for (arm, body) in bodies {
+        self.record_unsupported_call_effects(test);
+        let binding = self.evaluate_binding(test);
+        let partition = self.truth_partition(&binding, self.origin(test), false);
+        let body_constraints = remaining.intersection(&partition.truthy);
+        if !body_constraints.is_impossible() {
             let mut branch = self.fork();
+            branch.active_constraints = body_constraints;
             branch.evaluate_body(body);
             branches.push((arm, branch));
         }
-        self.join_indexed_forks(branches, self.origin_at(control_span), arm_count);
+        *remaining = remaining.intersection(&partition.falsy);
     }
 
     fn walk_try(&mut self, stmt_try: &ast::StmtTry) {
@@ -243,7 +207,7 @@ impl PythonModuleEvaluator<'_> {
 
     fn walk_assign(&mut self, assign: &ast::StmtAssign) {
         self.record_unsupported_call_effects(&assign.value);
-        let value = self.evaluate_binding(&assign.value);
+        let mut value = self.evaluate_binding(&assign.value);
         let aliases_mutable_value =
             assign.targets.len() > 1 && !value.reachable_allocation_sites().is_empty();
         if aliases_mutable_value {
@@ -259,6 +223,19 @@ impl PythonModuleEvaluator<'_> {
             return;
         }
         let assignment_origin = self.origin(assign);
+        if assign.targets.len() > 1
+            && assign
+                .targets
+                .iter()
+                .all(|target| target.name_target().is_some())
+            && let Some(shared_name) = assign.targets[0].name_target()
+        {
+            value.discriminate_predicates(
+                shared_name,
+                self.origin(assign.value.as_ref()),
+                Some(&self.module),
+            );
+        }
         for target in &assign.targets {
             self.assign_target(target, &assign.value, value.clone(), assignment_origin);
         }
@@ -269,7 +246,9 @@ impl PythonModuleEvaluator<'_> {
         if assign.op == ast::Operator::Add
             && let Some(target) = MutationTarget::from_expr(&assign.target)
             && assign.target.name_target().is_some()
-            && let Some(left) = self.state.value_for_name(target.binding)
+            && let Some(left) = self
+                .state
+                .value_for_name(target.binding, &self.active_constraints)
         {
             let right = self.evaluate_value(&assign.value);
             self.apply_name_augmented_add(target, left, &right, origin);
@@ -280,7 +259,8 @@ impl PythonModuleEvaluator<'_> {
             && let Some(target) = MutationTarget::from_expr(&assign.target)
         {
             let extension = self.evaluate_value(&assign.value);
-            self.state.apply_augmented_add(target, &extension, origin);
+            self.state
+                .apply_augmented_add(target, &extension, origin, &self.active_constraints);
             return;
         }
 
@@ -310,13 +290,17 @@ impl PythonModuleEvaluator<'_> {
         let mut left = left;
         match &mut left.kind {
             PythonValueKind::List(list) => {
-                let mut stale_aliases = self
-                    .state
-                    .stale_alias_names_after_mutation(name, &PythonMutationPath::default());
+                let mut stale_aliases = self.state.stale_alias_names_after_mutation(
+                    name,
+                    &PythonMutationPath::default(),
+                    &self.active_constraints,
+                );
                 let embedded_sites = right.iterated_reachable_allocation_sites();
-                let recursive = self
-                    .state
-                    .sites_reach_mutation_target(&target, &embedded_sites);
+                let recursive = self.state.sites_reach_mutation_target(
+                    &target,
+                    &embedded_sites,
+                    &self.active_constraints,
+                );
                 let extended = if recursive {
                     None
                 } else {
@@ -327,7 +311,8 @@ impl PythonModuleEvaluator<'_> {
                     // A successful in-place list `+=` updates the binding
                     // without clearing prior mutation facts; the `Extend` fact
                     // below then accumulates onto them.
-                    self.state.update_bound_value(name, left, origin);
+                    self.state
+                        .update_bound_value(name, left, origin, &self.active_constraints);
                     self.state.invalidate_names(
                         stale_aliases,
                         &PythonUnknownCause::UnsupportedExpression,
@@ -367,9 +352,11 @@ impl PythonModuleEvaluator<'_> {
             | PythonValueKind::Bool(_)
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {
-                let stale_aliases = self
-                    .state
-                    .stale_alias_names_after_mutation(name, &PythonMutationPath::default());
+                let stale_aliases = self.state.stale_alias_names_after_mutation(
+                    name,
+                    &PythonMutationPath::default(),
+                    &self.active_constraints,
+                );
                 self.state.assign_value(
                     name,
                     PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin)),
@@ -443,6 +430,7 @@ impl PythonModuleEvaluator<'_> {
                 self.origin(subscript.slice.as_ref()),
                 &value,
                 assignment_origin,
+                &self.active_constraints,
             );
             return;
         }

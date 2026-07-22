@@ -463,6 +463,69 @@ impl PythonModuleEffects {
         joined
     }
 
+    pub(super) fn join_guarded_branches(
+        branches: &[(usize, BranchConstraints, Self)],
+        join: &BranchJoin,
+    ) -> Self {
+        let origin = join.origin();
+        let mut keys: Vec<(PythonModule, String)> = Vec::new();
+        for (_, _, branch) in branches {
+            for child in &branch.children {
+                let key = (child.object.clone(), child.attribute.clone());
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+        }
+
+        let mut joined = Self::default();
+        for (object, attribute) in keys {
+            let mut binding: Option<PythonBinding> = None;
+            for (arm, constraints, branch) in branches {
+                let mut candidate = branch
+                    .read_child(&object, &attribute)
+                    .cloned()
+                    .unwrap_or_else(PythonBinding::unbound);
+                candidate.select_branch(join.to_owned(), *arm);
+                let candidate = candidate.intersect_constraints(constraints);
+                let Some(candidate) = candidate else {
+                    continue;
+                };
+                binding = Some(match binding {
+                    Some(current) => current.join(candidate, origin),
+                    None => candidate,
+                });
+            }
+            if let Some(binding) = binding {
+                joined.children.push(ModuleChildCoordinate {
+                    object,
+                    attribute,
+                    binding,
+                });
+            }
+        }
+
+        for (arm, constraints, branch) in branches {
+            for entry in &branch.causes {
+                let mut cause = entry.cause.clone();
+                cause.select_branch(join.to_owned(), *arm);
+                cause.constraints = cause.constraints.intersection(constraints);
+                if !cause.constraints.is_impossible() {
+                    joined.causes.push(ModuleEffectCause {
+                        object: entry.object.clone(),
+                        cause,
+                    });
+                }
+            }
+            joined.absorb_path_intrinsic_contamination(
+                branch.path_intrinsic_contamination.0.iter().copied(),
+            );
+        }
+
+        joined.normalize();
+        joined
+    }
+
     #[cfg(test)]
     fn join_branches(branches: &[Self], origin: Origin) -> Self {
         let indexed = branches.iter().cloned().enumerate().collect::<Vec<_>>();

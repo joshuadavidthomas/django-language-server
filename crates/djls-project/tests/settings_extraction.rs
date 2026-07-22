@@ -89,6 +89,22 @@ fn cases<'a>(settings: &'a Value, pointer: &str) -> Result<&'a [Value], io::Erro
         .ok_or_else(|| io::Error::other(format!("settings JSON at `{pointer}` is not an array")))
 }
 
+fn installed_app_alternatives(setting_cases: &[Value]) -> Option<BTreeSet<String>> {
+    setting_cases
+        .iter()
+        .map(|case| {
+            Some(
+                case.get("known")?
+                    .get("apps")?
+                    .as_array()?
+                    .iter()
+                    .map(|app| app.get("value")?.as_str())
+                    .collect::<Option<Vec<_>>>()?
+                    .join(","),
+            )
+        })
+        .collect()
+}
 fn binding_unknown_origin(source: &str, name: &str) -> Result<Origin, Box<dyn std::error::Error>> {
     let (db, project, _) = extract_project(source, &[])?;
     let file = settings_module_file(&db, project).ok_or_else(|| {
@@ -6476,6 +6492,46 @@ fn branch_constraints_distinguish_overlapping_root_module_identities() {
 }
 
 #[test]
+fn predicates_distinguish_overlapping_root_module_executions() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from lib.pkg.branch import FLAG as ROOT_FLAG\nfrom pkg.branch import FLAG as NESTED_FLAG\nINSTALLED_APPS = []\nif ROOT_FLAG:\n    INSTALLED_APPS.append('root')\nif NESTED_FLAG:\n    INSTALLED_APPS.append('nested')\n",
+    )
+    .expect("settings-extraction test file should be added");
+    db.add_file("/project/lib/pkg/branch.py", "FLAG = get_flag()\n")
+        .expect("settings-extraction test file should be added");
+    let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/project/lib")]);
+    let settings = db
+        .file(Utf8Path::new("/project/settings.py"))
+        .expect("settings-extraction test file should exist");
+    let evaluation = python_module_evaluation(&db, project, settings)
+        .expect("Python file should map to a module");
+    let alternatives = evaluation
+        .binding("INSTALLED_APPS")
+        .expect("INSTALLED_APPS binding should exist")
+        .alternatives
+        .iter()
+        .filter_map(|alternative| {
+            let PythonBindingAlternativeView::Bound(bound) = alternative else {
+                return None;
+            };
+            string_list_items(&bound.value)
+        })
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        alternatives,
+        BTreeSet::from([
+            vec![],
+            vec!["str:nested".to_string()],
+            vec!["str:root".to_string()],
+            vec!["str:root".to_string(), "str:nested".to_string()],
+        ])
+    );
+}
+
+#[test]
 fn typed_module_order_disjoint_import_cycles_are_root_order_independent() {
     let cycle_edges = |settings_source| {
         let db = TestDatabase::new();
@@ -7727,6 +7783,276 @@ fn boolean_control_flow_honors_decisive_operands() {
         assert_eq!(setting_cases.len(), 1, "{condition}");
         assert_eq!(setting_cases[0]["known"]["apps"][0]["value"], expected);
     }
+}
+
+#[test]
+fn repeated_predicates_reuse_one_truth_decision() {
+    let settings = extract(
+        "FLAG = get_flag()\nINSTALLED_APPS = []\nif FLAG:\n    INSTALLED_APPS.append('first')\nif FLAG:\n    INSTALLED_APPS.append('second')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([String::new(), "first,second".to_string(),]))
+    );
+}
+
+#[test]
+fn boolean_alias_preserves_the_source_predicate() {
+    let settings = extract(
+        "DEBUG = get_debug()\nINSTALLED_APPS = []\nif DEBUG:\n    INSTALLED_APPS.append('django_autotyping')\nTRACKER = True and DEBUG\nif TRACKER:\n    INSTALLED_APPS.append('requests_tracker')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([
+            String::new(),
+            "django_autotyping,requests_tracker".to_string(),
+        ]))
+    );
+}
+
+#[test]
+fn derived_and_truth_implies_its_left_operand() {
+    let settings = extract(
+        "DEBUG = get_debug()\nSILK = DEBUG and get_silk()\nINSTALLED_APPS = []\nif SILK:\n    INSTALLED_APPS.append('silk')\nif DEBUG:\n    INSTALLED_APPS.append('sslserver')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([
+            String::new(),
+            "silk,sslserver".to_string(),
+            "sslserver".to_string(),
+        ]))
+    );
+}
+
+#[test]
+fn derived_or_truth_does_not_imply_its_left_operand() {
+    let settings = extract(
+        "LEFT = get_left()\nRIGHT = get_right()\nENABLED = LEFT or RIGHT\nINSTALLED_APPS = []\nif ENABLED:\n    INSTALLED_APPS.append('enabled')\nif LEFT:\n    INSTALLED_APPS.append('left')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([
+            String::new(),
+            "enabled".to_string(),
+            "enabled,left".to_string(),
+        ]))
+    );
+}
+
+#[test]
+fn independent_predicates_keep_their_cross_product() {
+    let settings = extract(
+        "FIRST = get_first()\nSECOND = get_second()\nINSTALLED_APPS = []\nif FIRST:\n    INSTALLED_APPS.append('first')\nif SECOND:\n    INSTALLED_APPS.append('second')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([
+            String::new(),
+            "first".to_string(),
+            "first,second".to_string(),
+            "second".to_string(),
+        ]))
+    );
+}
+
+#[test]
+fn unknowns_from_one_destructuring_target_stay_independent() {
+    let settings = extract(
+        "LEFT, RIGHT = get_pair()\nINSTALLED_APPS = []\nif LEFT:\n    INSTALLED_APPS.append('left')\nif RIGHT:\n    INSTALLED_APPS.append('right')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([
+            String::new(),
+            "left".to_string(),
+            "left,right".to_string(),
+            "right".to_string(),
+        ]))
+    );
+}
+
+#[test]
+fn aliases_preserve_a_predicate_identity() {
+    let settings = extract(
+        "SOURCE = get_flag()\nALIAS = SOURCE\nINSTALLED_APPS = []\nif SOURCE:\n    INSTALLED_APPS.append('source')\nif ALIAS:\n    INSTALLED_APPS.append('alias')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([String::new(), "source,alias".to_string(),]))
+    );
+}
+
+#[test]
+fn chained_assignment_targets_share_one_predicate_identity() {
+    let settings = extract(
+        "LEFT = RIGHT = get_flag()\nINSTALLED_APPS = []\nif LEFT:\n    INSTALLED_APPS.append('left')\nif RIGHT:\n    INSTALLED_APPS.append('right')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([String::new(), "left,right".to_string(),]))
+    );
+}
+
+#[test]
+fn repeated_unsupported_literal_tests_share_one_predicate_identity() {
+    let settings = extract(
+        "FLAG = 1\nINSTALLED_APPS = []\nif FLAG:\n    INSTALLED_APPS.append('first')\nif FLAG:\n    INSTALLED_APPS.append('second')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([String::new(), "first,second".to_string(),]))
+    );
+}
+
+#[test]
+fn imported_predicates_keep_source_module_correlations() {
+    let settings = extract_project(
+        "from flags import FLAG, APPS\nif FLAG:\n    INSTALLED_APPS = APPS + ['checked']\nelse:\n    INSTALLED_APPS = APPS\n",
+        &[(
+            "flags",
+            "FLAG = get_flag()\nif FLAG:\n    APPS = ['enabled']\nelse:\n    APPS = []\n",
+        )],
+    )
+    .expect("settings extraction project should build")
+    .2;
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([
+            String::new(),
+            "enabled,checked".to_string(),
+        ]))
+    );
+}
+
+#[test]
+fn guarded_mutations_ignore_infeasible_receiver_and_argument_cases() {
+    let settings = extract(
+        "FLAG = get_flag()\nif FLAG:\n    VALUES = []\n    ITEM = 'a'\nelse:\n    VALUES = True\n    ITEM = 'b'\nif FLAG:\n    VALUES.append(ITEM)\nINSTALLED_APPS = VALUES\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert!(
+        setting_cases.iter().any(|case| {
+            case.pointer("/known/apps/0/value").and_then(Value::as_str) == Some("a")
+        })
+    );
+}
+
+#[test]
+fn mixed_known_and_unknown_binding_cases_keep_stable_reads() {
+    let settings = extract(
+        "if CHOOSE:\n    FLAG = False\nelse:\n    FLAG = get_flag()\nINSTALLED_APPS = []\nif FLAG:\n    INSTALLED_APPS.append('first')\nif FLAG:\n    INSTALLED_APPS.append('second')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let known = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array")
+        .iter()
+        .filter_map(|case| case.pointer("/known/apps").and_then(Value::as_array))
+        .map(|apps| {
+            apps.iter()
+                .filter_map(|app| app.get("value").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        known,
+        BTreeSet::from([String::new(), "first,second".to_string()])
+    );
+}
+
+#[test]
+fn guarded_mutations_ignore_aliases_from_infeasible_cases() {
+    let settings = extract(
+        "FLAG = get_flag()\nINSTALLED_APPS = ['base']\nif FLAG:\n    TARGET = [[]]\nelse:\n    TARGET = [INSTALLED_APPS]\nif FLAG:\n    TARGET[0].append('x')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(setting_cases.len(), 1, "{settings:#}");
+    assert_eq!(setting_cases[0]["known"]["apps"][0]["value"], "base");
+}
+
+#[test]
+fn rebinding_replaces_a_predicate_identity() {
+    let settings = extract(
+        "FLAG = get_first()\nINSTALLED_APPS = []\nif FLAG:\n    INSTALLED_APPS.append('first')\nFLAG = get_second()\nif FLAG:\n    INSTALLED_APPS.append('second')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([
+            String::new(),
+            "first".to_string(),
+            "first,second".to_string(),
+            "second".to_string(),
+        ]))
+    );
+}
+
+#[test]
+fn negated_and_positive_reads_are_mutually_exclusive() {
+    let settings = extract(
+        "FLAG = get_flag()\nINSTALLED_APPS = []\nif not FLAG:\n    INSTALLED_APPS.append('negative')\nif FLAG:\n    INSTALLED_APPS.append('positive')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let setting_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(setting_cases),
+        Some(BTreeSet::from([
+            "negative".to_string(),
+            "positive".to_string(),
+        ]))
+    );
 }
 
 #[test]
@@ -9998,30 +10324,37 @@ fn unknown_library_key_weakens_prior_alias_and_later_exact_key_is_authoritative(
 }
 
 #[test]
-fn canonical_unknown_origins_merge_top_level_branch_spans() {
+fn branch_unknowns_retain_distinct_predicates_and_all_spans() {
     let source = "if FLAG:\n    VALUE = first()\nelse:\n    VALUE = second()\n";
     let (_, evaluation) =
         evaluate_module(source).expect("Python module evaluation fixture should build");
-    let bound = bound_value(&evaluation, "VALUE").expect("VALUE should have one bound alternative");
-    let unknown = match &bound.value.kind {
-        PythonValueKindView::Unknown(unknown) => Some(unknown),
-        PythonValueKindView::Str(_)
-        | PythonValueKindView::Bool(_)
-        | PythonValueKindView::Path(_)
-        | PythonValueKindView::UnsupportedLiteral
-        | PythonValueKindView::List(_)
-        | PythonValueKindView::Tuple(_)
-        | PythonValueKindView::Dict(_)
-        | PythonValueKindView::Module(_) => None,
-    }
-    .expect("equal unknown branches should produce one unknown");
+    let binding = evaluation
+        .binding("VALUE")
+        .expect("VALUE should have branch alternatives");
+    let unknowns = binding
+        .alternatives
+        .iter()
+        .filter_map(|alternative| {
+            let PythonBindingAlternativeView::Bound(bound) = alternative else {
+                return None;
+            };
+            let PythonValueKindView::Unknown(unknown) = &bound.value.kind else {
+                return None;
+            };
+            Some(unknown)
+        })
+        .collect::<Vec<_>>();
 
-    assert_eq!(unknown.cause, PythonUnknownCauseView::UnsupportedExpression);
-    assert_eq!(
-        unknown
-            .origins
+    assert_eq!(unknowns.len(), 2);
+    assert!(
+        unknowns
             .iter()
-            .map(|origin| origin.span)
+            .all(|unknown| unknown.cause == PythonUnknownCauseView::UnsupportedExpression)
+    );
+    assert_eq!(
+        unknowns
+            .iter()
+            .flat_map(|unknown| unknown.origins.iter().map(|origin| origin.span))
             .collect::<Vec<_>>(),
         [
             expected_span(source, "first()").expect("test source should contain expected text"),

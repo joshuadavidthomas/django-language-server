@@ -27,6 +27,7 @@ pub(crate) use self::binding::PythonBindingState;
 pub(crate) use self::binding::PythonBoundValue;
 pub(crate) use self::constraints::BranchConstraints;
 use self::constraints::BranchJoin;
+use self::constraints::PredicateIdentity;
 pub(crate) use self::mapping::MappingEntryEvidence;
 pub(crate) use self::mapping::MappingLogItem;
 pub(crate) use self::mapping::MappingOverride;
