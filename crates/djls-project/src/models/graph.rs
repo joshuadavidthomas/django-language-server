@@ -8,6 +8,7 @@ use std::sync::Arc;
 use djls_source::File;
 use djls_source::Span;
 use djls_source::Spanned;
+use rustc_hash::FxHashMap;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -445,7 +446,6 @@ impl Relation {
     ///
     /// `module_name` is the dotted Python module name (e.g., `"myapp.models"`);
     /// the app label is derived as the component before `models`.
-    #[cfg(test)]
     #[must_use]
     pub(crate) fn effective_related_name(
         &self,
@@ -473,6 +473,7 @@ impl Relation {
         }
     }
 
+    #[cfg(test)]
     fn effective_related_name_matches(
         &self,
         source_model: &str,
@@ -502,6 +503,7 @@ impl Relation {
     }
 }
 
+#[cfg(test)]
 fn template_related_name_matches(
     template: &str,
     source_model: &str,
@@ -737,10 +739,12 @@ struct ModelRelationBindings {
 #[derive(Debug, Clone, Default)]
 pub struct ModelGraph {
     records: BTreeMap<ModelId, ModelRecord>,
-    model_ids_by_name: BTreeMap<ModelName, BTreeSet<ModelId>>,
+    model_ids_by_name: FxHashMap<ModelName, BTreeSet<ModelId>>,
     model_ids_by_class: BTreeMap<ClassId, ModelId>,
     relation_bindings: BTreeMap<RelationBindingId, RelationBinding>,
     model_relation_bindings: BTreeMap<ModelId, ModelRelationBindings>,
+    forward_relation_targets: FxHashMap<ModelId, FxHashMap<FieldName, Option<ModelId>>>,
+    reverse_relation_bindings: FxHashMap<ModelId, FxHashMap<FieldName, ModelId>>,
     non_model_class_bindings: BTreeMap<ClassId, BTreeSet<FieldName>>,
 }
 
@@ -749,6 +753,8 @@ impl PartialEq for ModelGraph {
         self.records == other.records
             && self.relation_bindings == other.relation_bindings
             && self.model_relation_bindings == other.model_relation_bindings
+            && self.forward_relation_targets == other.forward_relation_targets
+            && self.reverse_relation_bindings == other.reverse_relation_bindings
             && self.non_model_class_bindings == other.non_model_class_bindings
     }
 }
@@ -1019,6 +1025,7 @@ impl ModelGraph {
         for (id, mro) in complete {
             self.install_effective_relation_bindings(id, &mro);
         }
+        self.rebuild_reverse_relation_bindings();
     }
 
     fn model_id_for_class(&self, class: &ClassId) -> Option<&ModelId> {
@@ -1249,24 +1256,12 @@ impl ModelGraph {
     /// Skips `GenericForeignKey` relations (no static target).
     #[must_use]
     pub fn resolve_forward(&self, scope: &ModelId, field_name: &str) -> Option<&ModelDef> {
-        let (binding, relation) = self.forward_relation(scope, field_name)?;
-        self.resolve_relation_target_entry(binding, relation)
-            .map(|(_id, model)| model)
-    }
-
-    fn forward_relation(
-        &self,
-        scope: &ModelId,
-        field_name: &str,
-    ) -> Option<(&RelationBinding, &Relation)> {
-        let binding_id = self
-            .model_relation_bindings
+        let target = self
+            .forward_relation_targets
             .get(scope)?
-            .effective_forward_bindings
-            .get(field_name)?;
-        let binding = self.relation_bindings.get(binding_id)?;
-        let relation = self.relation_declaration(&binding.declaration)?;
-        Some((binding, relation))
+            .get(field_name)?
+            .as_ref()?;
+        self.records.get(target).map(|record| &record.definition)
     }
 
     fn resolve_relation_target_entry(
@@ -1372,10 +1367,15 @@ impl ModelGraph {
         scope: &'a ModelId,
         field_name: &str,
     ) -> Option<&'a ModelDef> {
-        if let Some((binding, relation)) = self.forward_relation(scope, field_name) {
-            return self
-                .resolve_relation_target_entry(binding, relation)
-                .map(|(_id, model)| model);
+        if let Some(target) = self
+            .forward_relation_targets
+            .get(scope)
+            .and_then(|relations| relations.get(field_name))
+        {
+            return target
+                .as_ref()
+                .and_then(|target| self.records.get(target))
+                .map(|record| &record.definition);
         }
 
         self.resolve_reverse_relation(scope, field_name)
@@ -1383,6 +1383,34 @@ impl ModelGraph {
     }
 
     fn resolve_reverse_relation(&self, scope: &ModelId, field_name: &str) -> Option<&ModelId> {
+        self.reverse_relation_bindings.get(scope)?.get(field_name)
+    }
+
+    fn rebuild_reverse_relation_bindings(&mut self) {
+        let mut forward_targets: FxHashMap<ModelId, FxHashMap<FieldName, Option<ModelId>>> =
+            FxHashMap::default();
+        for (owner, bindings) in &self.model_relation_bindings {
+            for (name, binding_id) in &bindings.effective_forward_bindings {
+                let target = self
+                    .relation_bindings
+                    .get(binding_id)
+                    .and_then(|binding| {
+                        self.relation_declaration(&binding.declaration)
+                            .map(|relation| (binding, relation))
+                    })
+                    .and_then(|(binding, relation)| {
+                        self.resolve_relation_target_entry(binding, relation)
+                    })
+                    .map(|(target_id, _target_model)| target_id.clone());
+                forward_targets
+                    .entry(owner.clone())
+                    .or_default()
+                    .insert(name.clone(), target);
+            }
+        }
+
+        let mut reverse_bindings: FxHashMap<ModelId, FxHashMap<FieldName, ModelId>> =
+            FxHashMap::default();
         for (source_id, record) in &self.records {
             let model = &record.definition;
             if model.kind == ModelKind::Abstract {
@@ -1394,19 +1422,21 @@ impl ModelGraph {
                 else {
                     continue;
                 };
-                if target_id == scope
-                    && relation.effective_related_name_matches(
-                        model.name.value().as_str(),
-                        model.module_name.as_str(),
-                        field_name,
-                    )
-                {
-                    return Some(source_id);
-                }
+                let Some(name) = relation.effective_related_name(
+                    model.name.value().as_str(),
+                    model.module_name.as_str(),
+                ) else {
+                    continue;
+                };
+                reverse_bindings
+                    .entry(target_id.clone())
+                    .or_default()
+                    .entry(FieldName::new(name))
+                    .or_insert_with(|| source_id.clone());
             }
         }
-
-        None
+        self.forward_relation_targets = forward_targets;
+        self.reverse_relation_bindings = reverse_bindings;
     }
 
     pub(crate) fn resolve_relation_targets(&mut self, db: &dyn ProjectDb, project: Project) {
@@ -1433,6 +1463,7 @@ impl ModelGraph {
                 binding.resolution = resolution;
             }
         }
+        self.rebuild_reverse_relation_bindings();
     }
 
     fn resolve_relation_target(
