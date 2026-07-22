@@ -374,12 +374,14 @@ fn bench_corpus(
         });
 }
 
+// Typed inheritance resolves the corpus as one project; these are assembly
+// workloads rather than the former per-file extraction-and-merge workloads.
 #[divan::bench]
-fn corpus_django(bencher: Bencher) {
+fn corpus_django_project_assembly(bencher: Bencher) {
     bench_corpus(bencher, load_django_models(), "Django");
 }
 
 #[divan::bench]
-fn corpus_all(bencher: Bencher) {
+fn corpus_all_project_assembly(bencher: Bencher) {
     bench_corpus(bencher, load_all_corpus_models(), "full");
 }
