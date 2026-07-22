@@ -49,6 +49,7 @@ pub use sync::sync_corpus;
 
 const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
 const LOCKFILE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.lock");
+const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml");
 
 /// A validated corpus root directory.
 ///
@@ -56,7 +57,26 @@ const LOCKFILE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.lock"
 /// directory exists. Once constructed, the root path is trusted for
 /// the lifetime of the value.
 pub struct Corpus {
-    _private: (),
+    lockfile: lock::Lockfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorpusSettingsProject {
+    pub repo_name: String,
+    pub checkout_root: Utf8PathBuf,
+    pub project_root: Utf8PathBuf,
+    pub django_settings_modules: Vec<String>,
+}
+
+fn lock_entry_matches_declaration(
+    locked_repo: &lock::LockedRepo,
+    declaration: &manifest::RepoSettingsProject<'_>,
+) -> bool {
+    locked_repo.name == declaration.repo_name
+        && locked_repo.url == declaration.repo_url
+        && declaration
+            .repo_ref
+            .is_none_or(|repo_ref| locked_repo.tag == repo_ref)
 }
 
 impl Corpus {
@@ -71,11 +91,11 @@ impl Corpus {
         if !Self::is_available() {
             anyhow::bail!("Corpus not synced. Run: cargo run -p djls-testing --bin corpus -- sync");
         }
-        let corpus = Self { _private: () };
         let lockfile = lock::Lockfile::load(Utf8Path::new(LOCKFILE_PATH)).map_err(|error| {
             anyhow::anyhow!("Corpus lockfile missing or invalid. Run: just corpus lock: {error}")
         })?;
-        sync::validate_synced_corpus(&lockfile, corpus.root())?;
+        let corpus = Self { lockfile };
+        sync::validate_synced_corpus(&corpus.lockfile, corpus.root())?;
         Ok(corpus)
     }
 
@@ -83,6 +103,65 @@ impl Corpus {
     #[must_use]
     pub fn root(&self) -> &Utf8Path {
         Utf8Path::new(CORPUS_DIR)
+    }
+
+    pub fn repo_settings_projects(&self) -> anyhow::Result<Vec<CorpusSettingsProject>> {
+        let manifest = Manifest::load(Utf8Path::new(MANIFEST_PATH))?;
+        manifest
+            .repo_settings_projects()
+            .into_iter()
+            .map(|declaration| {
+                let mut lock_matches = self
+                    .lockfile
+                    .repos
+                    .iter()
+                    .filter(|repo| repo.name == declaration.repo_name);
+                let locked_repo = lock_matches.next().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "corpus repo `{}` has settings metadata but no lock entry; run `just corpus lock`",
+                        declaration.repo_name
+                    )
+                })?;
+                anyhow::ensure!(
+                    lock_matches.next().is_none(),
+                    "corpus repo `{}` has duplicate lock entries; run `just corpus lock`",
+                    declaration.repo_name
+                );
+                anyhow::ensure!(
+                    lock_entry_matches_declaration(locked_repo, &declaration),
+                    "corpus repo `{}` identity differs between manifest.toml and manifest.lock; run `just corpus lock`",
+                    declaration.repo_name
+                );
+
+                let checkout_root = self
+                    .root()
+                    .join("repos")
+                    .join(declaration.repo_name);
+                let project_root = declaration.relative_root.map_or_else(
+                    || checkout_root.clone(),
+                    |relative_root| checkout_root.join(relative_root),
+                );
+                if !project_root.as_std_path().is_dir() {
+                    anyhow::bail!(
+                        "corpus repo `{}` project root `{}` does not exist",
+                        declaration.repo_name,
+                        declaration
+                            .relative_root
+                            .map_or(".", Utf8Path::as_str)
+                    );
+                }
+                Ok(CorpusSettingsProject {
+                    repo_name: declaration.repo_name.to_string(),
+                    checkout_root,
+                    project_root,
+                    django_settings_modules: declaration
+                        .django_settings_modules
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect(),
+                })
+            })
+            .collect()
     }
 
     /// Derive the corpus entry directory for a path under the corpus root.
@@ -386,4 +465,103 @@ pub fn module_name_from_file(file: &Utf8Path) -> String {
         .map(|s| s.strip_suffix(".py").unwrap_or(s))
         .collect::<Vec<_>>()
         .join(".")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Corpus;
+    use super::lock_entry_matches_declaration;
+    use crate::corpus::lock::LockedRepo;
+    use crate::corpus::manifest::RepoSettingsProject;
+
+    #[test]
+    fn lock_entry_must_match_the_declared_repo_ref() {
+        let locked_repo = LockedRepo {
+            name: "example".to_string(),
+            url: "https://example.com/repo.git".to_string(),
+            tag: "main".to_string(),
+            git_ref: "0123456789abcdef".to_string(),
+        };
+        let matching = RepoSettingsProject {
+            repo_name: "example",
+            repo_url: "https://example.com/repo.git",
+            repo_ref: Some("main"),
+            relative_root: None,
+            django_settings_modules: vec!["project.settings"],
+        };
+        let stale = RepoSettingsProject {
+            repo_ref: Some("release"),
+            ..matching.clone()
+        };
+
+        assert!(lock_entry_matches_declaration(&locked_repo, &matching));
+        assert!(!lock_entry_matches_declaration(&locked_repo, &stale));
+    }
+
+    #[test]
+    fn corpus_exposes_real_repo_settings_projects() {
+        let corpus = Corpus::require().expect("synced corpus should be available");
+        let projects = corpus
+            .repo_settings_projects()
+            .expect("default corpus manifest should load")
+            .into_iter()
+            .map(|project| {
+                let relative_root = if project.project_root == project.checkout_root {
+                    ".".to_string()
+                } else {
+                    project
+                        .project_root
+                        .strip_prefix(&project.checkout_root)
+                        .expect("project root should stay within its checkout")
+                        .to_string()
+                };
+                (
+                    project.repo_name,
+                    relative_root,
+                    project.django_settings_modules,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            projects,
+            vec![
+                (
+                    "archivebox".to_string(),
+                    ".".to_string(),
+                    vec!["archivebox.core.settings".to_string()],
+                ),
+                (
+                    "django-allauth".to_string(),
+                    ".".to_string(),
+                    vec!["tests.projects.account_only.settings".to_string()],
+                ),
+                (
+                    "healthchecks".to_string(),
+                    ".".to_string(),
+                    vec!["hc.settings".to_string()],
+                ),
+                (
+                    "inventree".to_string(),
+                    "src/backend/InvenTree".to_string(),
+                    vec!["InvenTree.settings".to_string()],
+                ),
+                (
+                    "netbox".to_string(),
+                    "netbox".to_string(),
+                    vec!["netbox.settings".to_string()],
+                ),
+                (
+                    "pretix".to_string(),
+                    ".".to_string(),
+                    vec!["pretix.settings".to_string()],
+                ),
+                (
+                    "sentry".to_string(),
+                    ".".to_string(),
+                    vec!["sentry.conf.server".to_string()],
+                ),
+            ]
+        );
+    }
 }

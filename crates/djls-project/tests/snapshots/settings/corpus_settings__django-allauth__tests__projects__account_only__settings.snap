@@ -1,0 +1,86 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 21
+                start: 1551
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 1578
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 1613
+            value: django.contrib.sessions
+          - spans:
+              - length: 22
+                start: 1644
+            value: django.contrib.sites
+          - spans:
+              - length: 25
+                start: 1672
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 1703
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 1737
+            value: django.contrib.admin
+          - spans:
+              - length: 25
+                start: 1765
+            value: django.contrib.humanize
+          - spans:
+              - length: 9
+                start: 1796
+            value: allauth
+          - spans:
+              - length: 17
+                start: 1811
+            value: allauth.account
+templates:
+  cases:
+    - known:
+        backends:
+          - app_dirs:
+              spans:
+                - length: 4
+                  start: 657
+              value: true
+            backend:
+              spans:
+                - length: 49
+                  start: 531
+              value: django.template.backends.django.DjangoTemplates
+            builtins: []
+            context_processors:
+              - spans:
+                  - length: 42
+                    start: 736
+                value: django.template.context_processors.debug
+              - spans:
+                  - length: 44
+                    start: 796
+                value: django.template.context_processors.request
+              - spans:
+                  - length: 45
+                    start: 858
+                value: django.contrib.auth.context_processors.auth
+              - spans:
+                  - length: 53
+                    start: 921
+                value: django.contrib.messages.context_processors.messages
+            dirs:
+              - spans:
+                  - length: 35
+                    start: 599
+                value: "${REPO}/tests/projects/account_only/templates"
+            libraries: []

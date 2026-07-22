@@ -1,0 +1,230 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 8
+                start: 1637
+            value: daphne
+          - spans:
+              - length: 21
+                start: 1677
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 1704
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 1739
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 1770
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 1801
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 1835
+            value: django.contrib.admin
+          - spans:
+              - length: 17
+                start: 1894
+            value: signal_webhooks
+          - spans:
+              - length: 23
+                start: 2037
+            value: django_object_actions
+          - spans:
+              - length: 20
+                start: 2447
+            value: archivebox.machine
+          - spans:
+              - length: 20
+                start: 2578
+            value: archivebox.workers
+          - spans:
+              - length: 21
+                start: 2697
+            value: archivebox.personas
+          - spans:
+              - length: 17
+                start: 2766
+            value: archivebox.core
+          - spans:
+              - length: 19
+                start: 2870
+            value: archivebox.crawls
+          - spans:
+              - length: 16
+                start: 2970
+            value: archivebox.api
+          - spans:
+              - length: 18
+                start: 3256
+            value: admin_data_views
+          - spans:
+              - length: 19
+                start: 3367
+            value: django_extensions
+          - spans:
+              - length: 19
+                start: 21699
+            value: django_autotyping
+          - spans:
+              - length: 18
+                start: 22263
+            value: requests_tracker
+    - known:
+        apps:
+          - spans:
+              - length: 8
+                start: 1637
+            value: daphne
+          - spans:
+              - length: 21
+                start: 1677
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 1704
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 1739
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 1770
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 1801
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 1835
+            value: django.contrib.admin
+          - spans:
+              - length: 17
+                start: 1894
+            value: signal_webhooks
+          - spans:
+              - length: 23
+                start: 2037
+            value: django_object_actions
+          - spans:
+              - length: 20
+                start: 2447
+            value: archivebox.machine
+          - spans:
+              - length: 20
+                start: 2578
+            value: archivebox.workers
+          - spans:
+              - length: 21
+                start: 2697
+            value: archivebox.personas
+          - spans:
+              - length: 17
+                start: 2766
+            value: archivebox.core
+          - spans:
+              - length: 19
+                start: 2870
+            value: archivebox.crawls
+          - spans:
+              - length: 16
+                start: 2970
+            value: archivebox.api
+          - spans:
+              - length: 18
+                start: 3256
+            value: admin_data_views
+          - spans:
+              - length: 19
+                start: 3367
+            value: django_extensions
+templates:
+  cases:
+    - dynamic:
+        evidence:
+          - backend:
+              app_dirs:
+                issues: []
+                known:
+                  spans:
+                    - length: 4
+                      start: 8537
+                  value: true
+              backend:
+                issues: []
+                known:
+                  spans:
+                    - length: 49
+                      start: 8435
+                  value: django.template.backends.django.DjangoTemplates
+              builtins:
+                issues: []
+                known: []
+              context_processors:
+                issues: []
+                known:
+                  - spans:
+                      - length: 42
+                        start: 8616
+                    value: django.template.context_processors.debug
+                  - spans:
+                      - length: 44
+                        start: 8676
+                    value: django.template.context_processors.request
+                  - spans:
+                      - length: 45
+                        start: 8738
+                    value: django.contrib.auth.context_processors.auth
+                  - spans:
+                      - length: 53
+                        start: 8801
+                    value: django.contrib.messages.context_processors.messages
+              dirs:
+                evidence:
+                  - issue:
+                      kind: unknown_unpack
+                      spans:
+                        - length: 78
+                          start: 7964
+                  - issue:
+                      kind: unknown_element
+                      spans:
+                        - length: 46
+                          start: 8249
+                  - issue:
+                      kind: unknown_element
+                      spans:
+                        - length: 47
+                          start: 8301
+                  - issue:
+                      kind: unknown_element
+                      spans:
+                        - length: 37
+                          start: 8354
+              libraries:
+                issues: []
+                known: []
+              options:
+                issues: []
+                known: ~
+    - dynamic:
+        evidence:
+          - issue:
+              kind: unsupported_mutation
+              spans:
+                - length: 90
+                  start: 22427

@@ -1,0 +1,298 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 21
+                start: 14582
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 14609
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 14644
+            value: django.contrib.humanize
+          - spans:
+              - length: 25
+                start: 14675
+            value: django.contrib.messages
+          - spans:
+              - length: 25
+                start: 14706
+            value: django.contrib.postgres
+          - spans:
+              - length: 25
+                start: 14737
+            value: django.contrib.sessions
+          - spans:
+              - length: 22
+                start: 14768
+            value: django.contrib.sites
+          - spans:
+              - length: 17
+                start: 14796
+            value: drf_spectacular
+          - spans:
+              - length: 14
+                start: 14819
+            value: crispy_forms
+          - spans:
+              - length: 16
+                start: 14839
+            value: rest_framework
+          - spans:
+              - length: 8
+                start: 14861
+            value: sentry
+          - spans:
+              - length: 18
+                start: 14875
+            value: sentry.autopilot
+          - spans:
+              - length: 18
+                start: 14899
+            value: sentry.analytics
+          - spans:
+              - length: 16
+                start: 14923
+            value: sentry.auth_v2
+          - spans:
+              - length: 30
+                start: 14945
+            value: sentry.incidents.apps.Config
+          - spans:
+              - length: 18
+                start: 14981
+            value: sentry.deletions
+          - spans:
+              - length: 17
+                start: 15005
+            value: sentry.discover
+          - spans:
+              - length: 25
+                start: 15028
+            value: sentry.analytics.events
+          - spans:
+              - length: 27
+                start: 15059
+            value: sentry.services.nodestore
+          - spans:
+              - length: 14
+                start: 15092
+            value: sentry.users
+          - spans:
+              - length: 20
+                start: 15112
+            value: sentry.sentry_apps
+          - spans:
+              - length: 21
+                start: 15138
+            value: sentry.integrations
+          - spans:
+              - length: 22
+                start: 15165
+            value: sentry.notifications
+          - spans:
+              - length: 14
+                start: 15193
+            value: sentry.flags
+          - spans:
+              - length: 17
+                start: 15213
+            value: sentry.monitors
+          - spans:
+              - length: 15
+                start: 15236
+            value: sentry.uptime
+          - spans:
+              - length: 16
+                start: 15257
+            value: sentry.tempest
+          - spans:
+              - length: 16
+                start: 15279
+            value: sentry.replays
+          - spans:
+              - length: 23
+                start: 15301
+            value: sentry.release_health
+          - spans:
+              - length: 15
+                start: 15330
+            value: sentry.search
+          - spans:
+              - length: 23
+                start: 15351
+            value: sentry.sentry_metrics
+          - spans:
+              - length: 52
+                start: 15380
+            value: sentry.sentry_metrics.indexer.postgres.apps.Config
+          - spans:
+              - length: 14
+                start: 15438
+            value: sentry.snuba
+          - spans:
+              - length: 30
+                start: 15458
+            value: sentry.lang.java.apps.Config
+          - spans:
+              - length: 36
+                start: 15494
+            value: sentry.lang.javascript.apps.Config
+          - spans:
+              - length: 30
+                start: 15536
+            value: sentry.lang.dart.apps.Config
+          - spans:
+              - length: 51
+                start: 15572
+            value: sentry.plugins.sentry_interface_types.apps.Config
+          - spans:
+              - length: 40
+                start: 15629
+            value: sentry.plugins.sentry_urls.apps.Config
+          - spans:
+              - length: 46
+                start: 15675
+            value: sentry.plugins.sentry_useragents.apps.Config
+          - spans:
+              - length: 44
+                start: 15727
+            value: sentry.plugins.sentry_webhooks.apps.Config
+          - spans:
+              - length: 13
+                start: 15777
+            value: social_auth
+          - spans:
+              - length: 6
+                start: 15796
+            value: sudo
+          - spans:
+              - length: 20
+                start: 15808
+            value: sentry.eventstream
+          - spans:
+              - length: 42
+                start: 15834
+            value: sentry.auth.providers.google.apps.Config
+          - spans:
+              - length: 39
+                start: 15882
+            value: sentry.auth.providers.fly.apps.Config
+          - spans:
+              - length: 28
+                start: 15927
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 27
+                start: 15961
+            value: sentry.issues.apps.Config
+          - spans:
+              - length: 17
+                start: 15994
+            value: sentry.feedback
+          - spans:
+              - length: 20
+                start: 16017
+            value: sentry.hybridcloud
+          - spans:
+              - length: 19
+                start: 16043
+            value: sentry.relocation
+          - spans:
+              - length: 41
+                start: 16068
+            value: sentry.remote_subscriptions.apps.Config
+          - spans:
+              - length: 21
+                start: 16115
+            value: sentry.data_secrecy
+          - spans:
+              - length: 24
+                start: 16142
+            value: sentry.workflow_engine
+          - spans:
+              - length: 16
+                start: 16172
+            value: sentry.explore
+          - spans:
+              - length: 17
+                start: 16194
+            value: sentry.insights
+          - spans:
+              - length: 16
+                start: 16217
+            value: sentry.preprod
+          - spans:
+              - length: 17
+                start: 16239
+            value: sentry.releases
+          - spans:
+              - length: 16
+                start: 16262
+            value: sentry.prevent
+          - spans:
+              - length: 13
+                start: 16284
+            value: sentry.seer
+templates:
+  cases:
+    - dynamic:
+        evidence:
+          - backend:
+              app_dirs:
+                issues: []
+                known:
+                  spans:
+                    - length: 4
+                      start: 13964
+                  value: true
+              backend:
+                issues: []
+                known:
+                  spans:
+                    - length: 49
+                      start: 13834
+                  value: django.template.backends.django.DjangoTemplates
+              builtins:
+                issues: []
+                known: []
+              context_processors:
+                issues: []
+                known:
+                  - spans:
+                      - length: 45
+                        start: 14043
+                    value: django.contrib.auth.context_processors.auth
+                  - spans:
+                      - length: 53
+                        start: 14106
+                    value: django.contrib.messages.context_processors.messages
+                  - spans:
+                      - length: 41
+                        start: 14177
+                    value: django.template.context_processors.csrf
+                  - spans:
+                      - length: 44
+                        start: 14236
+                    value: django.template.context_processors.request
+              dirs:
+                evidence:
+                  - issue:
+                      kind: unknown_element
+                      spans:
+                        - length: 39
+                          start: 13902
+              libraries:
+                issues: []
+                known: []
+              options:
+                issues: []
+                known: ~

@@ -1,0 +1,2784 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 6
+                start: 13999
+            value: silk
+          - spans:
+              - length: 11
+                start: 20273
+            value: sslserver
+          - spans:
+              - length: 26
+                start: 22750
+            value: rest_framework_simplejwt
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 10600
+            value: django.contrib.sites
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 6
+                start: 13999
+            value: silk
+          - spans:
+              - length: 11
+                start: 20273
+            value: sslserver
+          - spans:
+              - length: 26
+                start: 22750
+            value: rest_framework_simplejwt
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 6
+                start: 13999
+            value: silk
+          - spans:
+              - length: 11
+                start: 20273
+            value: sslserver
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 10600
+            value: django.contrib.sites
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 6
+                start: 13999
+            value: silk
+          - spans:
+              - length: 11
+                start: 20273
+            value: sslserver
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 11
+                start: 20273
+            value: sslserver
+          - spans:
+              - length: 26
+                start: 22750
+            value: rest_framework_simplejwt
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 10600
+            value: django.contrib.sites
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 11
+                start: 20273
+            value: sslserver
+          - spans:
+              - length: 26
+                start: 22750
+            value: rest_framework_simplejwt
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 11
+                start: 20273
+            value: sslserver
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 10600
+            value: django.contrib.sites
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 11
+                start: 20273
+            value: sslserver
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 26
+                start: 22750
+            value: rest_framework_simplejwt
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 10600
+            value: django.contrib.sites
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+          - spans:
+              - length: 26
+                start: 22750
+            value: rest_framework_simplejwt
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 9694
+            value: django.contrib.admin
+          - spans:
+              - length: 26
+                start: 9722
+            value: django.contrib.admindocs
+          - spans:
+              - length: 24
+                start: 9775
+            value: build.apps.BuildConfig
+          - spans:
+              - length: 26
+                start: 9805
+            value: common.apps.CommonConfig
+          - spans:
+              - length: 29
+                start: 9837
+            value: plugin.apps.PluginAppConfig
+          - spans:
+              - length: 28
+                start: 9958
+            value: company.apps.CompanyConfig
+          - spans:
+              - length: 24
+                start: 9992
+            value: order.apps.OrderConfig
+          - spans:
+              - length: 22
+                start: 10022
+            value: part.apps.PartConfig
+          - spans:
+              - length: 26
+                start: 10050
+            value: report.apps.ReportConfig
+          - spans:
+              - length: 24
+                start: 10082
+            value: stock.apps.StockConfig
+          - spans:
+              - length: 24
+                start: 10112
+            value: users.apps.UsersConfig
+          - spans:
+              - length: 28
+                start: 10142
+            value: machine.apps.MachineConfig
+          - spans:
+              - length: 39
+                start: 10176
+            value: data_exporter.apps.DataExporterConfig
+          - spans:
+              - length: 30
+                start: 10221
+            value: importer.apps.ImporterConfig
+          - spans:
+              - length: 5
+                start: 10257
+            value: web
+          - spans:
+              - length: 9
+                start: 10268
+            value: generic
+          - spans:
+              - length: 32
+                start: 10283
+            value: InvenTree.apps.InvenTreeConfig
+          - spans:
+              - length: 21
+                start: 10374
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 10401
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 10436
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 10467
+            value: django.contrib.humanize
+          - spans:
+              - length: 31
+                start: 10498
+            value: whitenoise.runserver_nostatic
+          - spans:
+              - length: 25
+                start: 10535
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 10566
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 22
+                start: 10600
+            value: django.contrib.sites
+          - spans:
+              - length: 18
+                start: 10646
+            value: maintenance_mode
+          - spans:
+              - length: 16
+                start: 10695
+            value: django_filters
+          - spans:
+              - length: 16
+                start: 10750
+            value: rest_framework
+          - spans:
+              - length: 13
+                start: 10803
+            value: corsheaders
+          - spans:
+              - length: 35
+                start: 10863
+            value: django_cleanup.apps.CleanupConfig
+          - spans:
+              - length: 6
+                start: 10949
+            value: mptt
+          - spans:
+              - length: 13
+                start: 10997
+            value: markdownify
+          - spans:
+              - length: 9
+                start: 11047
+            value: djmoney
+          - spans:
+              - length: 26
+                start: 11090
+            value: djmoney.contrib.exchange
+          - spans:
+              - length: 14
+                start: 11153
+            value: error_report
+          - spans:
+              - length: 10
+                start: 11215
+            value: django_q
+          - spans:
+              - length: 10
+                start: 11231
+            value: dbbackup
+          - spans:
+              - length: 8
+                start: 11276
+            value: taggit
+          - spans:
+              - length: 7
+                start: 11301
+            value: flags
+          - spans:
+              - length: 18
+                start: 11341
+            value: django_structlog
+          - spans:
+              - length: 9
+                start: 11387
+            value: allauth
+          - spans:
+              - length: 17
+                start: 11422
+            value: allauth.account
+          - spans:
+              - length: 18
+                start: 11474
+            value: allauth.headless
+          - spans:
+              - length: 23
+                start: 11515
+            value: allauth.socialaccount
+          - spans:
+              - length: 13
+                start: 11570
+            value: allauth.mfa
+          - spans:
+              - length: 22
+                start: 11612
+            value: allauth.usersessions
+          - spans:
+              - length: 12
+                start: 11655
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 11713
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 11766
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 17
+                start: 11819
+            value: oauth2_provider
+          - spans:
+              - length: 17
+                start: 11876
+            value: drf_spectacular
+          - spans:
+              - length: 13
+                start: 11920
+            value: django_ical
+          - spans:
+              - length: 16
+                start: 11966
+            value: django_mailbox
+          - spans:
+              - length: 9
+                start: 12008
+            value: anymail
+          - spans:
+              - length: 10
+                start: 12063
+            value: storages
+    - dynamic:
+        evidence:
+          - issue:
+              kind: dynamic_expression
+              spans:
+                - length: 283
+                  start: 46353
+templates:
+  cases:
+    - dynamic:
+        evidence:
+          - backend:
+              app_dirs:
+                issues: []
+                known: ~
+              backend:
+                issues: []
+                known:
+                  spans:
+                    - length: 49
+                      start: 20389
+                  value: django.template.backends.django.DjangoTemplates
+              builtins:
+                issues: []
+                known: []
+              context_processors:
+                issues: []
+                known:
+                  - spans:
+                      - length: 42
+                        start: 20594
+                    value: django.template.context_processors.debug
+                  - spans:
+                      - length: 44
+                        start: 20654
+                    value: django.template.context_processors.request
+                  - spans:
+                      - length: 41
+                        start: 20716
+                    value: django.template.context_processors.i18n
+                  - spans:
+                      - length: 45
+                        start: 20775
+                    value: django.contrib.auth.context_processors.auth
+                  - spans:
+                      - length: 53
+                        start: 20838
+                    value: django.contrib.messages.context_processors.messages
+              dirs:
+                evidence:
+                  - issue:
+                      kind: unknown_element
+                      spans:
+                        - length: 30
+                          start: 20457
+                  - issue:
+                      kind: unknown_element
+                      spans:
+                        - length: 29
+                          start: 20489
+              libraries:
+                issues: []
+                known: []
+              options:
+                issues: []
+                known: ~

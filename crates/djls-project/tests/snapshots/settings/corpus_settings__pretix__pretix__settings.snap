@@ -1,0 +1,815 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 21
+                start: 1425
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 1452
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 1487
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 1518
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 1549
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 1583
+            value: django.contrib.humanize
+          - spans:
+              - length: 13
+                start: 1614
+            value: pretix.base
+          - spans:
+              - length: 16
+                start: 1633
+            value: pretix.control
+          - spans:
+              - length: 16
+                start: 1655
+            value: pretix.presale
+          - spans:
+              - length: 20
+                start: 1677
+            value: pretix.multidomain
+          - spans:
+              - length: 12
+                start: 1703
+            value: pretix.api
+          - spans:
+              - length: 16
+                start: 1721
+            value: pretix.helpers
+          - spans:
+              - length: 16
+                start: 1743
+            value: rest_framework
+          - spans:
+              - length: 17
+                start: 1765
+            value: djangoformsetjs
+          - spans:
+              - length: 12
+                start: 1788
+            value: compressor
+          - spans:
+              - length: 12
+                start: 1806
+            value: bootstrap3
+          - spans:
+              - length: 29
+                start: 1824
+            value: pretix.plugins.banktransfer
+          - spans:
+              - length: 23
+                start: 1859
+            value: pretix.plugins.stripe
+          - spans:
+              - length: 23
+                start: 1888
+            value: pretix.plugins.paypal
+          - spans:
+              - length: 24
+                start: 1917
+            value: pretix.plugins.paypal2
+          - spans:
+              - length: 32
+                start: 1947
+            value: pretix.plugins.ticketoutputpdf
+          - spans:
+              - length: 25
+                start: 1985
+            value: pretix.plugins.sendmail
+          - spans:
+              - length: 27
+                start: 2016
+            value: pretix.plugins.statistics
+          - spans:
+              - length: 24
+                start: 2049
+            value: pretix.plugins.reports
+          - spans:
+              - length: 29
+                start: 2079
+            value: pretix.plugins.checkinlists
+          - spans:
+              - length: 28
+                start: 2114
+            value: pretix.plugins.pretixdroid
+          - spans:
+              - length: 23
+                start: 2148
+            value: pretix.plugins.badges
+          - spans:
+              - length: 30
+                start: 2177
+            value: pretix.plugins.manualpayment
+          - spans:
+              - length: 26
+                start: 2213
+            value: pretix.plugins.returnurl
+          - spans:
+              - length: 28
+                start: 2245
+            value: pretix.plugins.autocheckin
+          - spans:
+              - length: 27
+                start: 2279
+            value: pretix.plugins.webcheckin
+          - spans:
+              - length: 18
+                start: 2312
+            value: django_countries
+          - spans:
+              - length: 17
+                start: 2336
+            value: oauth2_provider
+          - spans:
+              - length: 19
+                start: 2359
+            value: phonenumber_field
+          - spans:
+              - length: 12
+                start: 2384
+            value: statici18n
+          - spans:
+              - length: 14
+                start: 2402
+            value: django.forms
+          - spans:
+              - length: 16
+                start: 18772
+            value: django_filters
+          - spans:
+              - length: 15
+                start: 18794
+            value: django_markup
+          - spans:
+              - length: 12
+                start: 18815
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 18833
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 18868
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 8
+                start: 18905
+            value: hijack
+          - spans:
+              - length: 13
+                start: 18919
+            value: localflavor
+          - spans:
+              - length: 19
+                start: 19144
+            value: django_extensions
+    - known:
+        apps:
+          - spans:
+              - length: 21
+                start: 1425
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 1452
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 1487
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 1518
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 1549
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 1583
+            value: django.contrib.humanize
+          - spans:
+              - length: 13
+                start: 1614
+            value: pretix.base
+          - spans:
+              - length: 16
+                start: 1633
+            value: pretix.control
+          - spans:
+              - length: 16
+                start: 1655
+            value: pretix.presale
+          - spans:
+              - length: 20
+                start: 1677
+            value: pretix.multidomain
+          - spans:
+              - length: 12
+                start: 1703
+            value: pretix.api
+          - spans:
+              - length: 16
+                start: 1721
+            value: pretix.helpers
+          - spans:
+              - length: 16
+                start: 1743
+            value: rest_framework
+          - spans:
+              - length: 17
+                start: 1765
+            value: djangoformsetjs
+          - spans:
+              - length: 12
+                start: 1788
+            value: compressor
+          - spans:
+              - length: 12
+                start: 1806
+            value: bootstrap3
+          - spans:
+              - length: 29
+                start: 1824
+            value: pretix.plugins.banktransfer
+          - spans:
+              - length: 23
+                start: 1859
+            value: pretix.plugins.stripe
+          - spans:
+              - length: 23
+                start: 1888
+            value: pretix.plugins.paypal
+          - spans:
+              - length: 24
+                start: 1917
+            value: pretix.plugins.paypal2
+          - spans:
+              - length: 32
+                start: 1947
+            value: pretix.plugins.ticketoutputpdf
+          - spans:
+              - length: 25
+                start: 1985
+            value: pretix.plugins.sendmail
+          - spans:
+              - length: 27
+                start: 2016
+            value: pretix.plugins.statistics
+          - spans:
+              - length: 24
+                start: 2049
+            value: pretix.plugins.reports
+          - spans:
+              - length: 29
+                start: 2079
+            value: pretix.plugins.checkinlists
+          - spans:
+              - length: 28
+                start: 2114
+            value: pretix.plugins.pretixdroid
+          - spans:
+              - length: 23
+                start: 2148
+            value: pretix.plugins.badges
+          - spans:
+              - length: 30
+                start: 2177
+            value: pretix.plugins.manualpayment
+          - spans:
+              - length: 26
+                start: 2213
+            value: pretix.plugins.returnurl
+          - spans:
+              - length: 28
+                start: 2245
+            value: pretix.plugins.autocheckin
+          - spans:
+              - length: 27
+                start: 2279
+            value: pretix.plugins.webcheckin
+          - spans:
+              - length: 18
+                start: 2312
+            value: django_countries
+          - spans:
+              - length: 17
+                start: 2336
+            value: oauth2_provider
+          - spans:
+              - length: 19
+                start: 2359
+            value: phonenumber_field
+          - spans:
+              - length: 12
+                start: 2384
+            value: statici18n
+          - spans:
+              - length: 14
+                start: 2402
+            value: django.forms
+          - spans:
+              - length: 16
+                start: 18772
+            value: django_filters
+          - spans:
+              - length: 15
+                start: 18794
+            value: django_markup
+          - spans:
+              - length: 12
+                start: 18815
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 18833
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 18868
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 8
+                start: 18905
+            value: hijack
+          - spans:
+              - length: 13
+                start: 18919
+            value: localflavor
+    - known:
+        apps:
+          - spans:
+              - length: 25
+                start: 19048
+            value: django.contrib.postgres
+          - spans:
+              - length: 21
+                start: 1425
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 1452
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 1487
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 1518
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 1549
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 1583
+            value: django.contrib.humanize
+          - spans:
+              - length: 13
+                start: 1614
+            value: pretix.base
+          - spans:
+              - length: 16
+                start: 1633
+            value: pretix.control
+          - spans:
+              - length: 16
+                start: 1655
+            value: pretix.presale
+          - spans:
+              - length: 20
+                start: 1677
+            value: pretix.multidomain
+          - spans:
+              - length: 12
+                start: 1703
+            value: pretix.api
+          - spans:
+              - length: 16
+                start: 1721
+            value: pretix.helpers
+          - spans:
+              - length: 16
+                start: 1743
+            value: rest_framework
+          - spans:
+              - length: 17
+                start: 1765
+            value: djangoformsetjs
+          - spans:
+              - length: 12
+                start: 1788
+            value: compressor
+          - spans:
+              - length: 12
+                start: 1806
+            value: bootstrap3
+          - spans:
+              - length: 29
+                start: 1824
+            value: pretix.plugins.banktransfer
+          - spans:
+              - length: 23
+                start: 1859
+            value: pretix.plugins.stripe
+          - spans:
+              - length: 23
+                start: 1888
+            value: pretix.plugins.paypal
+          - spans:
+              - length: 24
+                start: 1917
+            value: pretix.plugins.paypal2
+          - spans:
+              - length: 32
+                start: 1947
+            value: pretix.plugins.ticketoutputpdf
+          - spans:
+              - length: 25
+                start: 1985
+            value: pretix.plugins.sendmail
+          - spans:
+              - length: 27
+                start: 2016
+            value: pretix.plugins.statistics
+          - spans:
+              - length: 24
+                start: 2049
+            value: pretix.plugins.reports
+          - spans:
+              - length: 29
+                start: 2079
+            value: pretix.plugins.checkinlists
+          - spans:
+              - length: 28
+                start: 2114
+            value: pretix.plugins.pretixdroid
+          - spans:
+              - length: 23
+                start: 2148
+            value: pretix.plugins.badges
+          - spans:
+              - length: 30
+                start: 2177
+            value: pretix.plugins.manualpayment
+          - spans:
+              - length: 26
+                start: 2213
+            value: pretix.plugins.returnurl
+          - spans:
+              - length: 28
+                start: 2245
+            value: pretix.plugins.autocheckin
+          - spans:
+              - length: 27
+                start: 2279
+            value: pretix.plugins.webcheckin
+          - spans:
+              - length: 18
+                start: 2312
+            value: django_countries
+          - spans:
+              - length: 17
+                start: 2336
+            value: oauth2_provider
+          - spans:
+              - length: 19
+                start: 2359
+            value: phonenumber_field
+          - spans:
+              - length: 12
+                start: 2384
+            value: statici18n
+          - spans:
+              - length: 14
+                start: 2402
+            value: django.forms
+          - spans:
+              - length: 16
+                start: 18772
+            value: django_filters
+          - spans:
+              - length: 15
+                start: 18794
+            value: django_markup
+          - spans:
+              - length: 12
+                start: 18815
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 18833
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 18868
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 8
+                start: 18905
+            value: hijack
+          - spans:
+              - length: 13
+                start: 18919
+            value: localflavor
+          - spans:
+              - length: 19
+                start: 19144
+            value: django_extensions
+    - known:
+        apps:
+          - spans:
+              - length: 25
+                start: 19048
+            value: django.contrib.postgres
+          - spans:
+              - length: 21
+                start: 1425
+            value: django.contrib.auth
+          - spans:
+              - length: 29
+                start: 1452
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 25
+                start: 1487
+            value: django.contrib.sessions
+          - spans:
+              - length: 25
+                start: 1518
+            value: django.contrib.messages
+          - spans:
+              - length: 28
+                start: 1549
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 1583
+            value: django.contrib.humanize
+          - spans:
+              - length: 13
+                start: 1614
+            value: pretix.base
+          - spans:
+              - length: 16
+                start: 1633
+            value: pretix.control
+          - spans:
+              - length: 16
+                start: 1655
+            value: pretix.presale
+          - spans:
+              - length: 20
+                start: 1677
+            value: pretix.multidomain
+          - spans:
+              - length: 12
+                start: 1703
+            value: pretix.api
+          - spans:
+              - length: 16
+                start: 1721
+            value: pretix.helpers
+          - spans:
+              - length: 16
+                start: 1743
+            value: rest_framework
+          - spans:
+              - length: 17
+                start: 1765
+            value: djangoformsetjs
+          - spans:
+              - length: 12
+                start: 1788
+            value: compressor
+          - spans:
+              - length: 12
+                start: 1806
+            value: bootstrap3
+          - spans:
+              - length: 29
+                start: 1824
+            value: pretix.plugins.banktransfer
+          - spans:
+              - length: 23
+                start: 1859
+            value: pretix.plugins.stripe
+          - spans:
+              - length: 23
+                start: 1888
+            value: pretix.plugins.paypal
+          - spans:
+              - length: 24
+                start: 1917
+            value: pretix.plugins.paypal2
+          - spans:
+              - length: 32
+                start: 1947
+            value: pretix.plugins.ticketoutputpdf
+          - spans:
+              - length: 25
+                start: 1985
+            value: pretix.plugins.sendmail
+          - spans:
+              - length: 27
+                start: 2016
+            value: pretix.plugins.statistics
+          - spans:
+              - length: 24
+                start: 2049
+            value: pretix.plugins.reports
+          - spans:
+              - length: 29
+                start: 2079
+            value: pretix.plugins.checkinlists
+          - spans:
+              - length: 28
+                start: 2114
+            value: pretix.plugins.pretixdroid
+          - spans:
+              - length: 23
+                start: 2148
+            value: pretix.plugins.badges
+          - spans:
+              - length: 30
+                start: 2177
+            value: pretix.plugins.manualpayment
+          - spans:
+              - length: 26
+                start: 2213
+            value: pretix.plugins.returnurl
+          - spans:
+              - length: 28
+                start: 2245
+            value: pretix.plugins.autocheckin
+          - spans:
+              - length: 27
+                start: 2279
+            value: pretix.plugins.webcheckin
+          - spans:
+              - length: 18
+                start: 2312
+            value: django_countries
+          - spans:
+              - length: 17
+                start: 2336
+            value: oauth2_provider
+          - spans:
+              - length: 19
+                start: 2359
+            value: phonenumber_field
+          - spans:
+              - length: 12
+                start: 2384
+            value: statici18n
+          - spans:
+              - length: 14
+                start: 2402
+            value: django.forms
+          - spans:
+              - length: 16
+                start: 18772
+            value: django_filters
+          - spans:
+              - length: 15
+                start: 18794
+            value: django_markup
+          - spans:
+              - length: 12
+                start: 18815
+            value: django_otp
+          - spans:
+              - length: 29
+                start: 18833
+            value: django_otp.plugins.otp_totp
+          - spans:
+              - length: 31
+                start: 18868
+            value: django_otp.plugins.otp_static
+          - spans:
+              - length: 8
+                start: 18905
+            value: hijack
+          - spans:
+              - length: 13
+                start: 18919
+            value: localflavor
+    - dynamic:
+        evidence:
+          - issue:
+              kind: dynamic_expression
+              spans:
+                - length: 219
+                  start: 19208
+    - dynamic:
+        evidence:
+          - issue:
+              kind: unsupported_mutation
+              spans:
+                - length: 62
+                  start: 21606
+templates:
+  cases:
+    - dynamic:
+        evidence:
+          - backend:
+              app_dirs:
+                issues: []
+                known: ~
+              backend:
+                issues: []
+                known:
+                  spans:
+                    - length: 49
+                      start: 5318
+                  value: django.template.backends.django.DjangoTemplates
+              builtins:
+                issues: []
+                known: []
+              context_processors:
+                issues: []
+                known:
+                  - spans:
+                      - length: 45
+                        start: 5520
+                    value: django.contrib.auth.context_processors.auth
+                  - spans:
+                      - length: 42
+                        start: 5583
+                    value: django.template.context_processors.debug
+                  - spans:
+                      - length: 41
+                        start: 5643
+                    value: django.template.context_processors.i18n
+                  - spans:
+                      - length: 42
+                        start: 5702
+                    value: django.template.context_processors.media
+                  - spans:
+                      - length: 44
+                        start: 5762
+                    value: django.template.context_processors.request
+                  - spans:
+                      - length: 43
+                        start: 5824
+                    value: django.template.context_processors.static
+                  - spans:
+                      - length: 39
+                        start: 5885
+                    value: django.template.context_processors.tz
+                  - spans:
+                      - length: 53
+                        start: 5942
+                    value: django.contrib.messages.context_processors.messages
+                  - spans:
+                      - length: 38
+                        start: 6013
+                    value: pretix.base.context.contextprocessor
+                  - spans:
+                      - length: 41
+                        start: 6069
+                    value: pretix.control.context.contextprocessor
+                  - spans:
+                      - length: 41
+                        start: 6128
+                    value: pretix.presale.context.contextprocessor
+              dirs:
+                evidence:
+                  - issue:
+                      kind: dynamic_expression
+                      spans:
+                        - length: 35
+                          start: 23820
+                  - known:
+                      spans:
+                        - length: 35
+                          start: 5399
+                      value: "${REPO}/src/templates"
+              libraries:
+                issues: []
+                known: []
+              options:
+                issues: []
+                known: ~
