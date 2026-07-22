@@ -193,7 +193,21 @@ models:
         start: 80322
         length: 4
     module_name: geonode.base.models
-    relations: []
+    relations:
+      - field_name:
+          value: placeholder
+          span:
+            start: 80416
+            length: 11
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: MenuPlaceholder
+          span:
+            start: 80451
+            length: 17
+        related_name: ~
     kind: concrete
   geonode.base.models.MenuItem:
     name:
@@ -202,7 +216,21 @@ models:
         start: 80790
         length: 8
     module_name: geonode.base.models
-    relations: []
+    relations:
+      - field_name:
+          value: menu
+          span:
+            start: 80888
+            length: 4
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Menu
+          span:
+            start: 80916
+            length: 6
+        related_name: ~
     kind: concrete
   geonode.base.models.MenuPlaceholder:
     name:
