@@ -8,6 +8,7 @@ use djls_source::FileReadError;
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::MappingLogItem;
 use super::OriginSet;
 use super::PythonDict;
 use super::PythonList;
@@ -424,6 +425,40 @@ impl PythonValue {
     pub(super) fn reachable_allocation_sites(&self) -> ReachableAllocationSites {
         let mut sites = ReachableAllocationSites::default();
         self.collect_reachable_sites(&mut sites);
+        sites
+    }
+
+    pub(super) fn iterated_reachable_allocation_sites(&self) -> ReachableAllocationSites {
+        let mut sites = ReachableAllocationSites::default();
+        match &self.kind {
+            PythonValueKind::List(list) => {
+                for item in list.semantic_items() {
+                    if let PythonSequenceItem::Value(value) = item {
+                        value.collect_reachable_sites(&mut sites);
+                    }
+                }
+            }
+            PythonValueKind::Tuple(tuple) => {
+                for item in tuple.semantic_items() {
+                    if let PythonSequenceItem::Value(value) = item {
+                        value.collect_reachable_sites(&mut sites);
+                    }
+                }
+            }
+            PythonValueKind::Dict(dict) => {
+                for item in dict.mapping().projection() {
+                    if let MappingLogItem::Entry { key, .. } = item {
+                        key.collect_reachable_sites(&mut sites);
+                    }
+                }
+            }
+            PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_)
+            | PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::UnsupportedLiteral => {}
+        }
         sites
     }
 

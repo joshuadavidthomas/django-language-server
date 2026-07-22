@@ -9148,6 +9148,113 @@ TEMPLATES[0]['DIRS'].remove('/removed')",
 }
 
 #[test]
+fn imported_template_nested_mutation_preserves_known_backend_fields() {
+    let settings = extract_project(
+        "from base import *\nif FLAG:\n    TEMPLATES[0]['OPTIONS']['loaders'] = ('loader',)\nTEMPLATES[0]['DIRS'].insert(0, dynamic_path())\n",
+        &[(
+            "base",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/base'], 'OPTIONS': {'context_processors': ['app.context.processor']}}]\n",
+        )],
+    )
+    .expect("settings extraction project should build")
+    .2;
+    let template_case = &cases(&settings, "/templates/cases")
+        .expect("settings JSON pointer should identify an array")[0];
+    let backend = &template_case["dynamic"]["evidence"][0]["backend"];
+
+    assert_eq!(
+        backend["backend"]["known"]["value"], "django.template.backends.django.DjangoTemplates",
+        "{settings:#}"
+    );
+    assert_eq!(
+        backend["context_processors"]["known"][0]["value"],
+        "app.context.processor"
+    );
+    assert!(backend["dirs"].to_string().contains("dynamic_expression"));
+    assert!(backend["dirs"].to_string().contains("/base"));
+}
+
+#[test]
+fn nested_dictionary_assignment_invalidates_stale_aliases_only() {
+    let source = "OPTIONS = {}\nALIAS = OPTIONS\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'OPTIONS': OPTIONS}]\nTEMPLATES[0]['OPTIONS']['loaders'] = ('loader',)\n";
+    let (_file, evaluation) =
+        evaluate_module(source).expect("Python module evaluation fixture should build");
+    assert!(has_unknown_alternative(&evaluation, "OPTIONS"));
+    assert!(has_unknown_alternative(&evaluation, "ALIAS"));
+
+    let settings = extract(source).expect("Django settings extraction should succeed");
+    let template_case = &cases(&settings, "/templates/cases")
+        .expect("settings JSON pointer should identify an array")[0];
+    assert_eq!(
+        template_case["known"]["backends"][0]["backend"]["value"],
+        "django.template.backends.django.DjangoTemplates"
+    );
+}
+
+#[test]
+fn rejected_nested_dictionary_assignment_invalidates_possible_aliases() {
+    for source in [
+        "OPTIONS = {}\nALIAS = OPTIONS\nWRAPPER = {'OPTIONS': OPTIONS, **UNKNOWN}\nWRAPPER['OPTIONS']['loaders'] = ('loader',)\n",
+        "OPTIONS = {}\nALIAS = OPTIONS\nif FLAG:\n    LOADERS = []\nelse:\n    LOADERS = ['cached']\nOPTIONS['loaders'] = LOADERS\n",
+        "LEFT = {}\nRIGHT = {}\nALIAS = LEFT\nif FLAG:\n    ROOT = LEFT\nelse:\n    ROOT = RIGHT\nROOT['loaders'] = []\n",
+    ] {
+        let (_file, evaluation) =
+            evaluate_module(source).expect("Python module evaluation fixture should build");
+
+        assert!(has_unknown_alternative(&evaluation, "ALIAS"), "{source}");
+    }
+}
+
+#[test]
+fn recursive_mutations_degrade_unrepresentable_values() {
+    for (source, names) in [
+        ("ROOT = {}\nROOT['self'] = ROOT\n", &["ROOT"][..]),
+        (
+            "CHILD = {}\nROOT = {'child': CHILD}\nROOT['child']['parent'] = ROOT\n",
+            &["CHILD", "ROOT"],
+        ),
+        (
+            "ROOT = {'child': []}\nROOT['child'].append(ROOT)\n",
+            &["ROOT"],
+        ),
+        (
+            "ROOT = {'child': []}\nROOT['child'].insert(0, ROOT)\n",
+            &["ROOT"],
+        ),
+        (
+            "ROOT = {'child': []}\nROOT['child'].extend([ROOT])\n",
+            &["ROOT"],
+        ),
+        ("ROOT = []\nROOT += [ROOT]\n", &["ROOT"]),
+    ] {
+        let (_file, evaluation) =
+            evaluate_module(source).expect("Python module evaluation fixture should build");
+
+        for name in names {
+            assert!(
+                has_unknown_alternative(&evaluation, name),
+                "{source}: {name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn self_extension_duplicates_elements_without_creating_recursion() {
+    for operation in ["VALUES.extend(VALUES)", "VALUES += VALUES"] {
+        let source = format!("VALUES = ['app']\n{operation}\nINSTALLED_APPS = VALUES\n");
+        let settings = extract(&source).expect("Django settings extraction should succeed");
+        let apps = cases(&settings, "/installed_apps/cases")
+            .expect("settings JSON pointer should identify an array")[0]["known"]["apps"]
+            .as_array()
+            .expect("expected JSON field should be an array");
+
+        assert_eq!(apps.len(), 2, "{operation}: {settings:#}");
+        assert!(apps.iter().all(|app| app["value"] == "app"));
+    }
+}
+
+#[test]
 fn nested_template_dirs_mutation_updates_all_correlated_equal_lists() {
     let settings = extract(
         "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'].append('/b')",

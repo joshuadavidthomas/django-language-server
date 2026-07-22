@@ -3,6 +3,8 @@ use std::cmp::Ordering;
 use djls_source::Origin;
 use ruff_python_ast as ast;
 
+use super::PythonBinding;
+use super::PythonBindingState;
 use super::PythonSequenceItem;
 use super::PythonUnknownCause;
 use super::PythonValue;
@@ -105,6 +107,11 @@ enum EvaluatedMutation<'a> {
         value: &'a PythonValue,
     },
     Remove(&'a str),
+    SetKey {
+        key: &'a str,
+        key_origin: Origin,
+        value: &'a PythonValue,
+    },
 }
 
 impl StructuralOrd for PythonMutationPath {
@@ -266,16 +273,49 @@ impl PythonMutationPath {
 }
 
 impl EvaluatedMutation<'_> {
-    fn apply(&self, value: &mut PythonValue, origin: Origin) -> bool {
-        let PythonValueKind::List(list) = &mut value.kind else {
-            return false;
-        };
+    fn embedded_sites(&self) -> Option<ReachableAllocationSites> {
         match self {
-            Self::Append(argument) => list.append_value((*argument).clone()),
+            Self::Append(value) | Self::Insert { value, .. } | Self::SetKey { value, .. } => {
+                Some(value.reachable_allocation_sites())
+            }
+            Self::Extend(value) => Some(value.iterated_reachable_allocation_sites()),
+            Self::Remove(_) => None,
+        }
+    }
+
+    fn apply(&self, value: &mut PythonValue, origin: Origin) -> bool {
+        match self {
+            Self::SetKey {
+                key,
+                key_origin,
+                value: assigned,
+            } => {
+                let PythonValueKind::Dict(dictionary) = &mut value.kind else {
+                    return false;
+                };
+                dictionary.append_entry(
+                    PythonValue::string((*key).to_string(), *key_origin),
+                    (*assigned).clone(),
+                );
+                true
+            }
+            Self::Append(argument) => {
+                let PythonValueKind::List(list) = &mut value.kind else {
+                    return false;
+                };
+                list.append_value((*argument).clone());
+                true
+            }
             Self::Extend(extension) => {
-                return list.extend_from(extension, origin).is_some();
+                let PythonValueKind::List(list) = &mut value.kind else {
+                    return false;
+                };
+                list.extend_from(extension, origin).is_some()
             }
             Self::Insert { index, value: item } => {
+                let PythonValueKind::List(list) = &mut value.kind else {
+                    return false;
+                };
                 if !list.is_authoritative() {
                     return false;
                 }
@@ -291,15 +331,15 @@ impl EvaluatedMutation<'_> {
                     }
                 };
                 list.insert_value(index, (*item).clone());
+                true
             }
             Self::Remove(needle) => {
-                if !list.is_authoritative() {
+                let PythonValueKind::List(list) = &mut value.kind else {
                     return false;
-                }
-                return list.remove_str(needle);
+                };
+                list.is_authoritative() && list.remove_str(needle)
             }
         }
-        true
     }
 }
 
@@ -329,6 +369,44 @@ impl<'a> MutationTarget<'a> {
 }
 
 impl PythonEvaluationState {
+    pub(super) fn assign_string_key(
+        &mut self,
+        target: &MutationTarget<'_>,
+        key: &str,
+        key_origin: Origin,
+        value: &PythonBinding,
+        origin: Origin,
+    ) {
+        let mut stale_aliases = self.stale_alias_names_after_mutation(target.binding, &target.path);
+        let applied = value.single_bound().is_some_and(|assigned| {
+            self.try_apply_mutation(
+                target,
+                &EvaluatedMutation::SetKey {
+                    key,
+                    key_origin,
+                    value: &assigned.value,
+                },
+                origin,
+            )
+        });
+        if applied {
+            self.invalidate_names(
+                stale_aliases,
+                &PythonUnknownCause::UnsupportedExpression,
+                origin,
+            );
+        } else {
+            if !stale_aliases.iter().any(|name| name == target.binding) {
+                stale_aliases.push(target.binding.to_string());
+            }
+            self.degrade_names(
+                stale_aliases,
+                &PythonUnknownCause::UnsupportedMutation,
+                origin,
+            );
+        }
+    }
+
     pub(super) fn apply_augmented_add(
         &mut self,
         target: MutationTarget<'_>,
@@ -359,21 +437,44 @@ impl PythonEvaluationState {
         self.mutations.insert(fact);
     }
 
+    pub(super) fn sites_reach_mutation_target(
+        &self,
+        target: &MutationTarget<'_>,
+        sites: &ReachableAllocationSites,
+    ) -> bool {
+        let receiver_sites = self
+            .bindings
+            .get(target.binding)
+            .map(|binding| {
+                let mut sites = ReachableAllocationSites::default();
+                for alternative in binding.alternatives() {
+                    let PythonBindingState::Bound(bound) = alternative else {
+                        continue;
+                    };
+                    sites.absorb(target.path.possible_target_allocation_sites(&bound.value));
+                }
+                sites
+            })
+            .unwrap_or_default();
+        receiver_sites.intersects(sites)
+    }
+
     fn try_apply_mutation(
         &mut self,
         target: &MutationTarget<'_>,
         mutation: &EvaluatedMutation<'_>,
         origin: Origin,
     ) -> bool {
+        if mutation
+            .embedded_sites()
+            .is_some_and(|sites| self.sites_reach_mutation_target(target, &sites))
+        {
+            return false;
+        }
         let Some(binding) = self.bindings.get_mut(target.binding) else {
             return false;
         };
-        let Some(bound) = binding.single_bound_mut() else {
-            return false;
-        };
-        target
-            .path
-            .try_apply_exact(&mut bound.value, mutation, origin)
+        binding.try_mutate_all_bound(|value| target.path.try_apply_exact(value, mutation, origin))
     }
 }
 

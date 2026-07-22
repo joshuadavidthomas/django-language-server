@@ -30,7 +30,7 @@ impl PythonModuleEvaluator<'_> {
                 if let Some(value) = &assign.value {
                     self.record_unsupported_call_effects(value);
                     let evaluated = self.evaluate_binding(value);
-                    self.assign_target(&assign.target, value, evaluated);
+                    self.assign_target(&assign.target, value, evaluated, self.origin(assign));
                 }
             }
             ast::Stmt::AugAssign(assign) => self.walk_aug_assign(assign),
@@ -258,8 +258,9 @@ impl PythonModuleEvaluator<'_> {
             }
             return;
         }
+        let assignment_origin = self.origin(assign);
         for target in &assign.targets {
-            self.assign_target(target, &assign.value, value.clone());
+            self.assign_target(target, &assign.value, value.clone(), assignment_origin);
         }
     }
 
@@ -312,7 +313,15 @@ impl PythonModuleEvaluator<'_> {
                 let mut stale_aliases = self
                     .state
                     .stale_alias_names_after_mutation(name, &PythonMutationPath::default());
-                let extended = list.extend_from(right, origin);
+                let embedded_sites = right.iterated_reachable_allocation_sites();
+                let recursive = self
+                    .state
+                    .sites_reach_mutation_target(&target, &embedded_sites);
+                let extended = if recursive {
+                    None
+                } else {
+                    list.extend_from(right, origin)
+                };
                 if extended.is_some() {
                     left.record_origin(origin);
                     // A successful in-place list `+=` updates the binding
@@ -406,18 +415,39 @@ impl PythonModuleEvaluator<'_> {
             .degrade_loop_effects(evaluated_bodies, self.origin_at(control_span));
     }
 
-    fn assign_target(&mut self, target: &ast::Expr, expression: &ast::Expr, value: PythonBinding) {
+    fn assign_target(
+        &mut self,
+        target: &ast::Expr,
+        expression: &ast::Expr,
+        value: PythonBinding,
+        assignment_origin: Origin,
+    ) {
+        let origin = self.origin(expression);
         if let Some(name) = target.name_target() {
-            let origin = self.origin(expression);
             if let Some(source_name) = expression.name_target() {
                 self.state
                     .assign_from_name(name, source_name, value, origin);
             } else {
                 self.state.assign_binding(name, value, origin);
             }
-        } else {
-            self.bind_unknown_targets(target, &PythonUnknownCause::UnsupportedExpression);
+            return;
         }
+
+        if let ast::Expr::Subscript(subscript) = target
+            && let Some(key) = subscript.slice.string_literal()
+            && let Some(receiver) = MutationTarget::from_expr(&subscript.value)
+        {
+            self.state.assign_string_key(
+                &receiver,
+                key,
+                self.origin(subscript.slice.as_ref()),
+                &value,
+                assignment_origin,
+            );
+            return;
+        }
+
+        self.bind_unknown_targets(target, &PythonUnknownCause::UnsupportedExpression);
     }
 
     fn bind_unknown_targets(&mut self, target: &ast::Expr, cause: &PythonUnknownCause) {

@@ -11,7 +11,6 @@ use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use super::allocation::AllocationSites;
-use crate::python::PythonPath;
 
 /// A concrete Python `dict` value stored as an ordered write/unpack log rather
 /// than a flattened map: unknown unpacks and later exact entries affect lookup
@@ -115,16 +114,15 @@ impl PythonDict {
                         selected = Some(&mut entry.value);
                         break;
                     }
+                    PythonValueKind::Unknown(_) => return false,
                     PythonValueKind::Str(_)
-                    | PythonValueKind::Path(PythonPath::Intrinsic(_))
-                    | PythonValueKind::UnsupportedLiteral => {}
-                    PythonValueKind::Unknown(_)
                     | PythonValueKind::Bool(_)
-                    | PythonValueKind::Path(PythonPath::Object(_))
+                    | PythonValueKind::Path(_)
+                    | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
                     | PythonValueKind::Module(_)
-                    | PythonValueKind::Dict(_) => return false,
+                    | PythonValueKind::Dict(_) => {}
                 },
                 DictItem::UnknownUnpack(_) => return false,
             }
@@ -297,8 +295,8 @@ impl<'a> PythonMapping<'a> {
 
     /// The values that a write to `wanted` might target, conservatively: the
     /// latest exact string-key value (after which no earlier write can be the
-    /// target) plus every earlier value whose non-string key could equal
-    /// `wanted` at runtime. Yielded latest-write first, matching traversal.
+    /// target) plus every earlier value whose unknown key could equal `wanted`
+    /// at runtime. Yielded latest-write first, matching traversal.
     pub(crate) fn possible_string_values(self, wanted: &str) -> Vec<&'a PythonValue> {
         let mut values = Vec::new();
         for item in self.dict.items.iter().rev() {
@@ -310,16 +308,15 @@ impl<'a> PythonMapping<'a> {
                     values.push(&entry.value);
                     return values;
                 }
+                PythonValueKind::Unknown(_) => values.push(&entry.value),
                 PythonValueKind::Str(_)
-                | PythonValueKind::Path(PythonPath::Intrinsic(_))
-                | PythonValueKind::UnsupportedLiteral => {}
-                PythonValueKind::Unknown(_)
                 | PythonValueKind::Bool(_)
-                | PythonValueKind::Path(PythonPath::Object(_))
+                | PythonValueKind::Path(_)
+                | PythonValueKind::UnsupportedLiteral
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)
                 | PythonValueKind::Module(_)
-                | PythonValueKind::Dict(_) => values.push(&entry.value),
+                | PythonValueKind::Dict(_) => {}
             }
         }
         values
@@ -691,10 +688,11 @@ mod tests {
     }
 
     #[test]
-    fn path_intrinsic_keys_do_not_block_exact_string_key_mutation() {
+    fn known_non_string_keys_do_not_block_exact_string_key_mutation() {
         let mut dict = dict_with(vec![
             (str_value("target", 1), str_value("before", 2)),
             (path_intrinsic(3), str_value("intrinsic", 4)),
+            (PythonValue::bool(true, origin(5)), str_value("boolean", 6)),
         ]);
 
         let possible = dict.mapping().possible_string_values("target");
