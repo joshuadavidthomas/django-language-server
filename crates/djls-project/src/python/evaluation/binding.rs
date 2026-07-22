@@ -7,17 +7,20 @@ use super::BranchConstraints;
 use super::BranchJoin;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 use super::OriginSet;
+use super::PredicateIdentity;
 use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use crate::python::PythonModule;
+use crate::python::PythonSourceModule;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BindingCase {
     state: PythonBindingState,
     constraints: BranchConstraints,
+    predicate_identity: Option<PredicateIdentity>,
 }
 
 /// Feasible bound and unbound states for one Python name.
@@ -37,6 +40,7 @@ impl PythonBinding {
                 binding_origins: [binding_origin].into_iter().collect(),
             }),
             constraints: BranchConstraints::unconstrained(),
+            predicate_identity: None,
         })
     }
 
@@ -49,7 +53,9 @@ impl PythonBinding {
     }
 
     pub(super) fn unknown(cause: &PythonUnknownCause, origin: Origin) -> Self {
-        Self::bound(PythonValue::unknown(cause.clone(), Some(origin)), origin)
+        let mut binding = Self::bound(PythonValue::unknown(cause.clone(), Some(origin)), origin);
+        binding.cases[0].predicate_identity = Some(PredicateIdentity::new(origin));
+        binding
     }
 
     pub(super) fn constrained_unknown(
@@ -57,17 +63,14 @@ impl PythonBinding {
         origin: Origin,
         constraints: &BranchConstraints,
     ) -> Option<Self> {
-        Self::constrained_bound(
-            PythonValue::unknown(cause.clone(), Some(origin)),
-            origin,
-            constraints,
-        )
+        Self::unknown(cause, origin).intersect_constraints(constraints)
     }
 
     pub(super) fn unbound() -> Self {
         Self::from_case(BindingCase {
             state: PythonBindingState::Unbound,
             constraints: BranchConstraints::unconstrained(),
+            predicate_identity: None,
         })
     }
 
@@ -78,6 +81,7 @@ impl PythonBinding {
                 binding_origins: OriginSet::default(),
             }),
             constraints: BranchConstraints::unconstrained(),
+            predicate_identity: None,
         })
     }
 
@@ -97,6 +101,87 @@ impl PythonBinding {
         self.cases
             .iter()
             .map(|case| (&case.state, &case.constraints))
+    }
+
+    pub(super) fn alternatives_with_predicates(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &PythonBindingState,
+            &BranchConstraints,
+            Option<&PredicateIdentity>,
+        ),
+    > {
+        self.cases.iter().map(|case| {
+            (
+                &case.state,
+                &case.constraints,
+                case.predicate_identity.as_ref(),
+            )
+        })
+    }
+
+    pub(super) fn discriminate_predicates(
+        &mut self,
+        name: &str,
+        origin: Origin,
+        module: Option<&PythonSourceModule>,
+    ) {
+        for case in &mut self.cases {
+            let needs_identity = matches!(
+                &case.state,
+                PythonBindingState::Bound(bound)
+                    if matches!(
+                        &bound.value.kind,
+                        PythonValueKind::UnsupportedLiteral | PythonValueKind::Unknown(_)
+                    )
+            );
+            if needs_identity {
+                let identity = case
+                    .predicate_identity
+                    .get_or_insert_with(|| PredicateIdentity::new(origin));
+                identity.discriminate(name, module);
+            }
+        }
+    }
+
+    pub(super) fn force_predicate_identity(
+        &mut self,
+        name: &str,
+        origin: Origin,
+        module: Option<&PythonSourceModule>,
+    ) {
+        for case in &mut self.cases {
+            let needs_identity = matches!(
+                &case.state,
+                PythonBindingState::Bound(bound)
+                    if matches!(
+                        &bound.value.kind,
+                        PythonValueKind::UnsupportedLiteral | PythonValueKind::Unknown(_)
+                    )
+            );
+            if needs_identity {
+                let mut identity = PredicateIdentity::new(origin);
+                identity.discriminate(name, module);
+                case.predicate_identity = Some(identity);
+            }
+        }
+        self.normalize(None);
+    }
+
+    pub(super) fn replace_predicate_identities(
+        &mut self,
+        name: &str,
+        origin: Origin,
+        module: Option<&PythonSourceModule>,
+    ) {
+        for case in &mut self.cases {
+            if case.predicate_identity.is_some() {
+                let mut identity = PredicateIdentity::new(origin);
+                identity.discriminate(name, module);
+                case.predicate_identity = Some(identity);
+            }
+        }
     }
 
     fn alternatives_mut(&mut self) -> impl Iterator<Item = &mut PythonBindingState> {
@@ -134,6 +219,7 @@ impl PythonBinding {
             .unwrap_or(0)
     }
 
+    #[cfg(test)]
     pub(super) fn single_bound(&self) -> Option<&PythonBoundValue> {
         let [
             BindingCase {
@@ -145,6 +231,22 @@ impl PythonBinding {
             return None;
         };
         Some(bound)
+    }
+
+    pub(super) fn merged_semantic_value(&self) -> Option<PythonValue> {
+        let mut values = self.alternatives().map(|state| {
+            let PythonBindingState::Bound(bound) = state else {
+                return None;
+            };
+            Some(bound.value.clone())
+        });
+        let mut merged = values.next()??;
+        for incoming in values {
+            if !merged.merge_semantically_equal(incoming?, None) {
+                return None;
+            }
+        }
+        Some(merged)
     }
 
     pub(super) fn single_bound_mut(&mut self) -> Option<&mut PythonBoundValue> {
@@ -498,7 +600,8 @@ impl PythonBinding {
                         .value
                         .constrain_value_evidence(&incoming_case.constraints);
                     if let Some(existing_case) = normalized.iter_mut().find(|candidate| {
-                        matches!(&candidate.state, PythonBindingState::Bound(bound) if bound.value.same_semantic_value(&incoming.value))
+                        candidate.predicate_identity == incoming_case.predicate_identity
+                            && matches!(&candidate.state, PythonBindingState::Bound(bound) if bound.value.same_semantic_value(&incoming.value))
                     }) {
                         match &mut existing_case.state {
                             PythonBindingState::Bound(existing) => {
@@ -535,6 +638,7 @@ impl BindingCase {
             // The remainder represents alternatives discarded from potentially different
             // arms, so leaving it unconstrained is conservative and preserves the cap.
             constraints: BranchConstraints::unconstrained(),
+            predicate_identity: None,
         }
     }
 
@@ -551,10 +655,19 @@ impl BindingCase {
 
 impl StructuralOrd for BindingCase {
     /// Unbound precedes Bound so cap retention remains stable. Bound cases then
-    /// compare complete value evidence, binding provenance, and constraints.
+    /// compare complete value evidence, predicate identity, binding provenance,
+    /// and constraints.
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.state
             .structural_cmp(&other.state)
+            .then_with(
+                || match (&self.predicate_identity, &other.predicate_identity) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Less,
+                    (Some(_), None) => Ordering::Greater,
+                    (Some(left), Some(right)) => left.structural_cmp(right),
+                },
+            )
             .then_with(|| self.constraints.structural_cmp(&other.constraints))
     }
 }
@@ -749,6 +862,26 @@ mod tests {
     }
 
     #[test]
+    fn constrained_unknowns_retain_predicate_identity() {
+        let constraints = BranchConstraints::unconstrained();
+        let mut first = PythonBinding::constrained_unknown(
+            &PythonUnknownCause::UnsupportedExpression,
+            origin(0, 1),
+            &constraints,
+        )
+        .expect("selected constraints should be feasible");
+        let mut second = first.clone();
+        first.discriminate_predicates("FIRST", origin(0, 1), None);
+        second.discriminate_predicates("SECOND", origin(0, 1), None);
+
+        assert!(first.cases[0].predicate_identity.is_some());
+        assert_ne!(
+            first.cases[0].predicate_identity,
+            second.cases[0].predicate_identity
+        );
+    }
+
+    #[test]
     fn infeasible_unbound_replacement_stays_conservatively_unbound() {
         let join = origin(0, 100);
         let mut imported_constraints = BranchConstraints::unconstrained();
@@ -757,6 +890,7 @@ mod tests {
             cases: vec![BindingCase {
                 state: PythonBindingState::Unbound,
                 constraints: imported_constraints.clone(),
+                predicate_identity: None,
             }],
         };
         let mut prior_constraints = BranchConstraints::unconstrained();
@@ -904,6 +1038,7 @@ mod tests {
                 binding_origins: [origin(0, 10)].into_iter().collect(),
             }),
             constraints: first_constraints,
+            predicate_identity: None,
         };
         let second = BindingCase {
             state: PythonBindingState::Bound(PythonBoundValue {
@@ -911,10 +1046,12 @@ mod tests {
                 binding_origins: [origin(0, 20)].into_iter().collect(),
             }),
             constraints: second_constraints,
+            predicate_identity: None,
         };
         let unbound = BindingCase {
             state: PythonBindingState::Unbound,
             constraints: BranchConstraints::unconstrained(),
+            predicate_identity: None,
         };
         assert_eq!(unbound.structural_cmp(&first), Ordering::Less);
         assert_ne!(first, second);

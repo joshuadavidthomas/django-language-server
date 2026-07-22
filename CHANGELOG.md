@@ -81,6 +81,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed false tag argument errors for manually parsed tags that strip trailing assignment clauses, such as `{% now ... as var %}` and `{% url ... as var %}`.
 - Fixed static Django settings analysis hanging on projects with many conditional module effects.
 - Fixed static Python evaluation to honor short-circuiting `and` and `or` operands.
+- Fixed static settings analysis to exclude impossible combinations from repeated and derived configuration predicates.
 - Fixed static settings analysis to preserve known template backend fields after nested dictionary assignments.
 
 ## [6.0.3]

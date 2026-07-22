@@ -9,7 +9,6 @@ use super::PythonValueKind;
 use super::ast;
 use crate::python::PythonPath;
 use crate::python::PythonPathIntrinsic;
-use crate::python::evaluation::truthiness::Truthiness;
 
 impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
@@ -65,6 +64,9 @@ impl PythonModuleEvaluator<'_> {
             ast::Expr::Dict(dict) => self.evaluate_dict_binding(dict, origin),
             ast::Expr::Attribute(attribute) => self.evaluate_attribute_binding(attribute, origin),
             ast::Expr::BoolOp(boolean) => self.evaluate_bool_op_binding(boolean, origin),
+            ast::Expr::UnaryOp(unary) if unary.op == ast::UnaryOp::Not => {
+                self.evaluate_not_binding(unary, origin)
+            }
             ast::Expr::Named(_)
             | ast::Expr::BinOp(_)
             | ast::Expr::UnaryOp(_)
@@ -98,28 +100,66 @@ impl PythonModuleEvaluator<'_> {
     }
 
     fn evaluate_bool_op_binding(&self, boolean: &ast::ExprBoolOp, origin: Origin) -> PythonBinding {
-        let Some((last, preceding)) = boolean.values.split_last() else {
-            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
-        };
-        for expression in preceding {
-            let truthiness =
-                Truthiness::of_expr(expression, &|name| self.state.known_truthiness(name));
-            match (boolean.op, truthiness) {
-                (ast::BoolOp::And, Truthiness::AlwaysFalse)
-                | (ast::BoolOp::Or, Truthiness::AlwaysTrue) => {
-                    return self.evaluate_binding(expression);
-                }
-                (ast::BoolOp::And, Truthiness::AlwaysTrue)
-                | (ast::BoolOp::Or, Truthiness::AlwaysFalse) => {}
-                (_, Truthiness::Ambiguous) => {
-                    return PythonBinding::unknown(
-                        &PythonUnknownCause::UnsupportedExpression,
-                        origin,
-                    );
-                }
+        let mut continuation = self.active_constraints.clone();
+        let mut result: Option<PythonBinding> = None;
+
+        for (index, expression) in boolean.values.iter().enumerate() {
+            let Some(binding) = self
+                .evaluate_binding(expression)
+                .intersect_constraints(&continuation)
+            else {
+                break;
+            };
+            if index + 1 == boolean.values.len() {
+                result = Some(match result {
+                    Some(current) => current.join(binding, origin),
+                    None => binding,
+                });
+                break;
+            }
+
+            let partition = self.truth_partition(&binding, self.origin(expression), true);
+            let (returned, next) = match boolean.op {
+                ast::BoolOp::And => (partition.falsy, partition.truthy),
+                ast::BoolOp::Or => (partition.truthy, partition.falsy),
+            };
+            if let Some(decisive) = binding.intersect_constraints(&returned) {
+                result = Some(match result {
+                    Some(current) => current.join(decisive, origin),
+                    None => decisive,
+                });
+            }
+            continuation = next;
+            if continuation.is_impossible() {
+                break;
             }
         }
-        self.evaluate_binding(last)
+
+        result.unwrap_or_else(|| {
+            PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+        })
+    }
+
+    fn evaluate_not_binding(&self, unary: &ast::ExprUnaryOp, origin: Origin) -> PythonBinding {
+        let operand = self.evaluate_binding(&unary.operand);
+        let partition = self.truth_partition(&operand, self.origin(unary.operand.as_ref()), true);
+        let falsy = PythonBinding::constrained_bound(
+            PythonValue::bool(false, origin),
+            origin,
+            &partition.truthy,
+        );
+        let truthy = PythonBinding::constrained_bound(
+            PythonValue::bool(true, origin),
+            origin,
+            &partition.falsy,
+        );
+        match (falsy, truthy) {
+            (Some(falsy), Some(truthy)) => falsy.join(truthy, origin),
+            (Some(binding), None) | (None, Some(binding)) => binding,
+            (None, None) => {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+            }
+        }
     }
 
     /// Read `receiver.member` through the receiver's nominal abstract value.
@@ -352,11 +392,11 @@ impl PythonModuleEvaluator<'_> {
     ) -> PythonValue {
         let origin = self.origin(expression);
         self.evaluate_binding(expression)
-            .single_bound()
-            .map_or_else(
-                || PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin)),
-                |bound| bound.value.clone(),
-            )
+            .intersect_constraints(&self.active_constraints)
+            .and_then(|binding| binding.merged_semantic_value())
+            .unwrap_or_else(|| {
+                PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin))
+            })
     }
 
     fn evaluate_sequence_binding(

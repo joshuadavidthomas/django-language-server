@@ -695,9 +695,10 @@ impl PythonModuleEvaluator<'_> {
         }
 
         let selected = paths.exact.is_some() || paths.absent.is_some() || paths.dynamic.is_some();
-        if let Some(binding) = joined
+        if let Some(mut binding) = joined
             && (selected || caller_had_name)
         {
+            binding.discriminate_predicates(name, origin, self.state.predicate_module.as_ref());
             self.state.bindings.insert(name.to_string(), binding);
         }
 

@@ -5,13 +5,77 @@ use djls_source::Origin;
 use super::StructuralOrd;
 use crate::python::PythonSourceModule;
 
-/// One finite control-flow join. The module identity and source origin name
-/// one execution coordinate; `arm_count` records its complete modeled domain.
+// Four correlated predicates cover common settings aliases and binary boolean
+// expressions without rebuilding the path explosion this domain replaced.
+// Overflow existentially forgets later predicates: it may add false-positive
+// worlds, but it never removes a feasible runtime world.
+const MAX_TRACKED_PREDICATES: usize = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum BranchJoinKind {
+    Control,
+    BindingChoice,
+    Predicate,
+}
+
+/// One stable symbolic truth input in the module-level abstract interpreter.
+///
+/// Unknown values keep one truth decision until a modeled rebind or mutation
+/// replaces it. Stateful user-defined `__bool__` methods lie outside this
+/// evaluator's static settings subset and remain covered by unsupported-call
+/// and mutation evidence rather than repeated truth transitions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PredicateIdentity {
+    module: Option<PythonSourceModule>,
+    origin: Origin,
+    discriminator: Option<String>,
+}
+
+impl PredicateIdentity {
+    pub(super) fn new(origin: Origin) -> Self {
+        Self {
+            module: None,
+            origin,
+            discriminator: None,
+        }
+    }
+
+    pub(super) fn discriminate(&mut self, name: &str, module: Option<&PythonSourceModule>) {
+        if self.module.is_none() {
+            self.module = module.cloned();
+        }
+        if self.discriminator.is_none() {
+            self.discriminator = Some(name.to_string());
+        }
+    }
+
+    pub(super) fn origin(&self) -> Origin {
+        self.origin
+    }
+}
+
+impl StructuralOrd for PredicateIdentity {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        match (&self.module, &other.module) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (Some(left), Some(right)) => left.structural_cmp(right),
+        }
+        .then_with(|| self.origin.structural_cmp(&other.origin))
+        .then_with(|| self.discriminator.cmp(&other.discriminator))
+    }
+}
+
+/// One finite decision join. The module identity, source origin, and kind name
+/// one coordinate; `arm_count` records its complete modeled domain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct BranchJoin {
     module: PythonSourceModule,
     origin: Origin,
     arm_count: usize,
+    kind: BranchJoinKind,
+    predicate_discriminator: Option<String>,
 }
 
 impl BranchJoin {
@@ -21,6 +85,28 @@ impl BranchJoin {
             module,
             origin,
             arm_count,
+            kind: BranchJoinKind::Control,
+            predicate_discriminator: None,
+        }
+    }
+
+    pub(super) fn binding_choice(module: PythonSourceModule, origin: Origin, name: &str) -> Self {
+        Self {
+            module,
+            origin,
+            arm_count: 2,
+            kind: BranchJoinKind::BindingChoice,
+            predicate_discriminator: Some(name.to_string()),
+        }
+    }
+
+    pub(super) fn predicate(module: PythonSourceModule, identity: &PredicateIdentity) -> Self {
+        Self {
+            module: identity.module.clone().unwrap_or(module),
+            origin: identity.origin,
+            arm_count: 2,
+            kind: BranchJoinKind::Predicate,
+            predicate_discriminator: identity.discriminator.clone(),
         }
     }
 
@@ -29,9 +115,14 @@ impl BranchJoin {
     }
 
     fn identity_cmp(&self, other: &Self) -> Ordering {
-        self.module
-            .structural_cmp(&other.module)
+        self.kind
+            .cmp(&other.kind)
+            .then_with(|| self.module.structural_cmp(&other.module))
             .then_with(|| self.origin.structural_cmp(&other.origin))
+            .then_with(|| {
+                self.predicate_discriminator
+                    .cmp(&other.predicate_discriminator)
+            })
     }
 
     fn assert_same_domain(&self, other: &Self) {
@@ -39,6 +130,13 @@ impl BranchJoin {
             self.arm_count, other.arm_count,
             "one branch join coordinate cannot have two arm domains"
         );
+    }
+
+    #[cfg(test)]
+    fn predicate_for_test(origin: Origin) -> Self {
+        let mut join = Self::for_test(origin, 2);
+        join.kind = BranchJoinKind::Predicate;
+        join
     }
 
     #[cfg(test)]
@@ -70,9 +168,7 @@ impl From<Origin> for BranchJoin {
 
 impl StructuralOrd for BranchJoin {
     fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.module
-            .structural_cmp(&other.module)
-            .then_with(|| self.origin.structural_cmp(&other.origin))
+        self.identity_cmp(other)
             .then_with(|| self.arm_count.cmp(&other.arm_count))
     }
 }
@@ -138,9 +234,23 @@ impl ConstraintNode {
         other.collect_joins(&mut joins);
     }
 
+    fn widen_predicates(self) -> Self {
+        let mut joins = Vec::new();
+        self.collect_joins(&mut joins);
+        let mut predicates = joins
+            .into_iter()
+            .filter(|join| join.kind == BranchJoinKind::Predicate)
+            .collect::<Vec<_>>();
+        predicates.sort_by(BranchJoin::structural_cmp);
+        predicates
+            .iter()
+            .skip(MAX_TRACKED_PREDICATES)
+            .fold(self, |constraints, join| constraints.forget(join))
+    }
+
     fn union(&self, other: &Self) -> Self {
         self.assert_compatible_domains(other);
-        self.union_canonical(other)
+        self.union_canonical(other).widen_predicates()
     }
 
     fn union_canonical(&self, other: &Self) -> Self {
@@ -192,7 +302,7 @@ impl ConstraintNode {
 
     fn intersection(&self, other: &Self) -> Self {
         self.assert_compatible_domains(other);
-        self.intersection_canonical(other)
+        self.intersection_canonical(other).widen_predicates()
     }
 
     fn intersection_canonical(&self, other: &Self) -> Self {
@@ -317,6 +427,21 @@ impl BranchConstraints {
             .intersection(&ConstraintNode::selected(join, arm));
     }
 
+    /// Require one arm without forgetting an earlier requirement for the same
+    /// coordinate. Repeated predicate assumptions must conflict rather than
+    /// replace one another as repeated control-flow executions do.
+    pub(super) fn required(join: BranchJoin, arm: usize) -> Self {
+        Self {
+            root: Box::new(ConstraintNode::selected(join, arm)),
+        }
+    }
+
+    pub(super) fn impossible() -> Self {
+        Self {
+            root: Box::new(ConstraintNode::Impossible),
+        }
+    }
+
     pub(crate) fn merge(&mut self, other: Self) {
         let Self { root } = other;
         *self.root = self.root.union(&root);
@@ -355,6 +480,7 @@ mod tests {
     use super::BranchConstraints;
     use super::BranchJoin;
     use super::ConstraintNode;
+    use super::MAX_TRACKED_PREDICATES;
     use super::Origin;
     use super::PythonSourceModule;
     use super::StructuralOrd;
@@ -392,6 +518,52 @@ mod tests {
         BranchConstraints {
             root: Box::new(ConstraintNode::Impossible),
         }
+    }
+
+    #[test]
+    fn control_and_predicate_joins_at_one_origin_do_not_collide() {
+        let shared_origin = origin(0, 1);
+        let control = BranchJoin::for_test(shared_origin, 3);
+        let predicate = BranchJoin::predicate_for_test(shared_origin);
+        let constraints = BranchConstraints::required(control, 2)
+            .intersection(&BranchConstraints::required(predicate, 1));
+
+        assert!(!constraints.is_impossible());
+    }
+
+    #[test]
+    fn predicate_overflow_forgets_later_decisions() {
+        let joins = (1_u32..)
+            .take(MAX_TRACKED_PREDICATES + 1)
+            .map(|start| BranchJoin::predicate_for_test(origin(0, start)))
+            .collect::<Vec<_>>();
+        let constraints =
+            joins
+                .iter()
+                .fold(BranchConstraints::unconstrained(), |constraints, join| {
+                    constraints.intersection(&BranchConstraints::required(join.clone(), 1))
+                });
+
+        assert!(
+            !constraints.compatible_with(&BranchConstraints::required(joins[0].clone(), 0)),
+            "the earliest tracked predicate should remain required"
+        );
+        assert!(
+            constraints.compatible_with(&BranchConstraints::required(
+                joins[MAX_TRACKED_PREDICATES].clone(),
+                0,
+            )),
+            "overflow should conservatively forget the latest predicate"
+        );
+    }
+
+    #[test]
+    fn required_arms_for_one_join_conflict() {
+        let coordinate = BranchJoin::for_test(origin(0, 1), 2);
+        let falsy = BranchConstraints::required(coordinate.clone(), 0);
+        let truthy = BranchConstraints::required(coordinate, 1);
+
+        assert!(falsy.intersection(&truthy).is_impossible());
     }
 
     #[test]

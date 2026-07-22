@@ -13,6 +13,7 @@ use ruff_python_ast as ast;
 use super::BranchConstraints;
 use super::BranchJoin;
 use super::ChildImportFallback;
+use super::PredicateIdentity;
 use super::PythonBinding;
 use super::PythonBindingState;
 use super::PythonImportOutcome;
@@ -44,6 +45,17 @@ use crate::python::PythonPathIntrinsic;
 use crate::python::PythonSourceModule;
 use crate::python::PythonSyntaxError;
 
+fn merge_truth_guard(target: &mut Option<BranchConstraints>, incoming: BranchConstraints) {
+    if incoming.is_impossible() {
+        return;
+    }
+    if let Some(existing) = target {
+        existing.merge(incoming);
+    } else {
+        *target = Some(incoming);
+    }
+}
+
 pub(super) fn evaluate_body(
     db: &dyn ProjectDb,
     project: Project,
@@ -56,12 +68,14 @@ pub(super) fn evaluate_body(
     let state = PythonEvaluationState::with_path_intrinsic_contamination(
         module.file(),
         path_intrinsic_contamination,
+        Some(module.clone()),
     );
     let mut evaluator = PythonModuleEvaluator {
         db,
         project,
         module,
         state,
+        active_constraints: BranchConstraints::unconstrained(),
     };
     evaluator.evaluate_body(body);
     evaluator.state.finish(syntax_errors, syntax_impacts)
@@ -73,6 +87,12 @@ pub(super) struct PythonModuleEvaluator<'db> {
     project: Project,
     module: PythonSourceModule,
     pub(super) state: PythonEvaluationState,
+    pub(super) active_constraints: BranchConstraints,
+}
+
+struct TruthPartition {
+    truthy: BranchConstraints,
+    falsy: BranchConstraints,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +109,7 @@ impl PythonModuleEvaluator<'_> {
             project: self.project,
             module: self.module.clone(),
             state: self.state.clone(),
+            active_constraints: self.active_constraints.clone(),
         }
     }
 
@@ -107,12 +128,98 @@ impl PythonModuleEvaluator<'_> {
             PythonEvaluationState::join_indexed_branches(self.state.clone(), &branches, &join);
     }
 
+    fn join_guarded_forks(&mut self, forks: Vec<(usize, Self)>, origin: Origin, arm_count: usize) {
+        let branches = forks
+            .into_iter()
+            .map(|(arm, evaluator)| (arm, evaluator.active_constraints, evaluator.state))
+            .collect::<Vec<_>>();
+        let join = BranchJoin::new(self.module.clone(), origin, arm_count);
+        self.state =
+            PythonEvaluationState::join_guarded_branches(self.state.clone(), &branches, &join);
+    }
+
     pub(super) fn origin<T: RangedExt>(&self, ranged: &T) -> Origin {
         Origin::new(self.module.file(), ranged.span())
     }
 
     fn origin_at(&self, span: Span) -> Origin {
         Origin::new(self.module.file(), span)
+    }
+
+    fn truth_partition(
+        &self,
+        binding: &PythonBinding,
+        fallback_origin: Origin,
+        track_fallback: bool,
+    ) -> TruthPartition {
+        let mut truthy = None;
+        let mut falsy = None;
+
+        for (state, case_constraints, predicate_identity) in binding.alternatives_with_predicates()
+        {
+            let case_constraints = case_constraints.intersection(&self.active_constraints);
+            if case_constraints.is_impossible() {
+                continue;
+            }
+            match state {
+                PythonBindingState::Bound(bound) => match &bound.value.kind {
+                    PythonValueKind::Bool(true) | PythonValueKind::Module(_) => {
+                        merge_truth_guard(&mut truthy, case_constraints);
+                    }
+                    PythonValueKind::Bool(false) => {
+                        merge_truth_guard(&mut falsy, case_constraints);
+                    }
+                    PythonValueKind::Str(_)
+                    | PythonValueKind::Path(_)
+                    | PythonValueKind::UnsupportedLiteral
+                    | PythonValueKind::List(_)
+                    | PythonValueKind::Tuple(_)
+                    | PythonValueKind::Dict(_)
+                    | PythonValueKind::Unknown(_) => {
+                        if let Some(identity) = predicate_identity
+                            && (track_fallback || identity.origin() != fallback_origin)
+                        {
+                            self.add_ambiguous_truth_identity(
+                                &mut truthy,
+                                &mut falsy,
+                                &case_constraints,
+                                identity,
+                            );
+                        } else {
+                            merge_truth_guard(&mut truthy, case_constraints.clone());
+                            merge_truth_guard(&mut falsy, case_constraints);
+                        }
+                    }
+                },
+                PythonBindingState::Unbound => {
+                    merge_truth_guard(&mut truthy, case_constraints.clone());
+                    merge_truth_guard(&mut falsy, case_constraints);
+                }
+            }
+        }
+
+        TruthPartition {
+            truthy: truthy.unwrap_or_else(BranchConstraints::impossible),
+            falsy: falsy.unwrap_or_else(BranchConstraints::impossible),
+        }
+    }
+
+    fn add_ambiguous_truth_identity(
+        &self,
+        truthy: &mut Option<BranchConstraints>,
+        falsy: &mut Option<BranchConstraints>,
+        constraints: &BranchConstraints,
+        identity: &PredicateIdentity,
+    ) {
+        if constraints.is_impossible() {
+            return;
+        }
+        let join = BranchJoin::predicate(self.module.clone(), identity);
+        let falsy_constraints =
+            constraints.intersection(&BranchConstraints::required(join.clone(), 0));
+        let truthy_constraints = constraints.intersection(&BranchConstraints::required(join, 1));
+        merge_truth_guard(falsy, falsy_constraints);
+        merge_truth_guard(truthy, truthy_constraints);
     }
 
     pub(super) fn record_unsupported_call_effects(&mut self, expression: &ast::Expr) {
@@ -211,17 +318,19 @@ pub(super) struct PythonEvaluationState {
     /// `PythonModuleFacts` equality; only the complete internal result carries
     /// it out through `evaluate_python_module`.
     module_effects: PythonModuleEffects,
+    pub(super) predicate_module: Option<PythonSourceModule>,
 }
 
 impl PythonEvaluationState {
     #[cfg(test)]
     fn new(file: File) -> Self {
-        Self::with_path_intrinsic_contamination(file, PathIntrinsicContamination::default())
+        Self::with_path_intrinsic_contamination(file, PathIntrinsicContamination::default(), None)
     }
 
     fn with_path_intrinsic_contamination(
         file: File,
         path_intrinsic_contamination: PathIntrinsicContamination,
+        predicate_module: Option<PythonSourceModule>,
     ) -> Self {
         Self {
             bindings: BTreeMap::new(),
@@ -231,6 +340,7 @@ impl PythonEvaluationState {
             module_effects: PythonModuleEffects::with_path_intrinsic_contamination(
                 path_intrinsic_contamination,
             ),
+            predicate_module,
         }
     }
 
@@ -320,13 +430,21 @@ impl PythonEvaluationState {
     ///
     /// If the binding no longer has one bound value, retain that loss of
     /// precision as an unknown instead of treating it as an evaluator invariant.
-    fn update_bound_value(&mut self, name: &str, value: PythonValue, origin: Origin) {
-        if let Some(bound) = self
-            .bindings
-            .get_mut(name)
-            .and_then(PythonBinding::single_bound_mut)
-        {
-            bound.value = value;
+    fn update_bound_value(
+        &mut self,
+        name: &str,
+        value: PythonValue,
+        origin: Origin,
+        active_constraints: &BranchConstraints,
+    ) {
+        let updated = self.bindings.get(name).cloned().and_then(|binding| {
+            let mut binding = binding.intersect_constraints(active_constraints)?;
+            binding.single_bound_mut()?.value = value;
+            binding.replace_predicate_identities(name, origin, self.predicate_module.as_ref());
+            Some(binding)
+        });
+        if let Some(binding) = updated {
+            self.bindings.insert(name.to_string(), binding);
         } else {
             self.assign_value(
                 name,
@@ -336,8 +454,9 @@ impl PythonEvaluationState {
         }
     }
 
-    fn assign_binding(&mut self, name: &str, binding: PythonBinding, origin: Origin) {
+    fn assign_binding(&mut self, name: &str, mut binding: PythonBinding, origin: Origin) {
         self.mutations.retain(|mutation| mutation.binding != name);
+        binding.discriminate_predicates(name, origin, self.predicate_module.as_ref());
         self.bindings
             .insert(name.to_string(), binding.rebase_binding_origin(origin));
     }
@@ -346,9 +465,10 @@ impl PythonEvaluationState {
         &mut self,
         name: &str,
         source: &str,
-        binding: PythonBinding,
+        mut binding: PythonBinding,
         origin: Origin,
     ) {
+        binding.discriminate_predicates(name, origin, self.predicate_module.as_ref());
         self.bindings
             .insert(name.to_string(), binding.rebase_binding_origin(origin));
         let copied = self
@@ -454,9 +574,14 @@ impl PythonEvaluationState {
         &self,
         name: &str,
         path: &PythonMutationPath,
+        active_constraints: &BranchConstraints,
     ) -> Vec<String> {
         let mut wanted = ReachableAllocationSites::default();
-        let Some(binding) = self.binding(name) else {
+        let Some(binding) = self
+            .binding(name)
+            .cloned()
+            .and_then(|binding| binding.intersect_constraints(active_constraints))
+        else {
             return Vec::new();
         };
         for state in binding.alternatives() {
@@ -471,16 +596,23 @@ impl PythonEvaluationState {
         self.bindings
             .iter()
             .filter(|(candidate_name, candidate)| {
-                let occurrences = candidate.allocation_site_occurrences(&wanted);
+                let occurrences = (*candidate)
+                    .clone()
+                    .intersect_constraints(active_constraints)
+                    .map_or(0, |candidate| {
+                        candidate.allocation_site_occurrences(&wanted)
+                    });
                 occurrences > usize::from(candidate_name.as_str() == name)
             })
             .map(|(name, _binding)| name.clone())
             .collect()
     }
 
-    fn value_for_name(&self, name: &str) -> Option<PythonValue> {
-        let binding = self.binding(name)?;
-        Some(binding.single_bound()?.value.clone())
+    fn value_for_name(&self, name: &str, constraints: &BranchConstraints) -> Option<PythonValue> {
+        self.binding(name)?
+            .clone()
+            .intersect_constraints(constraints)?
+            .merged_semantic_value()
     }
 
     fn bool_value(&self, name: &str) -> Option<bool> {
@@ -526,8 +658,19 @@ impl PythonEvaluationState {
         let Some(unknown) = PythonBinding::constrained_unknown(cause, origin, constraints) else {
             return;
         };
-        for binding in self.bindings.values_mut() {
-            *binding = binding.clone().join(unknown.clone(), origin);
+        for (name, binding) in &mut self.bindings {
+            let mut degraded = unknown.clone();
+            degraded.discriminate_predicates(name, origin, self.predicate_module.as_ref());
+            if let Some(module) = &self.predicate_module {
+                let choice = BranchJoin::binding_choice(module.clone(), origin, name);
+                let mut prior = binding.clone();
+                prior.select_branch(choice.clone(), 0);
+                degraded.select_branch(choice, 1);
+                *binding = prior.join(degraded, origin);
+            } else {
+                *binding = binding.clone().join(degraded, origin);
+            }
+            binding.force_predicate_identity(name, origin, self.predicate_module.as_ref());
         }
     }
 
@@ -610,7 +753,8 @@ impl PythonEvaluationState {
             }
         }
         for name in names {
-            let unknown = PythonBinding::unknown(cause, origin);
+            let mut unknown = PythonBinding::unknown(cause, origin);
+            unknown.discriminate_predicates(&name, origin, self.predicate_module.as_ref());
             let binding = match self.bindings.remove(&name) {
                 Some(binding) => binding.join(unknown, origin),
                 None => unknown,
@@ -633,6 +777,7 @@ impl PythonEvaluationState {
                 mutations,
                 import_trace,
                 module_effects,
+                predicate_module: _,
             } = body;
             self.namespace_causes.extend(namespace_causes);
             self.mutations.extend(mutations);
@@ -693,6 +838,62 @@ impl PythonEvaluationState {
             .map(|(arm, branch)| (*arm, branch.module_effects.clone()))
             .collect::<Vec<_>>();
         base.module_effects = PythonModuleEffects::join_indexed_branches(&branch_effects, join);
+        base
+    }
+
+    fn join_guarded_branches(
+        mut base: Self,
+        branches: &[(usize, BranchConstraints, Self)],
+        join: &BranchJoin,
+    ) -> Self {
+        let origin = join.origin();
+        let names = branches
+            .iter()
+            .flat_map(|(_, _, branch)| branch.changed_names_from(&base))
+            .collect::<BTreeSet<_>>();
+        for name in names {
+            let mut joined: Option<PythonBinding> = None;
+            for (arm, constraints, branch) in branches {
+                let mut candidate = branch
+                    .binding(&name)
+                    .cloned()
+                    .unwrap_or_else(PythonBinding::unbound);
+                candidate.select_branch(join.to_owned(), *arm);
+                let candidate = candidate.intersect_constraints(constraints);
+                let Some(candidate) = candidate else {
+                    continue;
+                };
+                joined = Some(match joined {
+                    Some(current) => current.join(candidate, origin),
+                    None => candidate,
+                });
+            }
+            if let Some(binding) = joined {
+                base.bindings.insert(name, binding);
+            }
+        }
+
+        base.namespace_causes.clear();
+        base.mutations.clear();
+        base.import_trace = PythonImportTrace::default();
+        for (arm, constraints, branch) in branches {
+            base.namespace_causes
+                .extend(branch.namespace_causes.iter().filter_map(|cause| {
+                    let mut cause = cause.clone();
+                    cause.select_branch(join.to_owned(), *arm);
+                    cause.constraints = cause.constraints.intersection(constraints);
+                    (!cause.constraints.is_impossible()).then_some(cause)
+                }));
+            base.mutations.extend(branch.mutations.iter().cloned());
+            base.import_trace.absorb(&branch.import_trace);
+        }
+        let branch_effects = branches
+            .iter()
+            .map(|(arm, constraints, branch)| {
+                (*arm, constraints.clone(), branch.module_effects.clone())
+            })
+            .collect::<Vec<_>>();
+        base.module_effects = PythonModuleEffects::join_guarded_branches(&branch_effects, join);
         base
     }
 
@@ -933,14 +1134,14 @@ mod tests {
     fn loop_effect_degradation_aggregates_effects_and_degrades_changed_names() {
         let base = state_with_binding();
         let loop_origin = origin(6);
+        let mut loop_unknown =
+            PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, loop_origin);
+        loop_unknown.discriminate_predicates("VALUE", loop_origin, None);
         let expected_binding = base
             .binding("VALUE")
             .expect("the fixture binding should exist")
             .clone()
-            .join(
-                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, loop_origin),
-                loop_origin,
-            );
+            .join(loop_unknown, loop_origin);
         let mut first_mutation = mutation(PythonMutationOperation::Extend, 2);
         first_mutation.binding = "OTHER".to_string();
         let mut later_mutation = mutation(PythonMutationOperation::Append, 3);

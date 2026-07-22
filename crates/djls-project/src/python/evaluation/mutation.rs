@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use djls_source::Origin;
 use ruff_python_ast as ast;
 
+use super::BranchConstraints;
 use super::PythonBinding;
 use super::PythonBindingState;
 use super::PythonSequenceItem;
@@ -376,17 +377,24 @@ impl PythonEvaluationState {
         key_origin: Origin,
         value: &PythonBinding,
         origin: Origin,
+        active_constraints: &BranchConstraints,
     ) {
-        let mut stale_aliases = self.stale_alias_names_after_mutation(target.binding, &target.path);
-        let applied = value.single_bound().is_some_and(|assigned| {
+        let mut stale_aliases =
+            self.stale_alias_names_after_mutation(target.binding, &target.path, active_constraints);
+        let assigned = value
+            .clone()
+            .intersect_constraints(active_constraints)
+            .and_then(|binding| binding.merged_semantic_value());
+        let applied = assigned.as_ref().is_some_and(|assigned| {
             self.try_apply_mutation(
                 target,
                 &EvaluatedMutation::SetKey {
                     key,
                     key_origin,
-                    value: &assigned.value,
+                    value: assigned,
                 },
                 origin,
+                active_constraints,
             )
         });
         if applied {
@@ -412,11 +420,17 @@ impl PythonEvaluationState {
         target: MutationTarget<'_>,
         extension: &PythonValue,
         origin: Origin,
+        active_constraints: &BranchConstraints,
     ) {
         let binding = target.binding.to_string();
-        let mut stale_aliases = self.stale_alias_names_after_mutation(target.binding, &target.path);
-        let supported =
-            self.try_apply_mutation(&target, &EvaluatedMutation::Extend(extension), origin);
+        let mut stale_aliases =
+            self.stale_alias_names_after_mutation(target.binding, &target.path, active_constraints);
+        let supported = self.try_apply_mutation(
+            &target,
+            &EvaluatedMutation::Extend(extension),
+            origin,
+            active_constraints,
+        );
         let fact = target.into_fact(PythonMutationOperation::Extend, origin);
         if supported {
             self.invalidate_names(
@@ -441,10 +455,12 @@ impl PythonEvaluationState {
         &self,
         target: &MutationTarget<'_>,
         sites: &ReachableAllocationSites,
+        active_constraints: &BranchConstraints,
     ) -> bool {
         let receiver_sites = self
             .bindings
             .get(target.binding)
+            .and_then(|binding| binding.clone().intersect_constraints(active_constraints))
             .map(|binding| {
                 let mut sites = ReachableAllocationSites::default();
                 for alternative in binding.alternatives() {
@@ -464,17 +480,30 @@ impl PythonEvaluationState {
         target: &MutationTarget<'_>,
         mutation: &EvaluatedMutation<'_>,
         origin: Origin,
+        active_constraints: &BranchConstraints,
     ) -> bool {
-        if mutation
-            .embedded_sites()
-            .is_some_and(|sites| self.sites_reach_mutation_target(target, &sites))
-        {
+        if mutation.embedded_sites().is_some_and(|sites| {
+            self.sites_reach_mutation_target(target, &sites, active_constraints)
+        }) {
             return false;
         }
         let Some(binding) = self.bindings.get_mut(target.binding) else {
             return false;
         };
-        binding.try_mutate_all_bound(|value| target.path.try_apply_exact(value, mutation, origin))
+        let Some(feasible) = binding.clone().intersect_constraints(active_constraints) else {
+            return false;
+        };
+        *binding = feasible;
+        let applied = binding
+            .try_mutate_all_bound(|value| target.path.try_apply_exact(value, mutation, origin));
+        if applied {
+            binding.replace_predicate_identities(
+                target.binding,
+                origin,
+                self.predicate_module.as_ref(),
+            );
+        }
+        applied
     }
 }
 
@@ -505,9 +534,11 @@ impl PythonModuleEvaluator<'_> {
         };
         let origin = self.origin(call);
         let Some(operation) = PythonMutationOperation::from_method(attribute.attr.as_str()) else {
-            let mut receiver_aliases = self
-                .state
-                .stale_alias_names_after_mutation(target.binding, &target.path);
+            let mut receiver_aliases = self.state.stale_alias_names_after_mutation(
+                target.binding,
+                &target.path,
+                &self.active_constraints,
+            );
             if !receiver_aliases.iter().any(|name| name == target.binding) {
                 receiver_aliases.push(target.binding.to_string());
             }
@@ -520,9 +551,11 @@ impl PythonModuleEvaluator<'_> {
             );
             return;
         };
-        let mut stale_aliases = self
-            .state
-            .stale_alias_names_after_mutation(target.binding, &target.path);
+        let mut stale_aliases = self.state.stale_alias_names_after_mutation(
+            target.binding,
+            &target.path,
+            &self.active_constraints,
+        );
         let supported = self.try_apply_mutation_call(call, &target, operation, origin);
         if supported {
             self.state.invalidate_names(
@@ -606,7 +639,8 @@ impl PythonModuleEvaluator<'_> {
                 _,
             ) => return false,
         };
-        self.state.try_apply_mutation(target, &mutation, origin)
+        self.state
+            .try_apply_mutation(target, &mutation, origin, &self.active_constraints)
     }
 }
 
