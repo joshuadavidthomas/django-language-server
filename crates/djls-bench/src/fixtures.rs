@@ -4,6 +4,7 @@ use std::io;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_testing::Corpus;
@@ -75,6 +76,56 @@ pub fn model_fixtures() -> Result<&'static [Fixture], FixtureLoadError> {
         Ok(fixtures) => Ok(fixtures.as_slice()),
         Err(error) => Err(error.clone()),
     }
+}
+
+/// Derive a collision-free synthetic module name for a corpus model file.
+///
+/// The full-corpus benchmark merges files from many repositories into one graph. Encode the corpus
+/// entry and every relative path segment so repository versions stay distinct and directory names
+/// that are not Python identifiers remain valid benchmark inputs.
+#[must_use]
+pub fn model_benchmark_module_name(file: &Utf8Path) -> String {
+    let components = file
+        .components()
+        .filter_map(|component| match component {
+            Utf8Component::Normal(segment) => Some(segment),
+            Utf8Component::Prefix(_)
+            | Utf8Component::RootDir
+            | Utf8Component::CurDir
+            | Utf8Component::ParentDir => None,
+        })
+        .collect::<Vec<_>>();
+    let start = components
+        .iter()
+        .position(|component| *component == "repos")
+        .map_or(0, |repos| repos + 1);
+    let last = components.len().saturating_sub(1);
+
+    components[start..]
+        .iter()
+        .enumerate()
+        .map(|(index, segment)| {
+            let segment = if index + start == last {
+                segment.strip_suffix(".py").unwrap_or(segment)
+            } else {
+                segment
+            };
+            encode_model_module_segment(segment)
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+fn encode_model_module_segment(segment: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut encoded = String::with_capacity(1 + segment.len() * 2);
+    encoded.push('m');
+    for byte in segment.bytes() {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
 }
 
 pub(crate) fn crate_root() -> Utf8PathBuf {
@@ -290,10 +341,13 @@ fn collect_files(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::fmt::Write as _;
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
+    use djls_project::PythonModuleName;
+    use djls_testing::Corpus;
     use insta::assert_yaml_snapshot;
     use serde::Serialize;
     use sha2::Digest;
@@ -303,6 +357,7 @@ mod tests {
     use super::Fixture;
     use super::django_corpus_templates;
     use super::full_corpus_templates;
+    use super::model_benchmark_module_name;
     use super::model_fixtures;
     use super::python_fixtures;
     use super::read_corpus_templates;
@@ -377,6 +432,48 @@ mod tests {
             "fixture_identity_models",
             fixture_set_snapshot(model_fixtures().expect("model benchmark fixtures should load"))
         );
+    }
+
+    #[test]
+    fn model_benchmark_module_names_include_and_encode_corpus_entries() {
+        let path = Utf8Path::new(
+            ".corpus/repos/regular-django/examples/regular-django/example/users/models.py",
+        );
+        let other_entry = Utf8Path::new(
+            ".corpus/repos/regular_django/examples/regular-django/example/users/models.py",
+        );
+
+        let name = model_benchmark_module_name(path);
+        assert!(
+            PythonModuleName::parse(&name).is_ok(),
+            "synthetic benchmark module name should be valid: {name}"
+        );
+        assert_ne!(name, model_benchmark_module_name(other_entry));
+    }
+
+    #[test]
+    fn synchronized_corpus_model_module_names_are_unique_and_valid() {
+        let required = bench_corpus_is_required();
+        if !Corpus::is_available() {
+            assert!(!required, "model benchmark corpus is not synchronized");
+            eprintln!("model benchmark corpus is not synchronized; skipping module-name check");
+            return;
+        }
+
+        let corpus = Corpus::require().expect("benchmark corpus should load");
+        let paths = corpus.model_files_in(corpus.root());
+        let mut names = HashSet::with_capacity(paths.len());
+        for path in paths {
+            let name = model_benchmark_module_name(&path);
+            assert!(
+                PythonModuleName::parse(&name).is_ok(),
+                "synthetic module name for {path} should be valid: {name}"
+            );
+            assert!(
+                names.insert(name),
+                "model benchmark module names must be unique"
+            );
+        }
     }
 
     #[test]

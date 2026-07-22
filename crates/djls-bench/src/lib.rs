@@ -18,6 +18,7 @@ pub use fixtures::FixtureLoadError;
 pub use fixtures::ValidationErrorFixture;
 pub use fixtures::django_corpus_templates;
 pub use fixtures::full_corpus_templates;
+pub use fixtures::model_benchmark_module_name;
 pub use fixtures::model_fixtures;
 pub use fixtures::python_fixtures;
 pub use fixtures::template_fixtures;

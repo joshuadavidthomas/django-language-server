@@ -8,6 +8,7 @@ use djls_bench::Db;
 use djls_bench::FixtureLoadError;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::corpus_or_skip;
+use djls_bench::model_benchmark_module_name;
 use djls_bench::model_fixtures;
 use djls_bench::require;
 use djls_bench::require_some;
@@ -312,7 +313,7 @@ fn load_corpus_models_inner(
                 source,
             }
         })?;
-        let module_name = djls_testing::module_name_from_file(&path);
+        let module_name = model_benchmark_module_name(&path);
         let module_name = parse_module(&module_name)?;
         files.push((source, module_name));
     }
