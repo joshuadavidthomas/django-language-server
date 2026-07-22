@@ -244,6 +244,16 @@ pub(crate) enum RelationTargetUnresolvedReason {
     },
 }
 
+/// The declared `related_name` for a relation field.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(untagged)]
+pub(crate) enum RelatedName {
+    /// An explicit accessor-name template, before placeholder substitution.
+    Named(String),
+    /// Django's trailing-`+` convention: no reverse accessor exists.
+    Suppressed,
+}
+
 /// The kind of relation a Django model field represents.
 ///
 /// Each variant carries its own data, so fields that don't apply to a given
@@ -254,15 +264,15 @@ pub(crate) enum RelationTargetUnresolvedReason {
 pub(crate) enum RelationType {
     ForeignKey {
         target: Spanned<RelationTarget>,
-        related_name: Option<String>,
+        related_name: Option<RelatedName>,
     },
     OneToOne {
         target: Spanned<RelationTarget>,
-        related_name: Option<String>,
+        related_name: Option<RelatedName>,
     },
     ManyToMany {
         target: Spanned<RelationTarget>,
-        related_name: Option<String>,
+        related_name: Option<RelatedName>,
     },
     GenericForeignKey {
         ct_field: FieldName,
@@ -285,6 +295,13 @@ impl RelationType {
         target: Spanned<RelationTarget>,
         related_name: Option<String>,
     ) -> Option<Self> {
+        let related_name = related_name.map(|name| {
+            if name.ends_with('+') {
+                RelatedName::Suppressed
+            } else {
+                RelatedName::Named(name)
+            }
+        });
         match name {
             "ForeignKey" => Some(Self::ForeignKey {
                 target,
@@ -395,14 +412,20 @@ impl Relation {
         let lower = source_model.to_lowercase();
         match &self.relation_type {
             RelationType::ForeignKey { related_name, .. }
-            | RelationType::ManyToMany { related_name, .. } => Some(match related_name {
-                Some(name) => substitute_related_name(name, &lower, module_name),
-                None => format!("{lower}_set"),
-            }),
-            RelationType::OneToOne { related_name, .. } => Some(match related_name {
-                Some(name) => substitute_related_name(name, &lower, module_name),
-                None => lower,
-            }),
+            | RelationType::ManyToMany { related_name, .. } => match related_name {
+                Some(RelatedName::Named(name)) => {
+                    Some(substitute_related_name(name, &lower, module_name))
+                }
+                Some(RelatedName::Suppressed) => None,
+                None => Some(format!("{lower}_set")),
+            },
+            RelationType::OneToOne { related_name, .. } => match related_name {
+                Some(RelatedName::Named(name)) => {
+                    Some(substitute_related_name(name, &lower, module_name))
+                }
+                Some(RelatedName::Suppressed) => None,
+                None => Some(lower),
+            },
             RelationType::GenericForeignKey { .. } => None,
         }
     }
@@ -416,17 +439,19 @@ impl Relation {
         match &self.relation_type {
             RelationType::ForeignKey { related_name, .. }
             | RelationType::ManyToMany { related_name, .. } => match related_name {
-                Some(name) => {
+                Some(RelatedName::Named(name)) => {
                     template_related_name_matches(name, source_model, module_name, field_name)
                 }
+                Some(RelatedName::Suppressed) => false,
                 None => field_name
                     .strip_suffix("_set")
                     .is_some_and(|prefix| source_model.to_lowercase() == prefix),
             },
             RelationType::OneToOne { related_name, .. } => match related_name {
-                Some(name) => {
+                Some(RelatedName::Named(name)) => {
                     template_related_name_matches(name, source_model, module_name, field_name)
                 }
+                Some(RelatedName::Suppressed) => false,
                 None => source_model.to_lowercase() == field_name,
             },
             RelationType::GenericForeignKey { .. } => false,
@@ -1082,7 +1107,7 @@ mod tests {
                     },
                     test_span(10),
                 ),
-                related_name: Some("orders".into()),
+                related_name: Some(RelatedName::Named("orders".into())),
             },
         ));
 
@@ -1194,7 +1219,7 @@ mod tests {
                     },
                     test_span(10),
                 ),
-                related_name: Some("orders".into()),
+                related_name: Some(RelatedName::Named("orders".into())),
             },
         ));
 
@@ -1252,6 +1277,79 @@ mod tests {
     }
 
     #[test]
+    fn suppressed_related_names_have_no_reverse_accessor() {
+        for declared_name in ["+", "order+", "%(class)s+"] {
+            let relation_type = RelationType::from_field_class(
+                "ForeignKey",
+                Spanned::new(
+                    RelationTarget::Bare {
+                        name: ModelName::new("User"),
+                        import_reference: None,
+                    },
+                    test_span(10),
+                ),
+                Some(declared_name.into()),
+            )
+            .expect("ForeignKey should produce a relation type");
+            assert!(matches!(
+                relation_type,
+                RelationType::ForeignKey {
+                    related_name: Some(RelatedName::Suppressed),
+                    ..
+                }
+            ));
+            let relation = relation("user", relation_type);
+
+            assert_eq!(
+                relation.effective_related_name("Order", "shop.models"),
+                None
+            );
+            for candidate in ["+", "order+", "foo+"] {
+                assert!(!relation.effective_related_name_matches(
+                    "Order",
+                    "shop.models",
+                    candidate
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn named_related_name_still_matches_after_substitution() {
+        let relation_type = RelationType::from_field_class(
+            "ForeignKey",
+            Spanned::new(
+                RelationTarget::Bare {
+                    name: ModelName::new("User"),
+                    import_reference: None,
+                },
+                test_span(10),
+            ),
+            Some("%(class)s_orders".into()),
+        )
+        .expect("ForeignKey should produce a relation type");
+        assert!(matches!(
+            relation_type,
+            RelationType::ForeignKey {
+                related_name: Some(RelatedName::Named(ref name)),
+                ..
+            } if name == "%(class)s_orders"
+        ));
+        let relation = relation("user", relation_type);
+
+        assert!(relation.effective_related_name_matches(
+            "SpecialOrder",
+            "shop.models",
+            "specialorder_orders"
+        ));
+        assert!(!relation.effective_related_name_matches(
+            "SpecialOrder",
+            "shop.models",
+            "specialorder_set"
+        ));
+    }
+
+    #[test]
     fn class_substitution_in_related_name() {
         let rel = relation(
             "user",
@@ -1263,7 +1361,7 @@ mod tests {
                     },
                     test_span(10),
                 ),
-                related_name: Some("%(class)s_orders".into()),
+                related_name: Some(RelatedName::Named("%(class)s_orders".into())),
             },
         );
         assert_eq!(
@@ -1284,7 +1382,9 @@ mod tests {
                     },
                     test_span(10),
                 ),
-                related_name: Some("attached_%(app_label)s_%(class)s_set".into()),
+                related_name: Some(RelatedName::Named(
+                    "attached_%(app_label)s_%(class)s_set".into(),
+                )),
             },
         );
         assert_eq!(
@@ -1305,7 +1405,7 @@ mod tests {
                     },
                     test_span(10),
                 ),
-                related_name: Some("%(app_label)s_%(class)s_set".into()),
+                related_name: Some(RelatedName::Named("%(app_label)s_%(class)s_set".into())),
             },
         );
         assert_eq!(
@@ -1328,7 +1428,7 @@ mod tests {
                     },
                     test_span(10),
                 ),
-                related_name: Some("%(app_label)s_%(class)s_set".into()),
+                related_name: Some(RelatedName::Named("%(app_label)s_%(class)s_set".into())),
             },
         );
         assert_eq!(
@@ -1350,7 +1450,7 @@ mod tests {
                     },
                     test_span(10),
                 ),
-                related_name: Some("%(app_label)s_set".into()),
+                related_name: Some(RelatedName::Named("%(app_label)s_set".into())),
             },
         );
         assert_eq!(

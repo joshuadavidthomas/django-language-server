@@ -709,6 +709,72 @@ class Profile(models.Model):
 }
 
 #[test]
+fn trailing_plus_related_names_create_no_reverse_accessor() {
+    let source = r#"
+from django.db import models
+
+class User(models.Model):
+    pass
+
+class Order(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="orders")
+
+class HiddenOrder(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="+")
+
+class TemplatedHiddenOrder(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="%(class)s+")
+"#;
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/accounts/models.py", source)
+        .build(&db)
+        .expect("related-name suppression fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let user =
+        model_id(graph, "User", "accounts.models").expect("model fixture should contain User");
+
+    let order =
+        model_id(graph, "Order", "accounts.models").expect("model fixture should contain Order");
+    let hidden_order = model_id(graph, "HiddenOrder", "accounts.models")
+        .expect("model fixture should contain HiddenOrder");
+    let templated_hidden_order = model_id(graph, "TemplatedHiddenOrder", "accounts.models")
+        .expect("model fixture should contain TemplatedHiddenOrder");
+    let resolved = graph
+        .resolve_relation(user, "orders")
+        .expect("ordinary related_name should create a reverse accessor");
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(order)
+            .expect("ordinary reverse relation target should resolve")
+    ));
+
+    for absent_accessor in [
+        "+",
+        "hiddenorder+",
+        "templatedhiddenorder+",
+        "hiddenorder_set",
+        "templatedhiddenorder_set",
+    ] {
+        assert_eq!(graph.resolve_relation(user, absent_accessor), None);
+    }
+
+    for source in [hidden_order, templated_hidden_order] {
+        let resolved = graph
+            .resolve_relation(source, "user")
+            .expect("suppression should not affect forward resolution");
+        assert!(ptr::eq(
+            resolved,
+            graph
+                .get_by_id(user)
+                .expect("suppressed relation target should resolve")
+        ));
+    }
+}
+
+#[test]
 fn self_relation_resolves_to_scope_model() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")

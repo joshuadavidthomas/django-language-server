@@ -42,7 +42,7 @@ models:
           span:
             start: 91973
             length: 4
-        related_name: +
+        related_name: ~
     kind: concrete
   src.backend.InvenTree.common.models.EmailMessage:
     name:

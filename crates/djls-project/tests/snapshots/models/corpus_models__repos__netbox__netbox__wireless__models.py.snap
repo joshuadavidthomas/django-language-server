@@ -88,7 +88,7 @@ models:
           span:
             start: 3744
             length: 16
-        related_name: +
+        related_name: ~
       - field_name:
           value: interface_b
           span:
@@ -103,7 +103,7 @@ models:
           span:
             start: 3915
             length: 16
-        related_name: +
+        related_name: ~
       - field_name:
           value: tenant
           span:
@@ -133,7 +133,7 @@ models:
           span:
             start: 4712
             length: 13
-        related_name: +
+        related_name: ~
       - field_name:
           value: _interface_b_device
           span:
@@ -148,5 +148,5 @@ models:
           span:
             start: 4887
             length: 13
-        related_name: +
+        related_name: ~
     kind: concrete

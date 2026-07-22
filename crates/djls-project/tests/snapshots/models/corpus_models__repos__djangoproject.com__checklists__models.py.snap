@@ -89,7 +89,7 @@ models:
           span:
             start: 7777
             length: 7
-        related_name: +
+        related_name: ~
       - field_name:
           value: eol_release
           span:
@@ -103,7 +103,7 @@ models:
           span:
             start: 7904
             length: 7
-        related_name: +
+        related_name: ~
     kind: concrete
   checklists.models.PreRelease:
     name:

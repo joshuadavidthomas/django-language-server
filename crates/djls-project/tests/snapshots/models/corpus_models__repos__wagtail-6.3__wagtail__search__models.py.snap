@@ -24,7 +24,7 @@ models:
           span:
             start: 1804
             length: 11
-        related_name: +
+        related_name: ~
       - field_name:
           value: content_object
           span:
@@ -55,7 +55,7 @@ models:
           span:
             start: 1804
             length: 11
-        related_name: +
+        related_name: ~
       - field_name:
           value: content_object
           span:
@@ -86,7 +86,7 @@ models:
           span:
             start: 1804
             length: 11
-        related_name: +
+        related_name: ~
       - field_name:
           value: content_object
           span:
@@ -117,7 +117,7 @@ models:
           span:
             start: 1804
             length: 11
-        related_name: +
+        related_name: ~
       - field_name:
           value: content_object
           span:

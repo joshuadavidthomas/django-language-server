@@ -38,7 +38,7 @@ models:
           span:
             start: 21897
             length: 4
-        related_name: +
+        related_name: ~
     kind: concrete
   src.backend.InvenTree.order.models.ReturnOrder:
     name:
@@ -98,7 +98,7 @@ models:
           span:
             start: 47047
             length: 4
-        related_name: +
+        related_name: ~
     kind: concrete
   src.backend.InvenTree.order.models.SalesOrderAllocation:
     name:

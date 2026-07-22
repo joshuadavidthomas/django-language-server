@@ -205,7 +205,7 @@ models:
           span:
             start: 22772
             length: 14
-        related_name: +
+        related_name: ~
     kind: concrete
   readthedocs.projects.models.ProjectRelationship:
     name:

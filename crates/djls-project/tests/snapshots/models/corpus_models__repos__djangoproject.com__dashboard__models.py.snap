@@ -41,7 +41,7 @@ models:
           span:
             start: 8342
             length: 11
-        related_name: +
+        related_name: ~
     kind: concrete
   dashboard.models.GitHubSearchCountMetric:
     name:
