@@ -9,6 +9,7 @@ use djls_source::Origin;
 use rustc_hash::FxHashSet;
 
 use super::BranchConstraints;
+use super::BranchJoin;
 use super::PythonBinding;
 use super::PythonModuleEffects;
 use super::PythonMutation;
@@ -74,7 +75,7 @@ impl PythonNamespaceCause {
         }
     }
 
-    pub(super) fn select_branch(&mut self, join: Origin, arm: usize) {
+    pub(super) fn select_branch(&mut self, join: impl Into<BranchJoin>, arm: usize) {
         self.constraints.select(join, arm);
     }
 }

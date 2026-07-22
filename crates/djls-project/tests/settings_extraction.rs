@@ -6430,6 +6430,52 @@ fn relative_import_cycle_uses_module_identities_in_overlapping_roots() {
 }
 
 #[test]
+fn branch_constraints_distinguish_overlapping_root_module_identities() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "from lib.pkg.branch import VALUE as ROOT_VALUE\nfrom pkg.branch import VALUE as NESTED_VALUE\nPAIR = (ROOT_VALUE, NESTED_VALUE)\n",
+    )
+    .expect("settings-extraction test file should be added");
+    db.add_file(
+        "/project/lib/pkg/branch.py",
+        "if FLAG:\n    VALUE = 'left'\nelse:\n    VALUE = 'right'\n",
+    )
+    .expect("settings-extraction test file should be added");
+    let project = python_project_with_paths(&db, &[Utf8PathBuf::from("/project/lib")]);
+    let settings = db
+        .file(Utf8Path::new("/project/settings.py"))
+        .expect("settings-extraction test file should exist");
+
+    let evaluation = python_module_evaluation(&db, project, settings)
+        .expect("Python file should map to a module");
+    let pairs = evaluation
+        .binding("PAIR")
+        .expect("PAIR binding should exist")
+        .alternatives
+        .iter()
+        .filter_map(|alternative| {
+            let PythonBindingAlternativeView::Bound(bound) = alternative else {
+                return None;
+            };
+            string_list_items(&bound.value)
+        })
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        pairs,
+        [
+            vec!["str:left".to_string(), "str:left".to_string()],
+            vec!["str:left".to_string(), "str:right".to_string()],
+            vec!["str:right".to_string(), "str:left".to_string()],
+            vec!["str:right".to_string(), "str:right".to_string()],
+        ]
+        .into_iter()
+        .collect()
+    );
+}
+
+#[test]
 fn typed_module_order_disjoint_import_cycles_are_root_order_independent() {
     let cycle_edges = |settings_source| {
         let db = TestDatabase::new();
@@ -7676,6 +7722,30 @@ fn ambiguous_installed_apps_insert_and_remove_are_dynamic() {
             assert!(!cases[0].to_string().contains("known"), "{source}");
         }
     }
+}
+
+#[test]
+fn handler_if_uses_stable_arms_across_try_prefixes() {
+    let source = "try:\n    B = True\n    MARKER = 1\nexcept Exception:\n    if A:\n        VALUE = 'a'\n    elif B:\n        VALUE = 'b'\n    else:\n        VALUE = 'c'\n";
+    let (_file, evaluation) =
+        evaluate_module(source).expect("Python evaluation fixture should build");
+    let values = evaluation
+        .binding("VALUE")
+        .expect("handler binding should exist")
+        .alternatives
+        .iter()
+        .filter_map(|alternative| {
+            let PythonBindingAlternativeView::Bound(bound) = alternative else {
+                return None;
+            };
+            let PythonValueKindView::Str(value) = &bound.value.kind else {
+                return None;
+            };
+            Some(value.as_str())
+        })
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(values, ["a", "b", "c"].into_iter().collect());
 }
 
 #[test]

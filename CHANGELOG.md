@@ -79,6 +79,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed project reloads so an analysis task panic no longer prevents later reloads.
 - Fixed Django relative template paths (`./`, `../`) in `{% extends %}` and `{% include %}` resolution, including inheritance chains, document links, goto definition, and find references.
 - Fixed false tag argument errors for manually parsed tags that strip trailing assignment clauses, such as `{% now ... as var %}` and `{% url ... as var %}`.
+- Fixed static Django settings analysis hanging on projects with many conditional module effects.
 
 ## [6.0.3]
 
