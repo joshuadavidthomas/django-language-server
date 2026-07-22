@@ -85,6 +85,7 @@ pub(crate) enum PythonPathIntrinsic {
     OsPathModule,
     OsPathJoinFunction,
     OsPathDirnameFunction,
+    OsPathAbspathFunction,
 }
 
 impl PythonPathIntrinsic {
@@ -123,6 +124,7 @@ impl PythonPathIntrinsic {
             (Some("os"), "path") => Some(Self::OsPathModule),
             (Some("os.path"), "join") => Some(Self::OsPathJoinFunction),
             (Some("os.path"), "dirname") => Some(Self::OsPathDirnameFunction),
+            (Some("os.path"), "abspath") => Some(Self::OsPathAbspathFunction),
             _ => None,
         }
     }
@@ -134,7 +136,8 @@ impl PythonPathIntrinsic {
             Self::OsModule
             | Self::OsPathModule
             | Self::OsPathJoinFunction
-            | Self::OsPathDirnameFunction => PythonPathNamespace::Os,
+            | Self::OsPathDirnameFunction
+            | Self::OsPathAbspathFunction => PythonPathNamespace::Os,
         }
     }
 
@@ -149,6 +152,7 @@ impl PythonPathIntrinsic {
             (Self::OsModule, "path") => Some(Self::OsPathModule),
             (Self::OsPathModule, "join") => Some(Self::OsPathJoinFunction),
             (Self::OsPathModule, "dirname") => Some(Self::OsPathDirnameFunction),
+            (Self::OsPathModule, "abspath") => Some(Self::OsPathAbspathFunction),
             _ => None,
         }
     }
@@ -163,6 +167,7 @@ impl PythonPathIntrinsic {
             Self::OsPathModule => 5,
             Self::OsPathJoinFunction => 6,
             Self::OsPathDirnameFunction => 7,
+            Self::OsPathAbspathFunction => 8,
         }
     }
 }

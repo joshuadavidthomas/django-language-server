@@ -103,6 +103,7 @@ pub enum PythonPathIntrinsicView {
     OsPathModule,
     OsPathJoinFunction,
     OsPathDirnameFunction,
+    OsPathAbspathFunction,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -414,6 +415,9 @@ fn path_intrinsic_view(intrinsic: crate::python::PythonPathIntrinsic) -> PythonP
         }
         crate::python::PythonPathIntrinsic::OsPathDirnameFunction => {
             PythonPathIntrinsicView::OsPathDirnameFunction
+        }
+        crate::python::PythonPathIntrinsic::OsPathAbspathFunction => {
+            PythonPathIntrinsicView::OsPathAbspathFunction
         }
     }
 }
