@@ -798,6 +798,7 @@ mod tests {
     use super::extract_models_impl;
     use super::*;
     use crate::models::graph::ModelId;
+    use crate::models::graph::RelatedName;
 
     fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
         let db = TestDatabase::new();
@@ -1127,7 +1128,10 @@ class Order(models.Model):
         let rel = &model(&graph, "Order").relations[0];
         assert!(matches!(
             rel.relation_type,
-            RelationType::ForeignKey { ref related_name, .. } if related_name.as_deref() == Some("orders")
+            RelationType::ForeignKey {
+                related_name: Some(RelatedName::Named(ref name)),
+                ..
+            } if name == "orders"
         ));
         assert_eq!(
             rel.effective_related_name("Order", "shop.models"),

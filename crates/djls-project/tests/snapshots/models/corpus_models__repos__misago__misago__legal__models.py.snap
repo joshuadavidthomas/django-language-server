@@ -26,7 +26,7 @@ models:
           span:
             start: 1814
             length: 24
-        related_name: +
+        related_name: ~
       - field_name:
           value: last_modified_by
           span:
@@ -42,7 +42,7 @@ models:
           span:
             start: 2141
             length: 24
-        related_name: +
+        related_name: ~
     kind: concrete
   misago.legal.models.UserAgreement:
     name:

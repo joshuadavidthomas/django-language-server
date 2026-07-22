@@ -42,7 +42,7 @@ models:
           span:
             start: 598
             length: 24
-        related_name: +
+        related_name: ~
       - field_name:
           value: category
           span:
