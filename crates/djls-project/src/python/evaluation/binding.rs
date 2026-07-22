@@ -4,6 +4,7 @@ use std::mem;
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::BranchJoin;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 use super::OriginSet;
 use super::PythonUnknownCause;
@@ -182,9 +183,10 @@ impl PythonBinding {
         self
     }
 
-    pub(super) fn select_branch(&mut self, join: Origin, arm: usize) {
+    pub(super) fn select_branch(&mut self, join: impl Into<BranchJoin>, arm: usize) {
+        let join = join.into();
         for case in &mut self.cases {
-            case.constraints.select(join, arm);
+            case.constraints.select(join.clone(), arm);
         }
     }
 

@@ -11,6 +11,7 @@ use djls_source::Span;
 use ruff_python_ast as ast;
 
 use super::BranchConstraints;
+use super::BranchJoin;
 use super::ChildImportFallback;
 use super::PythonBinding;
 use super::PythonBindingState;
@@ -91,11 +92,18 @@ impl PythonModuleEvaluator<'_> {
     }
 
     fn join_forks(&mut self, forks: Vec<Self>, origin: Origin) {
+        let arm_count = forks.len();
+        self.join_indexed_forks(forks.into_iter().enumerate().collect(), origin, arm_count);
+    }
+
+    fn join_indexed_forks(&mut self, forks: Vec<(usize, Self)>, origin: Origin, arm_count: usize) {
         let branches = forks
             .into_iter()
-            .map(|evaluator| evaluator.state)
+            .map(|(arm, evaluator)| (arm, evaluator.state))
             .collect::<Vec<_>>();
-        self.state = PythonEvaluationState::join_branches(self.state.clone(), &branches, origin);
+        let join = BranchJoin::new(self.module.clone(), origin, arm_count);
+        self.state =
+            PythonEvaluationState::join_indexed_branches(self.state.clone(), &branches, &join);
     }
 
     pub(super) fn origin<T: RangedExt>(&self, ranged: &T) -> Origin {
@@ -637,19 +645,24 @@ impl PythonEvaluationState {
         self
     }
 
-    fn join_branches(mut base: Self, branches: &[Self], origin: Origin) -> Self {
+    fn join_indexed_branches(
+        mut base: Self,
+        branches: &[(usize, Self)],
+        join: &BranchJoin,
+    ) -> Self {
+        let origin = join.origin();
         let names = branches
             .iter()
-            .flat_map(|branch| branch.changed_names_from(&base))
+            .flat_map(|(_, branch)| branch.changed_names_from(&base))
             .collect::<BTreeSet<_>>();
         for name in names {
             let mut joined: Option<PythonBinding> = None;
-            for (arm, branch) in branches.iter().enumerate() {
+            for (arm, branch) in branches {
                 let mut candidate = branch
                     .binding(&name)
                     .cloned()
                     .unwrap_or_else(PythonBinding::unbound);
-                candidate.select_branch(origin, arm);
+                candidate.select_branch(join.to_owned(), *arm);
                 joined = Some(match joined {
                     Some(current) => current.join(candidate, origin),
                     None => candidate,
@@ -662,10 +675,10 @@ impl PythonEvaluationState {
         base.namespace_causes.clear();
         base.mutations.clear();
         base.import_trace = PythonImportTrace::default();
-        for (arm, branch) in branches.iter().enumerate() {
+        for (arm, branch) in branches {
             base.namespace_causes
                 .extend(branch.namespace_causes.iter().cloned().map(|mut cause| {
-                    cause.select_branch(origin, arm);
+                    cause.select_branch(join.to_owned(), *arm);
                     cause
                 }));
             base.mutations.extend(branch.mutations.iter().cloned());
@@ -673,10 +686,17 @@ impl PythonEvaluationState {
         }
         let branch_effects = branches
             .iter()
-            .map(|branch| branch.module_effects.clone())
+            .map(|(arm, branch)| (*arm, branch.module_effects.clone()))
             .collect::<Vec<_>>();
-        base.module_effects = PythonModuleEffects::join_branches(&branch_effects, origin);
+        base.module_effects = PythonModuleEffects::join_indexed_branches(&branch_effects, join);
         base
+    }
+
+    #[cfg(test)]
+    fn join_branches(base: Self, branches: &[Self], origin: Origin) -> Self {
+        let indexed = branches.iter().cloned().enumerate().collect::<Vec<_>>();
+        let join = origin.into();
+        Self::join_indexed_branches(base, &indexed, &join)
     }
 
     fn changed_names_from(&self, base: &Self) -> BTreeSet<String> {

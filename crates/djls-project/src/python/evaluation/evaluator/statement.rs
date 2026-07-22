@@ -89,10 +89,13 @@ impl PythonModuleEvaluator<'_> {
     }
 
     fn walk_if(&mut self, stmt_if: &ast::StmtIf) {
+        let clauses = &stmt_if.elif_else_clauses;
+        let arm_count = 1
+            + clauses.len()
+            + usize::from(clauses.last().is_none_or(|clause| clause.test.is_some()));
         match self.test_truthiness(&stmt_if.test) {
             Truthiness::AlwaysTrue => self.evaluate_body(&stmt_if.body),
             Truthiness::AlwaysFalse => {
-                let clauses = &stmt_if.elif_else_clauses;
                 let control_span = stmt_if.span();
                 for (index, clause) in clauses.iter().enumerate() {
                     let Some(test) = &clause.test else {
@@ -107,15 +110,23 @@ impl PythonModuleEvaluator<'_> {
                         }
                         Truthiness::AlwaysFalse => {}
                         Truthiness::Ambiguous => {
-                            self.join_reachable_if_bodies(None, &clauses[index..], control_span);
+                            self.join_reachable_if_bodies(
+                                None,
+                                &clauses[index..],
+                                index + 1,
+                                arm_count,
+                                control_span,
+                            );
                             return;
                         }
                     }
                 }
             }
             Truthiness::Ambiguous => self.join_reachable_if_bodies(
-                Some(&stmt_if.body),
-                &stmt_if.elif_else_clauses,
+                Some((0, &stmt_if.body)),
+                clauses,
+                1,
+                arm_count,
                 stmt_if.span(),
             ),
         }
@@ -123,8 +134,10 @@ impl PythonModuleEvaluator<'_> {
 
     fn join_reachable_if_bodies(
         &mut self,
-        first_body: Option<&[ast::Stmt]>,
+        first_body: Option<(usize, &[ast::Stmt])>,
         clauses: &[ast::ElifElseClause],
+        first_clause_arm: usize,
+        arm_count: usize,
         control_span: Span,
     ) {
         let mut bodies = Vec::with_capacity(clauses.len() + 2);
@@ -133,34 +146,35 @@ impl PythonModuleEvaluator<'_> {
         }
 
         let mut has_fallthrough = true;
-        for clause in clauses {
+        for (offset, clause) in clauses.iter().enumerate() {
+            let arm = first_clause_arm + offset;
             let Some(test) = &clause.test else {
-                bodies.push(clause.body.as_slice());
+                bodies.push((arm, clause.body.as_slice()));
                 has_fallthrough = false;
                 break;
             };
 
             match self.test_truthiness(test) {
                 Truthiness::AlwaysTrue => {
-                    bodies.push(clause.body.as_slice());
+                    bodies.push((arm, clause.body.as_slice()));
                     has_fallthrough = false;
                     break;
                 }
                 Truthiness::AlwaysFalse => {}
-                Truthiness::Ambiguous => bodies.push(clause.body.as_slice()),
+                Truthiness::Ambiguous => bodies.push((arm, clause.body.as_slice())),
             }
         }
         if has_fallthrough {
-            bodies.push(&[]);
+            bodies.push((arm_count - 1, &[]));
         }
 
         let mut branches = Vec::with_capacity(bodies.len());
-        for body in bodies {
+        for (arm, body) in bodies {
             let mut branch = self.fork();
             branch.evaluate_body(body);
-            branches.push(branch);
+            branches.push((arm, branch));
         }
-        self.join_forks(branches, self.origin_at(control_span));
+        self.join_indexed_forks(branches, self.origin_at(control_span), arm_count);
     }
 
     fn walk_try(&mut self, stmt_try: &ast::StmtTry) {

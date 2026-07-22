@@ -10,6 +10,7 @@ use std::cmp::Ordering;
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::BranchJoin;
 use super::PythonBinding;
 use super::PythonBindingState;
 use super::PythonNamespaceCause;
@@ -409,9 +410,10 @@ impl PythonModuleEffects {
     /// Branch join: contribute `Unbound` for a branch that did not attach a
     /// coordinate, then normalize with `PythonBinding::join`. Each open cause is
     /// retained under its branch constraints.
-    pub(crate) fn join_branches(branches: &[Self], origin: Origin) -> Self {
+    pub(super) fn join_indexed_branches(branches: &[(usize, Self)], join: &BranchJoin) -> Self {
+        let origin = join.origin();
         let mut keys: Vec<(PythonModule, String)> = Vec::new();
-        for branch in branches {
+        for (_, branch) in branches {
             for child in &branch.children {
                 let key = (child.object.clone(), child.attribute.clone());
                 if !keys.contains(&key) {
@@ -423,12 +425,12 @@ impl PythonModuleEffects {
         let mut joined = Self::default();
         for (object, attribute) in keys {
             let mut binding: Option<PythonBinding> = None;
-            for (arm, branch) in branches.iter().enumerate() {
+            for (arm, branch) in branches {
                 let mut candidate = branch
                     .read_child(&object, &attribute)
                     .cloned()
                     .unwrap_or_else(PythonBinding::unbound);
-                candidate.select_branch(origin, arm);
+                candidate.select_branch(join.to_owned(), *arm);
                 binding = Some(match binding {
                     Some(current) => current.join(candidate, origin),
                     None => candidate,
@@ -443,10 +445,10 @@ impl PythonModuleEffects {
             }
         }
 
-        for (arm, branch) in branches.iter().enumerate() {
+        for (arm, branch) in branches {
             for entry in &branch.causes {
                 let mut cause = entry.cause.clone();
-                cause.select_branch(origin, arm);
+                cause.select_branch(join.to_owned(), *arm);
                 joined.causes.push(ModuleEffectCause {
                     object: entry.object.clone(),
                     cause,
@@ -459,6 +461,13 @@ impl PythonModuleEffects {
 
         joined.normalize();
         joined
+    }
+
+    #[cfg(test)]
+    fn join_branches(branches: &[Self], origin: Origin) -> Self {
+        let indexed = branches.iter().cloned().enumerate().collect::<Vec<_>>();
+        let join = origin.into();
+        Self::join_indexed_branches(&indexed, &join)
     }
 
     /// Zero-iteration loop degradation: the baseline (`self`) path is included,
@@ -556,16 +565,20 @@ impl PythonModuleEffects {
     fn normalize(&mut self) {
         self.children.sort_by(ModuleChildCoordinate::structural_cmp);
 
-        // Open causes preserve first-seen order with exact full-value dedup: no
-        // structural sort and no cause-kind coalescing, so distinct origins or
-        // constraints stay as distinct open causes.
-        let mut deduped: Vec<ModuleEffectCause> = Vec::new();
+        // Open causes preserve first-seen order. Identical object-scoped
+        // unknowns merge their path constraints so complete branch domains can
+        // collapse, while distinct origins remain separate evidence.
+        let mut normalized: Vec<ModuleEffectCause> = Vec::new();
         for entry in std::mem::take(&mut self.causes) {
-            if !deduped.contains(&entry) {
-                deduped.push(entry);
+            if let Some(existing) = normalized.iter_mut().find(|existing| {
+                existing.object == entry.object && existing.cause.unknown == entry.cause.unknown
+            }) {
+                existing.cause.constraints.merge(entry.cause.constraints);
+            } else {
+                normalized.push(entry);
             }
         }
-        self.causes = deduped;
+        self.causes = normalized;
     }
 }
 
@@ -798,6 +811,21 @@ mod tests {
             .read_child(&parent, "child")
             .expect("coordinate present");
         assert_eq!(binding.alternatives().len(), 2);
+    }
+
+    #[test]
+    fn branch_join_collapses_identical_causes_across_complete_domain() {
+        let object = source("pkg", 1);
+        let mut left = PythonModuleEffects::default();
+        left.open_cause(object.clone(), cause(1));
+        let mut right = PythonModuleEffects::default();
+        right.open_cause(object.clone(), cause(1));
+
+        let joined = PythonModuleEffects::join_branches(&[left, right], origin(10));
+        let causes: Vec<_> = joined.causes_for(&object).collect();
+
+        assert_eq!(causes.len(), 1);
+        assert_eq!(causes[0].constraints, BranchConstraints::unconstrained());
     }
 
     #[test]
