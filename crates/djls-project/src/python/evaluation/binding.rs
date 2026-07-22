@@ -130,7 +130,8 @@ impl PythonBinding {
                 }
                 PythonBindingState::Unbound => None,
             })
-            .sum()
+            .max()
+            .unwrap_or(0)
     }
 
     pub(super) fn single_bound(&self) -> Option<&PythonBoundValue> {
@@ -157,6 +158,23 @@ impl PythonBinding {
             return None;
         };
         Some(bound)
+    }
+
+    pub(super) fn try_mutate_all_bound(
+        &mut self,
+        mut mutate: impl FnMut(&mut PythonValue) -> bool,
+    ) -> bool {
+        let mut candidate = self.clone();
+        for state in candidate.alternatives_mut() {
+            let PythonBindingState::Bound(bound) = state else {
+                return false;
+            };
+            if !mutate(&mut bound.value) {
+                return false;
+            }
+        }
+        *self = candidate;
+        true
     }
 
     pub(super) fn rebase_cycle_unknowns(&mut self, origin: Origin) {
