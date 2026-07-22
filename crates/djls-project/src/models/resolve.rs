@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 
 use djls_source::Span;
 use djls_source::Spanned;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 
 use crate::db::Db;
 use crate::models::extract::ExtractedBaseRef;
@@ -58,7 +59,7 @@ enum ClassBaseUnresolvedReason {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum MroEntry {
     DjangoModelRoot,
     Class(ClassId),
@@ -125,8 +126,8 @@ fn assemble_model_graph(
     policy: AdmissionPolicy,
     mut resolve_base: impl FnMut(&ExtractedClass, &ExtractedBaseRef) -> ResolvedClassBase,
 ) -> ModelGraph {
-    let mut occurrences: BTreeMap<ClassId, Vec<ClassOccurrence>> = BTreeMap::new();
-    let mut winners = BTreeMap::new();
+    let mut occurrences: FxHashMap<ClassId, Vec<ClassOccurrence>> = FxHashMap::default();
+    let mut winners = FxHashMap::default();
 
     // Keep each declaration until occurrence-local rebinding has been resolved;
     // only then does the final module/name winner replace earlier declarations.
@@ -143,12 +144,12 @@ fn assemble_model_graph(
             });
         winners.insert(id, class);
     }
-    let selected_spans: BTreeMap<ClassId, Span> = winners
+    let selected_spans: FxHashMap<ClassId, Span> = winners
         .iter()
         .map(|(id, class)| (id.clone(), class.name.span()))
         .collect();
 
-    let resolved: BTreeMap<ClassId, ResolvedClass> = winners
+    let resolved: FxHashMap<ClassId, ResolvedClass> = winners
         .into_iter()
         .map(|(id, extracted)| {
             let bases = extracted
@@ -172,7 +173,7 @@ fn assemble_model_graph(
     let admitted = admitted_class_ids(&resolved, policy);
 
     // Terminal outcomes are the evidence retained by ModelGraph.
-    let bases_by_class: BTreeMap<ClassId, Vec<BaseOutcome>> = resolved
+    let bases_by_class: FxHashMap<ClassId, Vec<BaseOutcome>> = resolved
         .iter()
         .map(|(id, class)| {
             let bases = class
@@ -184,13 +185,13 @@ fn assemble_model_graph(
         })
         .collect();
 
-    let mut ancestry = BTreeMap::new();
+    let mut ancestry = FxHashMap::default();
     for id in resolved.keys() {
-        let mut visiting = BTreeSet::new();
+        let mut visiting = FxHashSet::default();
         compute_ancestry(id, &bases_by_class, &mut ancestry, &mut visiting);
     }
 
-    let mut inheritance_by_model = BTreeMap::new();
+    let mut inheritance_by_model = FxHashMap::default();
     for id in &admitted {
         let bases = bases_by_class.get(id).cloned().unwrap_or_default();
         let ancestry = match ancestry
@@ -228,10 +229,10 @@ fn assemble_model_graph(
 }
 
 fn admitted_class_ids(
-    classes: &BTreeMap<ClassId, ResolvedClass>,
+    classes: &FxHashMap<ClassId, ResolvedClass>,
     policy: AdmissionPolicy,
-) -> BTreeSet<ClassId> {
-    let mut ids: BTreeSet<ClassId> = classes
+) -> FxHashSet<ClassId> {
+    let mut ids: FxHashSet<ClassId> = classes
         .iter()
         .filter(|(_id, resolved)| match policy {
             AdmissionPolicy::Production => {
@@ -291,7 +292,7 @@ fn has_django_root(class: &ResolvedClass) -> bool {
 
 fn has_negative_django_root_evidence(
     class: &ResolvedClass,
-    classes: &BTreeMap<ClassId, ResolvedClass>,
+    classes: &FxHashMap<ClassId, ResolvedClass>,
 ) -> bool {
     class.bases.iter().any(|base| match base.value() {
         ResolvedClassBase::Class(base_class) => {
@@ -327,7 +328,7 @@ fn has_positive_rebound_local_base(class: &ResolvedClass) -> bool {
 
 fn class_occurrence_has_positive_model_evidence(
     class: &ExtractedClass,
-    occurrences: &BTreeMap<ClassId, Vec<ClassOccurrence>>,
+    occurrences: &FxHashMap<ClassId, Vec<ClassOccurrence>>,
 ) -> bool {
     has_direct_model_evidence(class)
         || class.bases.iter().any(|base| {
@@ -353,7 +354,7 @@ fn class_id(class: &ExtractedClass) -> ClassId {
 }
 
 fn nearest_preceding_occurrence<'a>(
-    occurrences: &'a BTreeMap<ClassId, Vec<ClassOccurrence>>,
+    occurrences: &'a FxHashMap<ClassId, Vec<ClassOccurrence>>,
     class: &ClassId,
     before: Span,
     excluded_span: Option<Span>,
@@ -371,8 +372,8 @@ fn resolve_class_base_rebinding(
     extracted: &ExtractedClass,
     base: &ExtractedBaseRef,
     span: Span,
-    occurrences: &BTreeMap<ClassId, Vec<ClassOccurrence>>,
-    selected_spans: &BTreeMap<ClassId, Span>,
+    occurrences: &FxHashMap<ClassId, Vec<ClassOccurrence>>,
+    selected_spans: &FxHashMap<ClassId, Span>,
 ) -> Option<ResolvedClassBase> {
     let ExtractedBaseRef::SameModule(name) = base else {
         return None;
@@ -453,8 +454,8 @@ fn resolve_project_qualified_base(
 fn terminal_outcome(
     base: &Spanned<ResolvedClassBase>,
     class: &ResolvedClass,
-    selected: &BTreeMap<ClassId, ResolvedClass>,
-    admitted: &BTreeSet<ClassId>,
+    selected: &FxHashMap<ClassId, ResolvedClass>,
+    admitted: &FxHashSet<ClassId>,
     policy: AdmissionPolicy,
 ) -> BaseOutcome {
     let span = base.span();
@@ -534,9 +535,9 @@ fn terminal_outcome(
 
 fn compute_ancestry(
     id: &ClassId,
-    bases_by_class: &BTreeMap<ClassId, Vec<BaseOutcome>>,
-    memo: &mut BTreeMap<ClassId, ComputedAncestry>,
-    visiting: &mut BTreeSet<ClassId>,
+    bases_by_class: &FxHashMap<ClassId, Vec<BaseOutcome>>,
+    memo: &mut FxHashMap<ClassId, ComputedAncestry>,
+    visiting: &mut FxHashSet<ClassId>,
 ) -> ComputedAncestry {
     if let Some(outcome) = memo.get(id) {
         return outcome.clone();
@@ -558,7 +559,7 @@ fn compute_ancestry(
 
     let mut direct_parents = Vec::new();
     let mut has_unresolved = false;
-    let mut seen = BTreeSet::new();
+    let mut seen = FxHashSet::default();
     let mut duplicate = None;
     for base in bases {
         let entry = match base {

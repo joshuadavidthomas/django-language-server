@@ -560,14 +560,6 @@ fn app_label_from_module_name(module_name: &str) -> Option<&str> {
     }
 }
 
-fn django_name_matches(candidate: &str, query: &str) -> bool {
-    if candidate.is_ascii() && query.is_ascii() {
-        candidate.eq_ignore_ascii_case(query)
-    } else {
-        candidate.to_lowercase() == query.to_lowercase()
-    }
-}
-
 fn unresolved_import_path_reason(
     reason: ModelImportPathUnresolvedReason,
     binding: Option<&str>,
@@ -747,6 +739,7 @@ struct RelationLookupIndex {
 pub struct ModelGraph {
     records: BTreeMap<ModelId, ModelRecord>,
     model_ids_by_name: FxHashMap<ModelName, BTreeSet<ModelId>>,
+    model_ids_by_django_name: FxHashMap<(String, String), Vec<ModelId>>,
     model_ids_by_class: BTreeMap<ClassId, ModelId>,
     relation_bindings: BTreeMap<RelationBindingId, RelationBinding>,
     model_relation_bindings: BTreeMap<ModelId, ModelRelationBindings>,
@@ -898,6 +891,14 @@ impl ModelGraph {
             .entry(id.name.clone())
             .or_default()
             .insert(id.clone());
+        if let Some(app_label) = app_label_from_module_name(id.module_name.as_str()) {
+            let ids = self
+                .model_ids_by_django_name
+                .entry((app_label.to_lowercase(), id.name.as_str().to_lowercase()))
+                .or_default();
+            let index = ids.binary_search(&id).unwrap_or_else(|index| index);
+            ids.insert(index, id.clone());
+        }
         self.model_ids_by_class
             .insert(ClassId::from_model_id(&id), id);
     }
@@ -1236,12 +1237,15 @@ impl ModelGraph {
             return Some(entry);
         }
 
-        self.records.iter().find_map(|(id, record)| {
-            (django_name_matches(id.name.as_str(), name)
-                && app_label_from_module_name(id.module_name.as_str())
-                    .is_some_and(|candidate| django_name_matches(candidate, app_label)))
-            .then_some((id, &record.definition))
-        })
+        let key = (app_label.to_lowercase(), name.to_lowercase());
+        self.model_ids_by_django_name
+            .get(&key)?
+            .iter()
+            .find_map(|id| {
+                self.records
+                    .get_key_value(id)
+                    .map(|(id, record)| (id, &record.definition))
+            })
     }
 
     fn lookup_entry_exact(&self, app_label: &str, name: &str) -> Option<(&ModelId, &ModelDef)> {
@@ -1456,6 +1460,7 @@ impl ModelGraph {
     }
 
     pub(crate) fn resolve_relation_targets(&mut self, db: &dyn ProjectDb, project: Project) {
+        let mut prefix_cache = BTreeMap::new();
         let updates: Vec<_> = self
             .relation_bindings
             .iter()
@@ -1469,6 +1474,7 @@ impl ModelGraph {
                         &binding.owner,
                         &binding.declaration.model,
                         relation,
+                        &mut prefix_cache,
                     ),
                 ))
             })
@@ -1489,6 +1495,7 @@ impl ModelGraph {
         recipient_scope: &ModelId,
         declaration_scope: &ModelId,
         relation: &Relation,
+        prefix_cache: &mut BTreeMap<PythonModuleName, crate::python::ResolvedPrefix>,
     ) -> RelationTargetResolution {
         let Some(target) = relation.target_model() else {
             return RelationTargetResolution::Unresolved {
@@ -1511,7 +1518,7 @@ impl ModelGraph {
                 import_reference,
             } => match import_reference {
                 Some(ModelImportReference::Qualified(target)) => {
-                    self.resolve_imported_relation_target(db, project, target)
+                    self.resolve_imported_relation_target(db, project, target, prefix_cache)
                 }
                 Some(ModelImportReference::Unresolved(
                     ModelImportPathUnresolvedReason::MissingBinding,
@@ -1528,7 +1535,7 @@ impl ModelGraph {
                 import_reference,
             } => match import_reference {
                 ModelImportReference::Qualified(target) => {
-                    self.resolve_imported_relation_target(db, project, target)
+                    self.resolve_imported_relation_target(db, project, target, prefix_cache)
                 }
                 ModelImportReference::Unresolved(error) => RelationTargetResolution::Unresolved {
                     reason: unresolved_import_path_reason(
@@ -1574,16 +1581,12 @@ impl ModelGraph {
             return RelationTargetResolution::Resolved(id.clone());
         }
 
-        let candidates: Vec<ModelId> = self
-            .records
-            .iter()
-            .filter(|(id, _record)| {
-                django_name_matches(id.name.as_str(), name.as_str())
-                    && app_label_from_module_name(id.module_name.as_str())
-                        .is_some_and(|candidate| django_name_matches(candidate, app_label))
-            })
-            .map(|(id, _record)| id.clone())
-            .collect();
+        let key = (app_label.to_lowercase(), name.as_str().to_lowercase());
+        let candidates = self
+            .model_ids_by_django_name
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
 
         match candidates.as_slice() {
             [candidate] => RelationTargetResolution::Resolved(candidate.clone()),
@@ -1601,9 +1604,12 @@ impl ModelGraph {
         db: &dyn ProjectDb,
         project: Project,
         target: &PythonModuleName,
+        prefix_cache: &mut BTreeMap<PythonModuleName, crate::python::ResolvedPrefix>,
     ) -> RelationTargetResolution {
-        let resolved = resolve_prefix(db, project, target.as_str());
-        let Some(module) = resolved.module else {
+        let resolved = prefix_cache
+            .entry(target.clone())
+            .or_insert_with(|| resolve_prefix(db, project, target.as_str()));
+        let Some(module) = &resolved.module else {
             return RelationTargetResolution::Unresolved {
                 reason: RelationTargetUnresolvedReason::ImportNotFound {
                     requested: target.clone(),
@@ -1619,7 +1625,7 @@ impl ModelGraph {
             };
         }
 
-        let unresolved_tail = resolved.unresolved_tail;
+        let unresolved_tail = &resolved.unresolved_tail;
         if unresolved_tail.len() == 1 {
             let candidate = ModelId::new(
                 module.name().clone(),
@@ -1632,7 +1638,7 @@ impl ModelGraph {
 
         RelationTargetResolution::Partial {
             resolved_prefix: module.name().clone(),
-            unresolved_tail,
+            unresolved_tail: unresolved_tail.clone(),
         }
     }
 }
@@ -1719,13 +1725,6 @@ mod tests {
         graph.add_standalone_model(order);
         graph.add_standalone_model(profile);
         graph
-    }
-
-    #[test]
-    fn django_name_matching_preserves_unicode_case_folding() {
-        assert!(django_name_matches("UserProfile", "userprofile"));
-        assert!(django_name_matches("Äccount", "äccount"));
-        assert!(!django_name_matches("User", "Group"));
     }
 
     #[test]

@@ -168,11 +168,16 @@ fn scan_statements(
     record_local_bindings: bool,
 ) {
     for stmt in stmts {
-        if record_local_bindings && let ModelExtractionTarget::Class { extracted_class } = target {
+        let touched_roots = record_local_bindings.then(|| {
             let mut names = BTreeSet::new();
             collect_touched_roots(stmt, &mut names);
+            names
+        });
+        if let (Some(names), ModelExtractionTarget::Class { extracted_class }) =
+            (&touched_roots, &mut *target)
+        {
             for name in names {
-                extracted_class.bind_local_other(FieldName::new(name));
+                extracted_class.bind_local_other(FieldName::new(name.clone()));
             }
         }
 
@@ -219,8 +224,11 @@ fn scan_statements(
         }
         scan_compound(stmt, state, target, context);
 
-        let mut roots = BTreeSet::new();
-        collect_touched_roots(stmt, &mut roots);
+        let roots = touched_roots.unwrap_or_else(|| {
+            let mut roots = BTreeSet::new();
+            collect_touched_roots(stmt, &mut roots);
+            roots
+        });
         invalidate_names(state, &roots);
     }
 }
