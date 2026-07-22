@@ -660,6 +660,55 @@ fn bare_relation_resolves_relative_to_scope_app() {
 }
 
 #[test]
+fn keyword_relation_target_resolves_through_project_graph() {
+    let source = r"
+from django.db import models
+
+class User(models.Model):
+    pass
+
+class Profile(models.Model):
+    user = models.ForeignKey(to=User, on_delete=models.CASCADE)
+";
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/accounts/models.py", source)
+        .build(&db)
+        .expect("keyword-relation project fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let profile = model_id(graph, "Profile", "accounts.models")
+        .expect("model fixture should contain Profile");
+    let user =
+        model_id(graph, "User", "accounts.models").expect("model fixture should contain User");
+    let resolved = graph
+        .resolve_relation(profile, "user")
+        .expect("keyword relation should resolve");
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(user)
+            .expect("keyword relation target should resolve")
+    ));
+
+    let file = db
+        .file(Utf8Path::new("/project/accounts/models.py"))
+        .expect("keyword-relation model file should exist");
+    let locations = model_relation_locations(graph, "accounts.models", "Profile");
+    assert_relation_location(
+        relation_location(&locations, "user").expect("user relation location should exist"),
+        "user",
+        file,
+        expected_span_after(source, "class Profile", "user")
+            .expect("user field should occur in the Profile fixture"),
+        Some(
+            expected_span_after(source, "class Profile", "User")
+                .expect("User target should occur in the Profile fixture"),
+        ),
+    );
+}
+
+#[test]
 fn self_relation_resolves_to_scope_model() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")

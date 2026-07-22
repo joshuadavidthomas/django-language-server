@@ -134,5 +134,20 @@ models:
         start: 4811
         length: 19
     module_name: wagtail.search.models
-    relations: []
+    relations:
+      - field_name:
+          value: index_entry
+          span:
+            start: 4988
+            length: 11
+        relation_type: OneToOne
+        target:
+          value:
+            kind: Qualified
+            app_label: wagtailsearch
+            name: indexentry
+          span:
+            start: 5070
+            length: 26
+        related_name: ~
     kind: concrete

@@ -452,6 +452,21 @@ fn is_abstract_assignment(stmt: &Stmt) -> bool {
     matches!(assign.value.as_ref(), Expr::BooleanLiteral(b) if b.value)
 }
 
+fn relation_target_expr(call: &ruff_python_ast::ExprCall) -> Option<&Expr> {
+    call.arguments.args.first().or_else(|| {
+        call.arguments
+            .keywords
+            .iter()
+            .find(|keyword| {
+                keyword
+                    .arg
+                    .as_ref()
+                    .is_some_and(|name| name.as_str() == "to")
+            })
+            .map(|keyword| &keyword.value)
+    })
+}
+
 fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportState) -> Option<Relation> {
     let Stmt::Assign(assign) = stmt else {
         return None;
@@ -472,8 +487,8 @@ fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportState) -> Opti
         call.func.name_target()?
     };
 
-    let first_arg = call.arguments.args.first()?;
-    let target = if let Expr::StringLiteral(string) = first_arg {
+    let target_expr = relation_target_expr(call)?;
+    let target = if let Expr::StringLiteral(string) = target_expr {
         let value = string.value.to_string();
         if value == "self" {
             RelationTarget::SelfRef
@@ -489,7 +504,7 @@ fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportState) -> Opti
             }
         }
     } else {
-        let path = first_arg.path_segments()?;
+        let path = target_expr.path_segments()?;
         let (root, tail) = path.split_first()?;
         let import_reference = aliases.resolve_reference(root, tail);
         if path.len() == 1 {
@@ -508,7 +523,7 @@ fn extract_relation(stmt: &Stmt, file: File, aliases: &ModelImportState) -> Opti
 
     let relation_type = RelationType::from_field_class(
         field_class_name,
-        Spanned::new(target, first_arg.span()),
+        Spanned::new(target, target_expr.span()),
         related_name,
     )?;
 
@@ -1001,6 +1016,102 @@ class Order(models.Model):
             rel.relation_type,
             RelationType::ForeignKey { ref related_name, .. } if related_name.is_none()
         ));
+    }
+
+    #[test]
+    fn keyword_bare_relation_target_preserves_value_span() {
+        let source = r"
+from django.db import models
+
+class Order(models.Model):
+    user = models.ForeignKey(to=User, on_delete=models.CASCADE)
+";
+        let graph = extract_model_graph(source, "shop.models");
+        let relation = &model(&graph, "Order").relations[0];
+        let target_start = source
+            .find("to=User")
+            .expect("keyword relation target should occur in the fixture")
+            + "to=".len();
+
+        assert_eq!(bare_target_name(relation), Some("User"));
+        assert_eq!(
+            relation.target_span(),
+            Some(Span::saturating_from_parts_usize(
+                target_start,
+                "User".len()
+            ))
+        );
+    }
+
+    #[test]
+    fn keyword_qualified_relation_target() {
+        let source = r#"
+from django.db import models
+
+class Order(models.Model):
+    user = models.ForeignKey(to="accounts.User", on_delete=models.CASCADE)
+"#;
+        let graph = extract_model_graph(source, "shop.models");
+
+        assert!(matches!(
+            model(&graph, "Order").relations[0].target_model(),
+            Some(RelationTarget::Qualified { app_label, name })
+                if app_label == "accounts" && name.as_str() == "User"
+        ));
+    }
+
+    #[test]
+    fn keyword_self_relation_target() {
+        let source = r#"
+from django.db import models
+
+class Category(models.Model):
+    parent = models.ForeignKey(to="self", on_delete=models.CASCADE)
+"#;
+        let graph = extract_model_graph(source, "catalog.models");
+
+        assert!(matches!(
+            model(&graph, "Category").relations[0].target_model(),
+            Some(RelationTarget::SelfRef)
+        ));
+    }
+
+    #[test]
+    fn keyword_attribute_relation_target() {
+        let source = r"
+from django.db import models
+import accounts.models as account_models
+
+class Order(models.Model):
+    user = models.ForeignKey(to=account_models.User, on_delete=models.CASCADE)
+";
+        let graph = extract_model_graph(source, "shop.models");
+
+        assert!(matches!(
+            model(&graph, "Order").relations[0].target_model(),
+            Some(RelationTarget::Attribute { path, .. })
+                if path == &["account_models", "User"]
+        ));
+    }
+
+    #[test]
+    fn positional_relation_target_wins_over_keyword() {
+        let source = r"
+from django.db import models
+
+class Order(models.Model):
+    preferred = models.ForeignKey(Author, to=Editor, on_delete=models.CASCADE)
+    positional = models.ForeignKey(Editor, on_delete=models.CASCADE)
+    missing = models.ForeignKey(on_delete=models.CASCADE)
+";
+        let graph = extract_model_graph(source, "shop.models");
+        let order = model(&graph, "Order");
+
+        assert_eq!(order.relations.len(), 2);
+        assert_eq!(order.relations[0].field_name.value().as_str(), "preferred");
+        assert_eq!(bare_target_name(&order.relations[0]), Some("Author"));
+        assert_eq!(order.relations[1].field_name.value().as_str(), "positional");
+        assert_eq!(bare_target_name(&order.relations[1]), Some("Editor"));
     }
 
     #[test]

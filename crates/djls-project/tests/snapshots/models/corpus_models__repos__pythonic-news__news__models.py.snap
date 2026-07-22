@@ -25,4 +25,18 @@ models:
             start: 3853
             length: 4
         related_name: ~
+      - field_name:
+          value: user
+          span:
+            start: 4011
+            length: 4
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: CustomUser
+          span:
+            start: 4039
+            length: 10
+        related_name: ~
     kind: concrete
