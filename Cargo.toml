@@ -91,5 +91,11 @@ wildcard_enum_match_arm = "warn"
 [profile.bench]
 debug = 2
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package]
 insta.opt-level = 3
+
+[profile.test]
+debug = "line-tables-only"

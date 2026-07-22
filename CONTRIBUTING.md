@@ -40,7 +40,22 @@ Code contributions are welcome from developers of all backgrounds. Rust expertis
 
 So far it's all been built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way — send help!
 
+### Debug information
+
+Development and test builds use line-table-only debug information to keep Rust build artifacts smaller while retaining file-and-line panic backtraces and source-level stepping. Compiler diagnostics and normal build and test behavior are unaffected, but native debuggers cannot inspect local variables and function arguments.
+
+When full GDB or LLDB inspection is needed, override the relevant Cargo profile for that build:
+
+```bash
+CARGO_PROFILE_DEV_DEBUG=full cargo build
+CARGO_PROFILE_TEST_DEBUG=full cargo test
+```
+
 ### Linting
+
+#### Formatting
+
+Formatting uses the dated nightly pinned in [`tools/rustfmt/rust-toolchain.toml`](tools/rustfmt/rust-toolchain.toml) because the repository enables unstable rustfmt options. Run `just fmt` so local formatting uses that toolchain. Update the pin deliberately when newer Rust syntax or rustfmt fixes require it, then review and commit any resulting formatting changes.
 
 #### Visibility Audits
 
@@ -53,10 +68,10 @@ Hawk is part of the local linting suite for keeping crate boundaries clean.
 Install the Rust toolchain and Cargo subcommand Hawk expects:
 
 ```bash
-rustup toolchain install 1.95.0
+rustup toolchain install 1.97.1
 
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
+  https://github.com/astral-sh/hawk/releases/download/0.1.9/cargo-hawk-installer.sh | sh
 ```
 
 ##### Usage
@@ -67,7 +82,7 @@ Run Hawk through `just` rather than `cargo hawk` directly:
 just hawk
 ```
 
-The recipe pins `+1.95.0` and isolates Hawk's instrumented builds to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74). Use it when changing public APIs, moving code across crates, or cleaning up visibility.
+The recipe pins `+1.97.1`, the exact compiler required by cargo-hawk 0.1.9, and isolates Hawk's instrumented builds to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74). Use it when changing public APIs, moving code across crates, or cleaning up visibility.
 
 A Hawk run is more compile-intensive than normal linting. It checks the configured production binaries and workspace non-production targets, so a single run may perform multiple Cargo analysis passes. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
 

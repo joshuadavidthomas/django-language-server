@@ -39,13 +39,15 @@ fi
 
 echo "==> Installing Rust toolchains and components"
 rust_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-if [[ -z "$rust_channel" ]]; then
-    echo "Unable to read the pinned channel from rust-toolchain.toml" >&2
+rustfmt_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)"
+if [[ -z "$rust_channel" || -z "$rustfmt_channel" ]]; then
+    echo "Unable to read a pinned Rust toolchain channel" >&2
     exit 1
 fi
 rustup toolchain install "$rust_channel" --profile minimal --component clippy
-rustup toolchain install nightly --profile minimal --component rustfmt
-rustup toolchain install 1.95.0 --profile minimal
+# Formatting uses its pinned nightly; Hawk requires exactly Rust 1.97.1.
+rustup toolchain install "$rustfmt_channel" --profile minimal --component rustfmt
+rustup toolchain install 1.97.1 --profile minimal
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "==> Installing uv"
@@ -54,15 +56,22 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 if [[ ! -x "$HOME/.local/bin/just" ]]; then
-    echo "==> Installing prebuilt just"
+    echo "==> Installing just"
     curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh |
         bash -s -- --tag 1.57.0 --to "$HOME/.local/bin"
 fi
 
-if ! cargo hawk --version >/dev/null 2>&1; then
+if [[ "$(cargo hawk --version 2>/dev/null || true)" != "cargo hawk 0.1.9" ]]; then
     echo "==> Installing cargo-hawk"
     curl --proto '=https' --tlsv1.2 -LsSf \
-        https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
+        https://github.com/astral-sh/hawk/releases/download/0.1.9/cargo-hawk-installer.sh | sh
+fi
+
+if [[ "$(cargo insta --version 2>/dev/null || true)" != "cargo-insta 1.48.0" ]]; then
+    echo "==> Installing cargo-insta"
+    curl --proto '=https' --tlsv1.2 -LsSf \
+        https://github.com/mitsuhiko/insta/releases/download/1.48.0/cargo-insta-installer.sh |
+        env CARGO_INSTA_NO_MODIFY_PATH=1 sh
 fi
 
 echo "==> Installing locked Python dependencies"

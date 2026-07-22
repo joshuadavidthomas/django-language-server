@@ -79,6 +79,7 @@ jobs:
               - 'clippy.toml'
               - 'Justfile'
               - 'rust-toolchain.toml'
+              - 'tools/rustfmt/rust-toolchain.toml'
 
   rustfmt:
     runs-on: ubuntu-24.04
@@ -94,7 +95,7 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-nightly-${{ hashFiles('.github/workflows/lint.yml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-nightly-${{ hashFiles('tools/rustfmt/rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-rustup-nightly-
 
@@ -109,13 +110,18 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
+      - id: rustfmt-toolchain
+        name: Read rustfmt toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
         with:
-          toolchain: nightly
+          toolchain: ${{ steps.rustfmt-toolchain.outputs.channel }}
           components: rustfmt
 
       - name: Run rustfmt
-        run: cargo +nightly fmt --all -- --check
+        working-directory: tools/rustfmt
+        run: cargo fmt --manifest-path "${{ github.workspace }}/Cargo.toml" --all -- --check
 
   clippy:
     runs-on: ubuntu-24.04

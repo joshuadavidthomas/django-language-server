@@ -35,7 +35,7 @@ clippy *ARGS:
 hawk *ARGS:
     @# Avoid astral-sh/hawk#74 rustc-info cache poisoning.
     @# Keep Hawk focused on visibility; clippy owns dead-code and unused checks.
-    RUSTFLAGS="${RUSTFLAGS:-} -A dead_code -A unused_imports" CARGO_CACHE_RUSTC_INFO=0 cargo +1.95.0 hawk --target-dir target/hawk {{ ARGS }}
+    RUSTFLAGS="${RUSTFLAGS:-} -A dead_code -A unused_imports" CARGO_CACHE_RUSTC_INFO=0 cargo +1.97.1 hawk check --target-dir target/hawk {{ ARGS }}
 
 e2e *ARGS:
     uv run nox -s e2e -- "{{ ARGS }}"
@@ -44,7 +44,7 @@ fixtures *ARGS:
     uv run nox -s fixtures -- "{{ ARGS }}"
 
 fmt *ARGS:
-    cargo +nightly fmt {{ ARGS }}
+    cd tools/rustfmt && cargo fmt --manifest-path "{{ justfile_directory() }}/Cargo.toml" --all {{ ARGS }}
 
 # run pre-commit on all files
 lint *ARGS:
