@@ -75,8 +75,6 @@ CARGO_PROFILE_TEST_DEBUG=full cargo test
 
 ### Testing
 
-Choose the narrowest command that covers the change:
-
 | Command | Scope |
 |---|---|
 | `cargo test -q` | Rust workspace tests using the currently discoverable Python environment |
