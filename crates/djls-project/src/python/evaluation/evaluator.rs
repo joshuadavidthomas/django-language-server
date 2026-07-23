@@ -33,17 +33,16 @@ use super::PythonValue;
 use super::PythonValueKind;
 use super::ReachableAllocationSites;
 use super::UniqueVec;
-use super::module_object::PathIntrinsicContamination;
+use super::module_object::IntrinsicContamination;
 use super::name_analysis::reachable_expr_calls;
 use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonEnvIntrinsic;
-use crate::python::PythonPath;
-use crate::python::PythonPathIntrinsic;
-use crate::python::PythonPathNamespace;
+use crate::python::PythonIntrinsic;
+use crate::python::PythonIntrinsicCall;
+use crate::python::PythonIntrinsicNamespace;
 use crate::python::PythonSourceModule;
 use crate::python::PythonSyntaxError;
 
@@ -65,11 +64,11 @@ pub(super) fn evaluate_body(
     body: &[ast::Stmt],
     syntax_errors: Vec<PythonSyntaxError>,
     syntax_impacts: Vec<PythonSyntaxErrorImpact>,
-    path_intrinsic_contamination: PathIntrinsicContamination,
+    intrinsic_contamination: IntrinsicContamination,
 ) -> (PythonModuleFacts, PythonImportTrace, PythonModuleEffects) {
-    let state = PythonEvaluationState::with_path_intrinsic_contamination(
+    let state = PythonEvaluationState::with_intrinsic_contamination(
         module.file(),
-        path_intrinsic_contamination,
+        intrinsic_contamination,
         Some(module.clone()),
     );
     let mut evaluator = PythonModuleEvaluator {
@@ -167,8 +166,8 @@ impl PythonModuleEvaluator<'_> {
                 PythonBindingState::Bound(bound) => match &bound.value.kind {
                     PythonValueKind::Bool(true)
                     | PythonValueKind::Module(_)
-                    | PythonValueKind::Env(
-                        PythonEnvIntrinsic::EnvironGetFunction | PythonEnvIntrinsic::GetenvFunction,
+                    | PythonValueKind::Intrinsic(
+                        PythonIntrinsic::OsEnvironGetFunction | PythonIntrinsic::OsGetenvFunction,
                     ) => {
                         merge_truth_guard(&mut truthy, case_constraints);
                     }
@@ -177,7 +176,18 @@ impl PythonModuleEvaluator<'_> {
                     }
                     PythonValueKind::Str(_)
                     | PythonValueKind::Path(_)
-                    | PythonValueKind::Env(PythonEnvIntrinsic::EnvironObject)
+                    | PythonValueKind::Intrinsic(
+                        PythonIntrinsic::BuiltinsModule
+                        | PythonIntrinsic::BuiltinsStrType
+                        | PythonIntrinsic::PathlibModule
+                        | PythonIntrinsic::PathlibPathType
+                        | PythonIntrinsic::OsModule
+                        | PythonIntrinsic::OsPathModule
+                        | PythonIntrinsic::OsPathJoinFunction
+                        | PythonIntrinsic::OsPathDirnameFunction
+                        | PythonIntrinsic::OsPathAbspathFunction
+                        | PythonIntrinsic::OsEnvironObject,
+                    )
                     | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
@@ -275,16 +285,14 @@ impl PythonModuleEvaluator<'_> {
             let PythonBindingState::Bound(bound) = alternative else {
                 return false;
             };
-            let PythonValueKind::Env(intrinsic) = &bound.value.kind else {
+            let PythonValueKind::Intrinsic(intrinsic) = &bound.value.kind else {
                 return false;
             };
-            matches!(
-                intrinsic,
-                PythonEnvIntrinsic::EnvironGetFunction | PythonEnvIntrinsic::GetenvFunction
-            ) && !self
-                .state
-                .module_effects
-                .namespace_is_contaminated(intrinsic.mutable_namespace())
+            intrinsic.call() == Some(PythonIntrinsicCall::EnvironmentRead)
+                && !self
+                    .state
+                    .module_effects
+                    .namespace_is_contaminated(intrinsic.mutable_namespace())
         };
         is_env_read(first) && alternatives.all(is_env_read)
     }
@@ -307,38 +315,19 @@ impl PythonModuleEvaluator<'_> {
         for alternative in binding.alternatives() {
             let known = match alternative {
                 PythonBindingState::Bound(bound) if is_path_method => {
-                    matches!(
-                        &bound.value.kind,
-                        PythonValueKind::Path(PythonPath::Object(_))
-                    )
+                    matches!(&bound.value.kind, PythonValueKind::Path(_))
                 }
                 PythonBindingState::Bound(bound) => match &bound.value.kind {
-                    PythonValueKind::Path(PythonPath::Intrinsic(intrinsic)) => {
-                        matches!(
-                            intrinsic,
-                            PythonPathIntrinsic::BuiltinStrType
-                                | PythonPathIntrinsic::PathlibPathType
-                                | PythonPathIntrinsic::OsPathJoinFunction
-                                | PythonPathIntrinsic::OsPathDirnameFunction
-                                | PythonPathIntrinsic::OsPathAbspathFunction
-                        ) && !self
-                            .state
-                            .module_effects
-                            .namespace_is_contaminated(intrinsic.mutable_namespace())
-                    }
-                    PythonValueKind::Env(intrinsic) => {
-                        matches!(
-                            intrinsic,
-                            PythonEnvIntrinsic::EnvironGetFunction
-                                | PythonEnvIntrinsic::GetenvFunction
-                        ) && !self
-                            .state
-                            .module_effects
-                            .namespace_is_contaminated(intrinsic.mutable_namespace())
+                    PythonValueKind::Intrinsic(intrinsic) => {
+                        intrinsic.call().is_some()
+                            && !self
+                                .state
+                                .module_effects
+                                .namespace_is_contaminated(intrinsic.mutable_namespace())
                     }
                     PythonValueKind::Str(_)
                     | PythonValueKind::Bool(_)
-                    | PythonValueKind::Path(PythonPath::Object(_))
+                    | PythonValueKind::Path(_)
                     | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
@@ -376,12 +365,12 @@ pub(super) struct PythonEvaluationState {
 impl PythonEvaluationState {
     #[cfg(test)]
     fn new(file: File) -> Self {
-        Self::with_path_intrinsic_contamination(file, PathIntrinsicContamination::default(), None)
+        Self::with_intrinsic_contamination(file, IntrinsicContamination::default(), None)
     }
 
-    fn with_path_intrinsic_contamination(
+    fn with_intrinsic_contamination(
         file: File,
-        path_intrinsic_contamination: PathIntrinsicContamination,
+        intrinsic_contamination: IntrinsicContamination,
         predicate_module: Option<PythonSourceModule>,
     ) -> Self {
         Self {
@@ -389,8 +378,8 @@ impl PythonEvaluationState {
             namespace_causes: Vec::new(),
             mutations: UniqueVec::new(),
             import_trace: PythonImportTrace::rooted(file),
-            module_effects: PythonModuleEffects::with_path_intrinsic_contamination(
-                path_intrinsic_contamination,
+            module_effects: PythonModuleEffects::with_intrinsic_contamination(
+                intrinsic_contamination,
             ),
             predicate_module,
         }
@@ -422,7 +411,7 @@ impl PythonEvaluationState {
     fn binding_with_intrinsic(
         &self,
         name: &str,
-        intrinsic: PythonPathIntrinsic,
+        intrinsic: PythonIntrinsic,
         origin: Origin,
     ) -> PythonBinding {
         let value = if self
@@ -431,7 +420,7 @@ impl PythonEvaluationState {
         {
             PythonValue::unknown(PythonUnknownCause::UnsupportedMutation, Some(origin))
         } else {
-            PythonValue::path_intrinsic(intrinsic, origin)
+            PythonValue::intrinsic(intrinsic, origin)
         };
         self.binding_with_implicit_value(name, value, origin)
     }
@@ -460,30 +449,14 @@ impl PythonEvaluationState {
         self.assign_binding(name, PythonBinding::bound(value, origin), origin);
     }
 
-    fn assign_path_intrinsic(
-        &mut self,
-        name: &str,
-        intrinsic: PythonPathIntrinsic,
-        origin: Origin,
-    ) {
+    fn assign_intrinsic(&mut self, name: &str, intrinsic: PythonIntrinsic, origin: Origin) {
         if self
             .module_effects
             .namespace_is_contaminated(intrinsic.mutable_namespace())
         {
             self.bind_unknown(name, &PythonUnknownCause::UnsupportedMutation, origin);
         } else {
-            self.assign_value(name, PythonValue::path_intrinsic(intrinsic, origin), origin);
-        }
-    }
-
-    fn assign_env_intrinsic(&mut self, name: &str, intrinsic: PythonEnvIntrinsic, origin: Origin) {
-        if self
-            .module_effects
-            .namespace_is_contaminated(intrinsic.mutable_namespace())
-        {
-            self.bind_unknown(name, &PythonUnknownCause::UnsupportedMutation, origin);
-        } else {
-            self.assign_value(name, PythonValue::env_intrinsic(intrinsic, origin), origin);
+            self.assign_value(name, PythonValue::intrinsic(intrinsic, origin), origin);
         }
     }
 
@@ -611,9 +584,9 @@ impl PythonEvaluationState {
             .map(|(name, _binding)| name.clone())
             .collect::<Vec<_>>();
         for namespace in [
-            PythonPathNamespace::Builtins,
-            PythonPathNamespace::Pathlib,
-            PythonPathNamespace::Os,
+            PythonIntrinsicNamespace::Builtins,
+            PythonIntrinsicNamespace::Pathlib,
+            PythonIntrinsicNamespace::Os,
         ] {
             self.module_effects.contaminate_namespace(namespace);
         }
@@ -707,9 +680,9 @@ impl PythonEvaluationState {
             if matches!(
                 bound.value.kind,
                 PythonValueKind::Module(_)
-                    | PythonValueKind::Env(
-                        PythonEnvIntrinsic::EnvironGetFunction
-                            | PythonEnvIntrinsic::GetenvFunction
+                    | PythonValueKind::Intrinsic(
+                        PythonIntrinsic::OsEnvironGetFunction
+                            | PythonIntrinsic::OsGetenvFunction
                     )
             ))
         };

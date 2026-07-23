@@ -1,15 +1,17 @@
-mod env_eval;
 pub(crate) mod evaluation;
 pub(crate) mod import;
 mod interpreter;
+mod intrinsic;
 pub(crate) mod module;
 mod name;
 mod parse;
 mod path_eval;
 mod search_paths;
 
-pub(crate) use env_eval::PythonEnvIntrinsic;
 pub use interpreter::Interpreter;
+pub(crate) use intrinsic::PythonIntrinsic;
+pub(crate) use intrinsic::PythonIntrinsicCall;
+pub(crate) use intrinsic::PythonIntrinsicNamespace;
 pub use module::FileModuleCandidate;
 pub use module::FileModuleResolution;
 pub(crate) use module::NamespacePortion;
@@ -31,7 +33,5 @@ pub use parse::PythonSyntaxErrorClass;
 pub(crate) use parse::RecoveredPythonModule;
 pub(crate) use parse::python_syntax_errors;
 pub(crate) use path_eval::PythonPath;
-pub(crate) use path_eval::PythonPathIntrinsic;
-pub(crate) use path_eval::PythonPathNamespace;
 pub use search_paths::SearchPath;
 pub use search_paths::SearchPaths;

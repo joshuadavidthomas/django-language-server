@@ -2,7 +2,7 @@
 //!
 //! Module identity belongs to the Python domain. This evaluator-owned state
 //! records loaded-child coordinates, open causes, and contamination of the
-//! recognized standard-library path namespaces without embedding intrinsic
+//! recognized builtin and standard-library intrinsic namespaces without embedding
 //! `PythonModuleFacts`.
 
 use std::cmp::Ordering;
@@ -19,9 +19,9 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::StructuralOrd;
 use crate::python::NamespacePortion;
+use crate::python::PythonIntrinsicNamespace;
 use crate::python::PythonModule;
 use crate::python::PythonNamespacePackage;
-use crate::python::PythonPathNamespace;
 use crate::python::PythonSourceModule;
 
 impl StructuralOrd for PythonSourceModule {
@@ -150,25 +150,25 @@ impl ChildImportFallback {
 }
 
 /// Finite, deterministic loaded-child coordinates, object-scoped open causes,
-/// and path-namespace contamination. This is a private recursive-import effect
+/// and intrinsic-namespace contamination. This is a private recursive-import effect
 /// product; it is never added
 /// to settings-facing `PythonModuleFacts` equality or projection.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub(super) struct PathIntrinsicContamination(Vec<PythonPathNamespace>);
+pub(super) struct IntrinsicContamination(Vec<PythonIntrinsicNamespace>);
 
-impl PathIntrinsicContamination {
-    fn insert(&mut self, namespace: PythonPathNamespace) {
+impl IntrinsicContamination {
+    fn insert(&mut self, namespace: PythonIntrinsicNamespace) {
         if !self.0.contains(&namespace) {
             self.0.push(namespace);
             self.0.sort_unstable();
         }
     }
 
-    fn contains(&self, namespace: PythonPathNamespace) -> bool {
+    fn contains(&self, namespace: PythonIntrinsicNamespace) -> bool {
         self.0.contains(&namespace)
     }
 
-    fn absorb(&mut self, incoming: impl IntoIterator<Item = PythonPathNamespace>) {
+    fn absorb(&mut self, incoming: impl IntoIterator<Item = PythonIntrinsicNamespace>) {
         for namespace in incoming {
             if !self.0.contains(&namespace) {
                 self.0.push(namespace);
@@ -182,36 +182,36 @@ impl PathIntrinsicContamination {
 pub(crate) struct PythonModuleEffects {
     children: Vec<ModuleChildCoordinate>,
     causes: Vec<ModuleEffectCause>,
-    path_intrinsic_contamination: PathIntrinsicContamination,
+    intrinsic_contamination: IntrinsicContamination,
 }
 
 impl PythonModuleEffects {
-    pub(super) fn with_path_intrinsic_contamination(
-        path_intrinsic_contamination: PathIntrinsicContamination,
+    pub(super) fn with_intrinsic_contamination(
+        intrinsic_contamination: IntrinsicContamination,
     ) -> Self {
         Self {
-            path_intrinsic_contamination,
+            intrinsic_contamination,
             ..Self::default()
         }
     }
 
-    pub(super) fn path_intrinsic_contamination(&self) -> &PathIntrinsicContamination {
-        &self.path_intrinsic_contamination
+    pub(super) fn intrinsic_contamination(&self) -> &IntrinsicContamination {
+        &self.intrinsic_contamination
     }
 
-    pub(crate) fn contaminate_namespace(&mut self, namespace: PythonPathNamespace) {
-        self.path_intrinsic_contamination.insert(namespace);
+    pub(crate) fn contaminate_namespace(&mut self, namespace: PythonIntrinsicNamespace) {
+        self.intrinsic_contamination.insert(namespace);
     }
 
-    pub(crate) fn namespace_is_contaminated(&self, namespace: PythonPathNamespace) -> bool {
-        self.path_intrinsic_contamination.contains(namespace)
+    pub(crate) fn namespace_is_contaminated(&self, namespace: PythonIntrinsicNamespace) -> bool {
+        self.intrinsic_contamination.contains(namespace)
     }
 
-    fn absorb_path_intrinsic_contamination(
+    fn absorb_intrinsic_contamination(
         &mut self,
-        incoming: impl IntoIterator<Item = PythonPathNamespace>,
+        incoming: impl IntoIterator<Item = PythonIntrinsicNamespace>,
     ) {
-        self.path_intrinsic_contamination.absorb(incoming);
+        self.intrinsic_contamination.absorb(incoming);
     }
 
     fn child_index(&self, object: &PythonModule, attribute: &str) -> Option<usize> {
@@ -367,7 +367,7 @@ impl PythonModuleEffects {
             self.set_child(object, attribute, merged);
         }
         self.causes.extend(incoming.causes);
-        self.absorb_path_intrinsic_contamination(incoming.path_intrinsic_contamination.0);
+        self.absorb_intrinsic_contamination(incoming.intrinsic_contamination.0);
         self.normalize();
     }
 
@@ -401,7 +401,7 @@ impl PythonModuleEffects {
                     entry.cause.constraints.intersection(fallback_constraints);
                 (!entry.cause.constraints.is_impossible()).then_some(entry)
             }));
-        self.absorb_path_intrinsic_contamination(incoming.path_intrinsic_contamination.0);
+        self.absorb_intrinsic_contamination(incoming.intrinsic_contamination.0);
         self.normalize();
     }
 
@@ -452,9 +452,7 @@ impl PythonModuleEffects {
                     cause,
                 });
             }
-            joined.absorb_path_intrinsic_contamination(
-                branch.path_intrinsic_contamination.0.iter().copied(),
-            );
+            joined.absorb_intrinsic_contamination(branch.intrinsic_contamination.0.iter().copied());
         }
 
         joined.normalize();
@@ -515,9 +513,7 @@ impl PythonModuleEffects {
                     });
                 }
             }
-            joined.absorb_path_intrinsic_contamination(
-                branch.path_intrinsic_contamination.0.iter().copied(),
-            );
+            joined.absorb_intrinsic_contamination(branch.intrinsic_contamination.0.iter().copied());
         }
 
         joined.normalize();
@@ -557,7 +553,7 @@ impl PythonModuleEffects {
 
         for body in bodies {
             self.causes.extend(body.causes);
-            self.absorb_path_intrinsic_contamination(body.path_intrinsic_contamination.0);
+            self.absorb_intrinsic_contamination(body.intrinsic_contamination.0);
         }
 
         for (object, attribute) in changed {
@@ -580,9 +576,7 @@ impl PythonModuleEffects {
     /// with an equal normalized set survive; a changed set is replaced with one
     /// absorbing originless `Cycle` cause.
     pub(crate) fn widen(mut self, previous: &Self) -> Self {
-        self.absorb_path_intrinsic_contamination(
-            previous.path_intrinsic_contamination.0.iter().copied(),
-        );
+        self.absorb_intrinsic_contamination(previous.intrinsic_contamination.0.iter().copied());
         let mut keys: Vec<(PythonModule, String)> = Vec::new();
         for child in previous.children.iter().chain(&self.children) {
             let key = (child.object.clone(), child.attribute.clone());
@@ -667,8 +661,8 @@ mod tests {
     use super::super::PythonBindingState;
     use super::super::PythonValueKind;
     use super::*;
+    use crate::python::PythonIntrinsic;
     use crate::python::PythonModuleName;
-    use crate::python::PythonPathIntrinsic;
     use crate::python::PythonSourceModule;
     use crate::python::SearchPath;
 
@@ -743,15 +737,15 @@ mod tests {
     }
 
     #[test]
-    fn path_contamination_canonicalizes_equivalent_namespace_members() {
+    fn intrinsic_contamination_canonicalizes_equivalent_namespace_members() {
         let mut module = PythonModuleEffects::default();
-        module.contaminate_namespace(PythonPathIntrinsic::OsModule.mutable_namespace());
+        module.contaminate_namespace(PythonIntrinsic::OsModule.mutable_namespace());
         let mut member = PythonModuleEffects::default();
-        member.contaminate_namespace(PythonPathIntrinsic::OsPathJoinFunction.mutable_namespace());
+        member.contaminate_namespace(PythonIntrinsic::OsPathJoinFunction.mutable_namespace());
 
         assert_eq!(
-            module.path_intrinsic_contamination(),
-            member.path_intrinsic_contamination()
+            module.intrinsic_contamination(),
+            member.intrinsic_contamination()
         );
     }
 

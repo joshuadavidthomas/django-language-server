@@ -19,16 +19,14 @@ use djls_project::TemplateResolutionResult;
 use djls_project::template_resolution;
 use djls_project::testing::PythonBindingAlternativeView;
 use djls_project::testing::PythonBoundValueView;
-use djls_project::testing::PythonEnvIntrinsicView;
 use djls_project::testing::PythonImportNameErrorView;
 use djls_project::testing::PythonImportOutcomeView;
+use djls_project::testing::PythonIntrinsicView;
 use djls_project::testing::PythonModuleEvaluationError;
 use djls_project::testing::PythonModuleEvaluationView;
 use djls_project::testing::PythonModuleView;
 use djls_project::testing::PythonMutationOperationView;
 use djls_project::testing::PythonMutationPathSegmentView;
-use djls_project::testing::PythonPathIntrinsicView;
-use djls_project::testing::PythonPathView;
 use djls_project::testing::PythonSequenceItemView;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::PythonUnknownCauseView;
@@ -454,9 +452,7 @@ fn os_path_abspath_follows_import_and_assignment_aliases() {
     for name in ["path_abspath", "assigned_abspath"] {
         assert_kind(
             name,
-            PythonValueKindView::Path(PythonPathView::Intrinsic(
-                PythonPathIntrinsicView::OsPathAbspathFunction,
-            )),
+            PythonValueKindView::Intrinsic(PythonIntrinsicView::OsPathAbspathFunction),
         );
     }
     for name in ["ROOT_ABS", "NORMALIZED_ABS", "ASSIGNED_ABS"] {
@@ -511,20 +507,20 @@ fn env_reads_keep_file_candidates_and_runtime_uncertainty() {
         .expect("Python file should map to a module");
 
     for (name, expected) in [
-        ("ENVIRON", PythonEnvIntrinsicView::EnvironObject),
-        ("ENV_GET", PythonEnvIntrinsicView::EnvironGetFunction),
-        ("GETENV", PythonEnvIntrinsicView::GetenvFunction),
-        ("imported_environ", PythonEnvIntrinsicView::EnvironObject),
-        ("imported_getenv", PythonEnvIntrinsicView::GetenvFunction),
+        ("ENVIRON", PythonIntrinsicView::OsEnvironObject),
+        ("ENV_GET", PythonIntrinsicView::OsEnvironGetFunction),
+        ("GETENV", PythonIntrinsicView::OsGetenvFunction),
+        ("imported_environ", PythonIntrinsicView::OsEnvironObject),
+        ("imported_getenv", PythonIntrinsicView::OsGetenvFunction),
     ] {
         let bound = only_bound(
             &evaluation
                 .binding(name)
-                .expect("env intrinsic binding should exist")
+                .expect("OS environment intrinsic binding should exist")
                 .alternatives,
         )
-        .expect("env intrinsic should have one bound alternative");
-        assert_eq!(bound.value.kind, PythonValueKindView::Env(expected));
+        .expect("OS environment intrinsic should have one bound alternative");
+        assert_eq!(bound.value.kind, PythonValueKindView::Intrinsic(expected));
     }
 
     let assert_env_read = |name: &str, expected: PythonValueKindView, key: &str| {
@@ -742,7 +738,7 @@ fn discarded_env_reads_preserve_argument_call_effects() {
 }
 
 #[test]
-fn python_path_intrinsics_follow_import_and_assignment_aliases() {
+fn python_intrinsics_follow_import_and_assignment_aliases() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -764,48 +760,34 @@ fn python_path_intrinsics_follow_import_and_assignment_aliases() {
 
     assert_kind(
         "P",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(
-            PythonPathIntrinsicView::PathlibPathType,
-        )),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::PathlibPathType),
     );
     assert_kind(
         "operating_system",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(PythonPathIntrinsicView::OsModule)),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::OsModule),
     );
     assert_kind(
         "path_join",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(
-            PythonPathIntrinsicView::OsPathJoinFunction,
-        )),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::OsPathJoinFunction),
     );
     assert_kind(
         "path_dirname",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(
-            PythonPathIntrinsicView::OsPathDirnameFunction,
-        )),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::OsPathDirnameFunction),
     );
     assert_kind(
         "stringify",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(
-            PythonPathIntrinsicView::BuiltinStrType,
-        )),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::BuiltinsStrType),
     );
     assert_kind(
         "MODULE_FILE",
         PythonValueKindView::Str("/project/settings.py".to_string()),
     );
-    assert_kind(
-        "ROOT",
-        PythonValueKindView::Path(PythonPathView::Object("/project".into())),
-    );
+    assert_kind("ROOT", PythonValueKindView::Path("/project".into()));
     assert_kind(
         "RESOLVED",
-        PythonValueKindView::Path(PythonPathView::Object("/project/settings.py".into())),
+        PythonValueKindView::Path("/project/settings.py".into()),
     );
-    assert_kind(
-        "NORMALIZED",
-        PythonValueKindView::Path(PythonPathView::Object("/".into())),
-    );
+    assert_kind("NORMALIZED", PythonValueKindView::Path("/".into()));
     assert_kind(
         "TEMPLATES_DIR",
         PythonValueKindView::Str("/project/templates".to_string()),
@@ -846,7 +828,7 @@ fn python_path_intrinsics_follow_import_and_assignment_aliases() {
 }
 
 #[test]
-fn python_path_intrinsics_respect_shadowing_and_branch_constraints() {
+fn python_intrinsics_respect_shadowing_and_branch_constraints() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -888,7 +870,7 @@ fn python_path_intrinsics_respect_shadowing_and_branch_constraints() {
                     ..
                 })
             )),
-            "{name} should retain the intrinsic path"
+            "{name} should retain the intrinsic result"
         );
     }
 
@@ -954,9 +936,7 @@ fn unsupported_outer_calls_do_not_contaminate_nested_path_constructors() {
             .as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
             value: PythonValueView {
-                kind: PythonValueKindView::Path(PythonPathView::Intrinsic(
-                    PythonPathIntrinsicView::PathlibPathType
-                )),
+                kind: PythonValueKindView::Intrinsic(PythonIntrinsicView::PathlibPathType),
                 ..
             },
             ..
@@ -1110,7 +1090,7 @@ fn conditional_file_assignment_replaces_only_its_feasible_unbound_case() {
 }
 
 #[test]
-fn path_intrinsic_attribute_writes_invalidate_aliasing_owners() {
+fn intrinsic_attribute_writes_invalidate_aliasing_owners() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -1271,7 +1251,7 @@ fn intrinsic_namespace_contamination_propagates_across_project_imports() {
 }
 
 #[test]
-fn unsupported_calls_persist_path_namespace_contamination() {
+fn unsupported_calls_persist_intrinsic_namespace_contamination() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -1425,7 +1405,7 @@ fn partial_project_path_helper_chains_do_not_become_stdlib_intrinsics() {
                     ..
                 })
             )),
-            "{name} must not become an intrinsic path value"
+            "{name} must not become an intrinsic value"
         );
     }
     assert!(
@@ -2503,7 +2483,7 @@ fn ordinary_import_binds_typed_not_found_in_source_order() {
             PythonValueKindView::Str(_)
             | PythonValueKindView::Bool(_)
             | PythonValueKindView::Path(_)
-            | PythonValueKindView::Env(_)
+            | PythonValueKindView::Intrinsic(_)
             | PythonValueKindView::UnsupportedLiteral
             | PythonValueKindView::List(_)
             | PythonValueKindView::Tuple(_)
@@ -8008,7 +7988,7 @@ fn unreachable_boolean_calls_do_not_contaminate_path_values() {
 }
 
 #[test]
-fn reachable_boolean_calls_persist_path_intrinsic_contamination() {
+fn reachable_boolean_calls_persist_intrinsic_contamination() {
     for statement in [
         "True and mutate(pathlib.Path)",
         "if mutate(pathlib.Path) and False:\n    pass",

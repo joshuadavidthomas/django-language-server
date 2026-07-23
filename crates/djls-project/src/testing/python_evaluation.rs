@@ -72,8 +72,8 @@ pub struct PythonValueView {
 pub enum PythonValueKindView {
     Str(String),
     Bool(bool),
-    Path(PythonPathView),
-    Env(PythonEnvIntrinsicView),
+    Path(Utf8PathBuf),
+    Intrinsic(PythonIntrinsicView),
     UnsupportedLiteral,
     List(Vec<PythonSequenceItemView>),
     Tuple(Vec<PythonSequenceItemView>),
@@ -88,23 +88,10 @@ pub enum PythonModuleView {
     Namespace(PythonModuleName),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PythonPathView {
-    Object(Utf8PathBuf),
-    Intrinsic(PythonPathIntrinsicView),
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PythonEnvIntrinsicView {
-    EnvironObject,
-    EnvironGetFunction,
-    GetenvFunction,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PythonPathIntrinsicView {
+pub enum PythonIntrinsicView {
     BuiltinsModule,
-    BuiltinStrType,
+    BuiltinsStrType,
     PathlibModule,
     PathlibPathType,
     OsModule,
@@ -112,6 +99,9 @@ pub enum PythonPathIntrinsicView {
     OsPathJoinFunction,
     OsPathDirnameFunction,
     OsPathAbspathFunction,
+    OsEnvironObject,
+    OsEnvironGetFunction,
+    OsGetenvFunction,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -365,14 +355,11 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
         kind: match value.into_kind() {
             evaluation::PythonValueKind::Str(value) => PythonValueKindView::Str(value),
             evaluation::PythonValueKind::Bool(value) => PythonValueKindView::Bool(value),
-            evaluation::PythonValueKind::Path(path) => PythonValueKindView::Path(match path {
-                crate::python::PythonPath::Object(path) => PythonPathView::Object(path),
-                crate::python::PythonPath::Intrinsic(intrinsic) => {
-                    PythonPathView::Intrinsic(path_intrinsic_view(intrinsic))
-                }
-            }),
-            evaluation::PythonValueKind::Env(intrinsic) => {
-                PythonValueKindView::Env(env_intrinsic_view(intrinsic))
+            evaluation::PythonValueKind::Path(path) => {
+                PythonValueKindView::Path(path.into_path_buf())
+            }
+            evaluation::PythonValueKind::Intrinsic(intrinsic) => {
+                PythonValueKindView::Intrinsic(intrinsic_view(intrinsic))
             }
             evaluation::PythonValueKind::UnsupportedLiteral => {
                 PythonValueKindView::UnsupportedLiteral
@@ -410,39 +397,28 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
     }
 }
 
-fn env_intrinsic_view(intrinsic: crate::python::PythonEnvIntrinsic) -> PythonEnvIntrinsicView {
+fn intrinsic_view(intrinsic: crate::python::PythonIntrinsic) -> PythonIntrinsicView {
     match intrinsic {
-        crate::python::PythonEnvIntrinsic::EnvironObject => PythonEnvIntrinsicView::EnvironObject,
-        crate::python::PythonEnvIntrinsic::EnvironGetFunction => {
-            PythonEnvIntrinsicView::EnvironGetFunction
+        crate::python::PythonIntrinsic::BuiltinsModule => PythonIntrinsicView::BuiltinsModule,
+        crate::python::PythonIntrinsic::BuiltinsStrType => PythonIntrinsicView::BuiltinsStrType,
+        crate::python::PythonIntrinsic::PathlibModule => PythonIntrinsicView::PathlibModule,
+        crate::python::PythonIntrinsic::PathlibPathType => PythonIntrinsicView::PathlibPathType,
+        crate::python::PythonIntrinsic::OsModule => PythonIntrinsicView::OsModule,
+        crate::python::PythonIntrinsic::OsPathModule => PythonIntrinsicView::OsPathModule,
+        crate::python::PythonIntrinsic::OsPathJoinFunction => {
+            PythonIntrinsicView::OsPathJoinFunction
         }
-        crate::python::PythonEnvIntrinsic::GetenvFunction => PythonEnvIntrinsicView::GetenvFunction,
-    }
-}
-
-fn path_intrinsic_view(intrinsic: crate::python::PythonPathIntrinsic) -> PythonPathIntrinsicView {
-    match intrinsic {
-        crate::python::PythonPathIntrinsic::BuiltinsModule => {
-            PythonPathIntrinsicView::BuiltinsModule
+        crate::python::PythonIntrinsic::OsPathDirnameFunction => {
+            PythonIntrinsicView::OsPathDirnameFunction
         }
-        crate::python::PythonPathIntrinsic::BuiltinStrType => {
-            PythonPathIntrinsicView::BuiltinStrType
+        crate::python::PythonIntrinsic::OsPathAbspathFunction => {
+            PythonIntrinsicView::OsPathAbspathFunction
         }
-        crate::python::PythonPathIntrinsic::PathlibModule => PythonPathIntrinsicView::PathlibModule,
-        crate::python::PythonPathIntrinsic::PathlibPathType => {
-            PythonPathIntrinsicView::PathlibPathType
+        crate::python::PythonIntrinsic::OsEnvironObject => PythonIntrinsicView::OsEnvironObject,
+        crate::python::PythonIntrinsic::OsEnvironGetFunction => {
+            PythonIntrinsicView::OsEnvironGetFunction
         }
-        crate::python::PythonPathIntrinsic::OsModule => PythonPathIntrinsicView::OsModule,
-        crate::python::PythonPathIntrinsic::OsPathModule => PythonPathIntrinsicView::OsPathModule,
-        crate::python::PythonPathIntrinsic::OsPathJoinFunction => {
-            PythonPathIntrinsicView::OsPathJoinFunction
-        }
-        crate::python::PythonPathIntrinsic::OsPathDirnameFunction => {
-            PythonPathIntrinsicView::OsPathDirnameFunction
-        }
-        crate::python::PythonPathIntrinsic::OsPathAbspathFunction => {
-            PythonPathIntrinsicView::OsPathAbspathFunction
-        }
+        crate::python::PythonIntrinsic::OsGetenvFunction => PythonIntrinsicView::OsGetenvFunction,
     }
 }
 

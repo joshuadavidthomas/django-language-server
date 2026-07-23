@@ -3,7 +3,6 @@ use std::iter;
 use std::mem;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
 use djls_source::FileReadError;
 use djls_source::Origin;
 
@@ -19,12 +18,11 @@ use super::PythonTuple;
 use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use super::allocation::AllocationSites;
-use crate::python::PythonEnvIntrinsic;
+use crate::python::PythonIntrinsic;
+use crate::python::PythonIntrinsicNamespace;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonPath;
-use crate::python::PythonPathIntrinsic;
-use crate::python::PythonPathNamespace;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportNameError;
 
@@ -223,16 +221,8 @@ impl PythonValue {
         Self::atomic(PythonValueKind::Bool(value), origin)
     }
 
-    pub(super) fn path(value: Utf8PathBuf, origin: Origin) -> Self {
-        Self::python_path(PythonPath::object(value), origin)
-    }
-
-    pub(super) fn path_intrinsic(intrinsic: PythonPathIntrinsic, origin: Origin) -> Self {
-        Self::python_path(PythonPath::intrinsic(intrinsic), origin)
-    }
-
-    pub(super) fn env_intrinsic(intrinsic: PythonEnvIntrinsic, origin: Origin) -> Self {
-        Self::atomic(PythonValueKind::Env(intrinsic), origin)
+    pub(super) fn intrinsic(intrinsic: PythonIntrinsic, origin: Origin) -> Self {
+        Self::atomic(PythonValueKind::Intrinsic(intrinsic), origin)
     }
 
     pub(super) fn python_path(path: PythonPath, origin: Origin) -> Self {
@@ -288,7 +278,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
                 | PythonValueKind::Bool(_)
                 | PythonValueKind::Path(_)
-                | PythonValueKind::Env(_)
+                | PythonValueKind::Intrinsic(_)
                 | PythonValueKind::UnsupportedLiteral
         ));
         Self {
@@ -314,7 +304,7 @@ impl PythonValue {
             PythonValueKind::Str(value) => Scalar::String(value),
             PythonValueKind::Bool(value) => Scalar::Bool(*value),
             PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
@@ -334,18 +324,15 @@ impl PythonValue {
         let PythonValueKind::Path(value) = &self.kind else {
             return None;
         };
-        value.object_path()
+        Some(value.as_path())
     }
 
-    pub(super) fn mutable_namespace(&self) -> Option<PythonPathNamespace> {
+    pub(super) fn mutable_namespace(&self) -> Option<PythonIntrinsicNamespace> {
         match &self.kind {
-            PythonValueKind::Path(PythonPath::Intrinsic(intrinsic)) => {
-                Some(intrinsic.mutable_namespace())
-            }
-            PythonValueKind::Env(intrinsic) => Some(intrinsic.mutable_namespace()),
+            PythonValueKind::Intrinsic(intrinsic) => Some(intrinsic.mutable_namespace()),
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
-            | PythonValueKind::Path(PythonPath::Object(_))
+            | PythonValueKind::Path(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
@@ -384,7 +371,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => None,
@@ -402,7 +389,7 @@ impl PythonValue {
             PythonValueKind::Str(text) => Some(PythonSequence::String(text)),
             PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
@@ -412,9 +399,10 @@ impl PythonValue {
 
     /// Classify this value's iterability. Lists, tuples, and strings are
     /// sequences; dictionaries are iterable over their keys; booleans,
-    /// modules, exact `pathlib.Path` values, and path intrinsics are definitely
-    /// not iterable. Unknown and `UnsupportedLiteral` values are indeterminate
-    /// because their runtime iterability cannot be decided here.
+    /// modules, exact `pathlib.Path` values, and intrinsic identities other than
+    /// `os.environ` are definitely not iterable. Unknown and `UnsupportedLiteral`
+    /// values are indeterminate because their runtime iterability cannot be
+    /// decided here.
     pub(super) fn iterability(&self) -> Iterability<'_> {
         match &self.kind {
             PythonValueKind::List(list) => {
@@ -429,17 +417,27 @@ impl PythonValue {
             PythonValueKind::Dict(dict) => {
                 Iterability::Known(Iterable::MappingKeys(dict.mapping()))
             }
-            // Module objects and callable intrinsics are nominal values, never
-            // Python sequences, mappings, or iterables.
+            // Module objects and intrinsic identities other than `os.environ`
+            // are nominal values, never Python sequences, mappings, or iterables.
             PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(
-                PythonEnvIntrinsic::EnvironGetFunction | PythonEnvIntrinsic::GetenvFunction,
+            | PythonValueKind::Intrinsic(
+                PythonIntrinsic::BuiltinsModule
+                | PythonIntrinsic::BuiltinsStrType
+                | PythonIntrinsic::PathlibModule
+                | PythonIntrinsic::PathlibPathType
+                | PythonIntrinsic::OsModule
+                | PythonIntrinsic::OsPathModule
+                | PythonIntrinsic::OsPathJoinFunction
+                | PythonIntrinsic::OsPathDirnameFunction
+                | PythonIntrinsic::OsPathAbspathFunction
+                | PythonIntrinsic::OsEnvironGetFunction
+                | PythonIntrinsic::OsGetenvFunction,
             )
             | PythonValueKind::Module(_) => Iterability::NotIterable,
             // `os.environ` is iterable but its contents are unknown;
             // `UnsupportedLiteral` may or may not be iterable.
-            PythonValueKind::Env(PythonEnvIntrinsic::EnvironObject)
+            PythonValueKind::Intrinsic(PythonIntrinsic::OsEnvironObject)
             | PythonValueKind::UnsupportedLiteral => {
                 Iterability::Indeterminate(self.imprecise_iteration_unknown())
             }
@@ -489,7 +487,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral => {}
         }
         sites
@@ -522,7 +520,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral => {}
         }
     }
@@ -541,7 +539,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral => 0,
         }
     }
@@ -577,7 +575,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral => false,
         }
     }
@@ -614,7 +612,7 @@ impl PythonValue {
                 PythonValueKind::Str(_)
                 | PythonValueKind::Bool(_)
                 | PythonValueKind::Path(_)
-                | PythonValueKind::Env(_)
+                | PythonValueKind::Intrinsic(_)
                 | PythonValueKind::UnsupportedLiteral
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)
@@ -641,7 +639,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
@@ -660,7 +658,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
@@ -683,7 +681,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
@@ -707,7 +705,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -745,7 +743,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {}
@@ -787,7 +785,7 @@ pub(crate) enum PythonValueKind {
     Str(String),
     Bool(bool),
     Path(PythonPath),
-    Env(PythonEnvIntrinsic),
+    Intrinsic(PythonIntrinsic),
     UnsupportedLiteral,
     List(PythonList),
     Tuple(PythonTuple),
@@ -802,12 +800,11 @@ enum PythonValueKindOrder {
     Dict,
     List,
     Module,
-    PathObject,
-    Env,
+    Path,
     Str,
     Tuple,
     UnsupportedLiteral,
-    PathIntrinsic,
+    Intrinsic,
     Unknown,
 }
 
@@ -818,12 +815,11 @@ impl PythonValueKind {
             Self::Dict(_) => PythonValueKindOrder::Dict,
             Self::List(_) => PythonValueKindOrder::List,
             Self::Module(_) => PythonValueKindOrder::Module,
-            Self::Path(PythonPath::Object(_)) => PythonValueKindOrder::PathObject,
-            Self::Env(_) => PythonValueKindOrder::Env,
+            Self::Path(_) => PythonValueKindOrder::Path,
             Self::Str(_) => PythonValueKindOrder::Str,
             Self::Tuple(_) => PythonValueKindOrder::Tuple,
             Self::UnsupportedLiteral => PythonValueKindOrder::UnsupportedLiteral,
-            Self::Path(PythonPath::Intrinsic(_)) => PythonValueKindOrder::PathIntrinsic,
+            Self::Intrinsic(_) => PythonValueKindOrder::Intrinsic,
             Self::Unknown(_) => PythonValueKindOrder::Unknown,
         }
     }
@@ -834,15 +830,8 @@ impl StructuralOrd for PythonValueKind {
         match (self, other) {
             (Self::Str(left), Self::Str(right)) => left.cmp(right),
             (Self::Bool(left), Self::Bool(right)) => left.cmp(right),
-            (Self::Path(PythonPath::Object(left)), Self::Path(PythonPath::Object(right))) => {
-                left.cmp(right)
-            }
-            (Self::Path(PythonPath::Intrinsic(left)), Self::Path(PythonPath::Intrinsic(right))) => {
-                left.structural_rank().cmp(&right.structural_rank())
-            }
-            (Self::Env(left), Self::Env(right)) => {
-                left.structural_rank().cmp(&right.structural_rank())
-            }
+            (Self::Path(left), Self::Path(right)) => left.as_path().cmp(right.as_path()),
+            (Self::Intrinsic(left), Self::Intrinsic(right)) => left.cmp(right),
             (Self::UnsupportedLiteral, Self::UnsupportedLiteral) => Ordering::Equal,
             (Self::List(left), Self::List(right)) => left.structural_cmp(right),
             (Self::Tuple(left), Self::Tuple(right)) => left.structural_cmp(right),
@@ -853,7 +842,7 @@ impl StructuralOrd for PythonValueKind {
                 left @ (Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
-                | Self::Env(_)
+                | Self::Intrinsic(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -863,7 +852,7 @@ impl StructuralOrd for PythonValueKind {
                 right @ (Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
-                | Self::Env(_)
+                | Self::Intrinsic(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -884,7 +873,7 @@ impl PythonValueKind {
             Self::Str(_)
             | Self::Bool(_)
             | Self::Path(_)
-            | Self::Env(_)
+            | Self::Intrinsic(_)
             | Self::UnsupportedLiteral
             | Self::Module(_)
             | Self::Unknown(_) => {}
@@ -896,7 +885,7 @@ impl PythonValueKind {
             (Self::Str(left), Self::Str(right)) => left == right,
             (Self::Bool(left), Self::Bool(right)) => left == right,
             (Self::Path(left), Self::Path(right)) => left == right,
-            (Self::Env(left), Self::Env(right)) => left == right,
+            (Self::Intrinsic(left), Self::Intrinsic(right)) => left == right,
             (Self::UnsupportedLiteral, Self::UnsupportedLiteral) => true,
             (Self::List(left), Self::List(right)) => left.same_semantic_value(right),
             (Self::Tuple(left), Self::Tuple(right)) => left.same_semantic_value(right),
@@ -908,7 +897,7 @@ impl PythonValueKind {
                 Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
-                | Self::Env(_)
+                | Self::Intrinsic(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -947,14 +936,14 @@ impl PythonValueKind {
             (Self::Str(_), Self::Str(_))
             | (Self::Bool(_), Self::Bool(_))
             | (Self::Path(_), Self::Path(_))
-            | (Self::Env(_), Self::Env(_))
+            | (Self::Intrinsic(_), Self::Intrinsic(_))
             | (Self::UnsupportedLiteral, Self::UnsupportedLiteral)
             | (Self::Module(_), Self::Module(_)) => true,
             (
                 Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
-                | Self::Env(_)
+                | Self::Intrinsic(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -964,7 +953,7 @@ impl PythonValueKind {
                 Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
-                | Self::Env(_)
+                | Self::Intrinsic(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -1201,10 +1190,10 @@ mod tests {
     use super::ValueEvidence;
     use super::ValueEvidenceSet;
     use crate::python::InvalidModuleName;
+    use crate::python::PythonIntrinsic;
     use crate::python::PythonModule;
     use crate::python::PythonModuleName;
     use crate::python::PythonPath;
-    use crate::python::PythonPathIntrinsic;
     use crate::python::PythonSyntaxError;
     use crate::python::PythonSyntaxErrorClass;
     use crate::python::module::PythonImportNameError;
@@ -1235,17 +1224,17 @@ mod tests {
     }
 
     fn path_value(site: Origin, text: &str) -> PythonValue {
+        let text = format!("/{text}");
         PythonValue::known(
-            PythonValueKind::Path(PythonPath::Object(Utf8PathBuf::from(text))),
+            PythonValueKind::Path(
+                PythonPath::from_absolute_string(&text).expect("test path should be absolute"),
+            ),
             site,
         )
     }
 
-    fn path_intrinsic_value(site: Origin, intrinsic: PythonPathIntrinsic) -> PythonValue {
-        PythonValue::known(
-            PythonValueKind::Path(PythonPath::Intrinsic(intrinsic)),
-            site,
-        )
+    fn intrinsic_value(site: Origin, intrinsic: PythonIntrinsic) -> PythonValue {
+        PythonValue::known(PythonValueKind::Intrinsic(intrinsic), site)
     }
 
     fn unsupported_literal_value(site: Origin) -> PythonValue {
@@ -1275,7 +1264,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
@@ -1324,14 +1313,18 @@ mod tests {
             str_value(origin(1), "text"),
             tuple_value(origin(1), Vec::new()),
             unsupported_literal_value(origin(1)),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::BuiltinsModule),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::BuiltinStrType),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibModule),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::OsModule),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::OsPathModule),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::OsPathJoinFunction),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::OsPathDirnameFunction),
+            intrinsic_value(origin(1), PythonIntrinsic::BuiltinsModule),
+            intrinsic_value(origin(1), PythonIntrinsic::BuiltinsStrType),
+            intrinsic_value(origin(1), PythonIntrinsic::PathlibModule),
+            intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType),
+            intrinsic_value(origin(1), PythonIntrinsic::OsModule),
+            intrinsic_value(origin(1), PythonIntrinsic::OsPathModule),
+            intrinsic_value(origin(1), PythonIntrinsic::OsPathJoinFunction),
+            intrinsic_value(origin(1), PythonIntrinsic::OsPathDirnameFunction),
+            intrinsic_value(origin(1), PythonIntrinsic::OsPathAbspathFunction),
+            intrinsic_value(origin(1), PythonIntrinsic::OsEnvironObject),
+            intrinsic_value(origin(1), PythonIntrinsic::OsEnvironGetFunction),
+            intrinsic_value(origin(1), PythonIntrinsic::OsGetenvFunction),
             unknown_value(origin(1)),
         ];
         for (index, left) in values.iter().enumerate() {
@@ -1621,11 +1614,11 @@ mod tests {
     }
 
     #[test]
-    fn path_intrinsics_and_unsupported_literals_have_only_atomic_value_state() {
-        let path_intrinsic = path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType);
+    fn intrinsics_and_unsupported_literals_have_only_atomic_value_state() {
+        let intrinsic = intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType);
         let unsupported_literal = unsupported_literal_value(origin(2));
 
-        for value in [&path_intrinsic, &unsupported_literal] {
+        for value in [&intrinsic, &unsupported_literal] {
             assert!(value.known_scalar().is_none());
             assert!(value.path_value().is_none());
             assert!(value.sequence().is_none());
@@ -1636,14 +1629,14 @@ mod tests {
         }
 
         let mut constructed = list_value(origin(3), Vec::new());
-        assert!(constructed.push_constructed_element(path_intrinsic));
+        assert!(constructed.push_constructed_element(intrinsic));
         assert!(constructed.push_constructed_element(unsupported_literal));
         let list = match constructed.kind {
             PythonValueKind::List(list) => Some(list),
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -1654,9 +1647,7 @@ mod tests {
         assert!(matches!(
             &list.semantic_items()[0],
             PythonSequenceItem::Value(PythonValue {
-                kind: PythonValueKind::Path(PythonPath::Intrinsic(
-                    PythonPathIntrinsic::PathlibPathType
-                )),
+                kind: PythonValueKind::Intrinsic(PythonIntrinsic::PathlibPathType),
                 ..
             })
         ));
@@ -1693,13 +1684,13 @@ mod tests {
     }
 
     #[test]
-    fn path_intrinsics_and_unsupported_literals_rebase_constrain_and_merge_evidence() {
+    fn intrinsics_and_unsupported_literals_rebase_constrain_and_merge_evidence() {
         let join = origin(10);
         let mut constraints = BranchConstraints::unconstrained();
         constraints.select(join, 0);
 
         for mut value in [
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType),
+            intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType),
             unsupported_literal_value(origin(1)),
         ] {
             value.constrain_value_evidence(&constraints);
@@ -1716,21 +1707,19 @@ mod tests {
             );
         }
 
-        let mut path_intrinsic =
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType);
-        let same_symbol = path_intrinsic_value(origin(2), PythonPathIntrinsic::PathlibPathType);
-        let different_symbol =
-            path_intrinsic_value(origin(3), PythonPathIntrinsic::OsPathJoinFunction);
-        assert!(path_intrinsic.same_semantic_value(&same_symbol));
-        assert!(!path_intrinsic.same_semantic_value(&different_symbol));
-        path_intrinsic.merge_semantically_equal(same_symbol, None);
+        let mut intrinsic = intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType);
+        let same_symbol = intrinsic_value(origin(2), PythonIntrinsic::PathlibPathType);
+        let different_symbol = intrinsic_value(origin(3), PythonIntrinsic::OsPathJoinFunction);
+        assert!(intrinsic.same_semantic_value(&same_symbol));
+        assert!(!intrinsic.same_semantic_value(&different_symbol));
+        intrinsic.merge_semantically_equal(same_symbol, None);
         assert_eq!(
-            path_intrinsic.origins().collect::<Vec<_>>(),
+            intrinsic.origins().collect::<Vec<_>>(),
             [origin(1), origin(2)]
         );
         assert!(matches!(
-            path_intrinsic.kind,
-            PythonValueKind::Path(PythonPath::Intrinsic(PythonPathIntrinsic::PathlibPathType))
+            intrinsic.kind,
+            PythonValueKind::Intrinsic(PythonIntrinsic::PathlibPathType)
         ));
 
         let mut unsupported_literal = unsupported_literal_value(origin(1));
@@ -1843,7 +1832,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -1931,7 +1920,7 @@ mod tests {
                 dict_value(origin(1)),
                 bool_value(origin(1), true),
                 path_value(origin(1), "p"),
-                path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType),
+                intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType),
                 unsupported_literal_value(origin(1)),
                 unknown_value(origin(1)),
             ]
@@ -2009,8 +1998,16 @@ mod tests {
             Iterability::NotIterable
         ));
         assert!(matches!(
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType).iterability(),
+            intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType).iterability(),
             Iterability::NotIterable
+        ));
+        assert!(matches!(
+            intrinsic_value(origin(1), PythonIntrinsic::OsGetenvFunction).iterability(),
+            Iterability::NotIterable
+        ));
+        assert!(matches!(
+            intrinsic_value(origin(1), PythonIntrinsic::OsEnvironObject).iterability(),
+            Iterability::Indeterminate(_)
         ));
         assert!(matches!(
             unsupported_literal_value(origin(1)).iterability(),
@@ -2053,7 +2050,7 @@ mod tests {
         for value in [
             bool_value(origin(1), true),
             path_value(origin(1), "p"),
-            path_intrinsic_value(origin(1), PythonPathIntrinsic::PathlibPathType),
+            intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType),
             unsupported_literal_value(origin(1)),
             dict_value(origin(1)),
             unknown_value(origin(1)),
@@ -2069,7 +2066,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -2123,7 +2120,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -2183,12 +2180,12 @@ mod tests {
         assert!(ok.is_none());
         assert_eq!(item_texts(&from_path), vec!["str:seed"]);
 
-        let (ok, from_path_intrinsic) = extend_list(&path_intrinsic_value(
+        let (ok, from_intrinsic) = extend_list(&intrinsic_value(
             origin(3),
-            PythonPathIntrinsic::PathlibPathType,
+            PythonIntrinsic::PathlibPathType,
         ));
         assert!(ok.is_none());
-        assert_eq!(item_texts(&from_path_intrinsic), vec!["str:seed"]);
+        assert_eq!(item_texts(&from_intrinsic), vec!["str:seed"]);
 
         let (ok, from_unsupported_literal) = extend_list(&unsupported_literal_value(origin(3)));
         assert!(ok.is_some());

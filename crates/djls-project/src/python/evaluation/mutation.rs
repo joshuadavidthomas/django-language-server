@@ -185,7 +185,7 @@ impl PythonMutationPath {
                         PythonValueKind::Str(_)
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
-                        | PythonValueKind::Env(_)
+                        | PythonValueKind::Intrinsic(_)
                         | PythonValueKind::UnsupportedLiteral
                         | PythonValueKind::Dict(_)
                         | PythonValueKind::Module(_)
@@ -248,7 +248,7 @@ impl PythonMutationPath {
                         PythonValueKind::Str(_)
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
-                        | PythonValueKind::Env(_)
+                        | PythonValueKind::Intrinsic(_)
                         | PythonValueKind::UnsupportedLiteral
                         | PythonValueKind::Dict(_)
                         | PythonValueKind::Module(_)

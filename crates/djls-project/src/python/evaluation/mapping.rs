@@ -69,7 +69,7 @@ impl PythonDict {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
@@ -119,7 +119,7 @@ impl PythonDict {
                     PythonValueKind::Str(_)
                     | PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
-                    | PythonValueKind::Env(_)
+                    | PythonValueKind::Intrinsic(_)
                     | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
@@ -234,7 +234,7 @@ impl<'a> PythonMapping<'a> {
                     PythonValueKind::Str(_)
                     | PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
-                    | PythonValueKind::Env(_)
+                    | PythonValueKind::Intrinsic(_)
                     | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
@@ -278,7 +278,7 @@ impl<'a> PythonMapping<'a> {
                     }
                     PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
-                    | PythonValueKind::Env(_)
+                    | PythonValueKind::Intrinsic(_)
                     | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
@@ -316,7 +316,7 @@ impl<'a> PythonMapping<'a> {
                 PythonValueKind::Str(_)
                 | PythonValueKind::Bool(_)
                 | PythonValueKind::Path(_)
-                | PythonValueKind::Env(_)
+                | PythonValueKind::Intrinsic(_)
                 | PythonValueKind::UnsupportedLiteral
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)
@@ -485,7 +485,7 @@ mod tests {
     use super::PythonValue;
     use super::PythonValueKind;
     use super::StructuralOrd;
-    use crate::python::PythonPathIntrinsic;
+    use crate::python::PythonIntrinsic;
 
     fn origin(offset: usize) -> Origin {
         let file = File::from_id(Id::from_bits(1));
@@ -511,8 +511,8 @@ mod tests {
         )
     }
 
-    fn path_intrinsic(offset: usize) -> PythonValue {
-        PythonValue::path_intrinsic(PythonPathIntrinsic::PathlibPathType, origin(offset))
+    fn intrinsic(offset: usize) -> PythonValue {
+        PythonValue::intrinsic(PythonIntrinsic::PathlibPathType, origin(offset))
     }
 
     #[test]
@@ -696,7 +696,7 @@ mod tests {
     fn known_non_string_keys_do_not_block_exact_string_key_mutation() {
         let mut dict = dict_with(vec![
             (str_value("target", 1), str_value("before", 2)),
-            (path_intrinsic(3), str_value("intrinsic", 4)),
+            (intrinsic(3), str_value("intrinsic", 4)),
             (PythonValue::bool(true, origin(5)), str_value("boolean", 6)),
         ]);
 

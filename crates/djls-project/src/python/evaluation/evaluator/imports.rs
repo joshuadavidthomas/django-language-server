@@ -21,10 +21,9 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ast;
-use crate::python::PythonEnvIntrinsic;
+use crate::python::PythonIntrinsic;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::python::PythonPathIntrinsic;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
 use crate::python::evaluation::PythonSequenceAlternativeRef;
@@ -118,10 +117,7 @@ impl PythonModuleEvaluator<'_> {
                     self.db,
                     self.project,
                     module.clone(),
-                    self.state
-                        .module_effects
-                        .path_intrinsic_contamination()
-                        .clone(),
+                    self.state.module_effects.intrinsic_contamination().clone(),
                 ) {
                     PythonModuleEvaluation::CycleSeed => {
                         PythonBinding::unknown(&PythonUnknownCause::Cycle, origin)
@@ -243,17 +239,17 @@ impl PythonModuleEvaluator<'_> {
         if load.entirely_external
             && matches!(&load.leaf, ImportChainTerminal::External { .. })
             && let Some(intrinsic) =
-                PythonPathIntrinsic::from_direct_import(clause.requested(), clause.binds_root())
+                PythonIntrinsic::from_direct_import(clause.requested(), clause.binds_root())
         {
             self.state
-                .assign_path_intrinsic(clause.bound(), intrinsic, binding_origin);
+                .assign_intrinsic(clause.bound(), intrinsic, binding_origin);
             return;
         }
 
         if load.root.is_none()
             && let ImportChainTerminal::NotFound { module } = &load.leaf
             && let Some(intrinsic) =
-                PythonPathIntrinsic::from_direct_import(clause.requested(), clause.binds_root())
+                PythonIntrinsic::from_direct_import(clause.requested(), clause.binds_root())
             && let Ok(external) = PythonModuleName::parse(clause.requested())
             && self
                 .state
@@ -262,7 +258,7 @@ impl PythonModuleEvaluator<'_> {
                 .is_some()
         {
             self.state
-                .assign_path_intrinsic(clause.bound(), intrinsic, binding_origin);
+                .assign_intrinsic(clause.bound(), intrinsic, binding_origin);
             return;
         }
 
@@ -344,7 +340,7 @@ impl PythonModuleEvaluator<'_> {
                     }
                     ImportChainTerminal::External { object: _, module }
                         if entirely_external
-                            && PythonPathIntrinsic::is_known_external_module(
+                            && PythonIntrinsic::is_known_external_module(
                                 import.level,
                                 import.module,
                             ) =>
@@ -382,7 +378,7 @@ impl PythonModuleEvaluator<'_> {
         missing: &PythonModuleName,
         external: &PythonModuleName,
     ) -> bool {
-        if !PythonPathIntrinsic::is_known_external_module(import.level, import.module) {
+        if !PythonIntrinsic::is_known_external_module(import.level, import.module) {
             return false;
         }
 
@@ -408,23 +404,13 @@ impl PythonModuleEvaluator<'_> {
             FromImportSelection::Star => self.state.apply_from_failure(import, &external_cause),
             FromImportSelection::Named(bindings) => {
                 for imported in bindings {
-                    if let Some(intrinsic) = PythonEnvIntrinsic::from_named_import(
+                    if let Some(intrinsic) = PythonIntrinsic::from_named_import(
                         import.level,
                         import.module,
                         imported.imported,
                     ) {
                         self.state
-                            .assign_env_intrinsic(imported.bound, intrinsic, imported.origin);
-                    } else if let Some(intrinsic) = PythonPathIntrinsic::from_named_import(
-                        import.level,
-                        import.module,
-                        imported.imported,
-                    ) {
-                        self.state.assign_path_intrinsic(
-                            imported.bound,
-                            intrinsic,
-                            imported.origin,
-                        );
+                            .assign_intrinsic(imported.bound, intrinsic, imported.origin);
                     } else {
                         self.state
                             .bind_unknown(imported.bound, &external_cause, import.origin);
@@ -992,10 +978,7 @@ impl PythonModuleEvaluator<'_> {
             self.db,
             self.project,
             module.clone(),
-            self.state
-                .module_effects
-                .path_intrinsic_contamination()
-                .clone(),
+            self.state.module_effects.intrinsic_contamination().clone(),
         ) {
             PythonModuleEvaluation::CycleSeed => {
                 self.state.record_component_edge(

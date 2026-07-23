@@ -6,7 +6,7 @@ use super::PythonImportTrace;
 use super::PythonModuleEffects;
 use super::PythonModuleFacts;
 use super::evaluator::evaluate_body;
-use super::module_object::PathIntrinsicContamination;
+use super::module_object::IntrinsicContamination;
 use super::result::EvaluatedPythonModule;
 use super::result::PythonModuleEvaluation;
 use super::touched_names::collect_syntax_impacts;
@@ -26,7 +26,7 @@ pub(super) fn evaluate_python_module(
     db: &dyn ProjectDb,
     project: Project,
     module: PythonSourceModule,
-    path_intrinsic_contamination: PathIntrinsicContamination,
+    intrinsic_contamination: IntrinsicContamination,
 ) -> PythonModuleEvaluation {
     let file = module.file();
     let parsed = match RecoveredPythonModule::from_file(db, file) {
@@ -58,7 +58,7 @@ pub(super) fn evaluate_python_module(
         body,
         syntax_errors,
         syntax_impacts,
-        path_intrinsic_contamination,
+        intrinsic_contamination,
     );
     PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
         Ok(module_facts),
@@ -76,7 +76,7 @@ pub(crate) fn python_module_facts(
     project: Project,
     module: PythonSourceModule,
 ) -> Result<PythonModuleFacts, FileReadError> {
-    match evaluate_python_module(db, project, module, PathIntrinsicContamination::default()) {
+    match evaluate_python_module(db, project, module, IntrinsicContamination::default()) {
         PythonModuleEvaluation::CycleSeed => Ok(PythonModuleFacts::cycle_seed()),
         PythonModuleEvaluation::Evaluated(evaluated) => evaluated.facts().clone(),
     }
@@ -91,7 +91,7 @@ pub(crate) fn python_import_trace(
     module: PythonSourceModule,
 ) -> PythonImportTrace {
     let file = module.file();
-    match evaluate_python_module(db, project, module, PathIntrinsicContamination::default()) {
+    match evaluate_python_module(db, project, module, IntrinsicContamination::default()) {
         PythonModuleEvaluation::CycleSeed => PythonImportTrace::rooted(file),
         PythonModuleEvaluation::Evaluated(evaluated) => evaluated.import_trace().clone(),
     }
@@ -102,7 +102,7 @@ fn evaluate_python_module_cycle_initial(
     _id: Id,
     _project: Project,
     _module: PythonSourceModule,
-    _path_intrinsic_contamination: PathIntrinsicContamination,
+    _intrinsic_contamination: IntrinsicContamination,
 ) -> PythonModuleEvaluation {
     PythonModuleEvaluation::CycleSeed
 }
@@ -116,7 +116,7 @@ fn evaluate_python_module_cycle_recover(
     computed: PythonModuleEvaluation,
     _project: Project,
     module: PythonSourceModule,
-    _path_intrinsic_contamination: PathIntrinsicContamination,
+    _intrinsic_contamination: IntrinsicContamination,
 ) -> PythonModuleEvaluation {
     assert!(
         cycle.iteration() < 12,

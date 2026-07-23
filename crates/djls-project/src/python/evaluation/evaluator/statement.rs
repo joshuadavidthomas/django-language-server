@@ -348,7 +348,7 @@ impl<'db> PythonModuleEvaluator<'db> {
             }
             PythonValueKind::Dict(_)
             | PythonValueKind::Path(_)
-            | PythonValueKind::Env(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Bool(_)
             | PythonValueKind::Module(_)
