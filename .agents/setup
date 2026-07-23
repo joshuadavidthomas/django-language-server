@@ -51,7 +51,9 @@ fi
 rustup toolchain install "$rust_channel" --profile minimal --component clippy
 # Formatting uses its pinned nightly; Hawk uses its compiler-private toolchain.
 rustup toolchain install "$rustfmt_channel" --profile minimal --component rustfmt
-rustup toolchain install "$hawk_channel" --profile minimal
+if [[ "$hawk_channel" != "$rust_channel" ]]; then
+    rustup toolchain install "$hawk_channel" --profile minimal
+fi
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "==> Installing uv"

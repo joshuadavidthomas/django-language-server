@@ -2922,7 +2922,7 @@ def my_filter(value, arg):
             .apply(&mut db);
 
         let inheritance = template_inheritance(&db, project, child_file);
-        assert!(inheritance.ancestors(&db)[0].file(&db) == other_file);
+        assert_eq!(inheritance.ancestors(&db)[0].file(&db), other_file);
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "template_inheritance"),
@@ -2944,7 +2944,7 @@ def my_filter(value, arg):
         } = template_inheritance_fixture();
 
         let inheritance = template_inheritance(&db, project, child_file);
-        assert!(inheritance.ancestors(&db)[0].file(&db) == parent_file);
+        assert_eq!(inheritance.ancestors(&db)[0].file(&db), parent_file);
         event_log.take();
 
         fs.lock()
@@ -2957,7 +2957,7 @@ def my_filter(value, arg):
             .apply(&mut db);
 
         let inheritance = template_inheritance(&db, project, child_file);
-        assert!(inheritance.ancestors(&db)[0].file(&db) == parent_file);
+        assert_eq!(inheritance.ancestors(&db)[0].file(&db), parent_file);
         let events = event_log.take();
         assert_eq!(
             execution_count(&db, &events, "template_symbols"),

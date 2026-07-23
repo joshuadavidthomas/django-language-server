@@ -138,10 +138,9 @@ impl PythonMutationPath {
         };
         let segment = if let Some(index) = subscript.slice.non_negative_integer() {
             PythonMutationPathSegment::Index(index)
-        } else if let Some(key) = subscript.slice.string_literal() {
-            PythonMutationPathSegment::Key(key.to_string())
         } else {
-            return None;
+            let key = subscript.slice.string_literal()?;
+            PythonMutationPathSegment::Key(key.to_string())
         };
         let (binding, mut path) = Self::from_expr(&subscript.value)?;
         path.segments.push(segment);

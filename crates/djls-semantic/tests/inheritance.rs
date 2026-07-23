@@ -517,7 +517,7 @@ fn block_overrides_accepts_relative_winning_extends_target() {
     let overrides = block_overrides(&db, project, parent, "content");
 
     assert_eq!(overrides.len(), 1);
-    assert!(overrides[0].file == child);
+    assert_eq!(overrides[0].file, child);
 }
 
 #[test]

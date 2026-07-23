@@ -53,7 +53,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed startup refreshes to run discovery phases in parallel and report counted progress.
 - Changed template validation and completion scoping to use localized inventory completeness, suppressing absence diagnostics only where discovery evidence is incomplete.
 - Changed template formatting to honor LSP/editor formatting options for indentation and final/trailing whitespace.
-- Bumped Rust toolchain from 1.95 to 1.96 and moved workspace crates to Rust 2024.
+- Bumped Rust toolchain from 1.95 to 1.97.1 and moved workspace crates to Rust 2024.
 - **Internal**: Added multi-file scenario support and a pluggable snapshot renderer to the `djls-testing` mdtest harness.
 - **Internal**: Reshaped template tag library storage around loadable and builtin mounts.
 - **Internal**: Moved the project model and static source recognizers into `djls-project`.
