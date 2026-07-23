@@ -180,6 +180,11 @@ url = "https://github.com/django/django.git"
 ref = "6.0.2"
 
 [[repo]]
+name = "django-6.1"
+url = "https://github.com/django/django.git"
+ref = "6.1rc1"
+
+[[repo]]
 name = "djangopackages.org"
 url = "https://github.com/djangopackages/djangopackages.git"
 ref = "main"

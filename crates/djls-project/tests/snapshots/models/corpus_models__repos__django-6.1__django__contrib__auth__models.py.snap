@@ -1,0 +1,116 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  django.contrib.auth.models.AbstractUser:
+    name:
+      value: AbstractUser
+      span:
+        start: 15766
+        length: 12
+    module_name: django.contrib.auth.models
+    relations: []
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 15779
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: django.contrib.auth.base_user.AbstractBaseUser
+    ancestry: Partial
+  django.contrib.auth.models.Group:
+    name:
+      value: Group
+      span:
+        start: 3536
+        length: 5
+    module_name: django.contrib.auth.models
+    relations:
+      - field_name:
+          value: permissions
+          span:
+            start: 4418
+            length: 11
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 4464
+            length: 10
+        related_name: ~
+    kind: concrete
+  django.contrib.auth.models.Permission:
+    name:
+      value: Permission
+      span:
+        start: 1170
+        length: 10
+    module_name: django.contrib.auth.models
+    relations:
+      - field_name:
+          value: content_type
+          span:
+            start: 2358
+            length: 12
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: ContentType
+          span:
+            start: 2400
+            length: 11
+        related_name: ~
+    kind: concrete
+  django.contrib.auth.models.PermissionsMixin:
+    name:
+      value: PermissionsMixin
+      span:
+        start: 11117
+        length: 16
+    module_name: django.contrib.auth.models
+    relations:
+      - field_name:
+          value: groups
+          span:
+            start: 11524
+            length: 6
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Bare
+            name: Group
+          span:
+            start: 11565
+            length: 5
+        related_name: user_set
+      - field_name:
+          value: user_permissions
+          span:
+            start: 11863
+            length: 16
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 11914
+            length: 10
+        related_name: user_set
+    kind: abstract
+  django.contrib.auth.models.User:
+    name:
+      value: User
+      span:
+        start: 18036
+        length: 4
+    module_name: django.contrib.auth.models
+    relations: []
+    kind: concrete
+    ancestry: Partial

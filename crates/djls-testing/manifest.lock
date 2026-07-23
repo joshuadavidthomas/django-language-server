@@ -211,6 +211,12 @@ tag = "6.0.2"
 ref = "ba00558ddac694d92b05d12ecd2a5b7fcc1de025"
 
 [[repo]]
+name = "django-6.1"
+url = "https://github.com/django/django.git"
+tag = "6.1rc1"
+ref = "0f1b39b28b20a1094c4c02dd72d0ba840ed7e10b"
+
+[[repo]]
 name = "djangopackages.org"
 url = "https://github.com/djangopackages/djangopackages.git"
 tag = "main"

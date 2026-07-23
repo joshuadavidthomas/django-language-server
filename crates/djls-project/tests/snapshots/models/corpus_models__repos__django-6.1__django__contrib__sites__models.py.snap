@@ -1,0 +1,14 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  django.contrib.sites.models.Site:
+    name:
+      value: Site
+      span:
+        start: 2651
+        length: 4
+    module_name: django.contrib.sites.models
+    relations: []
+    kind: concrete

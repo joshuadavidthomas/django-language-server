@@ -1,0 +1,14 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  django.contrib.contenttypes.models.ContentType:
+    name:
+      value: ContentType
+      span:
+        start: 5017
+        length: 11
+    module_name: django.contrib.contenttypes.models
+    relations: []
+    kind: concrete
