@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
-use std::ops::ControlFlow;
 
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::Keyword;
 use ruff_python_ast::Stmt;
-use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
+use ruff_python_ast::visitor;
+use ruff_python_ast::visitor::Visitor;
 
 use super::filters::FilterArityMap;
 use super::libraries::TemplateLibraryId;
@@ -22,10 +22,10 @@ use super::tags::BlockSpecs;
 use super::tags::TagRuleMap;
 use super::tags::blocks::EndTagEvidence;
 use crate::ast::ExprExt;
-use crate::ast::Recurse;
-use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
 use crate::python::RecoveredPythonModule;
+use crate::python::import::DirectImportClause;
+use crate::python::import::FromImportSyntax;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];
@@ -48,60 +48,422 @@ pub(crate) enum RegistrationKind {
     Filter,
 }
 
-/// Collect registrations from a pre-parsed module body.
-///
-/// This avoids re-parsing the source when the caller already has the AST.
-#[must_use]
-pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
-    let mut registrations = Vec::new();
-    walk_stmts(body, Recurse::IntoClasses, |stmt| {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum RegistrationInventory {
+    #[default]
+    NotLibrary,
+    Observed,
+    Open,
+}
+
+#[derive(Debug, Default)]
+struct RegistrationSourceAnalysis {
+    registrations: Vec<RegistrationInfo>,
+    inventory: RegistrationInventory,
+}
+
+impl RegistrationSourceAnalysis {
+    fn observe_fresh_library(&mut self) {
+        if matches!(self.inventory, RegistrationInventory::NotLibrary) {
+            self.inventory = RegistrationInventory::Observed;
+        }
+    }
+
+    fn observe_register_use(&mut self) {
+        if matches!(self.inventory, RegistrationInventory::NotLibrary) {
+            self.inventory = RegistrationInventory::Open;
+        }
+    }
+
+    fn open_inventory(&mut self) {
+        self.inventory = RegistrationInventory::Open;
+    }
+
+    fn defines_library(&self) -> bool {
+        !matches!(self.inventory, RegistrationInventory::NotLibrary)
+    }
+
+    fn inventory_is_open(&self) -> bool {
+        matches!(self.inventory, RegistrationInventory::Open)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum RegisterReference {
+    #[default]
+    Absent,
+    Present,
+}
+
+struct RegisterUseVisitor {
+    reference: RegisterReference,
+}
+
+impl<'a> Visitor<'a> for RegisterUseVisitor {
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        if expr.name_target() == Some("register") {
+            self.reference = RegisterReference::Present;
+            return;
+        }
+        visitor::walk_expr(self, expr);
+    }
+}
+
+fn contains_register(expr: &Expr) -> bool {
+    let mut visitor = RegisterUseVisitor {
+        reference: RegisterReference::Absent,
+    };
+    visitor.visit_expr(expr);
+    matches!(visitor.reference, RegisterReference::Present)
+}
+
+fn statement_contains_register(stmt: &Stmt) -> bool {
+    let mut visitor = RegisterUseVisitor {
+        reference: RegisterReference::Absent,
+    };
+    visitor.visit_stmt(stmt);
+    matches!(visitor.reference, RegisterReference::Present)
+}
+
+fn body_contains_register(body: &[Stmt]) -> bool {
+    body.iter().any(statement_contains_register)
+}
+
+fn collect_from_class_body(body: &[Stmt], analysis: &mut RegistrationSourceAnalysis) {
+    let mut register_is_module_binding = true;
+    for stmt in body {
+        if let Stmt::FunctionDef(function) = stmt
+            && register_is_module_binding
+        {
+            collect_from_decorated_function(function, analysis);
+            if body_contains_register(&function.body) {
+                analysis.open_inventory();
+            }
+            continue;
+        }
+        if let Stmt::ClassDef(class) = stmt {
+            collect_from_class_body(&class.body, analysis);
+            continue;
+        }
+        if let Stmt::Assign(assign) = stmt
+            && assign
+                .targets
+                .iter()
+                .any(|target| target.name_target() == Some("register"))
+        {
+            register_is_module_binding = false;
+        }
+    }
+}
+
+fn is_register_inventory_target(expr: &Expr) -> bool {
+    if let Expr::Subscript(subscript) = expr {
+        return is_register_inventory_target(&subscript.value);
+    }
+    expr.path_segments().is_some_and(|path| {
+        matches!(path.as_slice(), [register, inventory, ..]
+            if register == "register" && matches!(inventory.as_str(), "tags" | "filters"))
+    })
+}
+
+fn call_rooted_at_register(call: &ExprCall) -> bool {
+    call.func
+        .path_segments()
+        .is_some_and(|path| path.first().is_some_and(|root| root == "register"))
+}
+
+fn call_escapes_register(call: &ExprCall) -> bool {
+    contains_register(&call.func)
+        || call.arguments.args.iter().any(contains_register)
+        || call
+            .arguments
+            .keywords
+            .iter()
+            .any(|keyword| contains_register(&keyword.value))
+}
+
+fn is_fresh_canonical_library(
+    expr: &Expr,
+    template_is_django: bool,
+    library_constructor: Option<&str>,
+) -> bool {
+    let Expr::Call(call) = expr else {
+        return false;
+    };
+    if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
+        return false;
+    }
+    if template_is_django
+        && call.func.path_segments().is_some_and(|path| {
+            matches!(path.as_slice(), [template, library]
+                if template == "template" && library == "Library")
+        })
+    {
+        return true;
+    }
+    call.func
+        .name_target()
+        .is_some_and(|name| Some(name) == library_constructor)
+}
+
+fn is_canonical_library_import(syntax: &FromImportSyntax, module_name: &str) -> bool {
+    (syntax.level() == 0
+        && matches!(
+            syntax.module(),
+            Some("django.template" | "django.template.library")
+        ))
+        || (syntax.level() == 1
+            && syntax.module() == Some("library")
+            && module_name.starts_with("django.template."))
+}
+
+#[allow(clippy::too_many_lines)]
+fn analyze_registrations_from_body_in_module(
+    body: &[Stmt],
+    module_name: &str,
+) -> RegistrationSourceAnalysis {
+    let mut analysis = RegistrationSourceAnalysis::default();
+    let mut template_is_django = false;
+    let mut library_constructor = None;
+
+    for stmt in body {
         match stmt {
-            Stmt::FunctionDef(func_def) => {
-                collect_from_decorated_function(func_def, &mut registrations);
+            Stmt::Import(import) => {
+                for clause in DirectImportClause::lower(import) {
+                    if clause.bound() == "template" {
+                        template_is_django = false;
+                    }
+                    if library_constructor == Some(clause.bound()) {
+                        library_constructor = None;
+                    }
+                    if clause.bound() == "register" {
+                        analysis.registrations.clear();
+                        analysis.open_inventory();
+                    }
+                }
+            }
+            Stmt::ImportFrom(import) => {
+                let syntax = FromImportSyntax::lower(import);
+                if syntax.has_star() {
+                    template_is_django = false;
+                    library_constructor = None;
+                }
+                let canonical_library_import = is_canonical_library_import(&syntax, module_name);
+                for member in syntax.named_members() {
+                    if member.bound() == "template" {
+                        template_is_django = syntax.level() == 0
+                            && syntax.module() == Some("django")
+                            && member.imported() == "template";
+                    }
+                    if library_constructor == Some(member.bound()) {
+                        library_constructor = None;
+                    }
+                    if canonical_library_import && member.imported() == "Library" {
+                        library_constructor = Some(member.bound());
+                    }
+                    if member.bound() == "register" {
+                        analysis.registrations.clear();
+                        analysis.open_inventory();
+                    }
+                }
+            }
+            Stmt::Assign(assign) => {
+                let binds_register = assign
+                    .targets
+                    .iter()
+                    .any(|target| target.name_target() == Some("register"));
+                let binds_template = assign
+                    .targets
+                    .iter()
+                    .any(|target| target.name_target() == Some("template"));
+                let shares_register_binding = binds_register
+                    && (assign.targets.len() != 1
+                        || assign.targets[0].name_target() != Some("register"));
+                if assign.targets.iter().any(|target| {
+                    target
+                        .name_target()
+                        .is_some_and(|name| library_constructor == Some(name))
+                }) {
+                    library_constructor = None;
+                }
+                if binds_register {
+                    let fresh_canonical = is_fresh_canonical_library(
+                        &assign.value,
+                        template_is_django,
+                        library_constructor,
+                    );
+                    if fresh_canonical && !binds_template && !shares_register_binding {
+                        analysis.observe_fresh_library();
+                    } else {
+                        analysis.registrations.clear();
+                        analysis.open_inventory();
+                    }
+                }
+                if assign.targets.iter().any(is_register_inventory_target)
+                    || (contains_register(&assign.value) && !binds_register)
+                {
+                    analysis.open_inventory();
+                }
+                if binds_template {
+                    template_is_django = false;
+                }
+            }
+            Stmt::AnnAssign(assign) => {
+                if assign.target.name_target() == Some("register") {
+                    analysis.registrations.clear();
+                    analysis.open_inventory();
+                }
+                if is_register_inventory_target(&assign.target)
+                    || assign.value.as_deref().is_some_and(contains_register)
+                {
+                    analysis.open_inventory();
+                }
+                if assign.target.name_target() == Some("template") {
+                    template_is_django = false;
+                }
+                if assign
+                    .target
+                    .name_target()
+                    .is_some_and(|name| library_constructor == Some(name))
+                {
+                    library_constructor = None;
+                }
+            }
+            Stmt::AugAssign(assign) => {
+                if assign.target.name_target() == Some("register")
+                    || is_register_inventory_target(&assign.target)
+                    || contains_register(&assign.value)
+                {
+                    analysis.open_inventory();
+                }
+                if assign.target.name_target() == Some("template") {
+                    template_is_django = false;
+                }
+                if assign
+                    .target
+                    .name_target()
+                    .is_some_and(|name| library_constructor == Some(name))
+                {
+                    library_constructor = None;
+                }
+            }
+            Stmt::Delete(delete) => {
+                if delete.targets.iter().any(|target| {
+                    target.name_target() == Some("register")
+                        || is_register_inventory_target(target)
+                        || contains_register(target)
+                }) {
+                    analysis.open_inventory();
+                }
+                if delete
+                    .targets
+                    .iter()
+                    .any(|target| target.name_target() == Some("template"))
+                {
+                    template_is_django = false;
+                }
+                if delete.targets.iter().any(|target| {
+                    target
+                        .name_target()
+                        .is_some_and(|name| library_constructor == Some(name))
+                }) {
+                    library_constructor = None;
+                }
+            }
+            Stmt::FunctionDef(function) => {
+                if function.name.as_str() == "template" {
+                    template_is_django = false;
+                }
+                if library_constructor == Some(function.name.as_str()) {
+                    library_constructor = None;
+                }
+                if function.name.as_str() == "register" {
+                    analysis.registrations.clear();
+                    analysis.open_inventory();
+                }
+                collect_from_decorated_function(function, &mut analysis);
+                if body_contains_register(&function.body) {
+                    analysis.open_inventory();
+                }
+            }
+            Stmt::ClassDef(class) => {
+                if class.name.as_str() == "template" {
+                    template_is_django = false;
+                }
+                if library_constructor == Some(class.name.as_str()) {
+                    library_constructor = None;
+                }
+                if class.name.as_str() == "register" {
+                    analysis.registrations.clear();
+                    analysis.open_inventory();
+                }
+                collect_from_class_body(&class.body, &mut analysis);
+                if statement_contains_register(stmt) {
+                    analysis.open_inventory();
+                }
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 if let Expr::Call(call) = value.as_ref() {
-                    collect_from_call_statement(call, &mut registrations);
+                    collect_from_call_statement(call, &mut analysis);
+                } else if contains_register(value) {
+                    analysis.open_inventory();
                 }
             }
-            Stmt::ClassDef(_)
-            | Stmt::Return(_)
-            | Stmt::Delete(_)
-            | Stmt::TypeAlias(_)
-            | Stmt::Assign(_)
-            | Stmt::AugAssign(_)
-            | Stmt::AnnAssign(_)
-            | Stmt::For(_)
+            Stmt::For(_)
             | Stmt::While(_)
             | Stmt::If(_)
             | Stmt::With(_)
             | Stmt::Match(_)
+            | Stmt::Try(_) => {
+                template_is_django = false;
+                library_constructor = None;
+                if statement_contains_register(stmt) {
+                    analysis.open_inventory();
+                }
+            }
+            Stmt::Return(_)
+            | Stmt::TypeAlias(_)
             | Stmt::Raise(_)
-            | Stmt::Try(_)
             | Stmt::Assert(_)
-            | Stmt::Import(_)
-            | Stmt::ImportFrom(_)
             | Stmt::Global(_)
             | Stmt::Nonlocal(_)
             | Stmt::Pass(_)
             | Stmt::Break(_)
             | Stmt::Continue(_)
-            | Stmt::IpyEscapeCommand(_) => {}
+            | Stmt::IpyEscapeCommand(_) => {
+                if statement_contains_register(stmt) {
+                    analysis.open_inventory();
+                }
+            }
         }
-        ControlFlow::Continue(())
-    });
-    registrations
+    }
+
+    analysis
+}
+
+#[cfg(test)]
+fn analyze_registrations_from_body(body: &[Stmt]) -> RegistrationSourceAnalysis {
+    analyze_registrations_from_body_in_module(body, "")
+}
+
+/// Collect registrations from a pre-parsed module body.
+///
+/// This avoids re-parsing the source when the caller already has the AST.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
+    analyze_registrations_from_body(body).registrations
 }
 
 fn for_each_registration(
+    analysis: &RegistrationSourceAnalysis,
     body: &[Stmt],
     module_name: &str,
     mut f: impl FnMut(&RegistrationInfo, Option<&StmtFunctionDef>, SymbolKey),
 ) {
-    let registrations = collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
 
-    for reg in &registrations {
+    for reg in &analysis.registrations {
         let func = reg.func_name.as_deref().and_then(|name| {
             func_defs
                 .iter()
@@ -120,16 +482,17 @@ fn for_each_registration(
     }
 }
 
-/// Recursively collect all function definitions from a module body.
+/// Collect module-level function definitions that can own definite registrations.
 fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
-    let mut defs = Vec::new();
-    walk_stmts(body, Recurse::IntoClasses, |stmt| {
-        if let Stmt::FunctionDef(func) = stmt {
-            defs.push(func);
-        }
-        ControlFlow::Continue(())
-    });
-    defs
+    body.iter()
+        .filter_map(|stmt| {
+            if let Stmt::FunctionDef(function) = stmt {
+                Some(function)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Extract registrations from a decorated function definition.
@@ -141,14 +504,27 @@ fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
 /// - `@register.filter`
 fn collect_from_decorated_function(
     func_def: &StmtFunctionDef,
-    registrations: &mut Vec<RegistrationInfo>,
+    analysis: &mut RegistrationSourceAnalysis,
 ) {
     let func_name = func_def.name.as_str();
 
     for decorator in &func_def.decorator_list {
-        // Try tag decorator
-        if let Some((name, kind)) = tag_name_from_decorator(&decorator.expression, func_name) {
-            registrations.push(RegistrationInfo {
+        let expression = &decorator.expression;
+        if !registration_decorator_rooted_at_register(expression) {
+            if contains_register(expression) {
+                analysis.open_inventory();
+            }
+            continue;
+        }
+        analysis.observe_register_use();
+
+        if registration_decorator_has_dynamic_name(expression) {
+            analysis.open_inventory();
+            continue;
+        }
+
+        if let Some((name, kind)) = tag_name_from_decorator(expression, func_name) {
+            analysis.registrations.push(RegistrationInfo {
                 name,
                 kind,
                 func_name: Some(func_name.to_string()),
@@ -156,15 +532,109 @@ fn collect_from_decorated_function(
             continue;
         }
 
-        // Try filter decorator
-        if let Some(name) = filter_name_from_decorator(&decorator.expression, func_name) {
-            registrations.push(RegistrationInfo {
+        if let Some(name) = filter_name_from_decorator(expression, func_name) {
+            analysis.registrations.push(RegistrationInfo {
                 name,
                 kind: RegistrationKind::Filter,
                 func_name: Some(func_name.to_string()),
             });
+        } else {
+            analysis.open_inventory();
         }
     }
+}
+
+fn direct_register_helper(expr: &Expr) -> Option<&str> {
+    let Expr::Attribute(ExprAttribute { value, attr, .. }) = expr else {
+        return None;
+    };
+    (value.name_target() == Some("register")).then_some(attr.as_str())
+}
+
+fn registration_decorator_rooted_at_register(expr: &Expr) -> bool {
+    let helper = if matches!(expr, Expr::Attribute(_)) {
+        direct_register_helper(expr)
+    } else if let Expr::Call(call) = expr {
+        direct_register_helper(&call.func)
+    } else {
+        None
+    };
+    helper.is_some_and(|helper| {
+        tag_decorator_kind(helper).is_some() || FILTER_DECORATORS.contains(&helper)
+    })
+}
+
+fn has_dynamic_name_keyword(keywords: &[Keyword]) -> bool {
+    keywords.iter().any(|keyword| {
+        keyword.arg.as_ref().is_some_and(|arg| arg == "name")
+            && keyword.value.string_literal().is_none()
+    })
+}
+
+fn registration_arguments_are_unsupported(helper: &str, call: &ExprCall) -> bool {
+    if call
+        .arguments
+        .args
+        .iter()
+        .any(|arg| matches!(arg, Expr::Starred(_)))
+    {
+        return true;
+    }
+    call.arguments.keywords.iter().any(|keyword| {
+        let Some(name) = keyword
+            .arg
+            .as_ref()
+            .map(ruff_python_ast::Identifier::as_str)
+        else {
+            return true;
+        };
+        match helper {
+            "tag" => !matches!(name, "name" | "compile_function" | "func"),
+            "filter" => false,
+            "simple_tag" => !matches!(name, "func" | "takes_context" | "name"),
+            "inclusion_tag" => !matches!(name, "filename" | "func" | "takes_context" | "name"),
+            "simple_block_tag" => !matches!(name, "func" | "takes_context" | "name" | "end_name"),
+            _ => true,
+        }
+    })
+}
+
+fn registration_decorator_has_dynamic_name(expr: &Expr) -> bool {
+    let Expr::Call(call) = expr else {
+        return false;
+    };
+    if has_dynamic_name_keyword(&call.arguments.keywords) {
+        return true;
+    }
+    direct_register_helper(&call.func).is_some_and(|helper| {
+        if registration_arguments_are_unsupported(helper, call) {
+            return true;
+        }
+        let args = &call.arguments.args;
+        match helper {
+            "tag" | "filter" => {
+                args.len() > 1
+                    || args
+                        .first()
+                        .is_some_and(|arg| arg.string_literal().is_none())
+            }
+            "simple_tag" | "simple_block_tag" => !args.is_empty(),
+            "inclusion_tag" => args.len() > 1,
+            _ => true,
+        }
+    })
+}
+
+fn registration_call_has_dynamic_name(call: &ExprCall) -> bool {
+    if has_dynamic_name_keyword(&call.arguments.keywords) {
+        return true;
+    }
+    direct_register_helper(&call.func).is_some_and(|helper| {
+        registration_arguments_are_unsupported(helper, call)
+            || (matches!(helper, "tag" | "filter")
+                && call.arguments.args.len() >= 2
+                && call.arguments.args[0].string_literal().is_none())
+    })
 }
 
 /// Extract a tag name from a decorator expression.
@@ -172,8 +642,8 @@ fn collect_from_decorated_function(
 /// Returns `Some((name, kind))` if the decorator is a tag registration.
 fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, RegistrationKind)> {
     // Bare decorator: `@register.tag`
-    if let Expr::Attribute(ExprAttribute { attr, .. }) = expr
-        && let Some(kind) = tag_decorator_kind(attr.as_str())
+    if let Some(attr) = direct_register_helper(expr)
+        && let Some(kind) = tag_decorator_kind(attr)
     {
         return Some((func_name.to_string(), kind));
     }
@@ -182,13 +652,13 @@ fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, Regi
     if let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
-        && let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref()
-        && let Some(kind) = tag_decorator_kind(attr.as_str())
+        && let Some(attr) = direct_register_helper(func)
+        && let Some(kind) = tag_decorator_kind(attr)
     {
         // Priority: name= kwarg > first positional string (for @register.tag only) > func_name
         let name_override = kw_name_from(&arguments.keywords);
 
-        let positional_name = if attr.as_str() == "tag" {
+        let positional_name = if attr == "tag" {
             first_string_arg(&arguments.args)
         } else {
             None
@@ -209,8 +679,8 @@ fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, Regi
 /// Returns `Some(name)` if the decorator is a filter registration.
 fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
     // Bare decorator: `@register.filter`
-    if let Expr::Attribute(ExprAttribute { attr, .. }) = expr
-        && FILTER_DECORATORS.contains(&attr.as_str())
+    if let Some(attr) = direct_register_helper(expr)
+        && FILTER_DECORATORS.contains(&attr)
     {
         return Some(func_name.to_string());
     }
@@ -219,8 +689,8 @@ fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
     if let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
-        && let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref()
-        && FILTER_DECORATORS.contains(&attr.as_str())
+        && let Some(attr) = direct_register_helper(func)
+        && FILTER_DECORATORS.contains(&attr)
     {
         let name_override = kw_name_from(&arguments.keywords);
         let positional_name = first_string_arg(&arguments.args);
@@ -240,10 +710,30 @@ fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
 /// - `register.tag("name", SomeNode.handle)`
 /// - `register.filter("name", filter_func)`
 /// - `register.simple_tag(func, name="alias")`
-fn collect_from_call_statement(call: &ExprCall, registrations: &mut Vec<RegistrationInfo>) {
-    // Try tag call-style registration
+fn collect_from_call_statement(call: &ExprCall, analysis: &mut RegistrationSourceAnalysis) {
+    if !call_rooted_at_register(call) {
+        if call_escapes_register(call) {
+            analysis.open_inventory();
+        }
+        return;
+    }
+    analysis.observe_register_use();
+
+    let Some(helper) = direct_register_helper(&call.func) else {
+        analysis.open_inventory();
+        return;
+    };
+    if tag_decorator_kind(helper).is_none() && !FILTER_DECORATORS.contains(&helper) {
+        analysis.open_inventory();
+        return;
+    }
+    if registration_call_has_dynamic_name(call) {
+        analysis.open_inventory();
+        return;
+    }
+
     if let Some((name, kind, func_name)) = tag_registration_from_call(call) {
-        registrations.push(RegistrationInfo {
+        analysis.registrations.push(RegistrationInfo {
             name,
             kind,
             func_name,
@@ -251,13 +741,14 @@ fn collect_from_call_statement(call: &ExprCall, registrations: &mut Vec<Registra
         return;
     }
 
-    // Try filter call-style registration
     if let Some((name, func_name)) = filter_registration_from_call(call) {
-        registrations.push(RegistrationInfo {
+        analysis.registrations.push(RegistrationInfo {
             name,
             kind: RegistrationKind::Filter,
             func_name,
         });
+    } else {
+        analysis.open_inventory();
     }
 }
 
@@ -269,47 +760,59 @@ fn collect_from_call_statement(call: &ExprCall, registrations: &mut Vec<Registra
 fn tag_registration_from_call(
     call: &ExprCall,
 ) -> Option<(String, RegistrationKind, Option<String>)> {
-    let Expr::Attribute(ExprAttribute { attr, .. }) = call.func.as_ref() else {
-        return None;
-    };
-    let kind = tag_decorator_kind(attr.as_str())?;
-
+    let helper = direct_register_helper(&call.func)?;
+    let kind = tag_decorator_kind(helper)?;
     let name_override = kw_name_from(&call.arguments.keywords);
-    let func_name = kw_callable_name(&call.arguments.keywords, &["compile_function", "func"]);
-
+    let keyword_func = kw_callable_name(&call.arguments.keywords, &["compile_function", "func"]);
     let args = &call.arguments.args;
 
-    if args.len() >= 2 {
-        // `register.tag("name", func)` — first arg is string name, second is callable
-        if let Some(name) = args[0].string_literal() {
-            let fn_name = callable_name(&args[1]).or(func_name);
-            return Some((
-                name_override.unwrap_or_else(|| name.to_string()),
-                kind,
-                fn_name,
-            ));
+    match helper {
+        "tag" => match &args[..] {
+            [name, callable] => {
+                let name = name.string_literal()?.to_string();
+                let func_name = callable_name(callable).or(keyword_func);
+                Some((name, kind, func_name))
+            }
+            [name] if name.string_literal().is_some() => {
+                let name = name.string_literal()?.to_string();
+                let func_name = keyword_func?;
+                Some((name, kind, Some(func_name)))
+            }
+            [callable] if name_override.is_none() => {
+                let func_name = callable_name(callable)?;
+                Some((func_name.clone(), kind, Some(func_name)))
+            }
+            [] => {
+                let func_name = keyword_func?;
+                let name = name_override.unwrap_or_else(|| func_name.clone());
+                Some((name, kind, Some(func_name)))
+            }
+            _ => None,
+        },
+        "simple_tag" | "simple_block_tag" => match &args[..] {
+            [callable] => {
+                let func_name = callable_name(callable).or(keyword_func)?;
+                let name = name_override.unwrap_or_else(|| func_name.clone());
+                Some((name, kind, Some(func_name)))
+            }
+            [] => {
+                let func_name = keyword_func?;
+                let name = name_override.unwrap_or_else(|| func_name.clone());
+                Some((name, kind, Some(func_name)))
+            }
+            _ => None,
+        },
+        "inclusion_tag" => {
+            let func_name = match &args[..] {
+                [_template, callable] => callable_name(callable).or(keyword_func),
+                [_] | [] => keyword_func,
+                _ => None,
+            }?;
+            let name = name_override.unwrap_or_else(|| func_name.clone());
+            Some((name, kind, Some(func_name)))
         }
+        _ => None,
     }
-
-    if args.len() == 1 {
-        // `register.simple_tag(func, name="alias")` or `register.tag(func)`
-        let fn_name = callable_name(&args[0]).or(func_name.clone());
-        if let Some(name) = name_override {
-            return Some((name, kind, fn_name));
-        }
-        // Fallback: use the callable name as the registration name.
-        // Handles both simple names (`do_for`) and attribute callables (`ForNode.handle`).
-        if let Some(name) = callable_name(&args[0]) {
-            return Some((name.clone(), kind, Some(name)));
-        }
-    }
-
-    // No positional args but has name= kwarg
-    if let Some(name) = name_override {
-        return Some((name, kind, func_name));
-    }
-
-    None
 }
 
 /// Extract filter registration info from a call expression.
@@ -318,43 +821,34 @@ fn tag_registration_from_call(
 /// - `register.filter("name", func)`
 /// - `register.filter(func, name="alias")`
 fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<String>)> {
-    let Expr::Attribute(ExprAttribute { attr, .. }) = call.func.as_ref() else {
-        return None;
-    };
-    if !FILTER_DECORATORS.contains(&attr.as_str()) {
+    let helper = direct_register_helper(&call.func)?;
+    if !FILTER_DECORATORS.contains(&helper) {
         return None;
     }
 
     let name_override = kw_name_from(&call.arguments.keywords);
-    let func_name = kw_callable_name(&call.arguments.keywords, &["filter_func", "func"]);
-
-    let args = &call.arguments.args;
-
-    if args.len() >= 2 {
-        // `register.filter("name", func)`
-        if let Some(name) = args[0].string_literal() {
-            let fn_name = callable_name(&args[1]).or(func_name);
-            return Some((name_override.unwrap_or_else(|| name.to_string()), fn_name));
+    let keyword_func = kw_callable_name(&call.arguments.keywords, &["filter_func", "func"]);
+    match &call.arguments.args[..] {
+        [name, callable] => {
+            let name = name.string_literal()?.to_string();
+            Some((name, callable_name(callable).or(keyword_func)))
         }
-    }
-
-    if args.len() == 1 {
-        let fn_name = callable_name(&args[0]).or(func_name.clone());
-        if let Some(name) = name_override {
-            return Some((name, fn_name));
+        [name] if name.string_literal().is_some() => {
+            let name = name.string_literal()?.to_string();
+            let func_name = keyword_func?;
+            Some((name, Some(func_name)))
         }
-        // Fallback: use the callable name as the registration name.
-        // Handles both simple names (`my_func`) and attribute callables (`MyClass.method`).
-        if let Some(name) = callable_name(&args[0]) {
-            return Some((name.clone(), Some(name)));
+        [callable] if name_override.is_none() => {
+            let func_name = callable_name(callable)?;
+            Some((func_name.clone(), Some(func_name)))
         }
+        [] => {
+            let func_name = keyword_func?;
+            let name = name_override.unwrap_or_else(|| func_name.clone());
+            Some((name, Some(func_name)))
+        }
+        _ => None,
     }
-
-    if let Some(name) = name_override {
-        return Some((name, func_name));
-    }
-
-    None
 }
 
 /// Map decorator attr name to `RegistrationKind`.
@@ -461,7 +955,14 @@ enum TemplateLibraryDefinitionState {
     },
     Library {
         parse_quality: TemplateLibraryParseQuality,
+        inventory: TemplateLibrarySymbolInventory,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TemplateLibrarySymbolInventory {
+    Observed,
+    Open,
 }
 
 /// Equality-bearing registration facts for one Template Library source module.
@@ -486,6 +987,7 @@ impl TemplateLibraryDefinitionFacts {
                 parse_quality: TemplateLibraryParseQuality::Recovered,
             } | TemplateLibraryDefinitionState::Library {
                 parse_quality: TemplateLibraryParseQuality::Recovered,
+                ..
             }
         )
     }
@@ -493,6 +995,17 @@ impl TemplateLibraryDefinitionFacts {
     #[must_use]
     pub(crate) fn source_failed(&self) -> bool {
         matches!(self.state, TemplateLibraryDefinitionState::Failed)
+    }
+
+    #[must_use]
+    pub(crate) fn symbols_are_unobserved(&self) -> bool {
+        matches!(
+            self.state,
+            TemplateLibraryDefinitionState::Library {
+                inventory: TemplateLibrarySymbolInventory::Open,
+                ..
+            }
+        )
     }
 
     pub(crate) fn symbols(&self) -> impl Iterator<Item = &TemplateSymbol> {
@@ -564,8 +1077,13 @@ fn template_library_source_analysis(
     let mut block_specs = BlockSpecs::default();
     let mut filter_arities = FilterArityMap::default();
     let registration_module = key.module(db).as_str();
+    let registration_analysis =
+        analyze_registrations_from_body_in_module(module.body(db), registration_module);
+    let mut symbols_unobserved = parse_quality == TemplateLibraryParseQuality::Recovered
+        || registration_analysis.inventory_is_open();
 
     for_each_registration(
+        &registration_analysis,
         module.body(db),
         registration_module,
         |registration, func, symbol_key| {
@@ -587,6 +1105,8 @@ fn template_library_source_analysis(
                         filters.insert(symbol.name().to_string(), symbol);
                     }
                 }
+            } else {
+                symbols_unobserved = true;
             }
 
             let Some(func) = func else {
@@ -616,15 +1136,20 @@ fn template_library_source_analysis(
         },
     );
 
-    let defines_library = module
-        .body(db)
-        .iter()
-        .any(TemplateLibraryDefinitionFacts::stmt_defines_library);
-    let state = if defines_library || !tags.is_empty() || !filters.is_empty() {
-        TemplateLibraryDefinitionState::Library { parse_quality }
-    } else {
-        TemplateLibraryDefinitionState::ParsedNotLibrary { parse_quality }
-    };
+    let state =
+        if registration_analysis.defines_library() || !tags.is_empty() || !filters.is_empty() {
+            let inventory = if symbols_unobserved {
+                TemplateLibrarySymbolInventory::Open
+            } else {
+                TemplateLibrarySymbolInventory::Observed
+            };
+            TemplateLibraryDefinitionState::Library {
+                parse_quality,
+                inventory,
+            }
+        } else {
+            TemplateLibraryDefinitionState::ParsedNotLibrary { parse_quality }
+        };
     TemplateLibrarySourceAnalysis {
         definitions: TemplateLibraryDefinitionFacts {
             state,
@@ -703,61 +1228,6 @@ pub fn template_library_filter_facts(
     }
 }
 
-impl TemplateLibraryDefinitionFacts {
-    fn stmt_defines_library(stmt: &Stmt) -> bool {
-        let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
-            return false;
-        };
-        if !targets
-            .iter()
-            .any(|target| target.name_target() == Some("register"))
-        {
-            return false;
-        }
-
-        let Expr::Call(ExprCall { func, .. }) = value.as_ref() else {
-            return false;
-        };
-        match func.as_ref() {
-            Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-                attr.as_str() == "Library" && value.name_target() == Some("template")
-            }
-            expr @ (Expr::BoolOp(_)
-            | Expr::Named(_)
-            | Expr::BinOp(_)
-            | Expr::UnaryOp(_)
-            | Expr::Lambda(_)
-            | Expr::If(_)
-            | Expr::Dict(_)
-            | Expr::Set(_)
-            | Expr::ListComp(_)
-            | Expr::SetComp(_)
-            | Expr::DictComp(_)
-            | Expr::Generator(_)
-            | Expr::Await(_)
-            | Expr::Yield(_)
-            | Expr::YieldFrom(_)
-            | Expr::Compare(_)
-            | Expr::Call(_)
-            | Expr::FString(_)
-            | Expr::TString(_)
-            | Expr::StringLiteral(_)
-            | Expr::BytesLiteral(_)
-            | Expr::NumberLiteral(_)
-            | Expr::BooleanLiteral(_)
-            | Expr::NoneLiteral(_)
-            | Expr::EllipsisLiteral(_)
-            | Expr::Subscript(_)
-            | Expr::Starred(_)
-            | Expr::Name(_)
-            | Expr::List(_)
-            | Expr::Tuple(_)
-            | Expr::Slice(_)
-            | Expr::IpyEscapeCommand(_)) => expr.name_target() == Some("Library"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -767,10 +1237,14 @@ mod tests {
         fixture_source(path).expect("requested corpus fixture should exist")
     }
 
-    fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
+    fn analyze_registrations(source: &str) -> RegistrationSourceAnalysis {
         let parsed = ruff_python_parser::parse_module(source).expect("valid Python");
         let module = parsed.into_syntax();
-        collect_registrations_from_body(&module.body)
+        analyze_registrations_from_body(&module.body)
+    }
+
+    fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
+        analyze_registrations(source).registrations
     }
 
     fn find_reg<'a>(regs: &'a [RegistrationInfo], name: &str) -> &'a RegistrationInfo {
@@ -1047,5 +1521,121 @@ def my_tag(parser, token):
         let regs = collect_registrations(source);
         assert_eq!(regs.len(), 1);
         assert_eq!(regs[0].name, "kwarg_name");
+    }
+
+    #[test]
+    fn imported_register_preserves_known_symbols_but_opens_inventory() {
+        let analysis = analyze_registrations(
+            "from shared import register\n@register.simple_tag\ndef known(): pass\n@register.filter\ndef known_filter(value): return value\n",
+        );
+        assert!(analysis.defines_library());
+        assert!(analysis.inventory_is_open());
+        assert_eq!(analysis.registrations.len(), 2);
+    }
+
+    #[test]
+    fn only_unshadowed_canonical_constructor_is_closed() {
+        let canonical = analyze_registrations(
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known(): pass\n",
+        );
+        assert!(!canonical.inventory_is_open());
+        let direct_import =
+            analyze_registrations("from django.template import Library\nregister = Library()\n");
+        assert!(!direct_import.inventory_is_open());
+
+        for source in [
+            "register = Library()\n",
+            "from django import template as dt\nregister = dt.Library()\n",
+            "import django.template as template\nregister = template.Library()\n",
+            "from django import template\nalias = register = template.Library()\n",
+            "from django import template\nimport other as template\nregister = template.Library()\n",
+            "from django import template\nregister = template.Library()\nfrom shared import register\n",
+        ] {
+            assert!(
+                analyze_registrations(source).inventory_is_open(),
+                "constructor should remain open: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn uncertain_scopes_open_inventory_without_contributing_symbols() {
+        for uncertain in [
+            "if enabled:\n    @register.simple_tag\n    def conditional(): pass",
+            "class Helpers:\n    register = template.Library()\n    @register.simple_tag\n    def class_local(): pass",
+        ] {
+            let source = format!(
+                "from django import template\nregister = template.Library()\n{uncertain}\n"
+            );
+            let analysis = analyze_registrations(&source);
+            assert!(analysis.inventory_is_open());
+            assert!(analysis.registrations.is_empty());
+        }
+    }
+
+    #[test]
+    fn nested_helper_mutation_opens_inventory() {
+        let analysis = analyze_registrations(
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known(): pass\ndef configure():\n    register.tags.update(dynamic_tags)\n",
+        );
+        assert!(analysis.inventory_is_open());
+        assert_eq!(analysis.registrations.len(), 1);
+        assert_eq!(analysis.registrations[0].name, "known");
+    }
+
+    #[test]
+    fn mixed_positional_keyword_calls_are_known_and_closed() {
+        let analysis = analyze_registrations(
+            "from django import template\nregister = template.Library()\nregister.tag('known', compile_function=tag_func)\nregister.filter('known_filter', filter_func=filter_func)\n",
+        );
+        assert!(!analysis.inventory_is_open());
+        assert!(
+            analysis
+                .registrations
+                .iter()
+                .any(|registration| registration.name == "known")
+        );
+        assert!(
+            analysis
+                .registrations
+                .iter()
+                .any(|registration| registration.name == "known_filter")
+        );
+    }
+
+    #[test]
+    fn only_register_root_contributes_symbols() {
+        let analysis = analyze_registrations(
+            "from django import template\nregister = template.Library()\n@other.tag\ndef invented(parser, token): pass\nother.filter('also_invented', func)\n",
+        );
+        assert!(analysis.registrations.is_empty());
+        assert!(!analysis.inventory_is_open());
+    }
+
+    #[test]
+    fn uncertain_operations_open_inventory_without_dropping_known_symbols() {
+        for operation in [
+            "@register.tag(name=dynamic_name)\ndef dynamic(parser, token): pass",
+            "register.tags.update(dynamic_tags)",
+            "register.tags['dynamic'] = func",
+            "del register.filters['dynamic']",
+            "register.tag()",
+            "configure(register)",
+        ] {
+            let source = format!(
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known(): pass\n{operation}\n"
+            );
+            let analysis = analyze_registrations(&source);
+            assert!(
+                analysis.inventory_is_open(),
+                "operation should open inventory: {operation}"
+            );
+            assert!(
+                analysis
+                    .registrations
+                    .iter()
+                    .any(|registration| registration.name == "known")
+            );
+        }
     }
 }

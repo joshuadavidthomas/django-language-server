@@ -689,3 +689,87 @@ fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
         "configured test evidence must not invent source origins"
     );
 }
+
+#[test]
+fn imported_register_opens_only_its_symbol_inventory_and_keeps_known_symbols() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'open': 'open_tags', 'closed': 'closed_tags', 'recovered': 'recovered_tags'}, 'builtins': ['open_builtin_tags']}}]\n",
+        )
+        .file("/project/django/template/defaulttags.py", "from django import template\nregister = template.Library()\n")
+        .file("/project/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
+        .file("/project/django/template/loader_tags.py", "from django import template\nregister = template.Library()\n")
+        .file("/project/open_tags.py", "from shared import register\n@register.simple_tag\ndef known_tag(): pass\n@register.filter\ndef known_filter(value): return value\n")
+        .file("/project/open_builtin_tags.py", "from shared import register\n@register.simple_tag\ndef builtin_known(): pass\n")
+        .file("/project/closed_tags.py", "from django import template\nregister = template.Library()\n")
+        .file("/project/recovered_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef recovered_known(): pass\ndef broken(\n")
+        .build(&db)
+        .expect("registration-inventory project fixture should build");
+
+    let catalog = template_library_catalog(&db, project);
+    let scoped = project_inventory(catalog);
+    let open = scoped
+        .loadable_library_str("open")
+        .found()
+        .expect("open library should resolve");
+    assert!(open.symbols_are_unobserved());
+    assert!(open.symbol(TemplateSymbolKind::Tag, "known_tag").is_some());
+    assert!(
+        open.symbol(TemplateSymbolKind::Filter, "known_filter")
+            .is_some()
+    );
+    assert!(matches!(
+        scoped
+            .effective_definition_libraries("known_tag", TemplateSymbolKind::Tag, &["open"])
+            .as_slice(),
+        [EffectiveDefinitionLibrary::Known(Some(library))] if library.id() == open.id()
+    ));
+    assert_eq!(
+        scoped.symbol("builtin_known", TemplateSymbolKind::Tag),
+        ScopedTemplateSymbolLookup::Builtin
+    );
+    let open_builtin = scoped
+        .resolved_libraries()
+        .into_iter()
+        .find(|library| library.module_name_str() == "open_builtin_tags")
+        .expect("open builtin should resolve");
+    assert!(open_builtin.symbols_are_unobserved());
+    assert!(
+        open_builtin
+            .symbol(TemplateSymbolKind::Tag, "builtin_known")
+            .is_some()
+    );
+    assert_eq!(
+        scoped.symbol("absent_tag", TemplateSymbolKind::Tag),
+        ScopedTemplateSymbolLookup::Inconclusive
+    );
+    assert!(matches!(
+        scoped
+            .effective_definition_libraries("absent_tag", TemplateSymbolKind::Tag, &["open"])
+            .as_slice(),
+        [EffectiveDefinitionLibrary::Unobserved(library)] if library.id() == open.id()
+    ));
+
+    let closed = scoped
+        .loadable_library_str("closed")
+        .found()
+        .expect("closed library should resolve");
+    assert!(!closed.symbols_are_unobserved());
+    let recovered = scoped
+        .loadable_library_str("recovered")
+        .found()
+        .expect("recovered library should resolve");
+    assert!(recovered.symbols_are_unobserved());
+    assert!(
+        recovered
+            .symbol(TemplateSymbolKind::Tag, "recovered_known")
+            .is_some()
+    );
+    assert_eq!(
+        scoped.loadable_library_str("missing"),
+        LoadableLibraryLookup::Absent
+    );
+}

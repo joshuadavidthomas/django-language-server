@@ -70,6 +70,16 @@ enum TemplateSymbolObservation {
     Unobserved,
 }
 
+impl TemplateSymbolObservation {
+    fn from_source_inventory(symbols_unobserved: bool) -> Self {
+        if symbols_unobserved {
+            Self::Unobserved
+        } else {
+            Self::Observed
+        }
+    }
+}
+
 impl TemplateLibraryModule {
     fn name(&self) -> &PythonModuleName {
         match self {
@@ -133,13 +143,14 @@ impl TemplateLibrary {
     fn builtin(
         id: TemplateLibraryId,
         module: PythonSourceModule,
+        symbol_observation: TemplateSymbolObservation,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
             id,
             TemplateLibraryModule::Source(module),
             TemplateLibraryKind::Builtin,
-            TemplateSymbolObservation::Observed,
+            symbol_observation,
             symbols,
         )
     }
@@ -175,13 +186,14 @@ impl TemplateLibrary {
         id: TemplateLibraryId,
         load_name: LibraryName,
         module: PythonSourceModule,
+        symbol_observation: TemplateSymbolObservation,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
             id,
             TemplateLibraryModule::Source(module),
             TemplateLibraryKind::Loadable { load_name },
-            TemplateSymbolObservation::Observed,
+            symbol_observation,
             symbols,
         )
     }
@@ -240,13 +252,14 @@ impl TemplateLibrary {
         load_name: LibraryName,
         app: PythonModuleName,
         module: PythonSourceModule,
+        symbol_observation: TemplateSymbolObservation,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self::new(
             id,
             TemplateLibraryModule::Source(module),
             TemplateLibraryKind::AvailableInApp { load_name, app },
-            TemplateSymbolObservation::Observed,
+            symbol_observation,
             symbols,
         )
     }
@@ -637,6 +650,7 @@ type DiscoveredLibrary = (
     LibraryName,
     TemplateLibraryId,
     PythonSourceModule,
+    TemplateSymbolObservation,
     Vec<TemplateSymbol>,
 );
 
@@ -667,6 +681,7 @@ enum ConfiguredLibraryModule {
         id: TemplateLibraryId,
         module: PythonSourceModule,
         symbols: Vec<TemplateSymbol>,
+        symbol_observation: TemplateSymbolObservation,
         recovered: bool,
     },
     SourceLess {
@@ -1083,6 +1098,29 @@ impl TemplateLibraryCatalog {
                 })
                 .next_back();
             candidates.extend(candidate);
+        }
+
+        if matches!(lookup, ScopedTemplateSymbolLookup::Inconclusive)
+            && libraries.iter().any(|library| {
+                library.symbols_are_unobserved() && library.symbol(kind, name).is_some()
+            })
+        {
+            candidates.extend(libraries.iter().filter_map(|library| {
+                let symbol = library.symbol(kind, name)?.clone();
+                let availability = library.load_name().map_or_else(
+                    || TemplateSymbolAvailability::Builtin {
+                        module: library.module_name().clone(),
+                    },
+                    |load_name| TemplateSymbolAvailability::RequiresLoad {
+                        load_name: load_name.clone(),
+                    },
+                );
+                Some(TemplateSymbolCandidate {
+                    symbol,
+                    availability,
+                })
+            }));
+            return candidates;
         }
 
         let ScopedTemplateSymbolLookup::RequiresLoad(required_names) = lookup else {
@@ -1941,6 +1979,9 @@ impl TemplateLibraryCatalog {
                     candidate.name.clone(),
                     candidate.app.clone(),
                     candidate.into_python_module(),
+                    TemplateSymbolObservation::from_source_inventory(
+                        facts.symbols_are_unobserved(),
+                    ),
                     symbols,
                 ));
             }
@@ -2071,7 +2112,7 @@ fn discover_installed_app_libraries(
         let (discovered, issues) = templatetag_package_libraries(db, project, &package_module);
         let discovered_names = discovered
             .iter()
-            .map(|(load_name, _, _, _)| load_name)
+            .map(|(load_name, _, _, _, _)| load_name)
             .collect::<BTreeSet<_>>();
         for load_name in &discovered_names {
             unresolved_names.remove(*load_name);
@@ -2090,7 +2131,7 @@ fn discover_installed_app_libraries(
             discovery_remainder = true;
             names_after_remainder.clear();
         } else if app_remainder || discovery_remainder {
-            names_after_remainder.extend(discovered.iter().map(|(name, _, _, _)| name.clone()));
+            names_after_remainder.extend(discovered.iter().map(|(name, _, _, _, _)| name.clone()));
         }
         libraries.issues.extend(
             issues
@@ -2234,6 +2275,7 @@ fn insert_backend_library_values(
                 id,
                 module,
                 symbols,
+                symbol_observation,
                 recovered,
             } => {
                 if recovered {
@@ -2241,7 +2283,13 @@ fn insert_backend_library_values(
                         .issues
                         .push(TemplateLibraryIssue::NamedSource(load_name.clone()));
                 }
-                TemplateLibrary::loadable(id, load_name.clone(), module, symbols)
+                TemplateLibrary::loadable(
+                    id,
+                    load_name.clone(),
+                    module,
+                    symbol_observation,
+                    symbols,
+                )
             }
             ConfiguredLibraryModule::SourceLess { id, module } => {
                 TemplateLibrary::source_less_loadable(id, load_name.clone(), module)
@@ -2275,12 +2323,13 @@ fn insert_backend_library_values(
                 id,
                 module,
                 symbols,
+                symbol_observation,
                 recovered,
             } => {
                 if recovered {
                     libraries.issues.push(TemplateLibraryIssue::BuiltinSource);
                 }
-                TemplateLibrary::builtin(id, module, symbols)
+                TemplateLibrary::builtin(id, module, symbol_observation, symbols)
             }
             ConfiguredLibraryModule::SourceLess { id, module } => {
                 TemplateLibrary::source_less_builtin(id, module)
@@ -2303,12 +2352,13 @@ fn insert_loadable_libraries(
     loadable_by_name: &mut BTreeMap<LibraryName, usize>,
     discovered: Vec<DiscoveredLibrary>,
 ) {
-    for (load_name, id, module, symbols) in discovered {
+    for (load_name, id, module, symbol_observation, symbols) in discovered {
         loadable_modules.insert(module.name().clone());
         let index = libraries.insert_library(TemplateLibrary::loadable(
             id,
             load_name.clone(),
             module,
+            symbol_observation,
             symbols,
         ));
         loadable_by_name.insert(load_name, index);
@@ -2347,6 +2397,7 @@ fn templatetag_package_libraries(
                 candidate.name.clone(),
                 id,
                 candidate.into_python_module(),
+                TemplateSymbolObservation::from_source_inventory(facts.symbols_are_unobserved()),
                 facts.symbols().cloned().collect(),
             ));
         }
@@ -2373,6 +2424,9 @@ fn library_from_module_name(
             id,
             module,
             symbols: facts.symbols().cloned().collect(),
+            symbol_observation: TemplateSymbolObservation::from_source_inventory(
+                facts.symbols_are_unobserved(),
+            ),
             recovered: facts.is_recovered(),
         }
     } else {

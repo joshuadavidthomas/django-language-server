@@ -683,9 +683,10 @@ fn completion_symbol_candidates(
     nodelist.map_or_else(
         || scoped_libraries.scoped_symbol_candidates(name, kind),
         |nodelist| {
-            effective_symbol_candidate_at(db, file, nodelist, offset.get(), name, kind)
-                .into_iter()
-                .collect()
+            effective_symbol_candidate_at(db, file, nodelist, offset.get(), name, kind).map_or_else(
+                || scoped_libraries.scoped_symbol_candidates(name, kind),
+                |candidate| vec![candidate],
+            )
         },
     )
 }
