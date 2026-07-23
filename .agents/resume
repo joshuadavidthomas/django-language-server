@@ -8,7 +8,7 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
 for command in cargo cargo-insta uv just; do
     if ! command -v "$command" >/dev/null 2>&1; then
-        echo "Missing required command after orb resume: $command" >&2
+        echo "Missing required command after resume: $command" >&2
         exit 1
     fi
 done
@@ -18,4 +18,4 @@ if [[ "$available_kb" =~ ^[0-9]+$ ]] && ((available_kb < 5 * 1024 * 1024)); then
     echo "Warning: less than 5 GiB of disk space remains; inspect target/ and clean only while Cargo is idle" >&2
 fi
 
-echo "Orb environment is ready; no services need restarting"
+echo "Environment is ready; no services need restarting"

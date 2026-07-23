@@ -18,11 +18,14 @@ if ((${#missing_packages[@]})); then
 fi
 
 echo "==> Configuring tool paths for login shells"
-profile_marker="# django-language-server orb toolchain v2"
+profile_marker="# django-language-server toolchain"
+if [[ -f "$HOME/.bash_profile" ]]; then
+    sed -i -E "s/^# django-language-server [^ ]+ toolchain( v[0-9]+)?$/$profile_marker/" "$HOME/.bash_profile"
+fi
 if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
     cat >> "$HOME/.bash_profile" <<'EOF'
 
-# django-language-server orb toolchain v2
+# django-language-server toolchain
 if [ -f "$HOME/.cargo/env" ]; then
     . "$HOME/.cargo/env"
 fi
@@ -98,4 +101,4 @@ fi
 echo "==> Syncing the locked test corpus"
 just corpus sync
 
-echo "==> Orb setup complete"
+echo "==> Setup complete"
