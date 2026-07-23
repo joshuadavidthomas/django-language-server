@@ -91,6 +91,7 @@ pub use templates::TemplateSymbolAvailability;
 pub use templates::TemplateSymbolCandidate;
 pub use templates::TemplateSymbolKind;
 pub use templates::TemplateSymbolName;
+pub use templates::TemplateSymbolSource;
 pub use templates::resolve_relative_name;
 pub use templates::scoped_template_libraries;
 pub use templates::template_directories;
@@ -99,6 +100,7 @@ pub use templates::template_library_definition_facts;
 pub use templates::template_library_filter_facts;
 pub use templates::template_library_tag_facts;
 pub use templates::template_resolution;
+pub use templates::template_symbol_source;
 
 // Test and benchmark support only; not part of the stable Project Facts façade.
 #[doc(hidden)]

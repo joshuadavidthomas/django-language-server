@@ -1,7 +1,9 @@
-use camino::Utf8PathBuf;
+use djls_source::File;
+use djls_source::Span;
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::libraries::TemplateLibraryId;
 use super::names::TemplateSymbolName;
 use crate::python::PythonModuleName;
 
@@ -46,20 +48,52 @@ impl SymbolKey {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SymbolDefinition {
-    Exact { file: Utf8PathBuf },
+    Exact { library: TemplateLibraryId },
     Module(PythonModuleName),
-    LibraryFile(Utf8PathBuf),
     Unknown,
 }
 
 impl SymbolDefinition {
     pub(crate) fn rank(&self) -> u8 {
         match self {
-            Self::Exact { .. } => 3,
-            Self::Module(_) => 2,
-            Self::LibraryFile(_) => 1,
+            Self::Exact { .. } => 2,
+            Self::Module(_) => 1,
             Self::Unknown => 0,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TemplateSymbolSource {
+    file: File,
+    declaration_span: Span,
+    selection_span: Span,
+}
+
+impl TemplateSymbolSource {
+    pub(crate) fn new(file: File, declaration_span: Span, selection_span: Span) -> Self {
+        debug_assert!(declaration_span.start() <= selection_span.start());
+        debug_assert!(selection_span.end() <= declaration_span.end());
+        Self {
+            file,
+            declaration_span,
+            selection_span,
+        }
+    }
+
+    #[must_use]
+    pub fn file(self) -> File {
+        self.file
+    }
+
+    #[must_use]
+    pub fn declaration_span(self) -> Span {
+        self.declaration_span
+    }
+
+    #[must_use]
+    pub fn selection_span(self) -> Span {
+        self.selection_span
     }
 }
 

@@ -17,11 +17,13 @@ use super::symbols::SymbolDefinition;
 use super::symbols::SymbolKey;
 use super::symbols::TemplateSymbol;
 use super::symbols::TemplateSymbolKind;
+use super::symbols::TemplateSymbolSource;
 use super::tags::BlockSpec;
 use super::tags::BlockSpecs;
 use super::tags::TagRuleMap;
 use super::tags::blocks::EndTagEvidence;
 use crate::ast::ExprExt;
+use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
 use crate::python::RecoveredPythonModule;
 use crate::python::import::DirectImportClause;
@@ -36,6 +38,22 @@ pub(crate) struct RegistrationInfo {
     name: String,
     kind: RegistrationKind,
     func_name: Option<String>,
+    local_source: Option<LocalFunctionSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LocalFunctionSource {
+    declaration_span: djls_source::Span,
+    selection_span: djls_source::Span,
+}
+
+impl LocalFunctionSource {
+    fn from_function(function: &StmtFunctionDef) -> Self {
+        Self {
+            declaration_span: function.span(),
+            selection_span: function.name.span(),
+        }
+    }
 }
 
 /// The style of registration, distinguishing decorator helpers.
@@ -64,9 +82,8 @@ struct RegistrationSourceAnalysis {
 
 impl RegistrationSourceAnalysis {
     fn observe_fresh_library(&mut self) {
-        if matches!(self.inventory, RegistrationInventory::NotLibrary) {
-            self.inventory = RegistrationInventory::Observed;
-        }
+        self.registrations.clear();
+        self.inventory = RegistrationInventory::Observed;
     }
 
     fn observe_register_use(&mut self) {
@@ -129,13 +146,33 @@ fn body_contains_register(body: &[Stmt]) -> bool {
     body.iter().any(statement_contains_register)
 }
 
+struct NamedBindingVisitor {
+    found: bool,
+}
+
+impl<'a> Visitor<'a> for NamedBindingVisitor {
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        if matches!(expr, Expr::Named(_)) {
+            self.found = true;
+            return;
+        }
+        visitor::walk_expr(self, expr);
+    }
+}
+
+fn statement_contains_named_binding(stmt: &Stmt) -> bool {
+    let mut visitor = NamedBindingVisitor { found: false };
+    visitor.visit_stmt(stmt);
+    visitor.found
+}
+
 fn collect_from_class_body(body: &[Stmt], analysis: &mut RegistrationSourceAnalysis) {
     let mut register_is_module_binding = true;
     for stmt in body {
         if let Stmt::FunctionDef(function) = stmt
             && register_is_module_binding
         {
-            collect_from_decorated_function(function, analysis);
+            collect_from_decorated_function(function, None, analysis);
             if body_contains_register(&function.body) {
                 analysis.open_inventory();
             }
@@ -217,16 +254,33 @@ fn is_canonical_library_import(syntax: &FromImportSyntax, module_name: &str) -> 
             && module_name.starts_with("django.template."))
 }
 
+fn invalidate_local_function_target(
+    local_functions: &mut BTreeMap<String, LocalFunctionSource>,
+    target: &Expr,
+) {
+    if let Some(name) = target.name_target() {
+        local_functions.remove(name);
+    } else if !matches!(target, Expr::Attribute(_) | Expr::Subscript(_)) {
+        // Destructuring and other complex targets are uncommon in Template Library modules.
+        // Clearing the map keeps navigation conservative without duplicating Python binding logic.
+        local_functions.clear();
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn analyze_registrations_from_body_in_module(
     body: &[Stmt],
     module_name: &str,
 ) -> RegistrationSourceAnalysis {
     let mut analysis = RegistrationSourceAnalysis::default();
+    let mut local_functions = BTreeMap::new();
     let mut template_is_django = false;
     let mut library_constructor = None;
 
     for stmt in body {
+        if statement_contains_named_binding(stmt) {
+            local_functions.clear();
+        }
         match stmt {
             Stmt::Import(import) => {
                 for clause in DirectImportClause::lower(import) {
@@ -240,6 +294,7 @@ fn analyze_registrations_from_body_in_module(
                         analysis.registrations.clear();
                         analysis.open_inventory();
                     }
+                    local_functions.remove(clause.bound());
                 }
             }
             Stmt::ImportFrom(import) => {
@@ -247,6 +302,7 @@ fn analyze_registrations_from_body_in_module(
                 if syntax.has_star() {
                     template_is_django = false;
                     library_constructor = None;
+                    local_functions.clear();
                 }
                 let canonical_library_import = is_canonical_library_import(&syntax, module_name);
                 for member in syntax.named_members() {
@@ -265,6 +321,7 @@ fn analyze_registrations_from_body_in_module(
                         analysis.registrations.clear();
                         analysis.open_inventory();
                     }
+                    local_functions.remove(member.bound());
                 }
             }
             Stmt::Assign(assign) => {
@@ -307,6 +364,9 @@ fn analyze_registrations_from_body_in_module(
                 if binds_template {
                     template_is_django = false;
                 }
+                for target in &assign.targets {
+                    invalidate_local_function_target(&mut local_functions, target);
+                }
             }
             Stmt::AnnAssign(assign) => {
                 if assign.target.name_target() == Some("register") {
@@ -328,6 +388,7 @@ fn analyze_registrations_from_body_in_module(
                 {
                     library_constructor = None;
                 }
+                invalidate_local_function_target(&mut local_functions, &assign.target);
             }
             Stmt::AugAssign(assign) => {
                 if assign.target.name_target() == Some("register")
@@ -346,6 +407,7 @@ fn analyze_registrations_from_body_in_module(
                 {
                     library_constructor = None;
                 }
+                invalidate_local_function_target(&mut local_functions, &assign.target);
             }
             Stmt::Delete(delete) => {
                 if delete.targets.iter().any(|target| {
@@ -369,6 +431,9 @@ fn analyze_registrations_from_body_in_module(
                 }) {
                     library_constructor = None;
                 }
+                for target in &delete.targets {
+                    invalidate_local_function_target(&mut local_functions, target);
+                }
             }
             Stmt::FunctionDef(function) => {
                 if function.name.as_str() == "template" {
@@ -381,9 +446,17 @@ fn analyze_registrations_from_body_in_module(
                     analysis.registrations.clear();
                     analysis.open_inventory();
                 }
-                collect_from_decorated_function(function, &mut analysis);
+                let local_source = LocalFunctionSource::from_function(function);
+                collect_from_decorated_function(function, Some(local_source), &mut analysis);
                 if body_contains_register(&function.body) {
                     analysis.open_inventory();
+                }
+                if function.decorator_list.iter().all(|decorator| {
+                    registration_decorator_rooted_at_register(&decorator.expression)
+                }) {
+                    local_functions.insert(function.name.to_string(), local_source);
+                } else {
+                    local_functions.remove(function.name.as_str());
                 }
             }
             Stmt::ClassDef(class) => {
@@ -401,10 +474,11 @@ fn analyze_registrations_from_body_in_module(
                 if statement_contains_register(stmt) {
                     analysis.open_inventory();
                 }
+                local_functions.remove(class.name.as_str());
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 if let Expr::Call(call) = value.as_ref() {
-                    collect_from_call_statement(call, &mut analysis);
+                    collect_from_call_statement(call, &local_functions, &mut analysis);
                 } else if contains_register(value) {
                     analysis.open_inventory();
                 }
@@ -417,12 +491,18 @@ fn analyze_registrations_from_body_in_module(
             | Stmt::Try(_) => {
                 template_is_django = false;
                 library_constructor = None;
+                local_functions.clear();
+                if statement_contains_register(stmt) {
+                    analysis.open_inventory();
+                }
+            }
+            Stmt::TypeAlias(_) => {
+                local_functions.clear();
                 if statement_contains_register(stmt) {
                     analysis.open_inventory();
                 }
             }
             Stmt::Return(_)
-            | Stmt::TypeAlias(_)
             | Stmt::Raise(_)
             | Stmt::Assert(_)
             | Stmt::Global(_)
@@ -504,11 +584,13 @@ fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
 /// - `@register.filter`
 fn collect_from_decorated_function(
     func_def: &StmtFunctionDef,
+    local_source: Option<LocalFunctionSource>,
     analysis: &mut RegistrationSourceAnalysis,
 ) {
     let func_name = func_def.name.as_str();
 
-    for decorator in &func_def.decorator_list {
+    // Decorators execute from the function outward, so registrations must be recorded bottom-up.
+    for (index, decorator) in func_def.decorator_list.iter().enumerate().rev() {
         let expression = &decorator.expression;
         if !registration_decorator_rooted_at_register(expression) {
             if contains_register(expression) {
@@ -523,11 +605,18 @@ fn collect_from_decorated_function(
             continue;
         }
 
+        let registration_source = local_source.filter(|_| {
+            func_def.decorator_list[index + 1..]
+                .iter()
+                .all(|decorator| registration_decorator_rooted_at_register(&decorator.expression))
+        });
+
         if let Some((name, kind)) = tag_name_from_decorator(expression, func_name) {
             analysis.registrations.push(RegistrationInfo {
                 name,
                 kind,
                 func_name: Some(func_name.to_string()),
+                local_source: registration_source,
             });
             continue;
         }
@@ -537,6 +626,7 @@ fn collect_from_decorated_function(
                 name,
                 kind: RegistrationKind::Filter,
                 func_name: Some(func_name.to_string()),
+                local_source: registration_source,
             });
         } else {
             analysis.open_inventory();
@@ -710,7 +800,11 @@ fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
 /// - `register.tag("name", SomeNode.handle)`
 /// - `register.filter("name", filter_func)`
 /// - `register.simple_tag(func, name="alias")`
-fn collect_from_call_statement(call: &ExprCall, analysis: &mut RegistrationSourceAnalysis) {
+fn collect_from_call_statement(
+    call: &ExprCall,
+    local_functions: &BTreeMap<String, LocalFunctionSource>,
+    analysis: &mut RegistrationSourceAnalysis,
+) {
     if !call_rooted_at_register(call) {
         if call_escapes_register(call) {
             analysis.open_inventory();
@@ -733,19 +827,29 @@ fn collect_from_call_statement(call: &ExprCall, analysis: &mut RegistrationSourc
     }
 
     if let Some((name, kind, func_name)) = tag_registration_from_call(call) {
+        let local_source = func_name
+            .as_deref()
+            .and_then(|name| local_functions.get(name))
+            .copied();
         analysis.registrations.push(RegistrationInfo {
             name,
             kind,
             func_name,
+            local_source,
         });
         return;
     }
 
     if let Some((name, func_name)) = filter_registration_from_call(call) {
+        let local_source = func_name
+            .as_deref()
+            .and_then(|name| local_functions.get(name))
+            .copied();
         analysis.registrations.push(RegistrationInfo {
             name,
             kind: RegistrationKind::Filter,
             func_name,
+            local_source,
         });
     } else {
         analysis.open_inventory();
@@ -1027,13 +1131,48 @@ pub(crate) enum TemplateLibraryParseQuality {
     Recovered,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct TemplateLibrarySymbolSources {
+    tags: BTreeMap<String, TemplateSymbolSource>,
+    filters: BTreeMap<String, TemplateSymbolSource>,
+}
+
+impl TemplateLibrarySymbolSources {
+    fn set(
+        &mut self,
+        kind: TemplateSymbolKind,
+        name: String,
+        source: Option<TemplateSymbolSource>,
+    ) {
+        let symbols = match kind {
+            TemplateSymbolKind::Tag => &mut self.tags,
+            TemplateSymbolKind::Filter => &mut self.filters,
+        };
+        if let Some(source) = source {
+            symbols.insert(name, source);
+        } else {
+            symbols.remove(&name);
+        }
+    }
+
+    fn symbol(&self, kind: TemplateSymbolKind, name: &str) -> Option<TemplateSymbolSource> {
+        match kind {
+            TemplateSymbolKind::Tag => self.tags.get(name),
+            TemplateSymbolKind::Filter => self.filters.get(name),
+        }
+        .copied()
+    }
+}
+
 /// Canonical indexed analysis of one Template Library source module.
 ///
 /// Registration discovery happens here once. Equality-bearing projections below keep changes in
-/// Tag Definitions, Filter Definitions, Tag Rules, Block Specs, and Filter Arity independent.
+/// Tag Definitions, Filter Definitions, source locations, Tag Rules, Block Specs, and Filter Arity
+/// independent.
 #[derive(Clone, Debug, PartialEq)]
 struct TemplateLibrarySourceAnalysis {
     definitions: TemplateLibraryDefinitionFacts,
+    symbol_sources: TemplateLibrarySymbolSources,
     tag_rules: TagRuleMap,
     block_specs: BlockSpecs,
     filter_arities: FilterArityMap,
@@ -1047,6 +1186,7 @@ impl TemplateLibrarySourceAnalysis {
                 tags: BTreeMap::new(),
                 filters: BTreeMap::new(),
             },
+            symbol_sources: TemplateLibrarySymbolSources::default(),
             tag_rules: TagRuleMap::default(),
             block_specs: BlockSpecs::default(),
             filter_arities: FilterArityMap::default(),
@@ -1054,6 +1194,7 @@ impl TemplateLibrarySourceAnalysis {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[salsa::tracked(returns(ref))]
 fn template_library_source_analysis(
     db: &dyn ProjectDb,
@@ -1073,6 +1214,7 @@ fn template_library_source_analysis(
 
     let mut tags = BTreeMap::new();
     let mut filters = BTreeMap::new();
+    let mut symbol_sources = TemplateLibrarySymbolSources::default();
     let mut tag_rules = TagRuleMap::default();
     let mut block_specs = BlockSpecs::default();
     let mut filter_arities = FilterArityMap::default();
@@ -1092,19 +1234,30 @@ fn template_library_source_analysis(
                 let symbol = TemplateSymbol {
                     kind,
                     name,
-                    definition: SymbolDefinition::Exact {
-                        file: file.path(db).to_path_buf(),
-                    },
+                    definition: SymbolDefinition::Exact { library: key },
                     doc: None,
                 };
+                let symbol_name = symbol.name().to_string();
                 match kind {
                     TemplateSymbolKind::Tag => {
-                        tags.insert(symbol.name().to_string(), symbol);
+                        tags.insert(symbol_name.clone(), symbol);
                     }
                     TemplateSymbolKind::Filter => {
-                        filters.insert(symbol.name().to_string(), symbol);
+                        filters.insert(symbol_name.clone(), symbol);
                     }
                 }
+                let source = (parse_quality == TemplateLibraryParseQuality::Exact
+                    && !registration_analysis.inventory_is_open())
+                .then_some(registration.local_source)
+                .flatten()
+                .map(|local_source| {
+                    TemplateSymbolSource::new(
+                        file,
+                        local_source.declaration_span,
+                        local_source.selection_span,
+                    )
+                });
+                symbol_sources.set(kind, symbol_name, source);
             } else {
                 symbols_unobserved = true;
             }
@@ -1156,6 +1309,7 @@ fn template_library_source_analysis(
             tags,
             filters,
         },
+        symbol_sources,
         tag_rules,
         block_specs,
         filter_arities,
@@ -1205,6 +1359,27 @@ pub fn template_library_definition_facts(
 }
 
 #[salsa::tracked(returns(ref))]
+fn template_library_symbol_sources(
+    db: &dyn ProjectDb,
+    key: TemplateLibraryId,
+) -> TemplateLibrarySymbolSources {
+    template_library_source_analysis(db, key)
+        .symbol_sources
+        .clone()
+}
+
+#[must_use]
+pub fn template_symbol_source(
+    db: &dyn ProjectDb,
+    symbol: &TemplateSymbol,
+) -> Option<TemplateSymbolSource> {
+    let SymbolDefinition::Exact { library } = &symbol.definition else {
+        return None;
+    };
+    template_library_symbol_sources(db, *library).symbol(symbol.kind, symbol.name())
+}
+
+#[salsa::tracked(returns(ref))]
 pub fn template_library_tag_facts(
     db: &dyn ProjectDb,
     key: TemplateLibraryId,
@@ -1251,6 +1426,123 @@ mod tests {
         regs.iter()
             .find(|r| r.name == name)
             .expect("requested registration should have been collected")
+    }
+
+    fn registered_source<'a>(source: &'a str, registration: &RegistrationInfo) -> Option<&'a str> {
+        let span = registration.local_source?.declaration_span;
+        source.get(span.start_usize()..span.end_usize())
+    }
+
+    #[test]
+    fn fresh_library_replaces_prior_registrations() {
+        let source = "from django import template\nregister = template.Library()\n@register.simple_tag\ndef stale(): pass\nregister = template.Library()\n@register.simple_tag\ndef current(): pass\n";
+        let registrations = collect_registrations(source);
+
+        assert!(
+            registrations
+                .iter()
+                .all(|registration| registration.name != "stale")
+        );
+        assert_eq!(
+            find_reg(&registrations, "current").func_name.as_deref(),
+            Some("current")
+        );
+    }
+
+    #[test]
+    fn decorator_registration_keeps_its_local_function_source() {
+        let source = "from django import template\nregister = template.Library()\n@register.tag('shown')\ndef implementation(parser, token):\n    pass\n";
+        let registrations = collect_registrations(source);
+        let registration = find_reg(&registrations, "shown");
+
+        assert_eq!(
+            registered_source(source, registration),
+            Some("@register.tag('shown')\ndef implementation(parser, token):\n    pass")
+        );
+        let local_source = registration
+            .local_source
+            .expect("decorated registration should retain its local source");
+        assert_eq!(
+            source.get(
+                local_source.selection_span.start_usize()..local_source.selection_span.end_usize()
+            ),
+            Some("implementation")
+        );
+    }
+
+    #[test]
+    fn decorator_registration_rejects_an_inner_transforming_decorator() {
+        let source = "from django import template\nregister = template.Library()\ndef swap(function): return replacement\n@register.tag('shown')\n@swap\ndef original(parser, token): pass\n";
+        let registrations = collect_registrations(source);
+
+        assert_eq!(find_reg(&registrations, "shown").local_source, None);
+    }
+
+    #[test]
+    fn outer_transforming_decorator_does_not_change_the_registered_source() {
+        let source = "from django import template\nregister = template.Library()\ndef swap(function): return replacement\n@swap\n@register.tag('shown')\ndef original(parser, token): pass\nregister.tag('later', original)\n";
+        let registrations = collect_registrations(source);
+
+        assert!(find_reg(&registrations, "shown").local_source.is_some());
+        assert_eq!(find_reg(&registrations, "later").local_source, None);
+    }
+
+    #[test]
+    fn outer_registration_wins_after_an_inner_transforming_decorator() {
+        let source = "from django import template\nregister = template.Library()\ndef swap(function): return replacement\n@register.tag('shown')\n@swap\n@register.tag('shown')\ndef original(parser, token): pass\n";
+        let registrations = collect_registrations(source);
+        let final_registration = registrations
+            .iter()
+            .rev()
+            .find(|registration| registration.name == "shown")
+            .expect("final shown registration should be collected");
+
+        assert_eq!(final_registration.local_source, None);
+    }
+
+    #[test]
+    fn direct_registration_uses_the_active_preceding_function_binding() {
+        let source = "from django import template\nregister = template.Library()\ndef implementation(parser, token):\n    pass\nregister.tag('shown', implementation)\n";
+        let registrations = collect_registrations(source);
+
+        assert_eq!(
+            registered_source(source, find_reg(&registrations, "shown")),
+            Some("def implementation(parser, token):\n    pass")
+        );
+    }
+
+    #[test]
+    fn direct_registration_rejects_rebound_forward_and_member_callables() {
+        let source = "from django import template\nregister = template.Library()\ndef imported(parser, token):\n    pass\nfrom elsewhere import imported\nregister.tag('imported', imported)\nregister.tag('forward', later)\nclass Node:\n    def handle(self, parser, token):\n        pass\nregister.tag('member', Node.handle)\ndef later(parser, token):\n    pass\n";
+        let registrations = collect_registrations(source);
+
+        for name in ["imported", "forward", "member"] {
+            assert_eq!(find_reg(&registrations, name).local_source, None);
+        }
+    }
+
+    #[test]
+    fn direct_registration_rejects_a_named_expression_rebinding() {
+        let source = "from django import template\nregister = template.Library()\ndef implementation(parser, token):\n    pass\n(implementation := replacement)\nregister.tag('shown', implementation)\n";
+        let registrations = collect_registrations(source);
+
+        assert_eq!(find_reg(&registrations, "shown").local_source, None);
+    }
+
+    #[test]
+    fn final_registration_keeps_the_final_definite_source() {
+        let source = "from django import template\nregister = template.Library()\ndef first(parser, token):\n    pass\ndef second(parser, token):\n    pass\nregister.tag('shown', first)\nregister.tag('shown', second)\n";
+        let registrations = collect_registrations(source);
+        let registration = registrations
+            .iter()
+            .rev()
+            .find(|registration| registration.name == "shown")
+            .expect("final registration should be collected");
+
+        assert_eq!(
+            registered_source(source, registration),
+            Some("def second(parser, token):\n    pass")
+        );
     }
 
     // Corpus: `autoescape` in django/template/defaulttags.py uses `@register.tag` (bare)

@@ -7,6 +7,7 @@ use djls_project::TemplateSymbolKind;
 use djls_project::template_library_definition_facts;
 use djls_project::template_library_filter_facts;
 use djls_project::template_library_tag_facts;
+use djls_project::template_symbol_source;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::python_syntax_errors;
 use djls_source::ChangeEvent;
@@ -214,6 +215,177 @@ fn parser_distinguishes_empty_python_from_non_python() {
         ),
         None
     );
+}
+
+#[test]
+fn template_symbol_source_separates_definition_identity_from_location() {
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/test/templatetags/navigation.py");
+    let source = "from django import template\nregister = template.Library()\n@register.simple_tag(name='shown')\ndef implementation(value):\n    return value\n";
+    db.add_file(path.as_str(), source)
+        .expect("template-tag fixture should be added to the test database");
+    let file = db
+        .file(path)
+        .expect("template-tag fixture should exist in the test database");
+    let key = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("test.templatetags.navigation")
+            .expect("test Python module name should be valid"),
+    );
+    let symbol = template_library_definition_facts(&db, key)
+        .symbol(TemplateSymbolKind::Tag, "shown")
+        .expect("registered Tag should be extracted");
+    let definition = symbol.definition.clone();
+    let source_location =
+        template_symbol_source(&db, symbol).expect("local declaration should be navigable");
+
+    assert_eq!(source_location.file(), file);
+    assert_eq!(
+        source.get(
+            source_location.declaration_span().start_usize()
+                ..source_location.declaration_span().end_usize()
+        ),
+        Some("@register.simple_tag(name='shown')\ndef implementation(value):\n    return value")
+    );
+    assert_eq!(
+        source.get(
+            source_location.selection_span().start_usize()
+                ..source_location.selection_span().end_usize()
+        ),
+        Some("implementation")
+    );
+    assert!(source_location.declaration_span().start() <= source_location.selection_span().start());
+    assert!(source_location.selection_span().end() <= source_location.declaration_span().end());
+    assert_eq!(symbol.definition, definition);
+}
+
+#[test]
+fn template_symbol_location_shift_backdates_semantic_products() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let path = Utf8Path::new("/test/templatetags/navigation.py");
+    let source = "from django import template\nregister = template.Library()\n@register.simple_tag(name='shown')\ndef implementation(value):\n    return value\n@register.filter(name='filtered')\ndef filtering(value):\n    return value\n";
+    db.add_file(path.as_str(), source)
+        .expect("template-tag fixture should be added to the test database");
+    let file = db
+        .file(path)
+        .expect("template-tag fixture should exist in the test database");
+    let key = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("test.templatetags.navigation")
+            .expect("test Python module name should be valid"),
+    );
+
+    let definitions_before = template_library_definition_facts(&db, key).clone();
+    let tag_facts_before = template_library_tag_facts(&db, key).clone();
+    let filter_facts_before = template_library_filter_facts(&db, key).clone();
+    let symbol_before = definitions_before
+        .symbol(TemplateSymbolKind::Tag, "shown")
+        .expect("registered Tag should be extracted");
+    let source_before =
+        template_symbol_source(&db, symbol_before).expect("local declaration should be navigable");
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before the fixture edit"),
+    );
+
+    db.add_file(path.as_str(), &format!("\n{source}"))
+        .expect("shifted template-tag fixture should be added to the test database");
+    SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
+
+    let definitions_after = template_library_definition_facts(&db, key).clone();
+    let tag_facts_after = template_library_tag_facts(&db, key).clone();
+    let filter_facts_after = template_library_filter_facts(&db, key).clone();
+    let symbol_after = definitions_after
+        .symbol(TemplateSymbolKind::Tag, "shown")
+        .expect("shifted registered Tag should be extracted");
+    let source_after =
+        template_symbol_source(&db, symbol_after).expect("shifted declaration should navigate");
+
+    assert_eq!(definitions_after, definitions_before);
+    assert_eq!(tag_facts_after, tag_facts_before);
+    assert_eq!(filter_facts_after, filter_facts_before);
+    assert_eq!(
+        source_after.declaration_span().start(),
+        source_before.declaration_span().start() + 1
+    );
+    assert_eq!(
+        source_after.selection_span().start(),
+        source_before.selection_span().start() + 1
+    );
+
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the fixture edit");
+    assert_eq!(
+        execution_count(&db, &events, "template_library_source_analysis"),
+        1
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_definition_facts"),
+        1
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_tag_facts"),
+        1
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_filter_facts"),
+        1
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_symbol_sources"),
+        1
+    );
+}
+
+#[test]
+fn template_symbol_source_rejects_open_registration_inventory() {
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/test/templatetags/open.py");
+    let source = "from django import template\nregister = template.Library()\ndef first(parser, token):\n    pass\nregister.tag('shown', first)\nif FLAG:\n    register.tag('shown', replacement)\n";
+    db.add_file(path.as_str(), source)
+        .expect("template-tag fixture should be added to the test database");
+    let file = db
+        .file(path)
+        .expect("template-tag fixture should exist in the test database");
+    let key = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("test.templatetags.open")
+            .expect("test Python module name should be valid"),
+    );
+    let symbol = template_library_definition_facts(&db, key)
+        .symbol(TemplateSymbolKind::Tag, "shown")
+        .expect("known registration should survive the open inventory");
+
+    assert_eq!(template_symbol_source(&db, symbol), None);
+}
+
+#[test]
+fn template_symbol_source_rejects_member_callable() {
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/test/templatetags/member.py");
+    let source = "from django import template\nregister = template.Library()\ndef first(parser, token):\n    pass\nregister.tag('member', first)\nclass Node:\n    def handle(self, parser, token):\n        pass\nregister.tag('member', Node.handle)\n";
+    db.add_file(path.as_str(), source)
+        .expect("template-tag fixture should be added to the test database");
+    let file = db
+        .file(path)
+        .expect("template-tag fixture should exist in the test database");
+    let key = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("test.templatetags.member")
+            .expect("test Python module name should be valid"),
+    );
+    let symbol = template_library_definition_facts(&db, key)
+        .symbol(TemplateSymbolKind::Tag, "member")
+        .expect("member registration should remain a known Tag Definition");
+
+    assert_eq!(template_symbol_source(&db, symbol), None);
 }
 
 #[test]

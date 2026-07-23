@@ -605,6 +605,7 @@ impl LanguageServer for DjangoLanguageServer {
                     file,
                     offset,
                     snapshot.client_info().supports_location_links(),
+                    snapshot.client_info().position_encoding(),
                 )
             })
             .await;

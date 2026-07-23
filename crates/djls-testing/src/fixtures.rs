@@ -611,7 +611,7 @@ fn validation_db(partial: bool) -> anyhow::Result<TestDatabase> {
         source
     };
     let filters = |names: &[&str]| {
-        let mut source = register.to_string();
+        let mut source = String::new();
         for name in names {
             source.push_str("@register.filter\ndef ");
             source.push_str(name);
@@ -761,7 +761,7 @@ def widthratio(parser, token):
         )
         .file(
             "/django/contrib/humanize/templatetags/humanize.py",
-            filters(&["intcomma"]),
+            format!("{register}{}", filters(&["intcomma"])),
         )
         .install(&mut db)?;
     Ok(db)
