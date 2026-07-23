@@ -48,22 +48,61 @@ pub(crate) enum RegistrationKind {
     Filter,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum RegistrationInventory {
+    #[default]
+    NotLibrary,
+    Observed,
+    Open,
+}
+
 #[derive(Debug, Default)]
 struct RegistrationSourceAnalysis {
     registrations: Vec<RegistrationInfo>,
-    defines_library: bool,
-    inventory_open: bool,
-    saw_register_use: bool,
+    inventory: RegistrationInventory,
+}
+
+impl RegistrationSourceAnalysis {
+    fn observe_fresh_library(&mut self) {
+        if matches!(self.inventory, RegistrationInventory::NotLibrary) {
+            self.inventory = RegistrationInventory::Observed;
+        }
+    }
+
+    fn observe_register_use(&mut self) {
+        if matches!(self.inventory, RegistrationInventory::NotLibrary) {
+            self.inventory = RegistrationInventory::Open;
+        }
+    }
+
+    fn open_inventory(&mut self) {
+        self.inventory = RegistrationInventory::Open;
+    }
+
+    fn defines_library(&self) -> bool {
+        !matches!(self.inventory, RegistrationInventory::NotLibrary)
+    }
+
+    fn inventory_is_open(&self) -> bool {
+        matches!(self.inventory, RegistrationInventory::Open)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum RegisterReference {
+    #[default]
+    Absent,
+    Present,
 }
 
 struct RegisterUseVisitor {
-    found: bool,
+    reference: RegisterReference,
 }
 
 impl<'a> Visitor<'a> for RegisterUseVisitor {
     fn visit_expr(&mut self, expr: &'a Expr) {
         if expr.name_target() == Some("register") {
-            self.found = true;
+            self.reference = RegisterReference::Present;
             return;
         }
         visitor::walk_expr(self, expr);
@@ -71,15 +110,19 @@ impl<'a> Visitor<'a> for RegisterUseVisitor {
 }
 
 fn contains_register(expr: &Expr) -> bool {
-    let mut visitor = RegisterUseVisitor { found: false };
+    let mut visitor = RegisterUseVisitor {
+        reference: RegisterReference::Absent,
+    };
     visitor.visit_expr(expr);
-    visitor.found
+    matches!(visitor.reference, RegisterReference::Present)
 }
 
 fn statement_contains_register(stmt: &Stmt) -> bool {
-    let mut visitor = RegisterUseVisitor { found: false };
+    let mut visitor = RegisterUseVisitor {
+        reference: RegisterReference::Absent,
+    };
     visitor.visit_stmt(stmt);
-    visitor.found
+    matches!(visitor.reference, RegisterReference::Present)
 }
 
 fn body_contains_register(body: &[Stmt]) -> bool {
@@ -94,7 +137,7 @@ fn collect_from_class_body(body: &[Stmt], analysis: &mut RegistrationSourceAnaly
         {
             collect_from_decorated_function(function, analysis);
             if body_contains_register(&function.body) {
-                analysis.inventory_open = true;
+                analysis.open_inventory();
             }
             continue;
         }
@@ -195,8 +238,7 @@ fn analyze_registrations_from_body_in_module(
                     }
                     if clause.bound() == "register" {
                         analysis.registrations.clear();
-                        analysis.defines_library = true;
-                        analysis.inventory_open = true;
+                        analysis.open_inventory();
                     }
                 }
             }
@@ -221,8 +263,7 @@ fn analyze_registrations_from_body_in_module(
                     }
                     if member.bound() == "register" {
                         analysis.registrations.clear();
-                        analysis.defines_library = true;
-                        analysis.inventory_open = true;
+                        analysis.open_inventory();
                     }
                 }
             }
@@ -251,17 +292,17 @@ fn analyze_registrations_from_body_in_module(
                         template_is_django,
                         library_constructor,
                     );
-                    if !fresh_canonical {
+                    if fresh_canonical && !binds_template && !shares_register_binding {
+                        analysis.observe_fresh_library();
+                    } else {
                         analysis.registrations.clear();
+                        analysis.open_inventory();
                     }
-                    analysis.defines_library = true;
-                    analysis.inventory_open |=
-                        binds_template || shares_register_binding || !fresh_canonical;
                 }
                 if assign.targets.iter().any(is_register_inventory_target)
                     || (contains_register(&assign.value) && !binds_register)
                 {
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
                 if binds_template {
                     template_is_django = false;
@@ -270,13 +311,12 @@ fn analyze_registrations_from_body_in_module(
             Stmt::AnnAssign(assign) => {
                 if assign.target.name_target() == Some("register") {
                     analysis.registrations.clear();
-                    analysis.defines_library = true;
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
                 if is_register_inventory_target(&assign.target)
                     || assign.value.as_deref().is_some_and(contains_register)
                 {
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
                 if assign.target.name_target() == Some("template") {
                     template_is_django = false;
@@ -294,7 +334,7 @@ fn analyze_registrations_from_body_in_module(
                     || is_register_inventory_target(&assign.target)
                     || contains_register(&assign.value)
                 {
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
                 if assign.target.name_target() == Some("template") {
                     template_is_django = false;
@@ -313,7 +353,7 @@ fn analyze_registrations_from_body_in_module(
                         || is_register_inventory_target(target)
                         || contains_register(target)
                 }) {
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
                 if delete
                     .targets
@@ -339,13 +379,11 @@ fn analyze_registrations_from_body_in_module(
                 }
                 if function.name.as_str() == "register" {
                     analysis.registrations.clear();
-                    analysis.defines_library = true;
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
                 collect_from_decorated_function(function, &mut analysis);
                 if body_contains_register(&function.body) {
-                    analysis.saw_register_use = true;
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
             }
             Stmt::ClassDef(class) => {
@@ -357,21 +395,18 @@ fn analyze_registrations_from_body_in_module(
                 }
                 if class.name.as_str() == "register" {
                     analysis.registrations.clear();
-                    analysis.defines_library = true;
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
                 collect_from_class_body(&class.body, &mut analysis);
                 if statement_contains_register(stmt) {
-                    analysis.saw_register_use = true;
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 if let Expr::Call(call) = value.as_ref() {
                     collect_from_call_statement(call, &mut analysis);
                 } else if contains_register(value) {
-                    analysis.saw_register_use = true;
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
             }
             Stmt::For(_)
@@ -383,8 +418,7 @@ fn analyze_registrations_from_body_in_module(
                 template_is_django = false;
                 library_constructor = None;
                 if statement_contains_register(stmt) {
-                    analysis.saw_register_use = true;
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
             }
             Stmt::Return(_)
@@ -398,17 +432,12 @@ fn analyze_registrations_from_body_in_module(
             | Stmt::Continue(_)
             | Stmt::IpyEscapeCommand(_) => {
                 if statement_contains_register(stmt) {
-                    analysis.saw_register_use = true;
-                    analysis.inventory_open = true;
+                    analysis.open_inventory();
                 }
             }
         }
     }
 
-    if analysis.saw_register_use && !analysis.defines_library {
-        analysis.defines_library = true;
-        analysis.inventory_open = true;
-    }
     analysis
 }
 
@@ -483,15 +512,14 @@ fn collect_from_decorated_function(
         let expression = &decorator.expression;
         if !registration_decorator_rooted_at_register(expression) {
             if contains_register(expression) {
-                analysis.inventory_open = true;
-                analysis.saw_register_use = true;
+                analysis.open_inventory();
             }
             continue;
         }
-        analysis.saw_register_use = true;
+        analysis.observe_register_use();
 
         if registration_decorator_has_dynamic_name(expression) {
-            analysis.inventory_open = true;
+            analysis.open_inventory();
             continue;
         }
 
@@ -511,7 +539,7 @@ fn collect_from_decorated_function(
                 func_name: Some(func_name.to_string()),
             });
         } else {
-            analysis.inventory_open = true;
+            analysis.open_inventory();
         }
     }
 }
@@ -685,23 +713,22 @@ fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
 fn collect_from_call_statement(call: &ExprCall, analysis: &mut RegistrationSourceAnalysis) {
     if !call_rooted_at_register(call) {
         if call_escapes_register(call) {
-            analysis.saw_register_use = true;
-            analysis.inventory_open = true;
+            analysis.open_inventory();
         }
         return;
     }
-    analysis.saw_register_use = true;
+    analysis.observe_register_use();
 
     let Some(helper) = direct_register_helper(&call.func) else {
-        analysis.inventory_open = true;
+        analysis.open_inventory();
         return;
     };
     if tag_decorator_kind(helper).is_none() && !FILTER_DECORATORS.contains(&helper) {
-        analysis.inventory_open = true;
+        analysis.open_inventory();
         return;
     }
     if registration_call_has_dynamic_name(call) {
-        analysis.inventory_open = true;
+        analysis.open_inventory();
         return;
     }
 
@@ -721,7 +748,7 @@ fn collect_from_call_statement(call: &ExprCall, analysis: &mut RegistrationSourc
             func_name,
         });
     } else {
-        analysis.inventory_open = true;
+        analysis.open_inventory();
     }
 }
 
@@ -1053,7 +1080,7 @@ fn template_library_source_analysis(
     let registration_analysis =
         analyze_registrations_from_body_in_module(module.body(db), registration_module);
     let mut symbols_unobserved = parse_quality == TemplateLibraryParseQuality::Recovered
-        || registration_analysis.inventory_open;
+        || registration_analysis.inventory_is_open();
 
     for_each_registration(
         &registration_analysis,
@@ -1109,20 +1136,20 @@ fn template_library_source_analysis(
         },
     );
 
-    let state = if registration_analysis.defines_library || !tags.is_empty() || !filters.is_empty()
-    {
-        let inventory = if symbols_unobserved {
-            TemplateLibrarySymbolInventory::Open
+    let state =
+        if registration_analysis.defines_library() || !tags.is_empty() || !filters.is_empty() {
+            let inventory = if symbols_unobserved {
+                TemplateLibrarySymbolInventory::Open
+            } else {
+                TemplateLibrarySymbolInventory::Observed
+            };
+            TemplateLibraryDefinitionState::Library {
+                parse_quality,
+                inventory,
+            }
         } else {
-            TemplateLibrarySymbolInventory::Observed
+            TemplateLibraryDefinitionState::ParsedNotLibrary { parse_quality }
         };
-        TemplateLibraryDefinitionState::Library {
-            parse_quality,
-            inventory,
-        }
-    } else {
-        TemplateLibraryDefinitionState::ParsedNotLibrary { parse_quality }
-    };
     TemplateLibrarySourceAnalysis {
         definitions: TemplateLibraryDefinitionFacts {
             state,
@@ -1501,8 +1528,8 @@ def my_tag(parser, token):
         let analysis = analyze_registrations(
             "from shared import register\n@register.simple_tag\ndef known(): pass\n@register.filter\ndef known_filter(value): return value\n",
         );
-        assert!(analysis.defines_library);
-        assert!(analysis.inventory_open);
+        assert!(analysis.defines_library());
+        assert!(analysis.inventory_is_open());
         assert_eq!(analysis.registrations.len(), 2);
     }
 
@@ -1511,10 +1538,10 @@ def my_tag(parser, token):
         let canonical = analyze_registrations(
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known(): pass\n",
         );
-        assert!(!canonical.inventory_open);
+        assert!(!canonical.inventory_is_open());
         let direct_import =
             analyze_registrations("from django.template import Library\nregister = Library()\n");
-        assert!(!direct_import.inventory_open);
+        assert!(!direct_import.inventory_is_open());
 
         for source in [
             "register = Library()\n",
@@ -1525,7 +1552,7 @@ def my_tag(parser, token):
             "from django import template\nregister = template.Library()\nfrom shared import register\n",
         ] {
             assert!(
-                analyze_registrations(source).inventory_open,
+                analyze_registrations(source).inventory_is_open(),
                 "constructor should remain open: {source}"
             );
         }
@@ -1541,7 +1568,7 @@ def my_tag(parser, token):
                 "from django import template\nregister = template.Library()\n{uncertain}\n"
             );
             let analysis = analyze_registrations(&source);
-            assert!(analysis.inventory_open);
+            assert!(analysis.inventory_is_open());
             assert!(analysis.registrations.is_empty());
         }
     }
@@ -1551,7 +1578,7 @@ def my_tag(parser, token):
         let analysis = analyze_registrations(
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known(): pass\ndef configure():\n    register.tags.update(dynamic_tags)\n",
         );
-        assert!(analysis.inventory_open);
+        assert!(analysis.inventory_is_open());
         assert_eq!(analysis.registrations.len(), 1);
         assert_eq!(analysis.registrations[0].name, "known");
     }
@@ -1561,7 +1588,7 @@ def my_tag(parser, token):
         let analysis = analyze_registrations(
             "from django import template\nregister = template.Library()\nregister.tag('known', compile_function=tag_func)\nregister.filter('known_filter', filter_func=filter_func)\n",
         );
-        assert!(!analysis.inventory_open);
+        assert!(!analysis.inventory_is_open());
         assert!(
             analysis
                 .registrations
@@ -1582,7 +1609,7 @@ def my_tag(parser, token):
             "from django import template\nregister = template.Library()\n@other.tag\ndef invented(parser, token): pass\nother.filter('also_invented', func)\n",
         );
         assert!(analysis.registrations.is_empty());
-        assert!(!analysis.inventory_open);
+        assert!(!analysis.inventory_is_open());
     }
 
     #[test]
@@ -1600,7 +1627,7 @@ def my_tag(parser, token):
             );
             let analysis = analyze_registrations(&source);
             assert!(
-                analysis.inventory_open,
+                analysis.inventory_is_open(),
                 "operation should open inventory: {operation}"
             );
             assert!(
