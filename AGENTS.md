@@ -5,10 +5,12 @@ Read `CONTEXT.md` for the domain glossary and canonical terminology. Read `ARCHI
 ## Commands
 ```bash
 cargo build -q                   # Build all crates
-cargo test -q                    # Run all tests
+cargo test -q                    # Run Rust tests in the current Python environment
 cargo test test_name             # Run one test by name
 cargo test -p crate_name         # Test one crate
-just test                        # Run nox/Django matrix
+just test                        # Test with default Python and Django versions
+just testall                     # Test all supported Python/Django combinations
+just e2e                         # Run Python LSP end-to-end tests
 just clippy                      # Lint with clippy
 just fmt                         # Format code with nightly rustfmt features
 just lint                        # Run pre-commit hooks

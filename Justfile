@@ -38,10 +38,10 @@ hawk *ARGS:
     RUSTFLAGS="${RUSTFLAGS:-} -A dead_code -A unused_imports" CARGO_CACHE_RUSTC_INFO=0 cargo +1.97.1 hawk check --target-dir target/hawk {{ ARGS }}
 
 e2e *ARGS:
-    uv run nox -s e2e -- "{{ ARGS }}"
+    @just nox e2e {{ ARGS }}
 
 fixtures *ARGS:
-    uv run nox -s fixtures -- "{{ ARGS }}"
+    @just nox fixtures {{ ARGS }}
 
 fmt *ARGS:
     cd tools/rustfmt && cargo fmt --manifest-path "{{ justfile_directory() }}/Cargo.toml" --all {{ ARGS }}

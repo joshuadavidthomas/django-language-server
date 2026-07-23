@@ -305,7 +305,7 @@ fn check_plural_errors_with_singular_file_summary_exactly() {
     fs::create_dir_all(&templates).expect("test fixture directory should be created");
     fs::write(
         templates.join("broken.html"),
-        "{% first_unknown %}\n{% second_unknown %}\n",
+        "{% block first %}\n{% block second %}\n",
     )
     .expect("test fixture file should be written");
 
@@ -441,7 +441,7 @@ fn check_plural_stdin_summary_reports_errors_exactly() {
         .stdin
         .take()
         .expect("piped stdin should be available")
-        .write_all(b"{% first_unknown %}\n{% second_unknown %}\n")
+        .write_all(b"{% block first %}\n{% block second %}\n")
         .expect("test template source should be written to djls stdin");
 
     let output = child

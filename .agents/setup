@@ -75,7 +75,7 @@ if [[ "$(cargo insta --version 2>/dev/null || true)" != "cargo-insta 1.48.0" ]];
 fi
 
 echo "==> Installing locked Python dependencies"
-uv sync --frozen
+uv sync --frozen --no-install-project
 
 echo "==> Fetching locked Rust dependencies"
 cargo fetch --locked

@@ -89,6 +89,10 @@ Once configured, open any Django template file in your project to get:
 
 Visit [djls.joshthomas.dev](https://djls.joshthomas.dev) for full documentation including installation guides, configuration options, and editor setup instructions.
 
+## Contributing
+
+See the [contributor guide](CONTRIBUTING.md) for development setup, testing, snapshots, and code-quality workflows.
+
 ## License
 
 django-language-server is licensed under the Apache License, Version 2.0. See the [`LICENSE`](LICENSE) file for more information.

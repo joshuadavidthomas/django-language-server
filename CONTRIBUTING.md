@@ -29,6 +29,28 @@ Before opening a PR, make sure the tests, clippy, formatting, and linting all pa
 
 For a detailed look at how the codebase works — data flow, the Salsa database, the template pipeline — see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+### First-time setup
+
+Development requires [Rustup](https://rustup.rs/), [uv](https://docs.astral.sh/uv/), and [just](https://just.systems/). The checked-in Rust toolchain files select the required compiler and formatter versions.
+
+Install the locked Python development dependencies without building the local Rust package, install the Git hooks, and prefetch the test corpus:
+
+```bash
+uv sync --frozen --no-install-project
+uv tool install prek
+prek install
+just corpus sync
+```
+
+Install the prebuilt snapshot review tool used throughout the test suite:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/mitsuhiko/insta/releases/download/1.48.0/cargo-insta-installer.sh | sh
+```
+
+The first test or lint run may still download a supported Python version, create Nox environments, compile the Rust workspace, and prepare hook environments. Subsequent runs reuse those artifacts. Amp orbs perform these setup steps automatically through `.agents/setup`.
+
 The project is written in Rust and uses static analysis to introspect Django projects. It uses a [Cargo workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) with all crates under `crates/`. A few conventions to be aware of:
 
 - **Dependency versions** are centralized in `[workspace.dependencies]` in the root [`Cargo.toml`](./Cargo.toml). Individual crates reference them with `dep.workspace = true` and never specify versions directly.
@@ -51,7 +73,42 @@ CARGO_PROFILE_DEV_DEBUG=full cargo build
 CARGO_PROFILE_TEST_DEBUG=full cargo test
 ```
 
+### Testing
+
+Choose the narrowest command that covers the change:
+
+| Command | Scope |
+|---|---|
+| `cargo test -q` | Rust workspace tests using the currently discoverable Python environment |
+| `just test` | Rust workspace tests with the default Python 3.10 and Django 5.2 environment |
+| `just testall` | All supported Python and Django combinations |
+| `just e2e` | Python LSP end-to-end tests |
+
+`just test` and `just testall` create isolated Nox environments, install the selected Django version, synchronize the corpus, and then run Cargo. Use `just testall` for Python/Django support changes; the default `just test` is the normal local compatibility check.
+
+#### Corpus
+
+The corpus contains pinned source from real Django packages and projects under `crates/djls-testing/.corpus`. Tests synchronize it automatically, while `just corpus sync` can prefetch or repair it explicitly. The first sync downloads dozens of checksum-validated archives and can consume hundreds of megabytes; later syncs skip entries that already match `crates/djls-testing/manifest.lock`.
+
+#### Snapshots
+
+The test suite uses [Insta](https://insta.rs/) snapshots extensively. After running the relevant tests, inspect pending changes interactively:
+
+```bash
+cargo insta review
+```
+
+To rerun snapshot tests, accept updates, and delete unreferenced snapshots in one noninteractive pass:
+
+```bash
+cargo insta test --accept --unreferenced delete
+```
+
+Always review snapshot changes before committing them.
+
 ### Linting
+
+Install the commit-time hooks with `prek install`. Run `just lint` for the all-files local gate; it formats the Justfiles and runs every configured hook, including Rustfmt and Clippy. CI runs the portable pre-commit hooks, Rustfmt, and Clippy as separate jobs.
 
 #### Formatting
 
@@ -87,6 +144,15 @@ The recipe pins `+1.97.1`, the exact compiler required by cargo-hawk 0.1.9, and 
 A Hawk run is more compile-intensive than normal linting. It checks the configured production binaries and workspace non-production targets, so a single run may perform multiple Cargo analysis passes. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
 
 The `just hawk` recipe keeps rustc dead-code and unused-import warnings quiet so the output stays focused on visibility. After applying Hawk fixes, run the normal lint and test checks; newly private code may expose cleanup work that belongs there.
+
+#### Updating development tools
+
+- Update the primary compiler in `rust-toolchain.toml`.
+- Update the formatter nightly in `tools/rustfmt/rust-toolchain.toml`, then run `just fmt` and review any formatting changes.
+- Update cargo-hawk and its exact required compiler together in `.agents/setup`, `Justfile`, and this guide.
+- Keep the prebuilt cargo-insta version in `.agents/setup` and this guide aligned with the Insta version resolved in `Cargo.lock`.
+
+Hawk uses compiler-private APIs, so even a patch-level compiler mismatch can make it fail before analysis.
 
 ### Profiling
 
