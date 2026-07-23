@@ -35,6 +35,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added `just hawk` visibility lint configuration for crate-boundary cleanup.
 - **Internal**: Added end-to-end LSP coverage for initialization, diagnostics, navigation, completions, hover, folding ranges, document symbols, and startup progress.
 - **Internal**: Added the `djls-testing` crate for shared fixtures, corpus syncing, and Salsa-backed test databases.
+- **Internal**: Added reproducible Amp orb setup and resume scripts that provision pinned development tools, Git hooks, and the test corpus.
 
 ### Changed
 
@@ -63,6 +64,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Moved corpus tooling and shared test fixtures into `djls-testing`.
 - **Internal**: Reworked Python settings evaluation around module identities, typed import outcomes, invariant-preserving collections, and correlated list alternatives.
 - **Internal**: Reworked Django model inheritance around typed base outcomes, C3 ordering, and declaration-owned relation bindings.
+- **Internal**: Reduced development and test debug information to line tables to limit Rust build artifact size.
+- **Internal**: Expanded contributor guidance for setup, testing environments, corpus data, snapshots, linting, and pinned tool updates.
 
 ### Removed
 
@@ -84,6 +87,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed static Python evaluation to honor short-circuiting `and` and `or` operands.
 - Fixed static settings analysis to exclude impossible combinations from repeated and derived configuration predicates.
 - Fixed static settings analysis to preserve known template backend fields after nested dictionary assignments.
+- **Internal**: Fixed CLI summary tests to run without a discoverable Django installation.
 
 ## [6.0.3]
 
