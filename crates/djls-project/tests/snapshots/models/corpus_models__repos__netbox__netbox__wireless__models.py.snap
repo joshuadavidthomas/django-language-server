@@ -66,6 +66,22 @@ models:
             length: 16
         related_name: wireless_lans
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 2113
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: dcim.models.mixins.CachedScopeMixin
+      - Unresolved:
+          span:
+            start: 2131
+            length: 12
+          reason:
+            ImportNotFound:
+              requested: netbox.models.PrimaryModel
+    ancestry: Partial
   netbox.wireless.models.WirelessLink:
     name:
       value: WirelessLink
@@ -150,3 +166,19 @@ models:
             length: 13
         related_name: ~
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 3585
+            length: 13
+          reason:
+            ImportNotFound:
+              requested: netbox.models.mixins.DistanceMixin
+      - Unresolved:
+          span:
+            start: 3600
+            length: 12
+          reason:
+            ImportNotFound:
+              requested: netbox.models.PrimaryModel
+    ancestry: Partial

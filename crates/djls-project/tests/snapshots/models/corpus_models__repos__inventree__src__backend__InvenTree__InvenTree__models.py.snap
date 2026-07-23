@@ -57,6 +57,24 @@ models:
     module_name: src.backend.InvenTree.InvenTree.models
     relations: []
     kind: abstract
+  src.backend.InvenTree.InvenTree.models.InvenTreeTree:
+    name:
+      value: InvenTreeTree
+      span:
+        start: 23499
+        length: 13
+    module_name: src.backend.InvenTree.InvenTree.models
+    relations: []
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 23531
+            length: 9
+          reason:
+            ImportNotFound:
+              requested: mptt.models.MPTTModel
+    ancestry: Partial
   src.backend.InvenTree.InvenTree.models.MetadataMixin:
     name:
       value: MetadataMixin

@@ -10,11 +10,18 @@ use djls_project::Project;
 use djls_project::PythonModuleName;
 use djls_project::SearchPaths;
 use djls_project::compute_model_graph;
+use djls_project::testing::ModelAncestryOutcomeView;
+use djls_project::testing::ModelBaseOutcomeView;
+use djls_project::testing::ModelBaseUnresolvedReasonView;
+use djls_project::testing::ModelInvalidAncestryReasonView;
+use djls_project::testing::ModelMroEntryView;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::extract_model_graph;
+use djls_project::testing::model_inheritance_outcomes;
 use djls_project::testing::model_location;
 use djls_project::testing::model_relation_locations;
 use djls_project::testing::python_syntax_errors;
+use djls_project::testing::resolve_model_graph_from_modules;
 use djls_source::ChangeEvent;
 use djls_source::Db as _;
 use djls_source::SourceChanges;
@@ -289,6 +296,41 @@ fn model_graph_span_probe_reexecutes_when_relation_is_added() {
         .expect("Salsa event log should be readable after the relation edit");
 
     assert_ne!(after, before);
+    assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
+}
+
+#[test]
+fn model_graph_span_probe_reexecutes_for_base_only_edit() {
+    let initial = concat!(
+        "from django.db import models\n",
+        "class A(models.Model):\n    pass\n",
+        "class B(models.Model):\n    pass\n",
+        "class Child(A):\n    pass\n",
+    );
+    let updated = initial.replace("class Child(A)", "class Child(B)");
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", initial)
+        .build(&db)
+        .expect("base-only fixture should build");
+
+    let before = probe_model(&db, project, "app.models", "Child")
+        .expect("test model graph should fit in u32");
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before the base edit"),
+    );
+    update_file(&mut db, "/project/app/models.py", &updated)
+        .expect("updated base fixture should be written");
+    let after = probe_model(&db, project, "app.models", "Child")
+        .expect("test model graph should fit in u32");
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the base edit");
+
+    assert_eq!(after, before);
     assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
 }
 
@@ -1560,7 +1602,7 @@ fn class_body_relations_capture_alias_state_at_each_occurrence() {
 }
 
 #[test]
-fn class_body_compound_aliases_apply_only_to_contained_relations() {
+fn class_body_conditional_relation_remains_a_possible_field() {
     let source = concat!(
         "from django.db import models\n",
         "class Post(models.Model):\n",
@@ -1582,7 +1624,16 @@ fn class_body_compound_aliases_apply_only_to_contained_relations() {
     let graph = compute_model_graph(&db, project);
     let post = model_id(graph, "Post", "blog.models")
         .expect("model fixture should contain the requested model");
-    assert!(graph.resolve_relation(post, "conditional").is_some());
+    let user = model_id(graph, "User", "accounts.models")
+        .expect("model fixture should contain the conditional relation target");
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(post, "conditional")
+            .expect("conditional relation should remain a possible field"),
+        graph
+            .get_by_id(user)
+            .expect("conditional relation target should resolve"),
+    ));
     assert_eq!(graph.resolve_relation(post, "outside"), None);
 }
 
@@ -1749,15 +1800,542 @@ fn explicitly_shadowed_relation_does_not_fall_back_to_same_app_model() {
 }
 
 #[test]
-fn unresolved_qualified_base_does_not_collapse_to_local_class_name() {
+fn unresolved_only_model_is_retained_with_ordered_typed_base_outcomes() {
     let source = concat!(
         "from django.db import models\n",
-        "class AbstractBase(models.Model):\n",
-        "    class Meta:\n        abstract = True\n",
-        "class Child(missing.AbstractBase):\n",
-        "    pass\n",
+        "class Target(models.Model):\n    pass\n",
+        "class Child(missing.AbstractBase, make_base()):\n",
+        "    direct = models.ForeignKey(Target, on_delete=models.CASCADE)\n",
     );
-    assert!(!detects_model!(source, "Child"));
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("unresolved-only inheritance fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "app.models")
+        .expect("an unresolved-only candidate should remain in the graph");
+    assert!(graph.resolve_relation(child, "direct").is_some());
+
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain inheritance outcomes");
+    assert_eq!(bases.len(), 2);
+    assert!(matches!(
+        &bases[0],
+        ModelBaseOutcomeView::Unresolved {
+            span,
+            reason: ModelBaseUnresolvedReasonView::MissingImportBinding { path },
+        } if *span == expected_span(source, "missing.AbstractBase").expect("base should occur")
+            && path == &["missing".to_string(), "AbstractBase".to_string()]
+    ));
+    assert!(matches!(
+        &bases[1],
+        ModelBaseOutcomeView::Unresolved {
+            span,
+            reason: ModelBaseUnresolvedReasonView::UnsupportedExpression,
+        } if *span == expected_span(source, "make_base()").expect("unsupported base should occur")
+    ));
+    assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
+}
+
+#[test]
+fn relation_evidence_retains_partial_model_without_promoting_arbitrary_subclass() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class BaseFormatter:\n    pass\n",
+        "class Formatter(BaseFormatter):\n    pass\n",
+        "class WebhookBase:\n    pass\n",
+        "class Webhook(WebhookBase):\n",
+        "    target = models.ForeignKey(Target, on_delete=models.CASCADE)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("candidate-admission fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    assert!(model_id(graph, "Formatter", "app.models").is_err());
+    let webhook =
+        model_id(graph, "Webhook", "app.models").expect("relation evidence should retain Webhook");
+    assert!(graph.resolve_relation(webhook, "target").is_some());
+
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Webhook")
+        .expect("Webhook should retain its plain-class base outcome");
+    assert!(matches!(
+        bases.as_slice(),
+        [ModelBaseOutcomeView::NonModelClass { class, .. }]
+            if class.name() == "WebhookBase"
+    ));
+    assert!(matches!(
+        ancestry,
+        ModelAncestryOutcomeView::Complete { ref mro }
+            if matches!(
+                mro.as_slice(),
+                [
+                    ModelMroEntryView::Model(model),
+                    ModelMroEntryView::NonModelClass(class),
+                ] if model.name() == "Webhook" && class.name() == "WebhookBase"
+            )
+    ));
+}
+
+#[test]
+fn plain_same_file_mixin_keeps_local_ancestry_complete() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class PlainMixin:\n    pass\n",
+        "class Child(PlainMixin, models.Model):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/project/app/models.py");
+    db.add_file(path.as_str(), source)
+        .expect("plain-mixin fixture should be added to the test database");
+    let file = db
+        .file(path)
+        .expect("plain-mixin fixture should exist in the test database");
+    let module_name =
+        PythonModuleName::parse("app.models").expect("test module name should be valid");
+
+    let graph = extract_model_graph(&db, file, module_name);
+    assert!(model_id(&graph, "PlainMixin", "app.models").is_err());
+    let (bases, ancestry) = model_inheritance_outcomes(&graph, "app.models", "Child")
+        .expect("Child should retain its plain-class base outcome");
+    assert!(matches!(
+        &bases[0],
+        ModelBaseOutcomeView::NonModelClass { class, .. } if class.name() == "PlainMixin"
+    ));
+    assert!(matches!(
+        ancestry,
+        ModelAncestryOutcomeView::Complete { ref mro }
+            if matches!(
+                mro.as_slice(),
+                [
+                    ModelMroEntryView::Model(model),
+                    ModelMroEntryView::NonModelClass(class),
+                ] if model.name() == "Child" && class.name() == "PlainMixin"
+            )
+    ));
+}
+
+#[test]
+fn plain_mixin_local_name_blocks_an_older_abstract_relation() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class AbstractBase(models.Model):\n",
+        "    owner = models.ForeignKey(Target)\n",
+        "    class Meta:\n        abstract = True\n",
+        "class PlainMixin:\n    owner = None\n",
+        "class Child(PlainMixin, AbstractBase):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("plain-mixin shadow fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "app.models").expect("Child should exist");
+    assert_eq!(graph.resolve_relation(child, "owner"), None);
+    let (_bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain complete ancestry");
+    assert!(matches!(
+        ancestry,
+        ModelAncestryOutcomeView::Complete { .. }
+    ));
+}
+
+#[test]
+fn unresolved_plain_mixin_ancestry_propagates_partial() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class BrokenMixin(missing.Base):\n    pass\n",
+        "class Child(BrokenMixin, models.Model):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("unresolved plain-mixin fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain its plain-class base outcome");
+    assert!(matches!(
+        &bases[0],
+        ModelBaseOutcomeView::NonModelClass { class, .. } if class.name() == "BrokenMixin"
+    ));
+    assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
+}
+
+#[test]
+fn same_file_abstract_order_resolves_through_plain_mixins() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class StatusMixin:\n    pass\n",
+        "class TransitionMixin:\n    pass\n",
+        "class Order(StatusMixin, TransitionMixin, models.Model):\n",
+        "    class Meta:\n        abstract = True\n",
+        "class PurchaseOrder(Order):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/project/order/models.py");
+    db.add_file(path.as_str(), source)
+        .expect("abstract-order fixture should be added to the test database");
+    let file = db
+        .file(path)
+        .expect("abstract-order fixture should exist in the test database");
+    let module_name =
+        PythonModuleName::parse("order.models").expect("test module name should be valid");
+
+    let graph = extract_model_graph(&db, file, module_name);
+    for model_name in ["Order", "PurchaseOrder"] {
+        let (_bases, ancestry) = model_inheritance_outcomes(&graph, "order.models", model_name)
+            .expect("same-file model should retain inheritance outcomes");
+        assert!(
+            matches!(ancestry, ModelAncestryOutcomeView::Complete { .. }),
+            "{model_name} ancestry should be complete"
+        );
+    }
+}
+
+#[test]
+fn mixed_resolved_and_unresolved_bases_keep_only_direct_fields() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class AbstractBase(models.Model):\n",
+        "    inherited = models.ForeignKey(Target, on_delete=models.CASCADE)\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Child(AbstractBase, missing.OtherBase):\n",
+        "    direct = models.ForeignKey(Target, on_delete=models.CASCADE)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("mixed inheritance fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "app.models").expect("Child should remain present");
+    assert!(graph.resolve_relation(child, "direct").is_some());
+    assert_eq!(graph.resolve_relation(child, "inherited"), None);
+
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain inheritance outcomes");
+    assert!(
+        matches!(&bases[0], ModelBaseOutcomeView::Model { model, .. } if model.name() == "AbstractBase")
+    );
+    assert!(matches!(
+        &bases[1],
+        ModelBaseOutcomeView::Unresolved {
+            reason: ModelBaseUnresolvedReasonView::MissingImportBinding { .. },
+            ..
+        }
+    ));
+    assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
+}
+
+#[test]
+fn partial_qualified_base_target_is_retained() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/base/models.py",
+            "from django.db import models\nclass Root(models.Model):\n    pass\n",
+        )
+        .file(
+            "/project/app/models.py",
+            concat!(
+                "import base.models as base_models\n",
+                "class Child(base_models.nested.AbstractBase):\n",
+                "    class Meta:\n",
+                "        abstract = True\n",
+            ),
+        )
+        .build(&db)
+        .expect("partial qualified base fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    model_id(graph, "Child", "app.models").expect("partial candidate should remain present");
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain inheritance outcomes");
+    assert!(matches!(
+        bases.as_slice(),
+        [ModelBaseOutcomeView::Unresolved {
+            reason: ModelBaseUnresolvedReasonView::PartialImport {
+                resolved_prefix,
+                unresolved_tail,
+            },
+            ..
+        }] if resolved_prefix.as_str() == "base.models"
+            && unresolved_tail == &["nested".to_string(), "AbstractBase".to_string()]
+    ));
+    assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
+}
+
+#[test]
+fn resolved_empty_mixin_does_not_hide_an_unresolved_field_base() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class EmptyMixin(models.Model):\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Child(EmptyMixin, missing.FieldBase):\n",
+        "    direct = models.ForeignKey(Target, on_delete=models.CASCADE)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("empty-mixin inheritance fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "app.models").expect("Child should remain present");
+    assert!(graph.resolve_relation(child, "direct").is_some());
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain both base outcomes");
+    assert_eq!(bases.len(), 2);
+    assert!(
+        matches!(&bases[0], ModelBaseOutcomeView::Model { model, .. } if model.name() == "EmptyMixin")
+    );
+    assert!(matches!(&bases[1], ModelBaseOutcomeView::Unresolved { .. }));
+    assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
+}
+
+#[test]
+fn c3_left_base_wins_a_forward_field_collision() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class LeftTarget(models.Model):\n    pass\n",
+        "class RightTarget(models.Model):\n    pass\n",
+        "class Left(models.Model):\n",
+        "    owner = models.ForeignKey(LeftTarget, on_delete=models.CASCADE)\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Right(models.Model):\n",
+        "    owner = models.ForeignKey(RightTarget, on_delete=models.CASCADE)\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Child(Left, Right):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("C3 collision fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "app.models").expect("Child should exist");
+    let left_target = model_id(graph, "LeftTarget", "app.models").expect("LeftTarget should exist");
+    let resolved = graph
+        .resolve_relation(child, "owner")
+        .expect("the left C3 field should resolve");
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(left_target)
+            .expect("LeftTarget should resolve")
+    ));
+}
+
+#[test]
+fn known_c3_conflict_propagates_through_partial_ancestry() {
+    let source = concat!(
+        "class X:\n    pass\n",
+        "class Y:\n    pass\n",
+        "class A(X, Y, missing.Base):\n",
+        "    class Meta:\n        abstract = True\n",
+        "class B(Y, X):\n",
+        "    class Meta:\n        abstract = True\n",
+        "class C(A, B):\n",
+        "    class Meta:\n        abstract = True\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("partial-parent C3 fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    let (a_bases, a_ancestry) = model_inheritance_outcomes(graph, "app.models", "A")
+        .expect("A should remain admitted with partial ancestry");
+    assert!(matches!(
+        &a_bases[2],
+        ModelBaseOutcomeView::Unresolved {
+            reason: ModelBaseUnresolvedReasonView::MissingImportBinding { .. },
+            ..
+        }
+    ));
+    assert_eq!(a_ancestry, ModelAncestryOutcomeView::Partial);
+
+    let (_c_bases, c_ancestry) = model_inheritance_outcomes(graph, "app.models", "C")
+        .expect("C should remain admitted with invalid ancestry");
+    assert_eq!(
+        c_ancestry,
+        ModelAncestryOutcomeView::Invalid {
+            reason: ModelInvalidAncestryReasonView::InconsistentMethodResolutionOrder,
+        }
+    );
+}
+
+#[test]
+fn inherited_concrete_field_target_uses_the_declaring_models_scope() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/base/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class Target(models.Model):\n    pass\n",
+                "class Parent(models.Model):\n",
+                "    target = models.ForeignKey(\"Target\", on_delete=models.CASCADE)\n",
+            ),
+        )
+        .file(
+            "/project/child/models.py",
+            concat!(
+                "from django.db import models\n",
+                "from base.models import Parent\n",
+                "class Target(models.Model):\n    pass\n",
+                "class Child(Parent):\n    pass\n",
+            ),
+        )
+        .build(&db)
+        .expect("owner-scope inheritance fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "child.models").expect("Child should exist");
+    let base_target = model_id(graph, "Target", "base.models").expect("base Target should exist");
+    let child_target =
+        model_id(graph, "Target", "child.models").expect("child Target should exist");
+    let resolved = graph
+        .resolve_relation(child, "target")
+        .expect("inherited concrete field should resolve");
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(base_target)
+            .expect("base Target should resolve")
+    ));
+    assert!(!ptr::eq(
+        resolved,
+        graph
+            .get_by_id(child_target)
+            .expect("child Target should resolve")
+    ));
+    assert!(model_relation_locations(graph, "child.models", "Child").is_empty());
+}
+
+#[test]
+fn a_base_declared_later_still_produces_complete_ancestry() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class Child(LateBase):\n    pass\n",
+        "class LateBase(models.Model):\n",
+        "    target = models.ForeignKey(Target, on_delete=models.CASCADE)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("late-base fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "app.models").expect("Child should exist");
+    assert!(graph.resolve_relation(child, "target").is_some());
+    let (_bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain complete ancestry");
+    assert!(matches!(
+        ancestry,
+        ModelAncestryOutcomeView::Complete { .. }
+    ));
+}
+
+#[test]
+fn a_same_module_base_rebound_after_the_child_is_unresolved() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class Base(models.Model):\n",
+        "    old = models.ForeignKey(Target)\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Child(Base):\n    pass\n",
+        "class Base(models.Model):\n",
+        "    new = models.ForeignKey(Target)\n",
+        "    class Meta:\n        abstract = True\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("rebound local base fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "app.models").expect("Child should remain present");
+
+    assert_eq!(graph.resolve_relation(child, "old"), None);
+    assert_eq!(graph.resolve_relation(child, "new"), None);
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain inheritance outcomes");
+    assert!(matches!(
+        bases.as_slice(),
+        [ModelBaseOutcomeView::Unresolved {
+            reason: ModelBaseUnresolvedReasonView::ReboundLocalBase { class },
+            ..
+        }] if class.name() == "Base" && class.module_name().as_str() == "app.models"
+    ));
+    assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
+}
+
+#[test]
+fn rebound_local_base_admission_uses_proven_same_module_ancestry() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Root(models.Model):\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Base(Root):\n    pass\n",
+        "class Child(Base):\n    pass\n",
+        "class Base:\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("ancestral rebound local base fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    model_id(graph, "Child", "app.models").expect("proven same-module ancestry should admit Child");
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain inheritance outcomes");
+    assert!(matches!(
+        bases.as_slice(),
+        [ModelBaseOutcomeView::Unresolved {
+            reason: ModelBaseUnresolvedReasonView::ReboundLocalBase { class },
+            ..
+        }] if class.name() == "Base" && class.module_name().as_str() == "app.models"
+    ));
+    assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
+}
+
+#[test]
+fn a_plain_rebound_local_base_does_not_admit_its_child() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Base:\n    pass\n",
+        "class Child(Base):\n    pass\n",
+        "class Base(models.Model):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("plain rebound local base fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    assert!(model_id(graph, "Child", "app.models").is_err());
+    assert!(model_id(graph, "Base", "app.models").is_ok());
 }
 
 #[test]
@@ -1796,4 +2374,686 @@ fn earlier_deferred_model_cannot_overwrite_a_later_direct_definition() {
         expected_span_after(source, "class Thing(models.Model)", "Thing")
             .expect("later Thing model name should occur after its class declaration")
     );
+}
+
+#[test]
+fn sole_unsupported_base_candidate_is_retained_with_relation_evidence() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Child(make_base()):\n",
+        "    parent = models.ForeignKey(\"self\", on_delete=models.CASCADE)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("unsupported-base fixture should build");
+
+    let graph = compute_model_graph(&db, project);
+    model_id(graph, "Child", "app.models").expect("unsupported candidate should remain present");
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("unsupported candidate should retain its base outcome");
+    assert!(matches!(
+        bases.as_slice(),
+        [ModelBaseOutcomeView::Unresolved {
+            reason: ModelBaseUnresolvedReasonView::UnsupportedExpression,
+            ..
+        }]
+    ));
+    assert_eq!(ancestry, ModelAncestryOutcomeView::Partial);
+}
+
+#[test]
+fn later_search_root_deferred_duplicate_wins() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/low/duplicate/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class Base(models.Model):\n    class Meta:\n        abstract = True\n",
+                "class Thing(Base):\n    low = models.ForeignKey(\"self\")\n",
+            ),
+        )
+        .file(
+            "/high/duplicate/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class Base(models.Model):\n    class Meta:\n        abstract = True\n",
+                "class Thing(Base):\n    high = models.ForeignKey(\"self\")\n",
+            ),
+        )
+        .build(&db)
+        .expect("duplicate-root fixture should build");
+    let low = db
+        .file(Utf8Path::new("/low/duplicate/models.py"))
+        .expect("low-priority module should exist");
+    let high = db
+        .file(Utf8Path::new("/high/duplicate/models.py"))
+        .expect("high-priority module should exist");
+    let module = PythonModuleName::parse("duplicate.models").expect("module name should parse");
+
+    // This is the order produced by reversing search-path discovery: the
+    // higher-priority root arrives last and must replace the earlier candidate.
+    let graph =
+        resolve_model_graph_from_modules(&db, project, [(low, module.clone()), (high, module)]);
+    let thing = model_id(&graph, "Thing", "duplicate.models").expect("Thing should exist");
+    assert_eq!(graph.resolve_relation(thing, "low"), None);
+    assert!(graph.resolve_relation(thing, "high").is_some());
+    assert_eq!(
+        model_location(&graph, "duplicate.models", "Thing")
+            .expect("winner should have a location")
+            .0,
+        high
+    );
+}
+
+#[test]
+fn django_root_before_derived_base_is_invalid() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class AbstractBase(models.Model):\n",
+        "    inherited = models.ForeignKey(Target)\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Bad(models.Model, AbstractBase):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("root-order fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let bad = model_id(graph, "Bad", "app.models").expect("Bad should remain present");
+    let (_bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Bad")
+        .expect("Bad should retain invalid ancestry");
+    assert_eq!(
+        ancestry,
+        ModelAncestryOutcomeView::Invalid {
+            reason: ModelInvalidAncestryReasonView::InconsistentMethodResolutionOrder,
+        }
+    );
+    assert_eq!(graph.resolve_relation(bad, "inherited"), None);
+}
+
+#[test]
+fn duplicate_class_base_is_invalid() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Base(models.Model):\n    pass\n",
+        "class Child(Base, Base):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("duplicate-base fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let (_bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Child")
+        .expect("Child should retain invalid ancestry");
+    assert!(matches!(
+        ancestry,
+        ModelAncestryOutcomeView::Invalid {
+            reason: ModelInvalidAncestryReasonView::DuplicateClassBase { ref class },
+        } if class.name() == "Base"
+    ));
+}
+
+#[test]
+fn cycle_wins_over_unresolved_ancestry() {
+    let source = concat!(
+        "class A(B, missing.Base):\n",
+        "    class Meta:\n",
+        "        abstract = True\n",
+        "class B(A):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("cycle fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "A")
+        .expect("A should retain invalid ancestry");
+    assert!(matches!(
+        &bases[1],
+        ModelBaseOutcomeView::Unresolved {
+            reason: ModelBaseUnresolvedReasonView::MissingImportBinding { .. },
+            ..
+        }
+    ));
+    assert_eq!(
+        ancestry,
+        ModelAncestryOutcomeView::Invalid {
+            reason: ModelInvalidAncestryReasonView::Cycle,
+        }
+    );
+}
+
+#[test]
+fn abstract_clone_stops_at_concrete_owner_scope() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/base/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class Target(models.Model):\n    pass\n",
+                "class AbstractBase(models.Model):\n",
+                "    target = models.ForeignKey(\"Target\")\n",
+                "    class Meta:\n        abstract = True\n",
+                "class ConcreteParent(AbstractBase):\n    pass\n",
+            ),
+        )
+        .file(
+            "/project/child/models.py",
+            concat!(
+                "from django.db import models\n",
+                "from base.models import ConcreteParent\n",
+                "class Target(models.Model):\n    pass\n",
+                "class Child(ConcreteParent):\n    pass\n",
+            ),
+        )
+        .build(&db)
+        .expect("abstract concrete chain should build");
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "child.models").expect("Child should exist");
+    let base_target = model_id(graph, "Target", "base.models").expect("base Target should exist");
+    let resolved = graph
+        .resolve_relation(child, "target")
+        .expect("inherited field should resolve");
+    assert!(ptr::eq(
+        resolved,
+        graph
+            .get_by_id(base_target)
+            .expect("base target should resolve")
+    ));
+    assert!(model_relation_locations(graph, "child.models", "Child").is_empty());
+}
+
+#[test]
+fn abstract_clone_expression_target_keeps_its_declaration_scope() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/base/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class Target(models.Model):\n    pass\n",
+                "class AbstractBase(models.Model):\n",
+                "    target = models.ForeignKey(Target)\n",
+                "    class Meta:\n        abstract = True\n",
+            ),
+        )
+        .file(
+            "/project/child/models.py",
+            concat!(
+                "from django.db import models\n",
+                "from base.models import AbstractBase\n",
+                "class Target(models.Model):\n    pass\n",
+                "class Child(AbstractBase):\n    pass\n",
+            ),
+        )
+        .build(&db)
+        .expect("cross-app abstract clone fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let child = model_id(graph, "Child", "child.models").expect("Child should exist");
+    let base_target = model_id(graph, "Target", "base.models").expect("base Target should exist");
+    let child_target =
+        model_id(graph, "Target", "child.models").expect("child Target should exist");
+
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(child, "target")
+            .expect("cloned expression target should resolve"),
+        graph
+            .get_by_id(base_target)
+            .expect("base Target should resolve"),
+    ));
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(base_target, "child_set")
+            .expect("base Target should receive the cloned reverse relation"),
+        graph.get_by_id(child).expect("Child should resolve"),
+    ));
+    assert_eq!(graph.resolve_relation(child_target, "child_set"), None);
+}
+
+#[test]
+fn extracted_class_bindings_block_abstract_relation_cloning() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class AbstractBase(models.Model):\n",
+        "    owner = models.ForeignKey(Target)\n",
+        "    class Meta:\n        abstract = True\n",
+        "class AssignedChild(AbstractBase):\n    owner = None\n",
+        "class MethodChild(AbstractBase):\n    def owner(self):\n        pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("local-shadow fixture should build");
+    let graph = compute_model_graph(&db, project);
+    for name in ["AssignedChild", "MethodChild"] {
+        let child = model_id(graph, name, "app.models").expect("child should exist");
+        assert_eq!(graph.resolve_relation(child, "owner"), None);
+        assert!(model_relation_locations(graph, "app.models", name).is_empty());
+    }
+}
+
+#[test]
+fn abstract_declarations_do_not_create_reverse_descriptors() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class User(models.Model):\n    pass\n",
+        "class AbstractBase(models.Model):\n",
+        "    user = models.ForeignKey(User)\n",
+        "    editor = models.ForeignKey(User, related_name=\"%(class)s_editors\")\n",
+        "    class Meta:\n        abstract = True\n",
+        "class Child(AbstractBase):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("abstract reverse fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let user = model_id(graph, "User", "app.models").expect("User should exist");
+    assert!(graph.resolve_relation(user, "child_set").is_some());
+    assert!(graph.resolve_relation(user, "child_editors").is_some());
+    assert_eq!(graph.resolve_relation(user, "abstractbase_set"), None);
+    assert_eq!(graph.resolve_relation(user, "abstractbase_editors"), None);
+}
+
+#[test]
+fn c3_uses_local_bindings_across_a_shared_ancestor_diamond() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class XTarget(models.Model):\n    pass\n",
+        "class CTarget(models.Model):\n    pass\n",
+        "class X(models.Model):\n",
+        "    owner = models.ForeignKey(XTarget)\n",
+        "class B(X):\n    pass\n",
+        "class C(X):\n",
+        "    owner = models.ForeignKey(CTarget)\n",
+        "class D(B, C):\n    pass\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("shared-ancestor C3 fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let d = model_id(graph, "D", "app.models").expect("D should exist");
+    let c_target = model_id(graph, "CTarget", "app.models").expect("CTarget should exist");
+
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(d, "owner")
+            .expect("D.owner should resolve"),
+        graph.get_by_id(c_target).expect("CTarget should resolve"),
+    ));
+}
+
+#[test]
+fn later_non_relation_suppresses_an_earlier_relation() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class User(models.Model):\n    pass\n",
+        "class Order(models.Model):\n",
+        "    user = models.ForeignKey(User, related_name=\"orders\")\n",
+        "    user = None\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("relation suppression fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let order = model_id(graph, "Order", "app.models").expect("Order should exist");
+    let value = graph_value(graph).expect("model graph should serialize");
+
+    assert_eq!(graph.resolve_relation(order, "user"), None);
+    assert!(
+        value["models"]["app.models.Order"]["relations"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    );
+}
+
+#[test]
+fn later_relation_restores_a_name_after_a_non_relation() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class User(models.Model):\n    pass\n",
+        "class Order(models.Model):\n",
+        "    user = None\n",
+        "    user = models.ForeignKey(User)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("relation restoration fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let order = model_id(graph, "Order", "app.models").expect("Order should exist");
+
+    assert!(graph.resolve_relation(order, "user").is_some());
+}
+
+#[test]
+fn later_relation_replaces_an_earlier_relation() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class First(models.Model):\n    pass\n",
+        "class Second(models.Model):\n    pass\n",
+        "class Choice(models.Model):\n",
+        "    selected = models.ForeignKey(First)\n",
+        "    selected = models.ForeignKey(Second)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("relation replacement fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let choice = model_id(graph, "Choice", "app.models").expect("Choice should exist");
+    let second = model_id(graph, "Second", "app.models").expect("Second should exist");
+    let value = graph_value(graph).expect("model graph should serialize");
+    let relations = value["models"]["app.models.Choice"]["relations"]
+        .as_array()
+        .expect("Choice relations should be an array");
+
+    assert!(ptr::eq(
+        graph
+            .resolve_relation(choice, "selected")
+            .expect("the final relation should resolve"),
+        graph.get_by_id(second).expect("Second should resolve"),
+    ));
+    assert_eq!(relations.len(), 1);
+    assert_eq!(relations[0]["target"]["value"]["name"], json!("Second"));
+}
+
+#[test]
+fn suppressed_local_relation_creates_no_reverse_descriptor() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class User(models.Model):\n    pass\n",
+        "class Order(models.Model):\n",
+        "    user = models.ForeignKey(User, related_name=\"orders\")\n",
+        "    user = None\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("reverse suppression fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let user = model_id(graph, "User", "app.models").expect("User should exist");
+
+    assert_eq!(graph.resolve_relation(user, "orders"), None);
+}
+
+#[test]
+fn final_static_meta_abstract_assignment_wins() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Concrete(models.Model):\n",
+        "    class Meta:\n",
+        "        abstract = True\n",
+        "        abstract = False\n",
+        "class Abstract(models.Model):\n",
+        "    class Meta:\n",
+        "        abstract = False\n",
+        "        abstract = True\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("Meta.abstract ordering fixture should build");
+    let value = graph_value(compute_model_graph(&db, project)).expect("graph should serialize");
+
+    assert_eq!(value["models"]["app.models.Concrete"]["kind"], "concrete");
+    assert_eq!(value["models"]["app.models.Abstract"]["kind"], "abstract");
+}
+
+#[test]
+fn final_duplicate_meta_class_controls_model_kind() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class ResetToDefault(models.Model):\n",
+        "    class Meta:\n        abstract = True\n",
+        "    class Meta:\n        pass\n",
+        "class ResetToFalse(models.Model):\n",
+        "    class Meta:\n        abstract = True\n",
+        "    class Meta:\n        abstract = False\n",
+        "class ResetToTrue(models.Model):\n",
+        "    class Meta:\n        abstract = False\n",
+        "    class Meta:\n        abstract = True\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("duplicate Meta fixture should build");
+    let value = graph_value(compute_model_graph(&db, project)).expect("graph should serialize");
+
+    assert_eq!(
+        value["models"]["app.models.ResetToDefault"]["kind"],
+        "concrete"
+    );
+    assert_eq!(
+        value["models"]["app.models.ResetToFalse"]["kind"],
+        "concrete"
+    );
+    assert_eq!(
+        value["models"]["app.models.ResetToTrue"]["kind"],
+        "abstract"
+    );
+}
+
+#[test]
+fn reassigned_model_alias_cannot_be_admitted_by_a_relation() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "models = None\n",
+        "class Shadowed(models.Model):\n",
+        "    target = models.ForeignKey(Target)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("reassigned alias fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    assert!(model_id(graph, "Shadowed", "app.models").is_err());
+}
+
+#[test]
+fn shadowed_direct_model_import_is_negative_django_root_evidence() {
+    let source = concat!(
+        "from django.db.models import Model, ForeignKey\n",
+        "Model = object()\n",
+        "class Fake(Model):\n",
+        "    parent = ForeignKey(\"self\")\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("shadowed direct Model import fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    assert!(model_id(graph, "Fake", "app.models").is_err());
+}
+
+#[test]
+fn missing_direct_model_name_is_negative_django_root_evidence() {
+    let source = concat!(
+        "class Fake(Model):\n",
+        "    parent = ForeignKey(\"self\")\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("missing direct Model fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    assert!(model_id(graph, "Fake", "app.models").is_err());
+}
+
+#[test]
+fn proven_model_base_can_admit_a_candidate_with_negative_model_evidence() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class ProvenBase(models.Model):\n    pass\n",
+        "models = None\n",
+        "class Child(ProvenBase, models.Model):\n",
+        "    target = ForeignKey(Target)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("proven alternate base fixture should build");
+    let graph = compute_model_graph(&db, project);
+    let child =
+        model_id(graph, "Child", "app.models").expect("the proven model base should admit Child");
+
+    assert!(graph.resolve_relation(child, "target").is_some());
+}
+
+#[test]
+fn deleted_and_branch_shadowed_model_aliases_are_negative_evidence() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "del models\n",
+        "class Deleted(models.Model):\n",
+        "    target = object()\n",
+        "    relation = ForeignKey(Target)\n",
+        "from django.db import models\n",
+        "if enabled:\n    models = None\n",
+        "class BranchShadowed(models.Model):\n",
+        "    target = ForeignKey(Target)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("uncertain alias fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    assert!(model_id(graph, "Deleted", "app.models").is_err());
+    assert!(model_id(graph, "BranchShadowed", "app.models").is_err());
+}
+
+#[test]
+fn later_reimport_admits_only_later_relation_bearing_models() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "models = None\n",
+        "class Before(models.Model):\n",
+        "    target = ForeignKey(Target)\n",
+        "from django.db import models\n",
+        "class After(models.Model):\n",
+        "    target = models.ForeignKey(Target)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("alias reimport fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    assert!(model_id(graph, "Before", "app.models").is_err());
+    assert!(model_id(graph, "After", "app.models").is_ok());
+}
+
+#[test]
+fn later_alias_shadow_does_not_change_an_earlier_candidate() {
+    let source = concat!(
+        "from django.db import models\n",
+        "class Target(models.Model):\n    pass\n",
+        "class Before(models.Model):\n",
+        "    target = models.ForeignKey(Target)\n",
+        "models = None\n",
+        "class After(models.Model):\n",
+        "    target = ForeignKey(Target)\n",
+    );
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/app/models.py", source)
+        .build(&db)
+        .expect("later alias shadow fixture should build");
+    let graph = compute_model_graph(&db, project);
+
+    assert!(model_id(graph, "Before", "app.models").is_ok());
+    assert!(model_id(graph, "After", "app.models").is_err());
+}
+
+#[test]
+fn final_module_file_hides_all_lower_priority_classes() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/low/app/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class Legacy(models.Model):\n    pass\n",
+            ),
+        )
+        .file(
+            "/high/app/models.py",
+            concat!(
+                "from django.db import models\n",
+                "class Current(models.Model):\n    pass\n",
+            ),
+        )
+        .build(&db)
+        .expect("module precedence fixture should build");
+    let low = db
+        .file(Utf8Path::new("/low/app/models.py"))
+        .expect("low-priority module should exist");
+    let high = db
+        .file(Utf8Path::new("/high/app/models.py"))
+        .expect("high-priority module should exist");
+    let module = PythonModuleName::parse("app.models").expect("module should parse");
+    let graph =
+        resolve_model_graph_from_modules(&db, project, [(low, module.clone()), (high, module)]);
+
+    assert!(model_id(&graph, "Legacy", "app.models").is_err());
+    assert!(model_id(&graph, "Current", "app.models").is_ok());
+}
+
+#[test]
+fn model_free_winning_module_hides_a_lower_model() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/low/app/models.py",
+            "from django.db import models\nclass Legacy(models.Model):\n    pass\n",
+        )
+        .file("/high/app/models.py", "class Helper:\n    pass\n")
+        .build(&db)
+        .expect("model-free module precedence fixture should build");
+    let low = db
+        .file(Utf8Path::new("/low/app/models.py"))
+        .expect("low-priority module should exist");
+    let high = db
+        .file(Utf8Path::new("/high/app/models.py"))
+        .expect("high-priority module should exist");
+    let module = PythonModuleName::parse("app.models").expect("module should parse");
+    let graph =
+        resolve_model_graph_from_modules(&db, project, [(low, module.clone()), (high, module)]);
+
+    assert!(graph.is_empty());
 }

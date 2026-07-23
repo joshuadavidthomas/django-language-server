@@ -66,6 +66,34 @@ models:
     module_name: guardian.models.models
     relations:
       - field_name:
+          value: group
+          span:
+            start: 6734
+            length: 5
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Group
+          span:
+            start: 6760
+            length: 5
+        related_name: ~
+      - field_name:
+          value: permission
+          span:
+            start: 769
+            length: 10
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 800
+            length: 10
+        related_name: ~
+      - field_name:
           value: content_type
           span:
             start: 2144
@@ -96,6 +124,34 @@ models:
         length: 29
     module_name: guardian.models.models
     relations:
+      - field_name:
+          value: group
+          span:
+            start: 6734
+            length: 5
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Group
+          span:
+            start: 6760
+            length: 5
+        related_name: ~
+      - field_name:
+          value: permission
+          span:
+            start: 769
+            length: 10
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 800
+            length: 10
+        related_name: ~
       - field_name:
           value: content_type
           span:
@@ -165,6 +221,34 @@ models:
     module_name: guardian.models.models
     relations:
       - field_name:
+          value: user
+          span:
+            start: 3923
+            length: 4
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: user_model_label
+          span:
+            start: 3948
+            length: 16
+        related_name: ~
+      - field_name:
+          value: permission
+          span:
+            start: 769
+            length: 10
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 800
+            length: 10
+        related_name: ~
+      - field_name:
           value: content_type
           span:
             start: 2144
@@ -195,6 +279,34 @@ models:
         length: 28
     module_name: guardian.models.models
     relations:
+      - field_name:
+          value: user
+          span:
+            start: 3923
+            length: 4
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: user_model_label
+          span:
+            start: 3948
+            length: 16
+        related_name: ~
+      - field_name:
+          value: permission
+          span:
+            start: 769
+            length: 10
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Permission
+          span:
+            start: 800
+            length: 10
+        related_name: ~
       - field_name:
           value: content_type
           span:

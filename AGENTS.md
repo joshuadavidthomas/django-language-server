@@ -26,6 +26,11 @@ Prefer explicit tests over helper proliferation. Use helpers only for substantia
 
 Keep db/Salsa-backed tests in `crates/*/tests/`. Inline `src/` `#[cfg(test)]` modules should be pure unit tests with explicit data, not `djls_testing::TestDatabase`, even when possible.
 
+## Benchmarks
+A benchmark name is a stable comparison contract. Never rename, remove, or reshape a benchmark to hide a regression.
+
+When a change slows a benchmark, first check for an accidental regression in the code, inputs, setup, and measured path. Profile the hot path and fix real performance bugs. Some features require more work and may remain slower after that review; keep measuring the operation honestly and record why the cost changed. Rename a benchmark only when it truly measures a different operation, explain that change, and preserve the old comparison when it still represents a useful path.
+
 ## Generated Content
 - Do not edit text inside cog-generated blocks by hand. Update the source of truth, then run `just cog` to regenerate the block.
 

@@ -54,6 +54,15 @@ models:
             length: 4
         related_name: ~
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 9794
+            length: 12
+          reason:
+            ImportNotFound:
+              requested: pretix.base.models.base.LoggingMixin
+    ancestry: Partial
   src.pretix.plugins.sendmail.models.ScheduledMail:
     name:
       value: ScheduledMail

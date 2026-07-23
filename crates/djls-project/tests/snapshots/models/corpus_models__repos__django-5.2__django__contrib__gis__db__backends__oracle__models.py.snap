@@ -21,3 +21,12 @@ models:
     module_name: django.contrib.gis.db.backends.oracle.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1461
+            length: 18
+          reason:
+            ImportNotFound:
+              requested: django.contrib.gis.db.backends.base.models.SpatialRefSysMixin
+    ancestry: Partial

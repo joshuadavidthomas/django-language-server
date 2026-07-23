@@ -49,3 +49,12 @@ models:
             length: 8
         related_name: ~
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 3847
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: model_utils.models.TimeStampedModel
+    ancestry: Partial

@@ -92,20 +92,22 @@ fn register_model_source(
 
 struct ModelExtractionInput {
     db: Db,
+    project: Project,
     files: Vec<(File, PythonModuleName)>,
 }
 
 fn fixture_extraction_input(prefix: &str) -> Result<ModelExtractionInput, ModelSetupError> {
     let fixtures = model_fixtures()?;
-    let module = parse_module("bench.models")?;
     let mut db = Db::new();
     let mut files = Vec::with_capacity(fixtures.len());
     for (index, fixture) in fixtures.iter().enumerate() {
         let path = Utf8PathBuf::from(format!("/bench/models/{prefix}/{index}.py"));
         let file = register_model_source(&mut db, path, &fixture.source)?;
-        files.push((file, module.clone()));
+        let module = parse_module(&format!("bench.models.fixture_{index}"))?;
+        files.push((file, module));
     }
-    Ok(ModelExtractionInput { db, files })
+    let project = Project::initial(&db, Utf8Path::new("/bench"), &Settings::default());
+    Ok(ModelExtractionInput { db, project, files })
 }
 
 // Batch extraction: all fixtures in one iteration
@@ -130,31 +132,30 @@ fn extract(bencher: Bencher) {
         });
 }
 
-// Merge: extract graphs then merge them (the hot path in compute_model_graph)
+// Project assembly: reuse cached per-file extraction and rebuild inheritance.
 
 #[divan::bench]
-fn merge(bencher: Bencher) {
-    let input = require(
-        "prepare model merge benchmark input",
-        fixture_extraction_input("merge"),
-    );
-    let graphs: Vec<_> = input
-        .files
-        .into_iter()
-        .map(|(file, module)| extract_model_graph(&input.db, file, module).clone())
-        .collect();
-
-    bencher.bench_local(move || {
-        let mut merged_models = 0;
-        for _ in 0..REPEATED_INNER_ITERS {
-            let mut merged = ModelGraph::new();
-            for graph in &graphs {
-                merged.merge(graph.clone());
+fn assemble(bencher: Bencher) {
+    bencher
+        .with_inputs(|| {
+            require(
+                "prepare model assembly benchmark input",
+                fixture_extraction_input("assemble"),
+            )
+        })
+        .bench_local_values(|input| {
+            let mut assembled_models = 0;
+            for _ in 0..REPEATED_INNER_ITERS {
+                let graph = resolve_model_graph_from_modules(
+                    &input.db,
+                    input.project,
+                    input.files.iter().cloned(),
+                );
+                assembled_models += graph.len();
+                divan::black_box(graph);
             }
-            merged_models += merged.len();
-        }
-        divan::black_box(merged_models);
-    });
+            divan::black_box(assembled_models);
+        });
 }
 
 // Resolution: forward and field-based relation lookups on a populated graph
@@ -174,6 +175,11 @@ fn build_auth_graph() -> Result<ModelGraph, ModelSetupError> {
         Utf8PathBuf::from("/bench/django/contrib/auth/models.py"),
         &auth.source,
     )?;
+    let base_user_file = register_model_source(
+        &mut db,
+        Utf8PathBuf::from("/bench/django/contrib/auth/base_user.py"),
+        "from django.db import models\n\nclass BaseUserManager:\n    pass\n\nclass AbstractBaseUser(models.Model):\n    class Meta:\n        abstract = True\n",
+    )?;
     let content_type_file = register_model_source(
         &mut db,
         Utf8PathBuf::from("/bench/django/contrib/contenttypes/models.py"),
@@ -185,6 +191,10 @@ fn build_auth_graph() -> Result<ModelGraph, ModelSetupError> {
         project,
         [
             (auth_file, parse_module("django.contrib.auth.models")?),
+            (
+                base_user_file,
+                parse_module("django.contrib.auth.base_user")?,
+            ),
             (
                 content_type_file,
                 parse_module("django.contrib.contenttypes.models")?,
@@ -356,7 +366,8 @@ fn corpus_extraction_input(corpus: &CorpusModels) -> Result<ModelExtractionInput
         let file = register_model_source(&mut db, path, source)?;
         files.push((file, module_name.clone()));
     }
-    Ok(ModelExtractionInput { db, files })
+    let project = Project::initial(&db, Utf8Path::new("/bench"), &Settings::default());
+    Ok(ModelExtractionInput { db, project, files })
 }
 
 fn bench_corpus(
@@ -379,12 +390,8 @@ fn bench_corpus(
             )
         })
         .bench_local_values(|input| {
-            let mut merged = ModelGraph::new();
-            for (file, module_name) in input.files {
-                let graph = extract_model_graph(&input.db, file, module_name);
-                merged.merge(graph.clone());
-            }
-            divan::black_box(merged);
+            let graph = resolve_model_graph_from_modules(&input.db, input.project, input.files);
+            divan::black_box(graph);
         });
 }
 

@@ -28,6 +28,22 @@ models:
             length: 24
         related_name: ~
     kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 8020
+            length: 16
+          reason:
+            ImportNotFound:
+              requested: wagtail.models.CollectionMember
+      - Unresolved:
+          span:
+            start: 8038
+            length: 13
+          reason:
+            ImportNotFound:
+              requested: wagtail.search.index.Indexed
+    ancestry: Partial
   wagtail.images.models.AbstractRendition:
     name:
       value: AbstractRendition
@@ -44,24 +60,9 @@ models:
         start: 33901
         length: 5
     module_name: wagtail.images.models
-    relations:
-      - field_name:
-          value: uploaded_by_user
-          span:
-            start: 8767
-            length: 16
-        relation_type: ForeignKey
-        target:
-          value:
-            kind: Attribute
-            path:
-              - settings
-              - AUTH_USER_MODEL
-          span:
-            start: 8813
-            length: 24
-        related_name: ~
+    relations: []
     kind: concrete
+    ancestry: Partial
   wagtail.images.models.Rendition:
     name:
       value: Rendition

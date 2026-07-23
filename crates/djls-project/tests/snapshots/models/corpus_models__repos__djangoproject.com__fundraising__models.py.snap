@@ -12,6 +12,15 @@ models:
     module_name: fundraising.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1824
+            length: 18
+          reason:
+            ImportNotFound:
+              requested: djangoproject.thumbnails.LogoThumbnailMixin
+    ancestry: Partial
   fundraising.models.Donation:
     name:
       value: Donation
@@ -53,6 +62,15 @@ models:
     module_name: fundraising.models
     relations: []
     kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 4750
+            length: 18
+          reason:
+            ImportNotFound:
+              requested: djangoproject.thumbnails.LogoThumbnailMixin
+    ancestry: Partial
   fundraising.models.Payment:
     name:
       value: Payment

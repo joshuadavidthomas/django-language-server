@@ -29,6 +29,7 @@ use salsa::Storage;
 #[derive(Clone)]
 struct SourceMapFileSystem {
     sources: Arc<FxDashMap<Utf8PathBuf, String>>,
+    directories: Arc<FxDashMap<Utf8PathBuf, ()>>,
 }
 
 impl FileSystem for SourceMapFileSystem {
@@ -51,10 +52,7 @@ impl FileSystem for SourceMapFileSystem {
     }
 
     fn is_dir(&self, path: &Utf8Path) -> bool {
-        self.sources
-            .iter()
-            .any(|entry| entry.key().starts_with(path))
-            && !self.is_file(path)
+        self.directories.contains_key(path) && !self.is_file(path)
     }
 
     fn case_sensitivity(&self) -> CaseSensitivity {
@@ -146,6 +144,7 @@ impl Db {
         Self {
             fs: SourceMapFileSystem {
                 sources: Arc::new(FxDashMap::default()),
+                directories: Arc::new(FxDashMap::default()),
             },
             files: SourceFiles::default(),
             projectless_tag_specs: Arc::new(TagSpecs::default()),
@@ -172,7 +171,11 @@ impl Db {
         path: impl Into<Utf8PathBuf>,
         contents: impl Into<String>,
     ) {
-        self.fs.sources.insert(path.into(), contents.into());
+        let path = path.into();
+        for ancestor in path.ancestors().skip(1) {
+            self.fs.directories.insert(ancestor.to_path_buf(), ());
+        }
+        self.fs.sources.insert(path, contents.into());
     }
 
     pub(crate) fn set_project(&mut self, project: Project) {
@@ -292,6 +295,17 @@ mod tests {
             error.to_string(),
             "benchmark source /missing.html is not registered"
         );
+    }
+
+    #[test]
+    fn source_map_indexes_parent_directories() {
+        let db = Db::new();
+        db.add_fixture_source("/root/a/nested.py", "");
+
+        assert!(db.file_system().is_dir(Utf8Path::new("/root")));
+        assert!(db.file_system().is_dir(Utf8Path::new("/root/a")));
+        assert!(!db.file_system().is_dir(Utf8Path::new("/root/a/nested.py")));
+        assert!(!db.file_system().is_dir(Utf8Path::new("/root/missing")));
     }
 
     #[test]

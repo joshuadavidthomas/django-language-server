@@ -1,0 +1,23 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  wagtail.contrib.routable_page.models.RoutablePage:
+    name:
+      value: RoutablePage
+      span:
+        start: 7414
+        length: 12
+    module_name: wagtail.contrib.routable_page.models
+    relations: []
+    kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 7446
+            length: 4
+          reason:
+            ImportNotFound:
+              requested: wagtail.models.Page
+    ancestry: Partial

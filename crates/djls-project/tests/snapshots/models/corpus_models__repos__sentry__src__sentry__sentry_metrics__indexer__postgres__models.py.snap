@@ -4,20 +4,40 @@ expression: graph
 ---
 models:
   src.sentry.sentry_metrics.indexer.postgres.models.BaseIndexer:
-    name: BaseIndexer
+    name:
+      value: BaseIndexer
+      span:
+        start: 503
+        length: 11
     module_name: src.sentry.sentry_metrics.indexer.postgres.models
-    line: 17
     relations: []
     kind: abstract
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 515
+            length: 5
+          reason:
+            ImportNotFound:
+              requested: sentry.db.models.Model
+    ancestry: Partial
   src.sentry.sentry_metrics.indexer.postgres.models.PerfStringIndexer:
-    name: PerfStringIndexer
+    name:
+      value: PerfStringIndexer
+      span:
+        start: 1368
+        length: 17
     module_name: src.sentry.sentry_metrics.indexer.postgres.models
-    line: 44
     relations: []
     kind: concrete
+    ancestry: Partial
   src.sentry.sentry_metrics.indexer.postgres.models.StringIndexer:
-    name: StringIndexer
+    name:
+      value: StringIndexer
+      span:
+        start: 1038
+        length: 13
     module_name: src.sentry.sentry_metrics.indexer.postgres.models
-    line: 32
     relations: []
     kind: concrete
+    ancestry: Partial
