@@ -62,17 +62,6 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 
 The first test or lint run may still download a supported Python version, create Nox environments, compile the Rust workspace, and prepare hook environments. Subsequent runs reuse those artifacts. Amp orbs perform these setup steps automatically through `.agents/setup`.
 
-### Debug information
-
-Development and test builds use line-table-only debug information to keep Rust build artifacts smaller while retaining file-and-line panic backtraces and source-level stepping. Compiler diagnostics and normal build and test behavior are unaffected, but native debuggers cannot inspect local variables and function arguments.
-
-When full GDB or LLDB inspection is needed, override the relevant Cargo profile for that build:
-
-```bash
-CARGO_PROFILE_DEV_DEBUG=full cargo build
-CARGO_PROFILE_TEST_DEBUG=full cargo test
-```
-
 ### Testing
 
 | Command | Scope |
@@ -151,6 +140,17 @@ The `just hawk` recipe keeps rustc dead-code and unused-import warnings quiet so
 - Keep the prebuilt cargo-insta version in `.agents/setup` and this guide aligned with the Insta version resolved in `Cargo.lock`.
 
 Hawk uses compiler-private APIs, so even a patch-level compiler mismatch can make it fail before analysis.
+
+### Debug information
+
+Development and test builds use line-table-only debug information to keep Rust build artifacts smaller while retaining file-and-line panic backtraces and source-level stepping. Compiler diagnostics and normal build and test behavior are unaffected, but native debuggers cannot inspect local variables and function arguments.
+
+When full GDB or LLDB inspection is needed, override the relevant Cargo profile for that build:
+
+```bash
+CARGO_PROFILE_DEV_DEBUG=full cargo build
+CARGO_PROFILE_TEST_DEBUG=full cargo test
+```
 
 ### Profiling
 
