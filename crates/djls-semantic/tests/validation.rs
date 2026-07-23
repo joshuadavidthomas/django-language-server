@@ -2753,6 +2753,63 @@ fn corpus_templates_have_no_argument_false_positives() {
 }
 
 #[test]
+fn imported_register_keeps_known_symbols_and_makes_only_symbol_misses_inconclusive() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("project.settings")
+        .file(
+            "/proj/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'open': 'open_tags'}}}]\n",
+        )
+        .file("/proj/django/template/defaulttags.py", "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n")
+        .file("/proj/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
+        .file("/proj/django/template/loader_tags.py", "from django import template\nregister = template.Library()\n")
+        .file("/proj/open_tags.py", "from shared import register\n@register.simple_tag\ndef known_tag(): pass\n@register.filter\ndef known_filter(value): return value\n")
+        .file("/proj/templates/open.html", "{% load missing_library %}{% load open %}{% known_tag %}{% absent_tag %}{{ value|known_filter }}{{ value|absent_filter }}")
+        .install(&mut db)
+        .expect("imported-register fixture should install");
+
+    let open_errors = collect_file_errors(&db, "/proj/templates/open.html")
+        .expect("open library errors should collect");
+    assert!(!open_errors.iter().any(|error| matches!(error,
+        ValidationError::UnknownTag { tag, .. } if matches!(tag.as_str(), "known_tag" | "absent_tag")
+    )));
+    assert!(!open_errors.iter().any(|error| matches!(error,
+        ValidationError::UnknownFilter { filter, .. } if matches!(filter.as_str(), "known_filter" | "absent_filter")
+    )));
+    assert!(open_errors.iter().any(|error| matches!(error,
+        ValidationError::UnknownLibrary { name, .. } if name == "missing_library"
+    )));
+}
+
+#[test]
+fn closed_registration_source_still_produces_symbol_negatives() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("project.settings")
+        .file(
+            "/proj/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'closed': 'closed_tags'}}}]\n",
+        )
+        .file("/proj/django/template/defaulttags.py", "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n")
+        .file("/proj/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
+        .file("/proj/django/template/loader_tags.py", "from django import template\nregister = template.Library()\n")
+        .file("/proj/closed_tags.py", "from django import template\nregister = template.Library()\n")
+        .file("/proj/templates/page.html", "{% load closed %}{% absent_tag %}{{ value|absent_filter }}")
+        .install(&mut db)
+        .expect("closed-register fixture should install");
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html")
+        .expect("closed library errors should collect");
+    assert!(errors.iter().any(|error| matches!(error,
+        ValidationError::UnknownTag { tag, .. } if tag == "absent_tag"
+    )));
+    assert!(errors.iter().any(|error| matches!(error,
+        ValidationError::UnknownFilter { filter, .. } if filter == "absent_filter"
+    )));
+}
+
+#[test]
 fn corpus_known_invalid_templates_produce_errors() {
     let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
 

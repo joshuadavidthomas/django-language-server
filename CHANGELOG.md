@@ -77,6 +77,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed false unknown tag and filter diagnostics when a template library imports or dynamically mutates its Django registration object.
 - Fixed static path evaluation to follow imported helper aliases without mistaking shadowed `Path`, `str`, or `os` bindings for standard-library helpers.
 - Fixed static Django settings evaluation through ordinary and `from` imports, including dotted module chains, module attributes, named package children, and `__all__`-controlled star exports.
 - Fixed Python settings evaluation to distinguish list and tuple concatenation while preserving known collection facts through supported iterable extensions.
