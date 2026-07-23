@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::Db;
 use djls_project::Interpreter;
@@ -20,13 +21,12 @@ use djls_project::testing::PythonBindingAlternativeView;
 use djls_project::testing::PythonBoundValueView;
 use djls_project::testing::PythonImportNameErrorView;
 use djls_project::testing::PythonImportOutcomeView;
+use djls_project::testing::PythonIntrinsicView;
 use djls_project::testing::PythonModuleEvaluationError;
 use djls_project::testing::PythonModuleEvaluationView;
 use djls_project::testing::PythonModuleView;
 use djls_project::testing::PythonMutationOperationView;
 use djls_project::testing::PythonMutationPathSegmentView;
-use djls_project::testing::PythonPathIntrinsicView;
-use djls_project::testing::PythonPathView;
 use djls_project::testing::PythonSequenceItemView;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::PythonUnknownCauseView;
@@ -452,9 +452,7 @@ fn os_path_abspath_follows_import_and_assignment_aliases() {
     for name in ["path_abspath", "assigned_abspath"] {
         assert_kind(
             name,
-            PythonValueKindView::Path(PythonPathView::Intrinsic(
-                PythonPathIntrinsicView::OsPathAbspathFunction,
-            )),
+            PythonValueKindView::Intrinsic(PythonIntrinsicView::OsPathAbspathFunction),
         );
     }
     for name in ["ROOT_ABS", "NORMALIZED_ABS", "ASSIGNED_ABS"] {
@@ -473,7 +471,274 @@ fn os_path_abspath_follows_import_and_assignment_aliases() {
 }
 
 #[test]
-fn python_path_intrinsics_follow_import_and_assignment_aliases() {
+#[allow(clippy::too_many_lines)]
+fn env_reads_keep_file_candidates_and_runtime_uncertainty() {
+    let db = TestDatabase::new();
+    let source = "import os\nfrom os import environ as imported_environ, getenv as imported_getenv\nENVIRON = os.environ\nENV_GET = os.environ.get\nGETENV = os.getenv\nPRESENT = os.environ.get('APP')\nALIASED = ENV_GET('APP')\nIMPORTED_GET = imported_environ.get('APP')\nIMPORTED_GETENV = imported_getenv('APP')\nDEFAULTED = GETENV('MISSING', 'fallback')\nGET_DEFAULTED = os.environ.get('MISSING', 'fallback')\nABSENT = os.environ.get('ABSENT')\nGETENV_ABSENT = os.getenv('ABSENT')\nDYNAMIC_KEY = os.getenv(KEY)\nDYNAMIC_DEFAULT = os.getenv('MISSING', fallback())\nKEYWORD_DEFAULT = os.getenv('MISSING', default='fallback')\nSUBSCRIPT = os.environ['APP']\nos.getenv('APP')\nAFTER_DISCARDED = os.getenv('APP')\nINSTALLED_APPS = [os.getenv('APP', 'fallback')]\n";
+    for (path, content) in [
+        ("/project/.env", "APP=stale.app\nAPP=env.app\n"),
+        ("/project/manage.py", ""),
+        ("/project/config/__init__.py", ""),
+        ("/project/config/settings.py", source),
+    ] {
+        db.add_file(path, content)
+            .expect("env settings fixture file should be added");
+    }
+    let settings_config: Settings = toml::from_str("django_settings_module = 'config.settings'\n")
+        .expect("env settings fixture config should parse");
+    let project = Project::bootstrap(&db, Utf8Path::new("/project"), &settings_config);
+    assert_eq!(
+        project
+            .django_settings_module(&db)
+            .as_ref()
+            .map(PythonModuleName::as_str),
+        Some("config.settings"),
+    );
+    assert_eq!(
+        project.env_vars(&db),
+        &[
+            ("APP".to_string(), "stale.app".to_string()),
+            ("APP".to_string(), "env.app".to_string()),
+        ]
+    );
+    let settings_file = settings_module_file(&db, project)
+        .expect("bootstrapped settings module should resolve to a source file");
+    let evaluation = python_module_evaluation(&db, project, settings_file)
+        .expect("Python file should map to a module");
+
+    for (name, expected) in [
+        ("ENVIRON", PythonIntrinsicView::OsEnvironObject),
+        ("ENV_GET", PythonIntrinsicView::OsEnvironGetFunction),
+        ("GETENV", PythonIntrinsicView::OsGetenvFunction),
+        ("imported_environ", PythonIntrinsicView::OsEnvironObject),
+        ("imported_getenv", PythonIntrinsicView::OsGetenvFunction),
+    ] {
+        let bound = only_bound(
+            &evaluation
+                .binding(name)
+                .expect("OS environment intrinsic binding should exist")
+                .alternatives,
+        )
+        .expect("OS environment intrinsic should have one bound alternative");
+        assert_eq!(bound.value.kind, PythonValueKindView::Intrinsic(expected));
+    }
+
+    let assert_env_read = |name: &str, expected: PythonValueKindView, key: &str| {
+        let alternatives = &evaluation
+            .binding(name)
+            .expect("env read binding should exist")
+            .alternatives;
+        assert!(
+            alternatives.iter().any(|alternative| matches!(
+                alternative,
+                PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                    value: PythonValueView { kind, .. },
+                    ..
+                }) if kind == &expected
+            )),
+            "{name} should retain candidate {expected:?}: {alternatives:#?}"
+        );
+        assert!(alternatives.iter().any(|alternative| matches!(
+            alternative,
+            PythonBindingAlternativeView::Bound(PythonBoundValueView {
+                value: PythonValueView {
+                    kind: PythonValueKindView::Unknown(unknown),
+                    ..
+                },
+                ..
+            }) if unknown.cause == PythonUnknownCauseView::EnvValueUnknown { key: key.to_string() }
+        )), "{name} should retain runtime uncertainty: {alternatives:#?}");
+    };
+    for name in [
+        "PRESENT",
+        "ALIASED",
+        "IMPORTED_GET",
+        "IMPORTED_GETENV",
+        "AFTER_DISCARDED",
+    ] {
+        assert_env_read(name, PythonValueKindView::Str("env.app".to_string()), "APP");
+    }
+    for name in ["DEFAULTED", "GET_DEFAULTED"] {
+        assert_env_read(
+            name,
+            PythonValueKindView::Str("fallback".to_string()),
+            "MISSING",
+        );
+    }
+    for name in ["ABSENT", "GETENV_ABSENT"] {
+        assert_env_read(name, PythonValueKindView::UnsupportedLiteral, "ABSENT");
+    }
+
+    for name in [
+        "DYNAMIC_KEY",
+        "DYNAMIC_DEFAULT",
+        "KEYWORD_DEFAULT",
+        "SUBSCRIPT",
+    ] {
+        let bound = only_bound(
+            &evaluation
+                .binding(name)
+                .expect("unsupported env binding should exist")
+                .alternatives,
+        )
+        .expect("unsupported env expression should have one bound alternative");
+        assert!(matches!(
+            &bound.value.kind,
+            PythonValueKindView::Unknown(unknown)
+                if unknown.cause == PythonUnknownCauseView::UnsupportedExpression
+        ));
+    }
+
+    let settings =
+        to_value(django_settings(&db, project)).expect("Django settings facts should serialize");
+    let app_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+    assert_eq!(app_cases.len(), 2, "{settings:#}");
+    assert!(app_cases.iter().any(|case| {
+        case.pointer("/known/apps/0/value").and_then(Value::as_str) == Some("env.app")
+    }));
+    assert!(
+        app_cases.iter().any(|case| {
+            case.pointer("/dynamic/evidence/0/issue/kind")
+                .and_then(Value::as_str)
+                == Some("unknown_element")
+        }),
+        "{settings:#}"
+    );
+}
+
+#[test]
+fn env_read_default_reaches_settings_with_runtime_uncertainty() {
+    let db = TestDatabase::new();
+    for (path, content) in [
+        ("/project/config/__init__.py", ""),
+        (
+            "/project/config/settings.py",
+            "import os\nINSTALLED_APPS = [os.getenv('APP', 'fallback.app')]\n",
+        ),
+    ] {
+        db.add_file(path, content)
+            .expect("env settings fixture file should be added");
+    }
+    let settings_config: Settings = toml::from_str("django_settings_module = 'config.settings'\n")
+        .expect("env settings fixture config should parse");
+    let project = Project::bootstrap(&db, Utf8Path::new("/project"), &settings_config);
+    assert!(project.env_vars(&db).is_empty());
+
+    let settings =
+        to_value(django_settings(&db, project)).expect("Django settings facts should serialize");
+    let app_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+    assert_eq!(app_cases.len(), 2, "{settings:#}");
+    assert!(app_cases.iter().any(|case| {
+        case.pointer("/known/apps/0/value").and_then(Value::as_str) == Some("fallback.app")
+    }));
+    assert!(app_cases.iter().any(|case| case.get("dynamic").is_some()));
+}
+
+#[test]
+fn contaminated_os_namespace_rejects_env_reads() {
+    for mutation in [
+        "env.get = replacement",
+        "env['APP'] = 'runtime'",
+        "env['APP'] += '-changed'",
+    ] {
+        let db = TestDatabase::new();
+        let source = format!(
+            "import os\nGETENV = os.getenv\nenv = os.environ\n{mutation}\nimport os as fresh_os\nVALUE = fresh_os.getenv('APP')\nALIAS_VALUE = GETENV('APP')\n"
+        );
+        db.add_file("/project/settings.py", &source)
+            .expect("settings-extraction test file should be added");
+        let project = python_project(&db);
+        let settings = db
+            .file(Utf8Path::new("/project/settings.py"))
+            .expect("settings-extraction test file should exist");
+        let evaluation = python_module_evaluation(&db, project, settings)
+            .expect("Python file should map to a module");
+        let imported = only_bound(
+            &evaluation
+                .binding("fresh_os")
+                .expect("contaminated os import should exist")
+                .alternatives,
+        )
+        .expect("contaminated os import should have one bound alternative");
+        assert!(
+            matches!(
+                &imported.value.kind,
+                PythonValueKindView::Unknown(unknown)
+                    if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+            ),
+            "{mutation}: {imported:#?}"
+        );
+
+        for name in ["VALUE", "ALIAS_VALUE"] {
+            let value = only_bound(
+                &evaluation
+                    .binding(name)
+                    .expect("contaminated env read should exist")
+                    .alternatives,
+            )
+            .expect("contaminated env read should have one bound alternative");
+            assert!(
+                matches!(
+                    &value.value.kind,
+                    PythonValueKindView::Unknown(unknown)
+                        if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+                ),
+                "{mutation}: {name}: {value:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn env_function_intrinsics_are_always_truthy() {
+    let settings = extract(
+        "import os\nGET = os.environ.get\nINSTALLED_APPS = []\nif os.getenv:\n    INSTALLED_APPS.append('getenv')\nelse:\n    INSTALLED_APPS.append('impossible')\nif GET:\n    INSTALLED_APPS.append('get')\n",
+    )
+    .expect("Django settings extraction should succeed");
+    let app_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+
+    assert_eq!(
+        installed_app_alternatives(app_cases),
+        Some(BTreeSet::from(["getenv,get".to_string()]))
+    );
+}
+
+#[test]
+fn discarded_env_reads_preserve_argument_call_effects() {
+    let db = TestDatabase::new();
+    db.add_file(
+        "/project/settings.py",
+        "def mutate(value):\n    pass\nimport os\nos.getenv(mutate(os.path))\nimport os as fresh_os\nVALUE = fresh_os.getenv('APP')\n",
+    )
+    .expect("settings-extraction test file should be added");
+    let project = python_project(&db);
+    let settings = db
+        .file(Utf8Path::new("/project/settings.py"))
+        .expect("settings-extraction test file should exist");
+    let evaluation = python_module_evaluation(&db, project, settings)
+        .expect("Python file should map to a module");
+
+    for name in ["fresh_os", "VALUE"] {
+        let bound = only_bound(
+            &evaluation
+                .binding(name)
+                .expect("contaminated env binding should exist")
+                .alternatives,
+        )
+        .expect("contaminated env binding should have one bound alternative");
+        assert!(matches!(
+            &bound.value.kind,
+            PythonValueKindView::Unknown(unknown)
+                if unknown.cause == PythonUnknownCauseView::UnsupportedMutation
+        ));
+    }
+}
+
+#[test]
+fn python_intrinsics_follow_import_and_assignment_aliases() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -495,48 +760,34 @@ fn python_path_intrinsics_follow_import_and_assignment_aliases() {
 
     assert_kind(
         "P",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(
-            PythonPathIntrinsicView::PathlibPathType,
-        )),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::PathlibPathType),
     );
     assert_kind(
         "operating_system",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(PythonPathIntrinsicView::OsModule)),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::OsModule),
     );
     assert_kind(
         "path_join",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(
-            PythonPathIntrinsicView::OsPathJoinFunction,
-        )),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::OsPathJoinFunction),
     );
     assert_kind(
         "path_dirname",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(
-            PythonPathIntrinsicView::OsPathDirnameFunction,
-        )),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::OsPathDirnameFunction),
     );
     assert_kind(
         "stringify",
-        PythonValueKindView::Path(PythonPathView::Intrinsic(
-            PythonPathIntrinsicView::BuiltinStrType,
-        )),
+        PythonValueKindView::Intrinsic(PythonIntrinsicView::BuiltinsStrType),
     );
     assert_kind(
         "MODULE_FILE",
         PythonValueKindView::Str("/project/settings.py".to_string()),
     );
-    assert_kind(
-        "ROOT",
-        PythonValueKindView::Path(PythonPathView::Object("/project".into())),
-    );
+    assert_kind("ROOT", PythonValueKindView::Path("/project".into()));
     assert_kind(
         "RESOLVED",
-        PythonValueKindView::Path(PythonPathView::Object("/project/settings.py".into())),
+        PythonValueKindView::Path("/project/settings.py".into()),
     );
-    assert_kind(
-        "NORMALIZED",
-        PythonValueKindView::Path(PythonPathView::Object("/".into())),
-    );
+    assert_kind("NORMALIZED", PythonValueKindView::Path("/".into()));
     assert_kind(
         "TEMPLATES_DIR",
         PythonValueKindView::Str("/project/templates".to_string()),
@@ -577,7 +828,7 @@ fn python_path_intrinsics_follow_import_and_assignment_aliases() {
 }
 
 #[test]
-fn python_path_intrinsics_respect_shadowing_and_branch_constraints() {
+fn python_intrinsics_respect_shadowing_and_branch_constraints() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -619,7 +870,7 @@ fn python_path_intrinsics_respect_shadowing_and_branch_constraints() {
                     ..
                 })
             )),
-            "{name} should retain the intrinsic path"
+            "{name} should retain the intrinsic result"
         );
     }
 
@@ -685,9 +936,7 @@ fn unsupported_outer_calls_do_not_contaminate_nested_path_constructors() {
             .as_slice(),
         [PythonBindingAlternativeView::Bound(PythonBoundValueView {
             value: PythonValueView {
-                kind: PythonValueKindView::Path(PythonPathView::Intrinsic(
-                    PythonPathIntrinsicView::PathlibPathType
-                )),
+                kind: PythonValueKindView::Intrinsic(PythonIntrinsicView::PathlibPathType),
                 ..
             },
             ..
@@ -841,7 +1090,7 @@ fn conditional_file_assignment_replaces_only_its_feasible_unbound_case() {
 }
 
 #[test]
-fn path_intrinsic_attribute_writes_invalidate_aliasing_owners() {
+fn intrinsic_attribute_writes_invalidate_aliasing_owners() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -1002,7 +1251,7 @@ fn intrinsic_namespace_contamination_propagates_across_project_imports() {
 }
 
 #[test]
-fn unsupported_calls_persist_path_namespace_contamination() {
+fn unsupported_calls_persist_intrinsic_namespace_contamination() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
@@ -1156,7 +1405,7 @@ fn partial_project_path_helper_chains_do_not_become_stdlib_intrinsics() {
                     ..
                 })
             )),
-            "{name} must not become an intrinsic path value"
+            "{name} must not become an intrinsic value"
         );
     }
     assert!(
@@ -2234,6 +2483,7 @@ fn ordinary_import_binds_typed_not_found_in_source_order() {
             PythonValueKindView::Str(_)
             | PythonValueKindView::Bool(_)
             | PythonValueKindView::Path(_)
+            | PythonValueKindView::Intrinsic(_)
             | PythonValueKindView::UnsupportedLiteral
             | PythonValueKindView::List(_)
             | PythonValueKindView::Tuple(_)
@@ -7738,7 +7988,7 @@ fn unreachable_boolean_calls_do_not_contaminate_path_values() {
 }
 
 #[test]
-fn reachable_boolean_calls_persist_path_intrinsic_contamination() {
+fn reachable_boolean_calls_persist_intrinsic_contamination() {
     for statement in [
         "True and mutate(pathlib.Path)",
         "if mutate(pathlib.Path) and False:\n    pass",

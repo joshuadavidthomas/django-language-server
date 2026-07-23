@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added support for Django 6.1.
+- Added env-file-aware static evaluation for `os.getenv()` and `os.environ.get()` in Django settings.
 - Added quick-fix code actions for loading missing Django template tag libraries.
 - Added quick-fix code actions for choosing among ambiguous unloaded Django template tag libraries.
 - Added a quick-fix code action for renaming mismatched `{% endblock %}` names.

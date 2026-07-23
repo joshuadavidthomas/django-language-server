@@ -47,6 +47,24 @@ pub struct Project {
 }
 
 impl Project {
+    /// Returns the last value for `key` from the project's env file.
+    ///
+    /// `load_env_file` preserves duplicate entries in source order, while
+    /// dotenv semantics give the last entry precedence.
+    pub(crate) fn env_var<'db>(self, db: &'db dyn ProjectDb, key: &str) -> Option<&'db str> {
+        self.env_vars(db)
+            .iter()
+            .rev()
+            .find_map(|(candidate, value)| {
+                let matches = if cfg!(windows) {
+                    candidate.eq_ignore_ascii_case(key)
+                } else {
+                    candidate == key
+                };
+                matches.then_some(value.as_str())
+            })
+    }
+
     pub(crate) fn touch_search_path_roots(self, db: &dyn ProjectDb) {
         for search_path in self.search_paths(db).iter() {
             if let Some(root) = db.files().root(db, search_path.path()) {

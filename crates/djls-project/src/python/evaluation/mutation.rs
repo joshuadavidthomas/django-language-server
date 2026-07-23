@@ -185,6 +185,7 @@ impl PythonMutationPath {
                         PythonValueKind::Str(_)
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
+                        | PythonValueKind::Intrinsic(_)
                         | PythonValueKind::UnsupportedLiteral
                         | PythonValueKind::Dict(_)
                         | PythonValueKind::Module(_)
@@ -247,6 +248,7 @@ impl PythonMutationPath {
                         PythonValueKind::Str(_)
                         | PythonValueKind::Bool(_)
                         | PythonValueKind::Path(_)
+                        | PythonValueKind::Intrinsic(_)
                         | PythonValueKind::UnsupportedLiteral
                         | PythonValueKind::Dict(_)
                         | PythonValueKind::Module(_)
@@ -378,6 +380,12 @@ impl PythonEvaluationState {
         origin: Origin,
         active_constraints: &BranchConstraints,
     ) {
+        if self.binding_has_intrinsic(target.binding) {
+            let aliases = self.intrinsic_write_names(target.binding);
+            self.degrade_names(aliases, &PythonUnknownCause::UnsupportedMutation, origin);
+            return;
+        }
+
         let mut stale_aliases =
             self.stale_alias_names_after_mutation(target.binding, &target.path, active_constraints);
         let assigned = value
@@ -421,6 +429,12 @@ impl PythonEvaluationState {
         origin: Origin,
         active_constraints: &BranchConstraints,
     ) {
+        if self.binding_has_intrinsic(target.binding) {
+            let aliases = self.intrinsic_write_names(target.binding);
+            self.degrade_names(aliases, &PythonUnknownCause::UnsupportedMutation, origin);
+            return;
+        }
+
         let binding = target.binding.to_string();
         let mut stale_aliases =
             self.stale_alias_names_after_mutation(target.binding, &target.path, active_constraints);
@@ -517,6 +531,10 @@ impl PythonModuleEvaluator<'_> {
             );
             return;
         };
+        if self.call_is_known_env_read(call) {
+            self.record_unsupported_call_effects(expression);
+            return;
+        }
         let ast::Expr::Attribute(attribute) = call.func.as_ref() else {
             self.state.degrade_unsupported_mutation_names(
                 self.reachable_read_names(expression),
