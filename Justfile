@@ -35,7 +35,7 @@ clippy *ARGS:
 hawk *ARGS:
     @# Avoid astral-sh/hawk#74 rustc-info cache poisoning.
     @# Keep Hawk focused on visibility; clippy owns dead-code and unused checks.
-    RUSTFLAGS="${RUSTFLAGS:-} -A dead_code -A unused_imports" CARGO_CACHE_RUSTC_INFO=0 cargo +1.97.1 hawk check --target-dir target/hawk {{ ARGS }}
+    cd tools/hawk && RUSTFLAGS="${RUSTFLAGS:-} -A dead_code -A unused_imports" CARGO_CACHE_RUSTC_INFO=0 cargo hawk check --manifest-path "{{ justfile_directory() }}/Cargo.toml" --target-dir "{{ justfile_directory() }}/target/hawk" {{ ARGS }}
 
 e2e *ARGS:
     @just nox e2e {{ ARGS }}

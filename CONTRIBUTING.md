@@ -109,11 +109,9 @@ Hawk is part of the local linting suite for keeping crate boundaries clean.
 
 ##### Setup
 
-Install the Rust toolchain and Cargo subcommand Hawk expects:
+Install the Cargo subcommand Hawk expects. Rustup installs the compiler pinned for Hawk when the recipe runs.
 
 ```bash
-rustup toolchain install 1.97.1
-
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/astral-sh/hawk/releases/download/0.1.9/cargo-hawk-installer.sh | sh
 ```
@@ -126,7 +124,7 @@ Run Hawk through `just` rather than `cargo hawk` directly:
 just hawk
 ```
 
-The recipe pins `+1.97.1`, the exact compiler required by cargo-hawk 0.1.9, and isolates Hawk's instrumented builds to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74). Use it when changing public APIs, moving code across crates, or cleaning up visibility.
+The recipe uses the exact compiler pinned in [`tools/hawk/rust-toolchain.toml`](tools/hawk/rust-toolchain.toml), as required by cargo-hawk 0.1.9, and isolates Hawk's instrumented builds to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74). Use it when changing public APIs, moving code across crates, or cleaning up visibility.
 
 A Hawk run is more compile-intensive than normal linting. It checks the configured production binaries and workspace non-production targets, so a single run may perform multiple Cargo analysis passes. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
 
@@ -136,7 +134,7 @@ The `just hawk` recipe keeps rustc dead-code and unused-import warnings quiet so
 
 - Update the primary compiler in `rust-toolchain.toml`.
 - Update the formatter nightly in `tools/rustfmt/rust-toolchain.toml`, then run `just fmt` and review any formatting changes.
-- Update cargo-hawk and its exact required compiler together in `.agents/setup`, `Justfile`, and this guide.
+- Update cargo-hawk in `.agents/setup` and this guide together with its exact required compiler in `tools/hawk/rust-toolchain.toml`.
 - Keep the prebuilt cargo-insta version in `.agents/setup` and this guide aligned with the Insta version resolved in `Cargo.lock`.
 
 Hawk uses compiler-private APIs, so even a patch-level compiler mismatch can make it fail before analysis.

@@ -43,14 +43,15 @@ fi
 echo "==> Installing Rust toolchains and components"
 rust_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
 rustfmt_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)"
-if [[ -z "$rust_channel" || -z "$rustfmt_channel" ]]; then
+hawk_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/hawk/rust-toolchain.toml)"
+if [[ -z "$rust_channel" || -z "$rustfmt_channel" || -z "$hawk_channel" ]]; then
     echo "Unable to read a pinned Rust toolchain channel" >&2
     exit 1
 fi
 rustup toolchain install "$rust_channel" --profile minimal --component clippy
-# Formatting uses its pinned nightly; Hawk requires exactly Rust 1.97.1.
+# Formatting uses its pinned nightly; Hawk uses its compiler-private toolchain.
 rustup toolchain install "$rustfmt_channel" --profile minimal --component rustfmt
-rustup toolchain install 1.97.1 --profile minimal
+rustup toolchain install "$hawk_channel" --profile minimal
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "==> Installing uv"
