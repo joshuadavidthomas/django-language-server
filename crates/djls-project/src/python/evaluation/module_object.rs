@@ -21,7 +21,6 @@ use super::StructuralOrd;
 use crate::python::NamespacePortion;
 use crate::python::PythonModule;
 use crate::python::PythonNamespacePackage;
-use crate::python::PythonPathIntrinsic;
 use crate::python::PythonPathNamespace;
 use crate::python::PythonSourceModule;
 
@@ -158,16 +157,15 @@ impl ChildImportFallback {
 pub(super) struct PathIntrinsicContamination(Vec<PythonPathNamespace>);
 
 impl PathIntrinsicContamination {
-    fn insert(&mut self, intrinsic: PythonPathIntrinsic) {
-        let namespace = intrinsic.mutable_namespace();
+    fn insert(&mut self, namespace: PythonPathNamespace) {
         if !self.0.contains(&namespace) {
             self.0.push(namespace);
             self.0.sort_unstable();
         }
     }
 
-    fn contains(&self, intrinsic: PythonPathIntrinsic) -> bool {
-        self.0.contains(&intrinsic.mutable_namespace())
+    fn contains(&self, namespace: PythonPathNamespace) -> bool {
+        self.0.contains(&namespace)
     }
 
     fn absorb(&mut self, incoming: impl IntoIterator<Item = PythonPathNamespace>) {
@@ -201,12 +199,12 @@ impl PythonModuleEffects {
         &self.path_intrinsic_contamination
     }
 
-    pub(crate) fn contaminate_path_intrinsic(&mut self, intrinsic: PythonPathIntrinsic) {
-        self.path_intrinsic_contamination.insert(intrinsic);
+    pub(crate) fn contaminate_namespace(&mut self, namespace: PythonPathNamespace) {
+        self.path_intrinsic_contamination.insert(namespace);
     }
 
-    pub(crate) fn path_intrinsic_is_contaminated(&self, intrinsic: PythonPathIntrinsic) -> bool {
-        self.path_intrinsic_contamination.contains(intrinsic)
+    pub(crate) fn namespace_is_contaminated(&self, namespace: PythonPathNamespace) -> bool {
+        self.path_intrinsic_contamination.contains(namespace)
     }
 
     fn absorb_path_intrinsic_contamination(
@@ -670,6 +668,7 @@ mod tests {
     use super::super::PythonValueKind;
     use super::*;
     use crate::python::PythonModuleName;
+    use crate::python::PythonPathIntrinsic;
     use crate::python::PythonSourceModule;
     use crate::python::SearchPath;
 
@@ -746,9 +745,9 @@ mod tests {
     #[test]
     fn path_contamination_canonicalizes_equivalent_namespace_members() {
         let mut module = PythonModuleEffects::default();
-        module.contaminate_path_intrinsic(PythonPathIntrinsic::OsModule);
+        module.contaminate_namespace(PythonPathIntrinsic::OsModule.mutable_namespace());
         let mut member = PythonModuleEffects::default();
-        member.contaminate_path_intrinsic(PythonPathIntrinsic::OsPathJoinFunction);
+        member.contaminate_namespace(PythonPathIntrinsic::OsPathJoinFunction.mutable_namespace());
 
         assert_eq!(
             module.path_intrinsic_contamination(),

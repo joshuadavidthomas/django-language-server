@@ -69,6 +69,7 @@ impl PythonDict {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
@@ -118,6 +119,7 @@ impl PythonDict {
                     PythonValueKind::Str(_)
                     | PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
+                    | PythonValueKind::Env(_)
                     | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
@@ -232,6 +234,7 @@ impl<'a> PythonMapping<'a> {
                     PythonValueKind::Str(_)
                     | PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
+                    | PythonValueKind::Env(_)
                     | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
@@ -275,6 +278,7 @@ impl<'a> PythonMapping<'a> {
                     }
                     PythonValueKind::Bool(_)
                     | PythonValueKind::Path(_)
+                    | PythonValueKind::Env(_)
                     | PythonValueKind::UnsupportedLiteral
                     | PythonValueKind::List(_)
                     | PythonValueKind::Tuple(_)
@@ -312,6 +316,7 @@ impl<'a> PythonMapping<'a> {
                 PythonValueKind::Str(_)
                 | PythonValueKind::Bool(_)
                 | PythonValueKind::Path(_)
+                | PythonValueKind::Env(_)
                 | PythonValueKind::UnsupportedLiteral
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)

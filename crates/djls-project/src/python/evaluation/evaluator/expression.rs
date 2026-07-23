@@ -7,8 +7,10 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ast;
+use crate::python::PythonEnvIntrinsic;
 use crate::python::PythonPath;
 use crate::python::PythonPathIntrinsic;
+use crate::python::PythonPathNamespace;
 
 impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
@@ -185,6 +187,14 @@ impl PythonModuleEvaluator<'_> {
                     origin,
                 )
             }
+            PythonValueKind::Path(PythonPath::Intrinsic(PythonPathIntrinsic::OsModule))
+                if matches!(attribute.attr.as_str(), "environ" | "getenv") =>
+            {
+                self.evaluate_os_env_member(attribute.attr.as_str(), origin)
+            }
+            PythonValueKind::Env(intrinsic) => {
+                self.evaluate_env_member(*intrinsic, attribute.attr.as_str(), origin)
+            }
             PythonValueKind::Path(path) if attribute.attr.as_str() == "parent" => {
                 path.parent().map_or_else(
                     || PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
@@ -195,7 +205,7 @@ impl PythonModuleEvaluator<'_> {
                 if self
                     .state
                     .module_effects
-                    .path_intrinsic_is_contaminated(*intrinsic)
+                    .namespace_is_contaminated(intrinsic.mutable_namespace())
                 {
                     PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin)
                 } else {
@@ -215,6 +225,12 @@ impl PythonModuleEvaluator<'_> {
                     )
                 }
             }
+            PythonValueKind::Unknown(unknown)
+                if unknown.cause == PythonUnknownCause::UnsupportedMutation
+                    && matches!(attribute.attr.as_str(), "environ" | "getenv" | "get") =>
+            {
+                PythonBinding::unknown(&unknown.cause, origin)
+            }
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
@@ -226,6 +242,41 @@ impl PythonModuleEvaluator<'_> {
                 PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
             }
         })
+    }
+
+    fn evaluate_os_env_member(&self, name: &str, origin: Origin) -> PythonBinding {
+        if self
+            .state
+            .module_effects
+            .namespace_is_contaminated(PythonPathNamespace::Os)
+        {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin);
+        }
+        let intrinsic = if name == "environ" {
+            PythonEnvIntrinsic::EnvironObject
+        } else {
+            PythonEnvIntrinsic::GetenvFunction
+        };
+        PythonBinding::bound(PythonValue::env_intrinsic(intrinsic, origin), origin)
+    }
+
+    fn evaluate_env_member(
+        &self,
+        intrinsic: PythonEnvIntrinsic,
+        name: &str,
+        origin: Origin,
+    ) -> PythonBinding {
+        if self
+            .state
+            .module_effects
+            .namespace_is_contaminated(intrinsic.mutable_namespace())
+        {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin);
+        }
+        intrinsic.member(name).map_or_else(
+            || PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
+            |member| PythonBinding::bound(PythonValue::env_intrinsic(member, origin), origin),
+        )
     }
 
     fn evaluate_call_binding(&self, call: &ast::ExprCall, origin: Origin) -> PythonBinding {
@@ -248,10 +299,106 @@ impl PythonModuleEvaluator<'_> {
             };
         }
 
+        let preserves_mutation_cause = matches!(call.func.as_ref(), ast::Expr::Name(_))
+            || matches!(
+                call.func.as_ref(),
+                ast::Expr::Attribute(attribute)
+                    if matches!(attribute.attr.as_str(), "getenv" | "get")
+            );
         let callable = self.evaluate_binding(&call.func);
-        project_bound_alternatives(&callable, origin, |value| {
-            self.evaluate_path_intrinsic_call(value, call, origin)
+        project_bound_alternatives(&callable, origin, |value| match &value.kind {
+            PythonValueKind::Env(_) => self.evaluate_env_intrinsic_call(value, call, origin),
+            PythonValueKind::Unknown(unknown)
+                if preserves_mutation_cause
+                    && unknown.cause == PythonUnknownCause::UnsupportedMutation =>
+            {
+                PythonBinding::unknown(&unknown.cause, origin)
+            }
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::List(_)
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_) => self.evaluate_path_intrinsic_call(value, call, origin),
         })
+    }
+
+    fn evaluate_env_intrinsic_call(
+        &self,
+        value: &PythonValue,
+        call: &ast::ExprCall,
+        origin: Origin,
+    ) -> PythonBinding {
+        let PythonValueKind::Env(intrinsic) = &value.kind else {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        };
+        let intrinsic = *intrinsic;
+        if self
+            .state
+            .module_effects
+            .namespace_is_contaminated(intrinsic.mutable_namespace())
+        {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin);
+        }
+        if matches!(intrinsic, PythonEnvIntrinsic::EnvironObject)
+            || !call.arguments.keywords.is_empty()
+            || !(1..=2).contains(&call.arguments.args.len())
+        {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        }
+
+        let keys = self.evaluate_binding(&call.arguments.args[0]);
+        project_bound_alternatives(&keys, origin, |key| {
+            let PythonValueKind::Str(key) = &key.kind else {
+                return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+            };
+            if let Some(default) = call.arguments.args.get(1) {
+                let defaults = self.evaluate_binding(default);
+                project_bound_alternatives(&defaults, origin, |default| {
+                    self.evaluate_env_read(key, Some(default), origin)
+                })
+            } else {
+                self.evaluate_env_read(key, None, origin)
+            }
+        })
+    }
+
+    fn evaluate_env_read(
+        &self,
+        key: &str,
+        default: Option<&PythonValue>,
+        origin: Origin,
+    ) -> PythonBinding {
+        if default.is_some_and(|value| {
+            matches!(
+                value.kind,
+                PythonValueKind::Path(_)
+                    | PythonValueKind::Env(_)
+                    | PythonValueKind::Module(_)
+                    | PythonValueKind::Unknown(_)
+            )
+        }) {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        }
+
+        let candidate = if let Some(value) = self.project.env_var(self.db, key) {
+            PythonValue::string(value.to_string(), origin)
+        } else if let Some(default) = default {
+            default.clone()
+        } else {
+            PythonValue::unsupported_literal(origin)
+        };
+        let known = PythonBinding::bound(candidate, origin);
+        let runtime = PythonBinding::unknown(
+            &PythonUnknownCause::EnvValueUnknown {
+                key: key.to_string(),
+            },
+            origin,
+        );
+        known.join(runtime, origin)
     }
 
     fn evaluate_path_intrinsic_call(
@@ -270,7 +417,7 @@ impl PythonModuleEvaluator<'_> {
         if self
             .state
             .module_effects
-            .path_intrinsic_is_contaminated(intrinsic)
+            .namespace_is_contaminated(intrinsic.mutable_namespace())
         {
             return PythonBinding::unknown(&PythonUnknownCause::UnsupportedMutation, origin);
         }
@@ -616,6 +763,7 @@ fn path_from_value(value: &PythonValue, origin: Origin) -> PythonBinding {
         }
         PythonValueKind::Bool(_)
         | PythonValueKind::Path(PythonPath::Intrinsic(_))
+        | PythonValueKind::Env(_)
         | PythonValueKind::UnsupportedLiteral
         | PythonValueKind::List(_)
         | PythonValueKind::Tuple(_)
@@ -634,6 +782,7 @@ fn string_path_from_value(value: &PythonValue, origin: Origin) -> PythonBinding 
         PythonValueKind::Path(PythonPath::Object(path)) => path.to_string(),
         PythonValueKind::Bool(_)
         | PythonValueKind::Path(PythonPath::Intrinsic(_))
+        | PythonValueKind::Env(_)
         | PythonValueKind::UnsupportedLiteral
         | PythonValueKind::List(_)
         | PythonValueKind::Tuple(_)
@@ -754,6 +903,7 @@ fn join_string_path_value(left: PythonValue, right: PythonValue, origin: Origin)
         PythonValueKind::Path(PythonPath::Object(segment)) => segment.to_string(),
         PythonValueKind::Bool(_)
         | PythonValueKind::Path(PythonPath::Intrinsic(_))
+        | PythonValueKind::Env(_)
         | PythonValueKind::UnsupportedLiteral
         | PythonValueKind::List(_)
         | PythonValueKind::Tuple(_)

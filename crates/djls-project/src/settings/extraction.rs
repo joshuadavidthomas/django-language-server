@@ -1227,7 +1227,8 @@ fn unknown_issue_kind(unknown: &PythonUnknown) -> SettingIssueKind {
         | PythonUnknownCause::ModuleAttribute { .. }
         | PythonUnknownCause::SkippedExternal(_)
         | PythonUnknownCause::Cycle
-        | PythonUnknownCause::AlternativeLimitExceeded => SettingIssueKind::DynamicExpression,
+        | PythonUnknownCause::AlternativeLimitExceeded
+        | PythonUnknownCause::EnvValueUnknown { .. } => SettingIssueKind::DynamicExpression,
     }
 }
 

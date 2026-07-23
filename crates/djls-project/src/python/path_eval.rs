@@ -141,10 +141,6 @@ impl PythonPathIntrinsic {
         }
     }
 
-    pub(crate) fn shares_mutable_namespace(self, other: Self) -> bool {
-        self.mutable_namespace() == other.mutable_namespace()
-    }
-
     pub(crate) fn member(self, name: &str) -> Option<Self> {
         match (self, name) {
             (Self::BuiltinsModule, "str") => Some(Self::BuiltinStrType),

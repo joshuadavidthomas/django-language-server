@@ -1,3 +1,4 @@
+mod env_eval;
 pub(crate) mod evaluation;
 pub(crate) mod import;
 mod interpreter;
@@ -7,6 +8,7 @@ mod parse;
 mod path_eval;
 mod search_paths;
 
+pub(crate) use env_eval::PythonEnvIntrinsic;
 pub use interpreter::Interpreter;
 pub use module::FileModuleCandidate;
 pub use module::FileModuleResolution;

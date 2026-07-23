@@ -73,6 +73,7 @@ pub enum PythonValueKindView {
     Str(String),
     Bool(bool),
     Path(PythonPathView),
+    Env(PythonEnvIntrinsicView),
     UnsupportedLiteral,
     List(Vec<PythonSequenceItemView>),
     Tuple(Vec<PythonSequenceItemView>),
@@ -91,6 +92,13 @@ pub enum PythonModuleView {
 pub enum PythonPathView {
     Object(Utf8PathBuf),
     Intrinsic(PythonPathIntrinsicView),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PythonEnvIntrinsicView {
+    EnvironObject,
+    EnvironGetFunction,
+    GetenvFunction,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,6 +155,9 @@ pub enum PythonUnknownCauseView {
     SyntaxErrors(Vec<PythonSyntaxError>),
     Cycle,
     AlternativeLimitExceeded,
+    EnvValueUnknown {
+        key: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -360,6 +371,9 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
                     PythonPathView::Intrinsic(path_intrinsic_view(intrinsic))
                 }
             }),
+            evaluation::PythonValueKind::Env(intrinsic) => {
+                PythonValueKindView::Env(env_intrinsic_view(intrinsic))
+            }
             evaluation::PythonValueKind::UnsupportedLiteral => {
                 PythonValueKindView::UnsupportedLiteral
             }
@@ -393,6 +407,16 @@ fn value_view(value: evaluation::PythonValue) -> PythonValueView {
             }
         },
         origins,
+    }
+}
+
+fn env_intrinsic_view(intrinsic: crate::python::PythonEnvIntrinsic) -> PythonEnvIntrinsicView {
+    match intrinsic {
+        crate::python::PythonEnvIntrinsic::EnvironObject => PythonEnvIntrinsicView::EnvironObject,
+        crate::python::PythonEnvIntrinsic::EnvironGetFunction => {
+            PythonEnvIntrinsicView::EnvironGetFunction
+        }
+        crate::python::PythonEnvIntrinsic::GetenvFunction => PythonEnvIntrinsicView::GetenvFunction,
     }
 }
 
@@ -463,6 +487,9 @@ fn unknown_view(unknown: evaluation::PythonUnknown) -> PythonUnknownView {
             evaluation::PythonUnknownCause::Cycle => PythonUnknownCauseView::Cycle,
             evaluation::PythonUnknownCause::AlternativeLimitExceeded => {
                 PythonUnknownCauseView::AlternativeLimitExceeded
+            }
+            evaluation::PythonUnknownCause::EnvValueUnknown { key } => {
+                PythonUnknownCauseView::EnvValueUnknown { key }
             }
         },
         origins,

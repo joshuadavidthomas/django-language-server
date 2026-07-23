@@ -7,6 +7,7 @@ pub use python_evaluation::PythonBindingAlternativeView;
 pub use python_evaluation::PythonBindingView;
 pub use python_evaluation::PythonBoundValueView;
 pub use python_evaluation::PythonDictItemView;
+pub use python_evaluation::PythonEnvIntrinsicView;
 pub use python_evaluation::PythonFileReadErrorView;
 pub use python_evaluation::PythonImportNameErrorView;
 pub use python_evaluation::PythonImportOutcomeView;

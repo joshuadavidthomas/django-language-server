@@ -348,6 +348,7 @@ impl<'db> PythonModuleEvaluator<'db> {
             }
             PythonValueKind::Dict(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Bool(_)
             | PythonValueKind::Module(_)
@@ -435,7 +436,15 @@ impl<'db> PythonModuleEvaluator<'db> {
             return;
         }
 
-        self.bind_unknown_targets(target, &PythonUnknownCause::UnsupportedExpression);
+        let cause = if target_write_names(target)
+            .into_iter()
+            .any(|name| self.state.binding_has_intrinsic(name))
+        {
+            PythonUnknownCause::UnsupportedMutation
+        } else {
+            PythonUnknownCause::UnsupportedExpression
+        };
+        self.bind_unknown_targets(target, &cause);
     }
 
     fn bind_unknown_targets(&mut self, target: &ast::Expr, cause: &PythonUnknownCause) {
@@ -443,10 +452,10 @@ impl<'db> PythonModuleEvaluator<'db> {
         let mut names = Vec::new();
         let target_names = target_write_names(target);
         if target_names.is_empty() {
-            names = self.state.all_path_intrinsic_write_names();
+            names = self.state.all_intrinsic_write_names();
         } else {
             for target_name in target_names {
-                for alias in self.state.path_intrinsic_write_names(target_name) {
+                for alias in self.state.intrinsic_write_names(target_name) {
                     if !names.contains(&alias) {
                         names.push(alias);
                     }

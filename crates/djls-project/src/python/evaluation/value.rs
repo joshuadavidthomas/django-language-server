@@ -19,10 +19,12 @@ use super::PythonTuple;
 use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use super::allocation::AllocationSites;
+use crate::python::PythonEnvIntrinsic;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonPath;
 use crate::python::PythonPathIntrinsic;
+use crate::python::PythonPathNamespace;
 use crate::python::PythonSyntaxError;
 use crate::python::module::PythonImportNameError;
 
@@ -229,6 +231,10 @@ impl PythonValue {
         Self::python_path(PythonPath::intrinsic(intrinsic), origin)
     }
 
+    pub(super) fn env_intrinsic(intrinsic: PythonEnvIntrinsic, origin: Origin) -> Self {
+        Self::atomic(PythonValueKind::Env(intrinsic), origin)
+    }
+
     pub(super) fn python_path(path: PythonPath, origin: Origin) -> Self {
         Self::atomic(PythonValueKind::Path(path), origin)
     }
@@ -282,6 +288,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
                 | PythonValueKind::Bool(_)
                 | PythonValueKind::Path(_)
+                | PythonValueKind::Env(_)
                 | PythonValueKind::UnsupportedLiteral
         ));
         Self {
@@ -307,6 +314,7 @@ impl PythonValue {
             PythonValueKind::Str(value) => Scalar::String(value),
             PythonValueKind::Bool(value) => Scalar::Bool(*value),
             PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
@@ -327,6 +335,24 @@ impl PythonValue {
             return None;
         };
         value.object_path()
+    }
+
+    pub(super) fn mutable_namespace(&self) -> Option<PythonPathNamespace> {
+        match &self.kind {
+            PythonValueKind::Path(PythonPath::Intrinsic(intrinsic)) => {
+                Some(intrinsic.mutable_namespace())
+            }
+            PythonValueKind::Env(intrinsic) => Some(intrinsic.mutable_namespace()),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::Path(PythonPath::Object(_))
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::List(_)
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Unknown(_) => None,
+        }
     }
 
     pub(crate) fn mapping(&self) -> Option<PythonMapping<'_>> {
@@ -358,6 +384,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => None,
@@ -375,6 +402,7 @@ impl PythonValue {
             PythonValueKind::Str(text) => Some(PythonSequence::String(text)),
             PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
@@ -401,14 +429,18 @@ impl PythonValue {
             PythonValueKind::Dict(dict) => {
                 Iterability::Known(Iterable::MappingKeys(dict.mapping()))
             }
-            // Module objects and path intrinsics are nominal values, never Python
-            // sequences, mappings, or iterables.
-            PythonValueKind::Bool(_) | PythonValueKind::Path(_) | PythonValueKind::Module(_) => {
-                Iterability::NotIterable
-            }
-            // `UnsupportedLiteral` erases the concrete closed literal kind, which may
-            // or may not be iterable.
-            PythonValueKind::UnsupportedLiteral => {
+            // Module objects and callable intrinsics are nominal values, never
+            // Python sequences, mappings, or iterables.
+            PythonValueKind::Bool(_)
+            | PythonValueKind::Path(_)
+            | PythonValueKind::Env(
+                PythonEnvIntrinsic::EnvironGetFunction | PythonEnvIntrinsic::GetenvFunction,
+            )
+            | PythonValueKind::Module(_) => Iterability::NotIterable,
+            // `os.environ` is iterable but its contents are unknown;
+            // `UnsupportedLiteral` may or may not be iterable.
+            PythonValueKind::Env(PythonEnvIntrinsic::EnvironObject)
+            | PythonValueKind::UnsupportedLiteral => {
                 Iterability::Indeterminate(self.imprecise_iteration_unknown())
             }
             PythonValueKind::Unknown(unknown) => Iterability::Indeterminate(unknown.clone()),
@@ -457,6 +489,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral => {}
         }
         sites
@@ -489,6 +522,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral => {}
         }
     }
@@ -507,6 +541,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral => 0,
         }
     }
@@ -542,6 +577,7 @@ impl PythonValue {
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral => false,
         }
     }
@@ -578,6 +614,7 @@ impl PythonValue {
                 PythonValueKind::Str(_)
                 | PythonValueKind::Bool(_)
                 | PythonValueKind::Path(_)
+                | PythonValueKind::Env(_)
                 | PythonValueKind::UnsupportedLiteral
                 | PythonValueKind::List(_)
                 | PythonValueKind::Tuple(_)
@@ -604,6 +641,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
@@ -622,6 +660,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
@@ -644,6 +683,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
@@ -667,6 +707,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -704,6 +745,7 @@ impl PythonValue {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Module(_)
             | PythonValueKind::Unknown(_) => {}
@@ -745,6 +787,7 @@ pub(crate) enum PythonValueKind {
     Str(String),
     Bool(bool),
     Path(PythonPath),
+    Env(PythonEnvIntrinsic),
     UnsupportedLiteral,
     List(PythonList),
     Tuple(PythonTuple),
@@ -760,6 +803,7 @@ enum PythonValueKindOrder {
     List,
     Module,
     PathObject,
+    Env,
     Str,
     Tuple,
     UnsupportedLiteral,
@@ -775,6 +819,7 @@ impl PythonValueKind {
             Self::List(_) => PythonValueKindOrder::List,
             Self::Module(_) => PythonValueKindOrder::Module,
             Self::Path(PythonPath::Object(_)) => PythonValueKindOrder::PathObject,
+            Self::Env(_) => PythonValueKindOrder::Env,
             Self::Str(_) => PythonValueKindOrder::Str,
             Self::Tuple(_) => PythonValueKindOrder::Tuple,
             Self::UnsupportedLiteral => PythonValueKindOrder::UnsupportedLiteral,
@@ -795,6 +840,9 @@ impl StructuralOrd for PythonValueKind {
             (Self::Path(PythonPath::Intrinsic(left)), Self::Path(PythonPath::Intrinsic(right))) => {
                 left.structural_rank().cmp(&right.structural_rank())
             }
+            (Self::Env(left), Self::Env(right)) => {
+                left.structural_rank().cmp(&right.structural_rank())
+            }
             (Self::UnsupportedLiteral, Self::UnsupportedLiteral) => Ordering::Equal,
             (Self::List(left), Self::List(right)) => left.structural_cmp(right),
             (Self::Tuple(left), Self::Tuple(right)) => left.structural_cmp(right),
@@ -805,6 +853,7 @@ impl StructuralOrd for PythonValueKind {
                 left @ (Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
+                | Self::Env(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -814,6 +863,7 @@ impl StructuralOrd for PythonValueKind {
                 right @ (Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
+                | Self::Env(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -834,6 +884,7 @@ impl PythonValueKind {
             Self::Str(_)
             | Self::Bool(_)
             | Self::Path(_)
+            | Self::Env(_)
             | Self::UnsupportedLiteral
             | Self::Module(_)
             | Self::Unknown(_) => {}
@@ -845,6 +896,7 @@ impl PythonValueKind {
             (Self::Str(left), Self::Str(right)) => left == right,
             (Self::Bool(left), Self::Bool(right)) => left == right,
             (Self::Path(left), Self::Path(right)) => left == right,
+            (Self::Env(left), Self::Env(right)) => left == right,
             (Self::UnsupportedLiteral, Self::UnsupportedLiteral) => true,
             (Self::List(left), Self::List(right)) => left.same_semantic_value(right),
             (Self::Tuple(left), Self::Tuple(right)) => left.same_semantic_value(right),
@@ -856,6 +908,7 @@ impl PythonValueKind {
                 Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
+                | Self::Env(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -894,12 +947,14 @@ impl PythonValueKind {
             (Self::Str(_), Self::Str(_))
             | (Self::Bool(_), Self::Bool(_))
             | (Self::Path(_), Self::Path(_))
+            | (Self::Env(_), Self::Env(_))
             | (Self::UnsupportedLiteral, Self::UnsupportedLiteral)
             | (Self::Module(_), Self::Module(_)) => true,
             (
                 Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
+                | Self::Env(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -909,6 +964,7 @@ impl PythonValueKind {
                 Self::Str(_)
                 | Self::Bool(_)
                 | Self::Path(_)
+                | Self::Env(_)
                 | Self::UnsupportedLiteral
                 | Self::List(_)
                 | Self::Tuple(_)
@@ -1006,6 +1062,9 @@ pub(crate) enum PythonUnknownCause {
     SyntaxErrors(Vec<PythonSyntaxError>),
     Cycle,
     AlternativeLimitExceeded,
+    EnvValueUnknown {
+        key: String,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1021,6 +1080,7 @@ enum PythonUnknownCauseOrder {
     UnsupportedExpression,
     UnsupportedMutation,
     ModuleAttribute,
+    EnvValueUnknown,
 }
 
 impl PythonUnknownCause {
@@ -1037,6 +1097,7 @@ impl PythonUnknownCause {
             Self::UnsupportedExpression => PythonUnknownCauseOrder::UnsupportedExpression,
             Self::UnsupportedMutation => PythonUnknownCauseOrder::UnsupportedMutation,
             Self::ModuleAttribute { .. } => PythonUnknownCauseOrder::ModuleAttribute,
+            Self::EnvValueUnknown { .. } => PythonUnknownCauseOrder::EnvValueUnknown,
         }
     }
 }
@@ -1073,6 +1134,9 @@ impl StructuralOrd for PythonUnknownCause {
             ) => left_module
                 .cmp(right_module)
                 .then_with(|| left_member.cmp(right_member)),
+            (Self::EnvValueUnknown { key: left }, Self::EnvValueUnknown { key: right }) => {
+                left.cmp(right)
+            }
             (Self::Unreadable(left), Self::Unreadable(right)) => left.structural_cmp(right),
             (Self::SyntaxErrors(left), Self::SyntaxErrors(right)) => {
                 left.as_slice().structural_cmp(right.as_slice())
@@ -1088,7 +1152,8 @@ impl StructuralOrd for PythonUnknownCause {
                 | Self::Unreadable(_)
                 | Self::SyntaxErrors(_)
                 | Self::Cycle
-                | Self::AlternativeLimitExceeded),
+                | Self::AlternativeLimitExceeded
+                | Self::EnvValueUnknown { .. }),
                 right @ (Self::UnsupportedExpression
                 | Self::UnsupportedMutation
                 | Self::InvalidImport(_)
@@ -1099,7 +1164,8 @@ impl StructuralOrd for PythonUnknownCause {
                 | Self::Unreadable(_)
                 | Self::SyntaxErrors(_)
                 | Self::Cycle
-                | Self::AlternativeLimitExceeded),
+                | Self::AlternativeLimitExceeded
+                | Self::EnvValueUnknown { .. }),
             ) => left.structural_order().cmp(&right.structural_order()),
         }
     }
@@ -1209,6 +1275,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Dict(_)
             | PythonValueKind::Module(_)
@@ -1576,6 +1643,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -1775,6 +1843,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -2000,6 +2069,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
@@ -2053,6 +2123,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)

@@ -1021,6 +1021,7 @@ mod tests {
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
+            | PythonValueKind::Env(_)
             | PythonValueKind::UnsupportedLiteral
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)

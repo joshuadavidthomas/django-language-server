@@ -21,6 +21,7 @@ use super::PythonUnknownCause;
 use super::PythonValue;
 use super::PythonValueKind;
 use super::ast;
+use crate::python::PythonEnvIntrinsic;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonPathIntrinsic;
@@ -407,22 +408,26 @@ impl PythonModuleEvaluator<'_> {
             FromImportSelection::Star => self.state.apply_from_failure(import, &external_cause),
             FromImportSelection::Named(bindings) => {
                 for imported in bindings {
-                    match PythonPathIntrinsic::from_named_import(
+                    if let Some(intrinsic) = PythonEnvIntrinsic::from_named_import(
                         import.level,
                         import.module,
                         imported.imported,
                     ) {
-                        Some(intrinsic) => {
-                            self.state.assign_path_intrinsic(
-                                imported.bound,
-                                intrinsic,
-                                imported.origin,
-                            );
-                        }
-                        None => {
-                            self.state
-                                .bind_unknown(imported.bound, &external_cause, import.origin);
-                        }
+                        self.state
+                            .assign_env_intrinsic(imported.bound, intrinsic, imported.origin);
+                    } else if let Some(intrinsic) = PythonPathIntrinsic::from_named_import(
+                        import.level,
+                        import.module,
+                        imported.imported,
+                    ) {
+                        self.state.assign_path_intrinsic(
+                            imported.bound,
+                            intrinsic,
+                            imported.origin,
+                        );
+                    } else {
+                        self.state
+                            .bind_unknown(imported.bound, &external_cause, import.origin);
                     }
                 }
             }
