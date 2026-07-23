@@ -3,30 +3,30 @@ source: crates/djls-bench/src/check.rs
 expression: "CorpusWorkloadSnapshot\n{\n    input: corpus_input_snapshot(corpus), output:\n    checked_workload_snapshot(&db, &files, WorkloadDetail::Corpus, true),\n}"
 ---
 input:
-  discovered_file_count: 7145
-  synchronized_file_count: 7145
-  total_bytes: 11783514
-  sorted_records_sha256: 0ff9858e3e67be19c0938a7674ef07b6472828d464f0bd5c777be0f4b0e5969a
+  discovered_file_count: 7269
+  synchronized_file_count: 7269
+  total_bytes: 11921621
+  sorted_records_sha256: 8ffe302b4b0d09aae1d18f434e1a468a2bf6d0947a48b36b9ea66a7b8a49b690
 output:
   check_parser_count: 0
-  check_validation_count: 19327
+  check_validation_count: 19448
   check_code_counts:
     S101: 1
-    S108: 10363
-    S111: 4033
-    S120: 4930
-  per_file_checks_sha256: 0eb663b34c4cde42682f299a8205fd67344c5b6ce4ddad0ff9ba414e32e1d90f
-  ide_eligible_file_count: 6099
-  ide_diagnostic_count: 19327
+    S108: 10384
+    S111: 4107
+    S120: 4956
+  per_file_checks_sha256: 40a2f378fbe97261bbe9d0528a30cfdbedc226e28914c01818456b0e207bffa2
+  ide_eligible_file_count: 6214
+  ide_diagnostic_count: 19448
   ide_code_counts:
     S101: 1
-    S108: 10363
-    S111: 4033
-    S120: 4930
-  normalized_ide_diagnostics_sha256: f9c6cead4f15059688eab3fb9f4c7c7519aec8b6dcbdfdc1a0e8857b4e500586
-  files_with_diagnostics: 3680
-  diagnostic_bearing_paths_sha256: 0517e3a28d83b7037dee984b7c76260f415c94ac38b9dfa9007f8a7d0a63a580
+    S108: 10384
+    S111: 4107
+    S120: 4956
+  normalized_ide_diagnostics_sha256: ddef6fcdc534b86f9770f46e8bb4ffb59bc6a47897bddf41b05b60af4753e0e6
+  files_with_diagnostics: 3714
+  diagnostic_bearing_paths_sha256: 901f10dec884fad8ce8991475b6f9c627dbdac1dd749c255f618963f850eaf97
   rendered:
-    item_count: 19327
-    total_bytes: 5145573
-    output_sha256: 188fee2eb6302b3896f09a463b60e59a3be4ceac18d70a97245f2cd8796d7dac
+    item_count: 19448
+    total_bytes: 5180960
+    output_sha256: 1c08314ad1e274d0e069d8bb24e77f0b4c94e0421e7f4a2e5cbeb6b77006a8ae

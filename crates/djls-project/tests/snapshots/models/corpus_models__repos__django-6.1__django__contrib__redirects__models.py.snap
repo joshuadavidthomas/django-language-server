@@ -1,0 +1,28 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  django.contrib.redirects.models.Redirect:
+    name:
+      value: Redirect
+      span:
+        start: 137
+        length: 8
+    module_name: django.contrib.redirects.models
+    relations:
+      - field_name:
+          value: site
+          span:
+            start: 165
+            length: 4
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: Bare
+            name: Site
+          span:
+            start: 190
+            length: 4
+        related_name: ~
+    kind: concrete

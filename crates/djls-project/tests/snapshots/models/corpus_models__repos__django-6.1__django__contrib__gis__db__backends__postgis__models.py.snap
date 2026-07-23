@@ -1,0 +1,32 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  django.contrib.gis.db.backends.postgis.models.PostGISGeometryColumns:
+    name:
+      value: PostGISGeometryColumns
+      span:
+        start: 190
+        length: 22
+    module_name: django.contrib.gis.db.backends.postgis.models
+    relations: []
+    kind: concrete
+  django.contrib.gis.db.backends.postgis.models.PostGISSpatialRefSys:
+    name:
+      value: PostGISSpatialRefSys
+      span:
+        start: 1437
+        length: 20
+    module_name: django.contrib.gis.db.backends.postgis.models
+    relations: []
+    kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1472
+            length: 18
+          reason:
+            ImportNotFound:
+              requested: django.contrib.gis.db.backends.base.models.SpatialRefSysMixin
+    ancestry: Partial

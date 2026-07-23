@@ -1,0 +1,32 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  django.contrib.gis.db.backends.spatialite.models.SpatialiteGeometryColumns:
+    name:
+      value: SpatialiteGeometryColumns
+      span:
+        start: 193
+        length: 25
+    module_name: django.contrib.gis.db.backends.spatialite.models
+    relations: []
+    kind: concrete
+  django.contrib.gis.db.backends.spatialite.models.SpatialiteSpatialRefSys:
+    name:
+      value: SpatialiteSpatialRefSys
+      span:
+        start: 1355
+        length: 23
+    module_name: django.contrib.gis.db.backends.spatialite.models
+    relations: []
+    kind: concrete
+    unresolved_bases:
+      - Unresolved:
+          span:
+            start: 1393
+            length: 18
+          reason:
+            ImportNotFound:
+              requested: django.contrib.gis.db.backends.base.models.SpatialRefSysMixin
+    ancestry: Partial

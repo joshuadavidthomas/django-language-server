@@ -1,13 +1,13 @@
 ---
 source: crates/djls-bench/src/fixtures.rs
-expression: fixture_set_snapshot(python_fixtures())
+expression: "fixture_set_snapshot(python_fixtures().expect(\"Python benchmark fixtures should load\"))"
 ---
 file_count: 3
-total_bytes: 69940
+total_bytes: 70071
 files:
   - path: large/defaulttags.py
-    bytes: 49669
-    source_sha256: 115e2326b49c8c3c330493769c98412cc627e5b236b418f95e9594e7cc1dba69
+    bytes: 49800
+    source_sha256: 0f0f3e766669d62bb483ba81e7bdb9e58ae7279e09f73df2e0358eea243b1a78
   - path: medium/i18n.py
     bytes: 19961
     source_sha256: 52b4be684dd70842bfa17d7c9261fc812800d743061cc78c4cb3801120edb9f2

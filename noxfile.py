@@ -25,9 +25,10 @@ PY_LATEST = PY_VERSIONS[-1]
 DJ52 = "5.2"
 DJ52_CORPUS_VERSION = "5.2.11"
 DJ60 = "6.0"
+DJ61 = "6.1rc1"
 DJMAIN = "main"
 DJMAIN_MIN_PY = PY312
-DJ_VERSIONS = [DJ52, DJ60, DJMAIN]
+DJ_VERSIONS = [DJ52, DJ60, DJ61, DJMAIN]
 DJ_LTS = [
     version for version in DJ_VERSIONS if version.endswith(".2") and version != DJMAIN
 ]
@@ -49,11 +50,11 @@ def should_skip(python: str, django: str) -> bool:
     """Return True if the test should be skipped"""
 
     if django == DJMAIN and version(python) < version(DJMAIN_MIN_PY):
-        # Django main requires Python 3.10+
+        # Django main requires Python 3.12+
         return True
 
-    if django == DJ60 and version(python) < version(PY312):
-        # Django main requires Python 3.12+
+    if django in {DJ60, DJ61} and version(python) < version(PY312):
+        # Django 6.0 and 6.1 require Python 3.12+
         return True
 
     if django == DJ52 and version(python) < version(PY310):
@@ -204,7 +205,7 @@ def lint(session):
 
 
 @nox.session
-@nox.parametrize("django", [DJ52, DJ60, DJMAIN])
+@nox.parametrize("django", DJ_VERSIONS)
 def analyze_tags(session, django):
     """Analyze Django template tags and generate TagSpec suggestions."""
     if django == DJMAIN:

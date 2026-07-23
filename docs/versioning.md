@@ -27,7 +27,7 @@ cog.outl(f"- Python {', '.join(PY_VERSIONS)}")
 cog.outl(f"- Django {', '.join(django_versions)}")
 ]]] -->
 - Python 3.10, 3.11, 3.12, 3.13, 3.14
-- Django 5.2, 6.0
+- Django 5.2, 6.0, 6.1
 <!-- [[[end]]] -->
 
 ## Version numbering

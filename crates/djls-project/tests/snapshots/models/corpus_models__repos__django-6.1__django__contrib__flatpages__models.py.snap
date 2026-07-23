@@ -1,0 +1,28 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  django.contrib.flatpages.models.FlatPage:
+    name:
+      value: FlatPage
+      span:
+        start: 249
+        length: 8
+    module_name: django.contrib.flatpages.models
+    relations:
+      - field_name:
+          value: sites
+          span:
+            start: 1066
+            length: 5
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Bare
+            name: Site
+          span:
+            start: 1097
+            length: 4
+        related_name: ~
+    kind: concrete

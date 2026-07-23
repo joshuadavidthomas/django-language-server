@@ -1,5 +1,5 @@
 # Vendored unit-test fixture.
-# Corpus: django-6.0/django/templatetags/i18n.py
+# Corpus: django-6.1/django/templatetags/i18n.py
 # Keep snippets minimal: live corpus drift is covered by crates/djls-project/tests/corpus*.rs.
 
 from django import template
