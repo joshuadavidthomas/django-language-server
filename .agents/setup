@@ -55,13 +55,15 @@ if [[ "$hawk_channel" != "$rust_channel" ]]; then
     rustup toolchain install "$hawk_channel" --profile minimal
 fi
 
-if ! command -v uv >/dev/null 2>&1; then
+uv_version="$(uv --version 2>/dev/null | awk '{print $2}' || true)"
+if [[ ! "$uv_version" =~ ^([0-9]+)\.([0-9]+)(\.|$) ]] ||
+    ((10#${BASH_REMATCH[1]} == 0 && 10#${BASH_REMATCH[2]} < 11)); then
     echo "==> Installing uv"
     curl -LsSf https://astral.sh/uv/install.sh |
         env UV_INSTALL_DIR="$HOME/.local/bin" sh
 fi
 
-if [[ ! -x "$HOME/.local/bin/just" ]]; then
+if [[ "$(just --version 2>/dev/null || true)" != "just 1.57.0" ]]; then
     echo "==> Installing just"
     curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh |
         bash -s -- --tag 1.57.0 --to "$HOME/.local/bin"
