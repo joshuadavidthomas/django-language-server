@@ -35,7 +35,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added `just hawk` visibility lint configuration for crate-boundary cleanup.
 - **Internal**: Added end-to-end LSP coverage for initialization, diagnostics, navigation, completions, hover, folding ranges, document symbols, and startup progress.
 - **Internal**: Added the `djls-testing` crate for shared fixtures, corpus syncing, and Salsa-backed test databases.
-- **Internal**: Added reproducible Amp orb setup and resume scripts that provision pinned development tools, Git hooks, and the test corpus.
+- **Internal**: Added reproducible setup and resume scripts that provision pinned development tools, Git hooks, and the test corpus.
 
 ### Changed
 
