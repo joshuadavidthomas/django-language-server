@@ -407,6 +407,147 @@ fn goto_definition_returns_none_for_originless_inconclusive_search() {
 }
 
 #[test]
+fn goto_definition_resolves_template_block_to_nearest_parent() {
+    let mut db = TestDatabase::new();
+    let parent_source = "{% block title %}Parent{% endblock %}";
+    let child_source = "{% extends \"base.html\" %}\n{% block title %}Child{% endblock %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file("/test/project/templates/base.html", parent_source)
+        .file("/test/project/templates/child.html", child_source)
+        .install(&mut db)
+        .expect("Template Block navigation fixture should install");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("child Template fixture should exist");
+    let parent = db
+        .file(Utf8Path::new("/test/project/templates/base.html"))
+        .expect("parent Template fixture should exist");
+
+    let response = goto_definition(&db, child, offset_of(child_source, "title"), true)
+        .expect("overridden Template Block should resolve to its parent");
+
+    assert_eq!(
+        response,
+        ls_types::GotoDefinitionResponse::Link(vec![ls_types::LocationLink {
+            origin_selection_range: Some(ls_types::Range::new(
+                ls_types::Position::new(1, 9),
+                ls_types::Position::new(1, 14),
+            )),
+            target_uri: "file:///test/project/templates/base.html"
+                .parse()
+                .expect("test URI should parse"),
+            target_range: ls_types::Range::new(
+                ls_types::Position::new(0, 0),
+                ls_types::Position::new(
+                    0,
+                    u32::try_from(parent_source.len())
+                        .expect("parent Template length should fit in u32"),
+                ),
+            ),
+            target_selection_range: ls_types::Range::new(
+                ls_types::Position::new(0, 9),
+                ls_types::Position::new(0, 14),
+            ),
+        }])
+    );
+    assert!(
+        goto_definition(&db, parent, offset_of(parent_source, "title"), true).is_none(),
+        "a root Template Block has no parent definition"
+    );
+}
+
+#[test]
+fn goto_definition_encodes_template_block_targets_for_link_and_plain_clients() {
+    let mut db = TestDatabase::new();
+    let parent_source = "😀{% block title %}Parent{% endblock %}";
+    let child_source = "{% extends \"base.html\" %}\n😀{% block title %}Child{% endblock %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file("/test/project/templates/base.html", parent_source)
+        .file("/test/project/templates/child.html", child_source)
+        .install(&mut db)
+        .expect("encoded Template Block navigation fixture should install");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("encoded child Template fixture should exist");
+    let offset = offset_of(child_source, "title");
+
+    let linked = ide_goto_definition(&db, child, offset, true, PositionEncoding::Utf16)
+        .expect("encoded Template Block should resolve for a link client");
+    let ls_types::GotoDefinitionResponse::Link(links) = linked else {
+        panic!("LocationLink client should receive a Template Block link")
+    };
+    assert_eq!(
+        links[0].origin_selection_range,
+        Some(ls_types::Range::new(
+            ls_types::Position::new(1, 11),
+            ls_types::Position::new(1, 16),
+        ))
+    );
+    assert_eq!(links[0].target_range.start, ls_types::Position::new(0, 2));
+    assert_eq!(
+        links[0].target_selection_range,
+        ls_types::Range::new(
+            ls_types::Position::new(0, 11),
+            ls_types::Position::new(0, 16),
+        )
+    );
+
+    let plain = ide_goto_definition(&db, child, offset, false, PositionEncoding::Utf16)
+        .expect("encoded Template Block should resolve for a plain client");
+    let ls_types::GotoDefinitionResponse::Scalar(location) = plain else {
+        panic!("plain client should receive one Template Block location")
+    };
+    assert_eq!(
+        location.uri,
+        "file:///test/project/templates/base.html"
+            .parse()
+            .expect("test URI should parse")
+    );
+    assert_eq!(location.range.start, ls_types::Position::new(0, 2));
+}
+
+#[test]
+fn goto_definition_does_not_skip_an_uncertain_parent_block() {
+    let mut db = TestDatabase::new();
+    let child_source = "{% extends \"layout.html\" %}\n{% block title %}Child{% endblock %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]\n",
+        )
+        .file(
+            "/test/project/templates/base.html",
+            "{% block title %}Base{% endblock %}",
+        )
+        .file(
+            "/test/project/templates/layout.html",
+            "{% extends \"base.html\" %}\n{% load unknown_library %}\n{% block title %}Layout{% endblock %}",
+        )
+        .file("/test/project/templates/child.html", child_source)
+        .install(&mut db)
+        .expect("uncertain parent Template Block fixture should install");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("child Template fixture should exist");
+
+    assert!(
+        goto_definition(&db, child, offset_of(child_source, "title"), true).is_none(),
+        "an uncertain block in the nearest ancestor must not be skipped"
+    );
+}
+
+#[test]
 fn goto_definition_resolves_template_library_to_module_start() {
     let source = "{% load custom %}";
     let (db, file) = custom_symbol_navigation_fixture(source, CUSTOM_SYMBOL_LIBRARY)

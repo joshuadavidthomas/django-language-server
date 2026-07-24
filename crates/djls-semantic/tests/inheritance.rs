@@ -15,6 +15,7 @@ use djls_semantic::TemplateSymbols;
 use djls_semantic::block_overrides;
 use djls_semantic::builtin_tag_specs;
 use djls_semantic::inherited_blocks;
+use djls_semantic::parent_block;
 use djls_semantic::template_inheritance;
 use djls_semantic::template_symbols;
 use djls_source::ChangeEvent;
@@ -654,6 +655,55 @@ fn scoped_parent_miss_is_unresolved_when_name_exists_only_in_another_backend() {
                 name: "other.html".to_string(),
             },
         )
+    );
+}
+
+#[test]
+fn block_queries_stop_only_for_the_uncertain_name() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]\n",
+        )
+        .file(
+            "/test/project/templates/base.html",
+            "{% block title %}Base title{% endblock %}{% block sidebar %}Base sidebar{% endblock %}",
+        )
+        .file(
+            "/test/project/templates/layout.html",
+            "{% extends 'base.html' %}{% load unknown_library %}{% maybe_block sidebar %}",
+        )
+        .file(
+            "/test/project/templates/child.html",
+            "{% extends 'layout.html' %}{% block title %}Child title{% endblock %}{% block sidebar %}Child sidebar{% endblock %}",
+        )
+        .install(&mut db)
+        .expect("uncertain Inheritance Block fixture should install");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("child Template fixture should exist");
+    let base = db
+        .file(Utf8Path::new("/test/project/templates/base.html"))
+        .expect("base Template fixture should exist");
+
+    assert_eq!(
+        parent_block(&db, project, child, "title").map(|site| site.file),
+        Some(base),
+        "unrelated uncertainty must not hide a definite parent block"
+    );
+    assert!(
+        parent_block(&db, project, child, "sidebar").is_none(),
+        "a possible nearer block must hide the grandparent block"
+    );
+    let inherited = inherited_blocks(&db, project, child);
+    assert_eq!(
+        inherited
+            .iter()
+            .map(|(name, site)| (name.as_str(), site.file))
+            .collect::<Vec<_>>(),
+        vec![("title", base)]
     );
 }
 

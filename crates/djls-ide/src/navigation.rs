@@ -5,9 +5,11 @@ use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolSource;
 use djls_project::template_resolution;
 use djls_project::template_symbol_source;
+use djls_semantic::BlockSite;
 use djls_semantic::SemanticOffsetContext;
 use djls_semantic::TemplateReferenceKind;
 use djls_semantic::effective_symbol_candidate_at;
+use djls_semantic::parent_block;
 use djls_semantic::references_to_template_name;
 use djls_semantic::resolve_reference_for_file;
 use djls_semantic::resolve_reference_origins;
@@ -26,6 +28,7 @@ use crate::ext::Utf8PathExt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DefinitionTarget {
+    Block(BlockSite),
     File(File),
     Symbol(TemplateSymbolSource),
 }
@@ -257,6 +260,17 @@ pub fn goto_definition(
                 position_encoding,
             )
         }
+        SemanticOffsetContext::TemplateBlock { name, span } => {
+            let project = db.project()?;
+            let target = parent_block(db, project, file, &name)?;
+            exact_definition_response(
+                db,
+                encoded_range(db, file, span, position_encoding)?,
+                vec![DefinitionTarget::Block(target)],
+                supports_location_links,
+                position_encoding,
+            )
+        }
         SemanticOffsetContext::Tag { name, span, .. } => symbol_occurrence_response(
             db,
             file,
@@ -349,6 +363,7 @@ pub fn find_references(
         }
         SemanticOffsetContext::LoadLibrary { .. }
         | SemanticOffsetContext::LoadSymbol { .. }
+        | SemanticOffsetContext::TemplateBlock { .. }
         | SemanticOffsetContext::Tag { .. }
         | SemanticOffsetContext::Filter { .. }
         | SemanticOffsetContext::Variable { .. }

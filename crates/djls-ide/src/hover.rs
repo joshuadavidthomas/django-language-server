@@ -81,7 +81,9 @@ pub fn hover(db: &dyn SemanticDb, file: File, offset: Offset) -> Option<ls_types
             )?,
             span,
         )),
-        SemanticOffsetContext::Variable { .. } | SemanticOffsetContext::None => None,
+        SemanticOffsetContext::TemplateBlock { .. }
+        | SemanticOffsetContext::Variable { .. }
+        | SemanticOffsetContext::None => None,
     }?;
 
     Some(ls_types::Hover {

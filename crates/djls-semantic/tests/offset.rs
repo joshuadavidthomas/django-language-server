@@ -209,6 +209,27 @@ fn identifies_tag_name_context() {
 }
 
 #[test]
+fn identifies_template_block_name_context() {
+    let db = TestDatabase::new();
+    let source = "{% block content %}{% endblock %}";
+
+    let context = context_for_source(
+        &db,
+        source,
+        offset_of(source, "content").expect("fixture offset should resolve"),
+    )
+    .expect("Template Block context fixture should load");
+
+    assert_eq!(
+        context,
+        SemanticOffsetContext::TemplateBlock {
+            name: "content".to_string(),
+            span: Span::new(9, 7),
+        }
+    );
+}
+
+#[test]
 fn captured_intermediate_has_no_tag_definition_context() {
     let db = TestDatabase::new();
     let source = "{% if user %}{% else %}{% endif %}";

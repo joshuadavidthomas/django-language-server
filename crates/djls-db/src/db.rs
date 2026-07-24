@@ -1295,6 +1295,7 @@ mod invalidation_tests {
                 SemanticOffsetContext::TemplateReference { name, .. } => Some(name),
                 SemanticOffsetContext::LoadLibrary { .. }
                 | SemanticOffsetContext::LoadSymbol { .. }
+                | SemanticOffsetContext::TemplateBlock { .. }
                 | SemanticOffsetContext::Tag { .. }
                 | SemanticOffsetContext::Filter { .. }
                 | SemanticOffsetContext::Variable { .. }
@@ -1312,6 +1313,7 @@ mod invalidation_tests {
             SemanticOffsetContext::TemplateReference { name, .. } => Some(name),
             SemanticOffsetContext::LoadLibrary { .. }
             | SemanticOffsetContext::LoadSymbol { .. }
+            | SemanticOffsetContext::TemplateBlock { .. }
             | SemanticOffsetContext::Tag { .. }
             | SemanticOffsetContext::Filter { .. }
             | SemanticOffsetContext::Variable { .. }

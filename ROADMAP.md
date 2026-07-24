@@ -32,9 +32,9 @@ Prefer conservative diagnostics over false positives when project facts are part
 
 #### Inheritance block intelligence
 
-**Status:** 📅 Planned
+**Status:** 🚧 Partially supported
 
-Users should be able to navigate and understand Django template inheritance without manual search. The first pass should support going to parent block definitions, finding child block overrides, and completing block names from parent templates.
+Go to definition resolves an overridden block name to its nearest parent block across the template inheritance chain. Finding child block overrides and completing block names from parent templates remain.
 
 #### Code actions for safe diagnostics
 
@@ -102,7 +102,7 @@ Hover is supported for template tags, filters, libraries, selectively loaded sym
 
 **Status:** 🚧 Partially supported
 
-Go to definition works for literal template references in `{% extends %}` and `{% include %}`, Template Library arguments in `{% load %}`, selective-load symbols, and available Template Tags and Filters with definite local Python declarations. Clients that support definition links receive exact origin and declaration ranges; older clients receive plain locations. Ambiguous definitions and dynamic, imported, or member callables do not produce guessed targets. The next improvement is parent block navigation across inheritance.
+Go to definition works for literal template references in `{% extends %}` and `{% include %}`, overridden block names, Template Library arguments in `{% load %}`, selective-load symbols, and available Template Tags and Filters with definite local Python declarations. Block overrides resolve to the nearest parent block only when the inheritance chain is known. Clients that support definition links receive exact origin and declaration ranges; older clients receive plain locations. Ambiguous definitions and dynamic, imported, or member callables do not produce guessed targets.
 
 #### Find references
 
@@ -217,13 +217,12 @@ Execute commands may be useful for hierarchy views, project-status inspection, o
 ## Priority Order
 
 1. Template-name completion for `{% extends %}` and `{% include %}`.
-2. Block navigation across inheritance.
-3. Block references and block-name completion.
-4. Code actions for existing diagnostics.
-5. URL/static completions and diagnostics.
-6. Settings hover and typo diagnostics.
-7. Model facts surfaced through navigation and hover.
-8. Template context and variable intelligence.
+2. Block references and block-name completion.
+3. Code actions for existing diagnostics.
+4. URL/static completions and diagnostics.
+5. Settings hover and typo diagnostics.
+6. Model facts surfaced through navigation and hover.
+7. Template context and variable intelligence.
 
 ## Deferred or Not Planned
 

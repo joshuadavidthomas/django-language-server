@@ -76,6 +76,45 @@ async def test_goto_definition_for_extends_template_reference(client: LanguageCl
 
 
 @pytest.mark.asyncio
+async def test_goto_definition_for_parent_template_block(client: LanguageClient):
+    client.text_document_did_open(
+        DidOpenTextDocumentParams(
+            text_document=TextDocumentItem(
+                uri=HOME_TEMPLATE.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=HOME_TEMPLATE.read_text(encoding="utf-8"),
+            )
+        )
+    )
+
+    result = await client.text_document_definition_async(
+        DefinitionParams(
+            text_document=TextDocumentIdentifier(uri=HOME_TEMPLATE.as_uri()),
+            position=position_in(HOME_TEMPLATE, "title %}"),
+        )
+    )
+
+    assert result is not None
+    assert len(result) == 1
+    link = result[0]
+    assert link.origin_selection_range == Range(
+        start=Position(line=2, character=9),
+        end=Position(line=2, character=14),
+    )
+    assert link.target_uri == BASE_TEMPLATE.as_uri()
+    assert link.target_range.start == position_in(BASE_TEMPLATE, "{% block title")
+    parent_name = position_in(BASE_TEMPLATE, "title %}")
+    assert link.target_selection_range == Range(
+        start=parent_name,
+        end=Position(
+            line=parent_name.line,
+            character=parent_name.character + len("title"),
+        ),
+    )
+
+
+@pytest.mark.asyncio
 async def test_goto_definition_for_include_template_reference(client: LanguageClient):
     client.text_document_did_open(
         DidOpenTextDocumentParams(
