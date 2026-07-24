@@ -20,49 +20,14 @@ use djls_templates::TemplateParseResult;
 use djls_templates::parse_template;
 use tower_lsp_server::ls_types;
 
+use crate::ext::DefinitionTargetExt;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct DefinitionTarget {
-    uri: ls_types::Uri,
-    range: ls_types::Range,
-    selection_range: ls_types::Range,
-}
-
-impl DefinitionTarget {
-    fn file_start(db: &dyn djls_semantic::Db, file: File) -> Option<Self> {
-        let uri = file.path(db).to_lsp_uri()?;
-        let range = ls_types::Range::default();
-        Some(Self {
-            uri,
-            range,
-            selection_range: range,
-        })
-    }
-
-    fn symbol(
-        db: &dyn djls_semantic::Db,
-        source: TemplateSymbolSource,
-        position_encoding: PositionEncoding,
-    ) -> Option<Self> {
-        let file = source.file();
-        let text = file.try_source(db).ok()?;
-        let line_index = file.line_index(db);
-        Some(Self {
-            uri: file.path(db).to_lsp_uri()?,
-            range: source.declaration_span().to_lsp_range_with_encoding(
-                text.as_str(),
-                line_index,
-                position_encoding,
-            ),
-            selection_range: source.selection_span().to_lsp_range_with_encoding(
-                text.as_str(),
-                line_index,
-                position_encoding,
-            ),
-        })
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DefinitionTarget {
+    File(File),
+    Symbol(TemplateSymbolSource),
 }
 
 fn encoded_range(
@@ -76,10 +41,16 @@ fn encoded_range(
 }
 
 fn exact_definition_response(
+    db: &dyn djls_semantic::Db,
     origin_selection_range: ls_types::Range,
     targets: Vec<DefinitionTarget>,
     supports_location_links: bool,
+    position_encoding: PositionEncoding,
 ) -> Option<ls_types::GotoDefinitionResponse> {
+    let targets = targets
+        .into_iter()
+        .filter_map(|target| target.to_lsp_parts(db, position_encoding))
+        .collect::<Vec<_>>();
     if targets.is_empty() {
         return None;
     }
@@ -87,22 +58,21 @@ fn exact_definition_response(
         return Some(ls_types::GotoDefinitionResponse::Link(
             targets
                 .into_iter()
-                .map(|target| ls_types::LocationLink {
-                    origin_selection_range: Some(origin_selection_range),
-                    target_uri: target.uri,
-                    target_range: target.range,
-                    target_selection_range: target.selection_range,
-                })
+                .map(
+                    |(target_uri, target_range, target_selection_range)| ls_types::LocationLink {
+                        origin_selection_range: Some(origin_selection_range),
+                        target_uri,
+                        target_range,
+                        target_selection_range,
+                    },
+                )
                 .collect(),
         ));
     }
 
     let mut locations = targets
         .into_iter()
-        .map(|target| ls_types::Location {
-            uri: target.uri,
-            range: target.range,
-        })
+        .map(|(uri, range, _selection_range)| ls_types::Location { uri, range })
         .collect::<Vec<_>>();
     if locations.len() == 1 {
         Some(ls_types::GotoDefinitionResponse::Scalar(locations.pop()?))
@@ -114,9 +84,10 @@ fn exact_definition_response(
 fn symbol_definition_target(
     db: &dyn djls_semantic::Db,
     symbol: &djls_project::TemplateSymbol,
-    position_encoding: PositionEncoding,
 ) -> Option<DefinitionTarget> {
-    DefinitionTarget::symbol(db, template_symbol_source(db, symbol)?, position_encoding)
+    Some(DefinitionTarget::Symbol(template_symbol_source(
+        db, symbol,
+    )?))
 }
 
 fn symbol_occurrence_response(
@@ -133,13 +104,11 @@ fn symbol_occurrence_response(
     };
     let candidate = effective_symbol_candidate_at(db, file, nodelist, span.start(), name, kind)?;
     exact_definition_response(
+        db,
         encoded_range(db, file, span, position_encoding)?,
-        vec![symbol_definition_target(
-            db,
-            &candidate.symbol,
-            position_encoding,
-        )?],
+        vec![symbol_definition_target(db, &candidate.symbol)?],
         supports_location_links,
+        position_encoding,
     )
 }
 
@@ -256,9 +225,11 @@ pub fn goto_definition(
                 return None;
             };
             exact_definition_response(
+                db,
                 encoded_range(db, file, span, position_encoding)?,
-                vec![DefinitionTarget::file_start(db, library.source_file()?)?],
+                vec![DefinitionTarget::File(library.source_file()?)],
                 supports_location_links,
+                position_encoding,
             )
         }
         SemanticOffsetContext::LoadSymbol {
@@ -275,13 +246,15 @@ pub fn goto_definition(
             let mut targets = [TemplateSymbolKind::Tag, TemplateSymbolKind::Filter]
                 .into_iter()
                 .filter_map(|kind| library.symbol(kind, &name))
-                .filter_map(|symbol| symbol_definition_target(db, symbol, position_encoding))
+                .filter_map(|symbol| symbol_definition_target(db, symbol))
                 .collect::<Vec<_>>();
             targets.dedup();
             exact_definition_response(
+                db,
                 encoded_range(db, file, span, position_encoding)?,
                 targets,
                 supports_location_links,
+                position_encoding,
             )
         }
         SemanticOffsetContext::Tag { name, span, .. } => symbol_occurrence_response(

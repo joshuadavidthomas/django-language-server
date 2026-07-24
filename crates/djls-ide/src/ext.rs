@@ -17,6 +17,7 @@ use crate::completions::CompletionEdit;
 use crate::completions::CompletionInsertFormat;
 use crate::folding::FoldKind;
 use crate::folding::FoldSpan;
+use crate::navigation::DefinitionTarget;
 
 pub(crate) trait OutlineKindExt {
     fn to_lsp_symbol_kind(self) -> ls_types::SymbolKind;
@@ -116,6 +117,46 @@ impl SpanExt for Span {
             .end_offset()
             .to_lsp_position_with_encoding(source, line_index, encoding);
         ls_types::Range { start, end }
+    }
+}
+
+pub(crate) trait DefinitionTargetExt {
+    fn to_lsp_parts(
+        self,
+        db: &dyn djls_semantic::Db,
+        encoding: PositionEncoding,
+    ) -> Option<(ls_types::Uri, ls_types::Range, ls_types::Range)>;
+}
+
+impl DefinitionTargetExt for DefinitionTarget {
+    fn to_lsp_parts(
+        self,
+        db: &dyn djls_semantic::Db,
+        encoding: PositionEncoding,
+    ) -> Option<(ls_types::Uri, ls_types::Range, ls_types::Range)> {
+        match self {
+            DefinitionTarget::File(file) => {
+                let uri = file.path(db).to_lsp_uri()?;
+                let range = ls_types::Range::default();
+                Some((uri, range, range))
+            }
+            DefinitionTarget::Symbol(source) => {
+                let file = source.file();
+                let text = file.try_source(db).ok()?;
+                let line_index = file.line_index(db);
+                let range = source.declaration_span().to_lsp_range_with_encoding(
+                    text.as_str(),
+                    line_index,
+                    encoding,
+                );
+                let selection_range = source.selection_span().to_lsp_range_with_encoding(
+                    text.as_str(),
+                    line_index,
+                    encoding,
+                );
+                Some((file.path(db).to_lsp_uri()?, range, selection_range))
+            }
+        }
     }
 }
 
