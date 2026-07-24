@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from django.templatetags import static as django_static
 from lsprotocol.types import DefinitionParams
 from lsprotocol.types import DidOpenTextDocumentParams
 from lsprotocol.types import Position
@@ -31,6 +34,7 @@ FIRST_PARTY_LOAD_TEMPLATE = (
 FIRST_PARTY_TAG_LIBRARY = (
     TEST_WORKSPACE / "djls_app" / "templatetags" / "djls_app_tags.py"
 )
+DJANGO_STATIC_LIBRARY = Path(django_static.__file__)
 
 
 @pytest.mark.asyncio
@@ -220,6 +224,61 @@ async def test_goto_definition_for_template_filter(client: LanguageClient):
     assert link.target_selection_range == Range(
         start=Position(line=13, character=4),
         end=Position(line=13, character=14),
+    )
+
+
+@pytest.mark.asyncio
+async def test_goto_definition_distinguishes_static_library_from_tag(
+    client: LanguageClient,
+):
+    client.text_document_did_open(
+        DidOpenTextDocumentParams(
+            text_document=TextDocumentItem(
+                uri=BASE_TEMPLATE.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=BASE_TEMPLATE.read_text(encoding="utf-8"),
+            )
+        )
+    )
+
+    library_result = await client.text_document_definition_async(
+        DefinitionParams(
+            text_document=TextDocumentIdentifier(uri=BASE_TEMPLATE.as_uri()),
+            position=position_in(BASE_TEMPLATE, "static %}"),
+        )
+    )
+    tag_result = await client.text_document_definition_async(
+        DefinitionParams(
+            text_document=TextDocumentIdentifier(uri=BASE_TEMPLATE.as_uri()),
+            position=position_in(BASE_TEMPLATE, "static 'images/logo.png'"),
+        )
+    )
+
+    assert library_result is not None
+    assert len(library_result) == 1
+    library_link = library_result[0]
+    assert library_link.target_uri == DJANGO_STATIC_LIBRARY.as_uri()
+    assert library_link.target_range == Range(
+        start=Position(line=0, character=0),
+        end=Position(line=0, character=0),
+    )
+    assert library_link.target_selection_range == library_link.target_range
+
+    assert tag_result is not None
+    assert len(tag_result) == 1
+    tag_link = tag_result[0]
+    assert tag_link.target_uri == DJANGO_STATIC_LIBRARY.as_uri()
+    assert tag_link.target_range.start == position_in(
+        DJANGO_STATIC_LIBRARY, '@register.tag("static")'
+    )
+    do_static = position_in(DJANGO_STATIC_LIBRARY, "do_static(parser, token)")
+    assert tag_link.target_selection_range == Range(
+        start=do_static,
+        end=Position(
+            line=do_static.line,
+            character=do_static.character + len("do_static"),
+        ),
     )
 
 

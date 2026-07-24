@@ -461,6 +461,8 @@ fn goto_definition_resolves_django_load_and_static_tags() {
 
     let load = goto_definition(&db, file, offset_of(source, "load"), true)
         .expect("builtin load Tag should resolve");
+    let static_library = goto_definition(&db, file, offset_of(source, "static"), true)
+        .expect("static Template Library should resolve");
     let static_tag = goto_definition(
         &db,
         file,
@@ -472,28 +474,56 @@ fn goto_definition_resolves_django_load_and_static_tags() {
     )
     .expect("loaded static Tag should resolve");
 
-    let target_uri = |response: ls_types::GotoDefinitionResponse| match response {
-        ls_types::GotoDefinitionResponse::Link(links) => {
-            links
-                .into_iter()
-                .next()
-                .expect("resolved Tag should have one target")
-                .target_uri
-        }
+    let target = |response: ls_types::GotoDefinitionResponse| match response {
+        ls_types::GotoDefinitionResponse::Link(links) => links
+            .into_iter()
+            .next()
+            .expect("resolved definition should have one target"),
         ls_types::GotoDefinitionResponse::Scalar(_)
         | ls_types::GotoDefinitionResponse::Array(_) => {
-            panic!("LocationLink client should receive Tag links")
+            panic!("LocationLink client should receive definition links")
         }
     };
+    let load_target = target(load);
+    let static_library_target = target(static_library);
+    let static_tag_target = target(static_tag);
+
     assert!(
-        target_uri(load)
+        load_target
+            .target_uri
             .as_str()
             .ends_with("/django/template/defaulttags.py")
     );
     assert!(
-        target_uri(static_tag)
+        static_library_target
+            .target_uri
             .as_str()
             .ends_with("/django/templatetags/static.py")
+    );
+    assert_eq!(
+        static_library_target.target_range,
+        ls_types::Range::default()
+    );
+    assert_eq!(
+        static_library_target.target_selection_range,
+        ls_types::Range::default()
+    );
+    assert!(
+        static_tag_target
+            .target_uri
+            .as_str()
+            .ends_with("/django/templatetags/static.py")
+    );
+    assert_eq!(
+        static_tag_target.target_range.start,
+        ls_types::Position::new(2, 0)
+    );
+    assert_eq!(
+        static_tag_target.target_selection_range,
+        ls_types::Range::new(
+            ls_types::Position::new(3, 4),
+            ls_types::Position::new(3, 13),
+        )
     );
 }
 
