@@ -47,7 +47,7 @@ Each layer has a different failure mode and a different fix:
 
 `{% load %}` library names are checked against the active static inventory first. If the library exists on the project's Python search paths but its app is not in `INSTALLED_APPS`, djls reports S121. If no inactive-library evidence exists, djls reports S120.
 
-The same inventory powers editor navigation. Resolved `{% load %}` library names become document links and go-to-definition targets for their Python source files. Selective-load symbols and available Tag and Filter names jump to definite local Python declarations. Dynamic, imported, member, and ambiguous callables are skipped rather than guessed.
+The same inventory powers editor navigation. Resolved `{% load %}` library names become document links and go-to-definition targets for their Python source files. Selective-load symbols and available Tag and Filter names jump to definite local or imported module-level Python declarations. Dynamic, transformed, recovered, member, and ambiguous callables are skipped rather than guessed.
 
 Template directory discovery also powers go to definition for literal `{% extends %}` and `{% include %}` names. An overridden `{% block %}` name resolves to the nearest definite parent block; a root block resolves to itself. Find references returns the root block and its definite overrides. Editors that support definition links receive exact origin and declaration ranges.
 

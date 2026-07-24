@@ -25,6 +25,9 @@ use super::tags::blocks::EndTagEvidence;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
+use crate::python::PythonFunctionDefinition;
+use crate::python::PythonSourceLookup;
+use crate::python::PythonSourceModule;
 use crate::python::RecoveredPythonModule;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
@@ -37,8 +40,36 @@ const FILTER_DECORATORS: &[&str] = &["filter"];
 pub(crate) struct RegistrationInfo {
     name: String,
     kind: RegistrationKind,
-    func_name: Option<String>,
-    local_source: Option<LocalFunctionSource>,
+    callable: RegistrationCallable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RegistrationCallable {
+    DecoratedLocal {
+        function_name: String,
+        navigation: Option<LocalFunctionSource>,
+    },
+    ResolvedFunction(PythonFunctionDefinition),
+    Unresolved(Option<String>),
+}
+
+impl RegistrationInfo {
+    #[cfg(test)]
+    fn func_name(&self) -> Option<&str> {
+        match &self.callable {
+            RegistrationCallable::DecoratedLocal { function_name, .. } => Some(function_name),
+            RegistrationCallable::ResolvedFunction(_) => None,
+            RegistrationCallable::Unresolved(function_name) => function_name.as_deref(),
+        }
+    }
+
+    #[cfg(test)]
+    fn local_source(&self) -> Option<LocalFunctionSource> {
+        match self.callable {
+            RegistrationCallable::DecoratedLocal { navigation, .. } => navigation,
+            RegistrationCallable::ResolvedFunction(_) | RegistrationCallable::Unresolved(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,16 +285,14 @@ fn is_canonical_library_import(syntax: &FromImportSyntax, module_name: &str) -> 
             && module_name.starts_with("django.template."))
 }
 
-fn invalidate_local_function_target(
-    local_functions: &mut BTreeMap<String, LocalFunctionSource>,
+fn invalidate_transparent_decorator_target(
+    functions: &mut BTreeMap<String, LocalFunctionSource>,
     target: &Expr,
 ) {
     if let Some(name) = target.name_target() {
-        local_functions.remove(name);
+        functions.remove(name);
     } else if !matches!(target, Expr::Attribute(_) | Expr::Subscript(_)) {
-        // Destructuring and other complex targets are uncommon in Template Library modules.
-        // Clearing the map keeps navigation conservative without duplicating Python binding logic.
-        local_functions.clear();
+        functions.clear();
     }
 }
 
@@ -271,15 +300,16 @@ fn invalidate_local_function_target(
 fn analyze_registrations_from_body_in_module(
     body: &[Stmt],
     module_name: &str,
+    mut python_facts: Option<&mut PythonSourceLookup<'_>>,
 ) -> RegistrationSourceAnalysis {
     let mut analysis = RegistrationSourceAnalysis::default();
-    let mut local_functions = BTreeMap::new();
+    let mut transparent_decorated_functions = BTreeMap::new();
     let mut template_is_django = false;
     let mut library_constructor = None;
 
     for stmt in body {
         if statement_contains_named_binding(stmt) {
-            local_functions.clear();
+            transparent_decorated_functions.clear();
         }
         match stmt {
             Stmt::Import(import) => {
@@ -294,7 +324,7 @@ fn analyze_registrations_from_body_in_module(
                         analysis.registrations.clear();
                         analysis.open_inventory();
                     }
-                    local_functions.remove(clause.bound());
+                    transparent_decorated_functions.remove(clause.bound());
                 }
             }
             Stmt::ImportFrom(import) => {
@@ -302,7 +332,7 @@ fn analyze_registrations_from_body_in_module(
                 if syntax.has_star() {
                     template_is_django = false;
                     library_constructor = None;
-                    local_functions.clear();
+                    transparent_decorated_functions.clear();
                 }
                 let canonical_library_import = is_canonical_library_import(&syntax, module_name);
                 for member in syntax.named_members() {
@@ -321,7 +351,7 @@ fn analyze_registrations_from_body_in_module(
                         analysis.registrations.clear();
                         analysis.open_inventory();
                     }
-                    local_functions.remove(member.bound());
+                    transparent_decorated_functions.remove(member.bound());
                 }
             }
             Stmt::Assign(assign) => {
@@ -365,7 +395,10 @@ fn analyze_registrations_from_body_in_module(
                     template_is_django = false;
                 }
                 for target in &assign.targets {
-                    invalidate_local_function_target(&mut local_functions, target);
+                    invalidate_transparent_decorator_target(
+                        &mut transparent_decorated_functions,
+                        target,
+                    );
                 }
             }
             Stmt::AnnAssign(assign) => {
@@ -388,7 +421,10 @@ fn analyze_registrations_from_body_in_module(
                 {
                     library_constructor = None;
                 }
-                invalidate_local_function_target(&mut local_functions, &assign.target);
+                invalidate_transparent_decorator_target(
+                    &mut transparent_decorated_functions,
+                    &assign.target,
+                );
             }
             Stmt::AugAssign(assign) => {
                 if assign.target.name_target() == Some("register")
@@ -407,7 +443,10 @@ fn analyze_registrations_from_body_in_module(
                 {
                     library_constructor = None;
                 }
-                invalidate_local_function_target(&mut local_functions, &assign.target);
+                invalidate_transparent_decorator_target(
+                    &mut transparent_decorated_functions,
+                    &assign.target,
+                );
             }
             Stmt::Delete(delete) => {
                 if delete.targets.iter().any(|target| {
@@ -432,7 +471,10 @@ fn analyze_registrations_from_body_in_module(
                     library_constructor = None;
                 }
                 for target in &delete.targets {
-                    invalidate_local_function_target(&mut local_functions, target);
+                    invalidate_transparent_decorator_target(
+                        &mut transparent_decorated_functions,
+                        target,
+                    );
                 }
             }
             Stmt::FunctionDef(function) => {
@@ -451,12 +493,14 @@ fn analyze_registrations_from_body_in_module(
                 if body_contains_register(&function.body) {
                     analysis.open_inventory();
                 }
-                if function.decorator_list.iter().all(|decorator| {
-                    registration_decorator_rooted_at_register(&decorator.expression)
-                }) {
-                    local_functions.insert(function.name.to_string(), local_source);
+                if !function.decorator_list.is_empty()
+                    && function.decorator_list.iter().all(|decorator| {
+                        registration_decorator_rooted_at_register(&decorator.expression)
+                    })
+                {
+                    transparent_decorated_functions.insert(function.name.to_string(), local_source);
                 } else {
-                    local_functions.remove(function.name.as_str());
+                    transparent_decorated_functions.remove(function.name.as_str());
                 }
             }
             Stmt::ClassDef(class) => {
@@ -474,11 +518,16 @@ fn analyze_registrations_from_body_in_module(
                 if statement_contains_register(stmt) {
                     analysis.open_inventory();
                 }
-                local_functions.remove(class.name.as_str());
+                transparent_decorated_functions.remove(class.name.as_str());
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 if let Expr::Call(call) = value.as_ref() {
-                    collect_from_call_statement(call, &local_functions, &mut analysis);
+                    collect_from_call_statement(
+                        call,
+                        &transparent_decorated_functions,
+                        python_facts.as_deref_mut(),
+                        &mut analysis,
+                    );
                 } else if contains_register(value) {
                     analysis.open_inventory();
                 }
@@ -491,13 +540,13 @@ fn analyze_registrations_from_body_in_module(
             | Stmt::Try(_) => {
                 template_is_django = false;
                 library_constructor = None;
-                local_functions.clear();
+                transparent_decorated_functions.clear();
                 if statement_contains_register(stmt) {
                     analysis.open_inventory();
                 }
             }
             Stmt::TypeAlias(_) => {
-                local_functions.clear();
+                transparent_decorated_functions.clear();
                 if statement_contains_register(stmt) {
                     analysis.open_inventory();
                 }
@@ -523,7 +572,7 @@ fn analyze_registrations_from_body_in_module(
 
 #[cfg(test)]
 fn analyze_registrations_from_body(body: &[Stmt]) -> RegistrationSourceAnalysis {
-    analyze_registrations_from_body_in_module(body, "")
+    analyze_registrations_from_body_in_module(body, "", None)
 }
 
 /// Collect registrations from a pre-parsed module body.
@@ -535,21 +584,41 @@ pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<Registration
     analyze_registrations_from_body(body).registrations
 }
 
-fn for_each_registration(
+fn for_each_registration<'db>(
+    db: &'db dyn ProjectDb,
     analysis: &RegistrationSourceAnalysis,
-    body: &[Stmt],
+    body: &'db [Stmt],
+    registration_file: djls_source::File,
     module_name: &str,
-    mut f: impl FnMut(&RegistrationInfo, Option<&StmtFunctionDef>, SymbolKey),
+    mut f: impl FnMut(
+        &RegistrationInfo,
+        Option<(&'db StmtFunctionDef, djls_source::File, bool)>,
+        SymbolKey,
+    ),
 ) {
     let func_defs = collect_func_defs(body);
 
     for reg in &analysis.registrations {
-        let func = reg.func_name.as_deref().and_then(|name| {
-            func_defs
+        let func = match &reg.callable {
+            RegistrationCallable::DecoratedLocal {
+                function_name,
+                navigation,
+            } => func_defs
                 .iter()
-                .find(|func| func.name.as_str() == name)
+                .find(|function| {
+                    function.name.as_str() == function_name
+                        && navigation.is_none_or(|source| function.span() == source.definition_span)
+                })
                 .copied()
-        });
+                .map(|function| (function, registration_file, false)),
+            RegistrationCallable::ResolvedFunction(definition) => {
+                definition.statement(db).map(|function| {
+                    let file = definition.file();
+                    (function, file, file != registration_file)
+                })
+            }
+            RegistrationCallable::Unresolved(_) => None,
+        };
 
         let kind = reg.kind;
         let key = SymbolKey {
@@ -615,8 +684,10 @@ fn collect_from_decorated_function(
             analysis.registrations.push(RegistrationInfo {
                 name,
                 kind,
-                func_name: Some(func_name.to_string()),
-                local_source: registration_source,
+                callable: RegistrationCallable::DecoratedLocal {
+                    function_name: func_name.to_string(),
+                    navigation: registration_source,
+                },
             });
             continue;
         }
@@ -625,8 +696,10 @@ fn collect_from_decorated_function(
             analysis.registrations.push(RegistrationInfo {
                 name,
                 kind: RegistrationKind::Filter,
-                func_name: Some(func_name.to_string()),
-                local_source: registration_source,
+                callable: RegistrationCallable::DecoratedLocal {
+                    function_name: func_name.to_string(),
+                    navigation: registration_source,
+                },
             });
         } else {
             analysis.open_inventory();
@@ -713,6 +786,48 @@ fn registration_decorator_has_dynamic_name(expr: &Expr) -> bool {
             _ => true,
         }
     })
+}
+
+fn registration_call_has_conflicting_arguments(helper: &str, call: &ExprCall) -> bool {
+    let has_keyword = |names: &[&str]| {
+        call.arguments.keywords.iter().any(|keyword| {
+            keyword
+                .arg
+                .as_ref()
+                .is_some_and(|name| names.contains(&name.as_str()))
+        })
+    };
+    let positional_callable = match helper {
+        "tag" | "filter" | "inclusion_tag" => call.arguments.args.len() >= 2,
+        "simple_tag" | "simple_block_tag" => !call.arguments.args.is_empty(),
+        _ => false,
+    };
+    let callable_keywords = match helper {
+        "tag" => &["compile_function", "func"][..],
+        "filter" => &["filter_func", "func"][..],
+        "simple_tag" | "simple_block_tag" | "inclusion_tag" => &["func"][..],
+        _ => &[][..],
+    };
+    (matches!(helper, "tag" | "filter") && call.arguments.args.len() >= 2 && has_keyword(&["name"]))
+        || (positional_callable && has_keyword(callable_keywords))
+}
+
+fn registration_name_requires_callable(helper: &str, call: &ExprCall) -> bool {
+    let has_name = call.arguments.keywords.iter().any(|keyword| {
+        keyword
+            .arg
+            .as_ref()
+            .is_some_and(|name| name.as_str() == "name")
+    });
+    match helper {
+        "tag" | "filter" => match &call.arguments.args[..] {
+            [argument] => !has_name && argument.string_literal().is_none(),
+            [] => !has_name,
+            [_, _] | [_, _, ..] => false,
+        },
+        "simple_tag" | "simple_block_tag" | "inclusion_tag" => !has_name,
+        _ => false,
+    }
 }
 
 fn registration_call_has_dynamic_name(call: &ExprCall) -> bool {
@@ -802,7 +917,8 @@ fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
 /// - `register.simple_tag(func, name="alias")`
 fn collect_from_call_statement(
     call: &ExprCall,
-    local_functions: &BTreeMap<String, LocalFunctionSource>,
+    transparent_decorated_functions: &BTreeMap<String, LocalFunctionSource>,
+    python_facts: Option<&mut PythonSourceLookup<'_>>,
     analysis: &mut RegistrationSourceAnalysis,
 ) {
     if !call_rooted_at_register(call) {
@@ -821,21 +937,46 @@ fn collect_from_call_statement(
         analysis.open_inventory();
         return;
     }
+    if registration_arguments_are_unsupported(helper, call)
+        || registration_call_has_conflicting_arguments(helper, call)
+    {
+        analysis.open_inventory();
+        return;
+    }
+    if let Some(python_facts) = python_facts
+        && let Some(registration) = resolved_python_registration(call, helper, python_facts)
+    {
+        analysis.registrations.push(registration);
+        return;
+    }
     if registration_call_has_dynamic_name(call) {
         analysis.open_inventory();
         return;
     }
+    let needs_callable_name = registration_name_requires_callable(helper, call);
 
     if let Some((name, kind, func_name)) = tag_registration_from_call(call) {
         let local_source = func_name
             .as_deref()
-            .and_then(|name| local_functions.get(name))
+            .and_then(|name| transparent_decorated_functions.get(name))
             .copied();
+        if needs_callable_name && local_source.is_none() {
+            analysis.open_inventory();
+            return;
+        }
         analysis.registrations.push(RegistrationInfo {
             name,
             kind,
-            func_name,
-            local_source,
+            callable: func_name.map_or(RegistrationCallable::Unresolved(None), |function_name| {
+                if let Some(navigation) = local_source {
+                    RegistrationCallable::DecoratedLocal {
+                        function_name,
+                        navigation: Some(navigation),
+                    }
+                } else {
+                    RegistrationCallable::Unresolved(Some(function_name))
+                }
+            }),
         });
         return;
     }
@@ -843,17 +984,116 @@ fn collect_from_call_statement(
     if let Some((name, func_name)) = filter_registration_from_call(call) {
         let local_source = func_name
             .as_deref()
-            .and_then(|name| local_functions.get(name))
+            .and_then(|name| transparent_decorated_functions.get(name))
             .copied();
+        if needs_callable_name && local_source.is_none() {
+            analysis.open_inventory();
+            return;
+        }
         analysis.registrations.push(RegistrationInfo {
             name,
             kind: RegistrationKind::Filter,
-            func_name,
-            local_source,
+            callable: func_name.map_or(RegistrationCallable::Unresolved(None), |function_name| {
+                if let Some(navigation) = local_source {
+                    RegistrationCallable::DecoratedLocal {
+                        function_name,
+                        navigation: Some(navigation),
+                    }
+                } else {
+                    RegistrationCallable::Unresolved(Some(function_name))
+                }
+            }),
         });
     } else {
         analysis.open_inventory();
     }
+}
+
+fn resolved_python_registration(
+    call: &ExprCall,
+    helper: &str,
+    python_facts: &mut PythonSourceLookup<'_>,
+) -> Option<RegistrationInfo> {
+    let args = &call.arguments.args;
+    let keyword = |names: &[&str]| {
+        call.arguments.keywords.iter().find_map(|keyword| {
+            keyword
+                .arg
+                .as_ref()
+                .is_some_and(|name| names.contains(&name.as_str()))
+                .then_some(&keyword.value)
+        })
+    };
+
+    let (kind, name_expression, callable_expression) = match helper {
+        "tag" => match &args[..] {
+            [name, callable] => (RegistrationKind::Tag, Some(name), Some(callable)),
+            [name] if name.string_literal().is_some() => (
+                RegistrationKind::Tag,
+                Some(name),
+                keyword(&["compile_function", "func"]),
+            ),
+            [callable] if keyword(&["name"]).is_none() => {
+                (RegistrationKind::Tag, None, Some(callable))
+            }
+            [] => (
+                RegistrationKind::Tag,
+                keyword(&["name"]),
+                keyword(&["compile_function", "func"]),
+            ),
+            _ => return None,
+        },
+        "simple_tag" | "simple_block_tag" => {
+            let kind = if helper == "simple_tag" {
+                RegistrationKind::SimpleTag
+            } else {
+                RegistrationKind::SimpleBlockTag
+            };
+            let callable = match &args[..] {
+                [callable] => Some(callable),
+                [] => keyword(&["func"]),
+                _ => return None,
+            };
+            (kind, keyword(&["name"]), callable)
+        }
+        "inclusion_tag" => {
+            let callable = match &args[..] {
+                [_template, callable] => Some(callable),
+                [_] | [] => keyword(&["func"]),
+                _ => return None,
+            };
+            (RegistrationKind::InclusionTag, keyword(&["name"]), callable)
+        }
+        "filter" => match &args[..] {
+            [name, callable] => (RegistrationKind::Filter, Some(name), Some(callable)),
+            [name] if name.string_literal().is_some() => (
+                RegistrationKind::Filter,
+                Some(name),
+                keyword(&["filter_func", "func"]),
+            ),
+            [callable] if keyword(&["name"]).is_none() => {
+                (RegistrationKind::Filter, None, Some(callable))
+            }
+            [] => (
+                RegistrationKind::Filter,
+                keyword(&["name"]),
+                keyword(&["filter_func", "func"]),
+            ),
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    let function = python_facts.function(callable_expression?)?;
+    let name = name_expression.map_or_else(
+        || Some(function.name().to_string()),
+        |expression| python_facts.exact_string(expression),
+    )?;
+    Some(RegistrationInfo {
+        name,
+        kind,
+        callable: RegistrationCallable::ResolvedFunction(function),
+    })
 }
 
 /// Extract tag registration info from a call expression.
@@ -878,31 +1118,27 @@ fn tag_registration_from_call(
                 Some((name, kind, func_name))
             }
             [name] if name.string_literal().is_some() => {
-                let name = name.string_literal()?.to_string();
-                let func_name = keyword_func?;
-                Some((name, kind, Some(func_name)))
+                Some((name.string_literal()?.to_string(), kind, keyword_func))
             }
             [callable] if name_override.is_none() => {
                 let func_name = callable_name(callable)?;
                 Some((func_name.clone(), kind, Some(func_name)))
             }
             [] => {
-                let func_name = keyword_func?;
-                let name = name_override.unwrap_or_else(|| func_name.clone());
-                Some((name, kind, Some(func_name)))
+                let name = name_override.or_else(|| keyword_func.clone())?;
+                Some((name, kind, keyword_func))
             }
             _ => None,
         },
         "simple_tag" | "simple_block_tag" => match &args[..] {
             [callable] => {
-                let func_name = callable_name(callable).or(keyword_func)?;
-                let name = name_override.unwrap_or_else(|| func_name.clone());
-                Some((name, kind, Some(func_name)))
+                let func_name = callable_name(callable).or(keyword_func);
+                let name = name_override.or_else(|| func_name.clone())?;
+                Some((name, kind, func_name))
             }
             [] => {
-                let func_name = keyword_func?;
-                let name = name_override.unwrap_or_else(|| func_name.clone());
-                Some((name, kind, Some(func_name)))
+                let name = name_override.or_else(|| keyword_func.clone())?;
+                Some((name, kind, keyword_func))
             }
             _ => None,
         },
@@ -911,9 +1147,9 @@ fn tag_registration_from_call(
                 [_template, callable] => callable_name(callable).or(keyword_func),
                 [_] | [] => keyword_func,
                 _ => None,
-            }?;
-            let name = name_override.unwrap_or_else(|| func_name.clone());
-            Some((name, kind, Some(func_name)))
+            };
+            let name = name_override.or_else(|| func_name.clone())?;
+            Some((name, kind, func_name))
         }
         _ => None,
     }
@@ -938,18 +1174,15 @@ fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<Stri
             Some((name, callable_name(callable).or(keyword_func)))
         }
         [name] if name.string_literal().is_some() => {
-            let name = name.string_literal()?.to_string();
-            let func_name = keyword_func?;
-            Some((name, Some(func_name)))
+            Some((name.string_literal()?.to_string(), keyword_func))
         }
         [callable] if name_override.is_none() => {
             let func_name = callable_name(callable)?;
             Some((func_name.clone(), Some(func_name)))
         }
         [] => {
-            let func_name = keyword_func?;
-            let name = name_override.unwrap_or_else(|| func_name.clone());
-            Some((name, Some(func_name)))
+            let name = name_override.or_else(|| keyword_func.clone())?;
+            Some((name, keyword_func))
         }
         _ => None,
     }
@@ -1173,6 +1406,7 @@ impl TemplateLibrarySymbolSources {
 struct TemplateLibrarySourceAnalysis {
     definitions: TemplateLibraryDefinitionFacts,
     symbol_sources: TemplateLibrarySymbolSources,
+    registration_dependencies: Vec<djls_source::File>,
     tag_rules: TagRuleMap,
     block_specs: BlockSpecs,
     filter_arities: FilterArityMap,
@@ -1187,6 +1421,7 @@ impl TemplateLibrarySourceAnalysis {
                 filters: BTreeMap::new(),
             },
             symbol_sources: TemplateLibrarySymbolSources::default(),
+            registration_dependencies: Vec::new(),
             tag_rules: TagRuleMap::default(),
             block_specs: BlockSpecs::default(),
             filter_arities: FilterArityMap::default(),
@@ -1219,14 +1454,31 @@ fn template_library_source_analysis(
     let mut block_specs = BlockSpecs::default();
     let mut filter_arities = FilterArityMap::default();
     let registration_module = key.module(db).as_str();
-    let registration_analysis =
-        analyze_registrations_from_body_in_module(module.body(db), registration_module);
+    let project_module = db.project().and_then(|project| {
+        PythonSourceModule::resolve(db, project, key.module(db).clone())
+            .filter(|source| source.file() == file)
+            .map(|source| (project, source))
+    });
+    let mut python_facts = project_module.map_or_else(
+        || PythonSourceLookup::for_file(db, file),
+        |(project, module)| PythonSourceLookup::for_module(db, project, module),
+    );
+    let registration_analysis = analyze_registrations_from_body_in_module(
+        module.body(db),
+        registration_module,
+        Some(&mut python_facts),
+    );
+    let used_recovered_source = python_facts.has_recovered_source();
+    let registration_dependencies = python_facts.consulted_files().to_vec();
     let mut symbols_unobserved = parse_quality == TemplateLibraryParseQuality::Recovered
+        || used_recovered_source
         || registration_analysis.inventory_is_open();
 
     for_each_registration(
+        db,
         &registration_analysis,
         module.body(db),
+        file,
         registration_module,
         |registration, func, symbol_key| {
             if let Ok(name) = TemplateSymbolName::parse(&registration.name) {
@@ -1247,25 +1499,49 @@ fn template_library_source_analysis(
                     }
                 }
                 let source = (parse_quality == TemplateLibraryParseQuality::Exact
+                    && !used_recovered_source
                     && !registration_analysis.inventory_is_open())
-                .then_some(registration.local_source)
-                .flatten()
-                .map(|local_source| {
-                    TemplateSymbolSource::new(
+                .then(|| match &registration.callable {
+                    RegistrationCallable::ResolvedFunction(_) => {
+                        func.map(|(function, implementation_file, _)| {
+                            TemplateSymbolSource::new(
+                                implementation_file,
+                                function.span(),
+                                function.name.span(),
+                            )
+                        })
+                    }
+                    RegistrationCallable::DecoratedLocal {
+                        navigation: Some(local_source),
+                        ..
+                    } => Some(TemplateSymbolSource::new(
                         file,
                         local_source.definition_span,
                         local_source.name_span,
-                    )
-                });
+                    )),
+                    RegistrationCallable::DecoratedLocal {
+                        navigation: None, ..
+                    }
+                    | RegistrationCallable::Unresolved(_) => None,
+                })
+                .flatten();
                 symbol_sources.set(kind, symbol_name, source);
             } else {
                 symbols_unobserved = true;
             }
 
-            let Some(func) = func else {
+            tag_rules.remove(&symbol_key);
+            block_specs.0.remove(&symbol_key);
+            filter_arities.remove(&symbol_key);
+
+            let Some((func, implementation_file, imported)) = func else {
                 return;
             };
-            if let Some(rule) = registration.kind.extract_tag_rule(func) {
+            if let Some(rule) = registration.kind.extract_tag_rule(
+                db,
+                imported.then_some(implementation_file),
+                func,
+            ) {
                 tag_rules.insert(symbol_key.clone(), rule.into());
             }
             if let Some(block_spec) = registration.kind.extract_block_spec(func) {
@@ -1310,6 +1586,7 @@ fn template_library_source_analysis(
             filters,
         },
         symbol_sources,
+        registration_dependencies,
         tag_rules,
         block_specs,
         filter_arities,
@@ -1365,6 +1642,17 @@ fn template_library_symbol_sources(
 ) -> TemplateLibrarySymbolSources {
     template_library_source_analysis(db, key)
         .symbol_sources
+        .clone()
+}
+
+/// Python source dependencies followed while resolving one Template Library's registrations.
+#[salsa::tracked(returns(ref))]
+pub fn template_library_registration_dependencies(
+    db: &dyn ProjectDb,
+    key: TemplateLibraryId,
+) -> Vec<djls_source::File> {
+    template_library_source_analysis(db, key)
+        .registration_dependencies
         .clone()
 }
 
@@ -1429,7 +1717,7 @@ mod tests {
     }
 
     fn registered_source<'a>(source: &'a str, registration: &RegistrationInfo) -> Option<&'a str> {
-        let span = registration.local_source?.definition_span;
+        let span = registration.local_source()?.definition_span;
         source.get(span.start_usize()..span.end_usize())
     }
 
@@ -1444,7 +1732,7 @@ mod tests {
                 .all(|registration| registration.name != "stale")
         );
         assert_eq!(
-            find_reg(&registrations, "current").func_name.as_deref(),
+            find_reg(&registrations, "current").func_name(),
             Some("current")
         );
     }
@@ -1460,7 +1748,7 @@ mod tests {
             Some("@register.tag('shown')\ndef implementation(parser, token):\n    pass")
         );
         let local_source = registration
-            .local_source
+            .local_source()
             .expect("decorated registration should retain its local source");
         assert_eq!(
             source.get(local_source.name_span.start_usize()..local_source.name_span.end_usize()),
@@ -1473,7 +1761,7 @@ mod tests {
         let source = "from django import template\nregister = template.Library()\ndef swap(function): return replacement\n@register.tag('shown')\n@swap\ndef original(parser, token): pass\n";
         let registrations = collect_registrations(source);
 
-        assert_eq!(find_reg(&registrations, "shown").local_source, None);
+        assert_eq!(find_reg(&registrations, "shown").local_source(), None);
     }
 
     #[test]
@@ -1481,8 +1769,8 @@ mod tests {
         let source = "from django import template\nregister = template.Library()\ndef swap(function): return replacement\n@swap\n@register.tag('shown')\ndef original(parser, token): pass\nregister.tag('later', original)\n";
         let registrations = collect_registrations(source);
 
-        assert!(find_reg(&registrations, "shown").local_source.is_some());
-        assert_eq!(find_reg(&registrations, "later").local_source, None);
+        assert!(find_reg(&registrations, "shown").local_source().is_some());
+        assert_eq!(find_reg(&registrations, "later").local_source(), None);
     }
 
     #[test]
@@ -1495,17 +1783,18 @@ mod tests {
             .find(|registration| registration.name == "shown")
             .expect("final shown registration should be collected");
 
-        assert_eq!(final_registration.local_source, None);
+        assert_eq!(final_registration.local_source(), None);
     }
 
     #[test]
-    fn direct_registration_uses_the_active_preceding_function_binding() {
+    fn body_only_analysis_defers_plain_function_identity_to_python_facts() {
         let source = "from django import template\nregister = template.Library()\ndef implementation(parser, token):\n    pass\nregister.tag('shown', implementation)\n";
         let registrations = collect_registrations(source);
 
         assert_eq!(
             registered_source(source, find_reg(&registrations, "shown")),
-            Some("def implementation(parser, token):\n    pass")
+            None,
+            "the body-only Django test seam has no Python occurrence product",
         );
     }
 
@@ -1515,7 +1804,7 @@ mod tests {
         let registrations = collect_registrations(source);
 
         for name in ["imported", "forward", "member"] {
-            assert_eq!(find_reg(&registrations, name).local_source, None);
+            assert_eq!(find_reg(&registrations, name).local_source(), None);
         }
     }
 
@@ -1524,11 +1813,11 @@ mod tests {
         let source = "from django import template\nregister = template.Library()\ndef implementation(parser, token):\n    pass\n(implementation := replacement)\nregister.tag('shown', implementation)\n";
         let registrations = collect_registrations(source);
 
-        assert_eq!(find_reg(&registrations, "shown").local_source, None);
+        assert_eq!(find_reg(&registrations, "shown").local_source(), None);
     }
 
     #[test]
-    fn final_registration_keeps_the_final_definite_source() {
+    fn body_only_analysis_does_not_guess_between_plain_function_definitions() {
         let source = "from django import template\nregister = template.Library()\ndef first(parser, token):\n    pass\ndef second(parser, token):\n    pass\nregister.tag('shown', first)\nregister.tag('shown', second)\n";
         let registrations = collect_registrations(source);
         let registration = registrations
@@ -1539,7 +1828,8 @@ mod tests {
 
         assert_eq!(
             registered_source(source, registration),
-            Some("def second(parser, token):\n    pass")
+            None,
+            "the body-only Django test seam has no Python occurrence product",
         );
     }
 
@@ -1550,7 +1840,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "autoescape");
         assert_eq!(reg.kind, RegistrationKind::Tag);
-        assert_eq!(reg.func_name.as_deref(), Some("autoescape"));
+        assert_eq!(reg.func_name(), Some("autoescape"));
     }
 
     // Corpus: `querystring` in django/template/defaulttags.py uses
@@ -1561,7 +1851,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "querystring");
         assert_eq!(reg.kind, RegistrationKind::SimpleTag);
-        assert_eq!(reg.func_name.as_deref(), Some("querystring"));
+        assert_eq!(reg.func_name(), Some("querystring"));
     }
 
     // Corpus: `inclusion_no_params` in tests/template_tests/templatetags/inclusion.py uses
@@ -1591,7 +1881,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "escapejs");
         assert_eq!(reg.kind, RegistrationKind::Filter);
-        assert_eq!(reg.func_name.as_deref(), Some("escapejs_filter"));
+        assert_eq!(reg.func_name(), Some("escapejs_filter"));
     }
 
     // Corpus: `other_echo` in tests/template_tests/templatetags/testtags.py uses
@@ -1602,7 +1892,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "other_echo");
         assert_eq!(reg.kind, RegistrationKind::Tag);
-        assert_eq!(reg.func_name.as_deref(), Some("echo"));
+        assert_eq!(reg.func_name(), Some("echo"));
     }
 
     // Corpus: `intcomma` in wagtail/admin/templatetags/wagtailadmin_tags.py uses
@@ -1613,7 +1903,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "intcomma");
         assert_eq!(reg.kind, RegistrationKind::Filter);
-        assert_eq!(reg.func_name.as_deref(), Some("intcomma"));
+        assert_eq!(reg.func_name(), Some("intcomma"));
     }
 
     // Corpus: `for` in django/template/defaulttags.py uses `@register.tag("for")`
@@ -1624,7 +1914,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "for");
         assert_eq!(reg.kind, RegistrationKind::Tag);
-        assert_eq!(reg.func_name.as_deref(), Some("do_for"));
+        assert_eq!(reg.func_name(), Some("do_for"));
     }
 
     // Corpus: `addslashes` in django/template/defaultfilters.py uses
@@ -1635,7 +1925,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "addslashes");
         assert_eq!(reg.kind, RegistrationKind::Filter);
-        assert_eq!(reg.func_name.as_deref(), Some("addslashes"));
+        assert_eq!(reg.func_name(), Some("addslashes"));
     }
 
     // Corpus: `partialdef` in django/template/defaulttags.py uses
@@ -1646,7 +1936,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "partialdef");
         assert_eq!(reg.kind, RegistrationKind::Tag);
-        assert_eq!(reg.func_name.as_deref(), Some("partialdef_func"));
+        assert_eq!(reg.func_name(), Some("partialdef_func"));
     }
 
     // Corpus: `dialog` in wagtail/admin/templatetags/wagtailadmin_tags.py uses
@@ -1657,7 +1947,7 @@ mod tests {
         let regs = collect_registrations(source);
         let reg = find_reg(&regs, "dialog");
         assert_eq!(reg.kind, RegistrationKind::Tag);
-        assert_eq!(reg.func_name.as_deref(), Some("DialogNode.handle"));
+        assert_eq!(reg.func_name(), Some("DialogNode.handle"));
     }
 
     // Corpus: `div` in tests/template_tests/templatetags/custom.py uses
@@ -1741,7 +2031,7 @@ register.simple_tag(my_func, name="alias")
         assert_eq!(regs.len(), 1);
         assert_eq!(regs[0].name, "alias");
         assert_eq!(regs[0].kind, RegistrationKind::SimpleTag);
-        assert_eq!(regs[0].func_name.as_deref(), Some("my_func"));
+        assert_eq!(regs[0].func_name(), Some("my_func"));
     }
 
     #[test]
@@ -1767,33 +2057,31 @@ class MyClass:
     // Edge case: register.tag(do_something) — single func arg, no name string.
     // Valid Django API but rare. Not found cleanly in corpus.
     #[test]
-    fn call_style_single_func_no_name() {
+    fn unresolved_callable_derived_tag_name_stays_unknown() {
         let source = r"
 from django import template
 register = template.Library()
 
 register.tag(do_something)
 ";
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "do_something");
-        assert_eq!(regs[0].kind, RegistrationKind::Tag);
+        let analysis = analyze_registrations(source);
+        assert!(analysis.registrations.is_empty());
+        assert!(analysis.inventory_is_open());
     }
 
     // Edge case: register.filter(my_filter_func) — single func arg, no name string.
     // Valid Django API but rare. Not found cleanly in corpus.
     #[test]
-    fn call_style_filter_single_func_no_name() {
+    fn unresolved_callable_derived_filter_name_stays_unknown() {
         let source = r"
 from django import template
 register = template.Library()
 
 register.filter(my_filter_func)
 ";
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "my_filter_func");
-        assert_eq!(regs[0].kind, RegistrationKind::Filter);
+        let analysis = analyze_registrations(source);
+        assert!(analysis.registrations.is_empty());
+        assert!(analysis.inventory_is_open());
     }
 
     // Edge case: name kwarg overrides positional string arg.

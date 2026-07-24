@@ -5,6 +5,7 @@ use djls_project::ScopedTemplateLibraries;
 use djls_project::template_directories;
 use djls_project::template_library_catalog;
 use djls_project::template_library_definition_facts;
+use djls_project::template_library_registration_dependencies;
 use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::library_filter_specs;
@@ -82,6 +83,11 @@ pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemp
             && !reprime_files.contains(&file)
         {
             reprime_files.push(file);
+        }
+        for &file in template_library_registration_dependencies(db, key) {
+            if !reprime_files.contains(&file) {
+                reprime_files.push(file);
+            }
         }
     }
 
@@ -342,6 +348,44 @@ mod tests {
                 execution_count(&names, intrinsic),
                 0,
                 "repeated prime ran {intrinsic}"
+            );
+        }
+    }
+
+    #[test]
+    fn priming_covers_imported_registration_sources() {
+        let mut db = TestDatabase::new();
+        ProjectFixture::new("/project")
+            .django_settings_module("settings")
+            .file(
+                "/project/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'builtins': ['app.templatetags.tags']}}]\n",
+            )
+            .file("/project/app/__init__.py", "")
+            .file("/project/app/templatetags/__init__.py", "")
+            .file(
+                "/project/app/templatetags/tags.py",
+                "from django import template\nfrom . import implementation\nregister = template.Library()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
+            )
+            .file(
+                "/project/app/templatetags/implementation.py",
+                "TAG = 'imported'\ndef compile_tag(parser, token): pass\n",
+            )
+            .install(&mut db)
+            .expect("imported registration warmup fixture should install");
+
+        let primed = prime_template_library_products(&db).expect("fixture has a Project");
+        for path in [
+            "/project/app/__init__.py",
+            "/project/app/templatetags/__init__.py",
+            "/project/app/templatetags/implementation.py",
+        ] {
+            assert!(
+                primed
+                    .reprime_files()
+                    .iter()
+                    .any(|file| file.path(&db) == Utf8Path::new(path)),
+                "priming coverage should include {path}",
             );
         }
     }
