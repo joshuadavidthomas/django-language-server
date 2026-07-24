@@ -258,19 +258,45 @@ pub enum ChainEnd {
     Cycle,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BlockSite {
     pub file: File,
     pub name_span: Span,
     pub full_span: Span,
 }
 
+/// Exact local block definition at `name_span`.
+pub fn block_definition_at(db: &dyn Db, file: File, name_span: Span) -> Option<BlockSite> {
+    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
+        return None;
+    };
+    template_symbols(db, file, nodelist)
+        .blocks()
+        .iter()
+        .find(|block| block.name_span == name_span)
+        .map(|block| BlockSite {
+            file,
+            name_span: block.name_span,
+            full_span: block.full_span,
+        })
+}
+
+/// Definite ancestor definitions of `name`, nearest first and stopping at uncertainty.
+pub fn ancestor_blocks(db: &dyn Db, project: Project, file: File, name: &str) -> Vec<BlockSite> {
+    let mut ancestors = Vec::new();
+    for origin in template_inheritance(db, project, file).ancestors(db) {
+        match block_site_in_scope(db, origin.file(db), file, name) {
+            BlockSiteLookup::Found(site) => ancestors.push(site),
+            BlockSiteLookup::Absent => {}
+            BlockSiteLookup::Inconclusive => break,
+        }
+    }
+    ancestors
+}
+
 /// Nearest ancestor definition of `name`.
 pub fn parent_block(db: &dyn Db, project: Project, file: File, name: &str) -> Option<BlockSite> {
-    template_inheritance(db, project, file)
-        .ancestors(db)
-        .iter()
-        .find_map(|origin| first_block_site_in_scope(db, origin.file(db), file, name))
+    ancestor_blocks(db, project, file, name).into_iter().next()
 }
 
 /// Block names visible from ancestors, using the nearest definition site per name.
@@ -283,7 +309,11 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
         let TemplateParseResult::Parsed(nodelist) = parse_template(db, ancestor_file) else {
             continue;
         };
-        for block in template_symbols_in_scope(db, ancestor_file, nodelist, file).blocks() {
+        let symbols = template_symbols_in_scope(db, ancestor_file, nodelist, file);
+        for name in &symbols.uncertain_block_names {
+            seen.insert(name.as_str());
+        }
+        for block in symbols.blocks() {
             if seen.insert(block.name.as_str()) {
                 inherited.push((
                     block.name.clone(),
@@ -300,100 +330,79 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
     inherited
 }
 
-/// Descendant templates that define `name`, discovered through exact reverse extends edges.
+/// Descendant templates that define `name`, discovered through definite reverse extends edges.
 ///
-/// Each candidate reference is re-resolved from its source origin and backend scope. Traversal
-/// therefore follows the concrete origin selected by Django rather than every file sharing a
-/// template name.
+/// A physical descendant contributes an edge only when its feasible origins agree on the same
+/// parent file. This is the reverse of `template_inheritance`, not a union of backend-local chains.
 pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) -> Vec<BlockSite> {
     let resolution = template_resolution(db, project);
-    let roots = resolution
-        .template_names_for_file(db, file)
-        .iter()
-        .flat_map(|template_name| resolution.origins_for_name(db, *template_name))
-        .filter(|origin| origin.file(db) == file)
-        .copied()
-        .collect::<Vec<_>>();
-    if roots.is_empty() {
+    if resolution.template_names_for_file(db, file).is_empty() {
         return Vec::new();
     }
 
-    let mut queue = VecDeque::from(roots.clone());
-    let mut visited_origins = roots.into_iter().collect::<FxHashSet<_>>();
-    let mut emitted_sites = FxHashSet::default();
+    let mut candidate_files = Vec::new();
+    for origin in resolution.origins(db) {
+        let candidate = origin.file(db);
+        if !candidate_files.contains(&candidate) {
+            candidate_files.push(candidate);
+        }
+    }
+
+    let mut queue = VecDeque::from([file]);
+    let mut visited_files = FxHashSet::from_iter([file]);
     let mut overrides = Vec::new();
 
     while let Some(target) = queue.pop_front() {
-        for descendant in resolution.origins(db) {
-            if !origin_extends_exact_target(db, resolution, descendant, target) {
+        for descendant in &candidate_files {
+            if visited_files.contains(descendant) {
+                continue;
+            }
+            let inheritance = template_inheritance(db, project, *descendant);
+            let Some(parent) = inheritance.ancestors(db).first() else {
+                continue;
+            };
+            if parent.file(db) != target || !visited_files.insert(*descendant) {
                 continue;
             }
 
-            if !visited_origins.insert(descendant) {
-                continue;
+            match block_site_in_scope(db, *descendant, *descendant, name) {
+                BlockSiteLookup::Found(site) => {
+                    overrides.push(site);
+                    queue.push_back(*descendant);
+                }
+                BlockSiteLookup::Absent => queue.push_back(*descendant),
+                BlockSiteLookup::Inconclusive => {}
             }
-
-            // A physical descendant can be reached through several origin names. Keep traversing
-            // each origin because its relative-name anchor and backend scope differ, but emit its
-            // block definition only once.
-            if let Some(site) =
-                first_block_site_in_scope(db, descendant.file(db), descendant.file(db), name)
-                && emitted_sites.insert((site.file, site.name_span, site.full_span))
-            {
-                overrides.push(site);
-            }
-            queue.push_back(descendant);
         }
     }
 
     overrides
 }
 
-fn origin_extends_exact_target<'db>(
-    db: &'db dyn Db,
-    resolution: TemplateResolution<'db>,
-    source: TemplateOrigin<'db>,
-    target: TemplateOrigin<'db>,
-) -> bool {
-    let file = source.file(db);
-    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
-        return false;
-    };
-    let Some(ExtendsTarget::Literal { name, .. }) =
-        template_symbols_in_scope(db, file, nodelist, file).extends()
-    else {
-        return false;
-    };
-    let Some(resolved_name) =
-        resolve_relative_name(Some(source.template_name(db).name(db)), name, false)
-    else {
-        return false;
-    };
-    let name = TemplateName::new(db, resolved_name.into_owned());
-    let scope = resolution.backend_scope_for_origin(db, source);
-    matches!(
-        resolution.resolve_excluding_origins_in_scope(db, name, &[source], &scope),
-        TemplateResolutionResult::Found(origin) if origin == target
-    )
+enum BlockSiteLookup {
+    Found(BlockSite),
+    Absent,
+    Inconclusive,
 }
 
-fn first_block_site_in_scope(
-    db: &dyn Db,
-    file: File,
-    scope_file: File,
-    name: &str,
-) -> Option<BlockSite> {
+fn block_site_in_scope(db: &dyn Db, file: File, scope_file: File, name: &str) -> BlockSiteLookup {
     let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
-        return None;
+        return BlockSiteLookup::Absent;
     };
-    template_symbols_in_scope(db, file, nodelist, scope_file)
+    let symbols = template_symbols_in_scope(db, file, nodelist, scope_file);
+    if symbols.uncertain_block_names.contains(name) {
+        return BlockSiteLookup::Inconclusive;
+    }
+    symbols
         .blocks()
         .iter()
         .find(|block| block.name == name)
-        .map(|block| BlockSite {
-            file,
-            name_span: block.name_span,
-            full_span: block.full_span,
+        .map_or(BlockSiteLookup::Absent, |block| {
+            BlockSiteLookup::Found(BlockSite {
+                file,
+                name_span: block.name_span,
+                full_span: block.full_span,
+            })
         })
 }
 
@@ -420,6 +429,7 @@ fn template_symbols_in_scope<'db>(
         tag_facts: projection.scoped_tag_facts(db),
         regions,
         blocks: Vec::new(),
+        uncertain_block_names: FxHashSet::default(),
         partials: Vec::new(),
         extends: None,
     };
@@ -431,6 +441,7 @@ fn template_symbols_in_scope<'db>(
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TemplateSymbols {
     blocks: Vec<BlockDef>,
+    uncertain_block_names: FxHashSet<String>,
     partials: Vec<PartialDef>,
     extends: Option<ExtendsTarget>,
 }
@@ -476,6 +487,7 @@ struct SymbolBuilder<'a> {
     tag_facts: &'a ScopedTagFacts,
     regions: &'a Regions,
     blocks: Vec<BlockDef>,
+    uncertain_block_names: FxHashSet<String>,
     partials: Vec<PartialDef>,
     extends: Option<ExtendsTarget>,
 }
@@ -484,6 +496,7 @@ impl SymbolBuilder<'_> {
     fn finish(self) -> TemplateSymbols {
         TemplateSymbols {
             blocks: self.blocks,
+            uncertain_block_names: self.uncertain_block_names,
             partials: self.partials,
             extends: self.extends,
         }
@@ -522,6 +535,7 @@ impl SymbolBuilder<'_> {
                 bits,
                 full_span,
             } => {
+                self.collect_uncertain_block_name(*name_span, bits);
                 self.collect_extends(tag, *name_span, bits, *full_span);
             }
             TemplateNode::Opaque { .. }
@@ -557,6 +571,18 @@ impl SymbolBuilder<'_> {
             | TagRole::TemplateTag
             | TagRole::StaticAssetReference
             | TagRole::RouteReference => {}
+        }
+    }
+
+    fn collect_uncertain_block_name(&mut self, name_span: Span, bits: &[TagBit]) {
+        let Some(facts) = self.tag_facts.for_name_span(name_span) else {
+            return;
+        };
+        if facts.spec.is_some() || !facts.structure_accepts_spelling {
+            return;
+        }
+        if let Some(name) = bits.first() {
+            self.uncertain_block_names.insert(name.as_str().to_string());
         }
     }
 

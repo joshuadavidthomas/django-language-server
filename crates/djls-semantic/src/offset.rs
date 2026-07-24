@@ -36,6 +36,10 @@ pub enum SemanticOffsetContext<'db> {
         library: String,
         span: Span,
     },
+    TemplateBlock {
+        name: String,
+        span: Span,
+    },
     Tag {
         name: String,
         loaded_libraries: Vec<String>,
@@ -175,6 +179,14 @@ impl<'db> SemanticOffsetContext<'db> {
                         })
                 }
             }
+        } else if spec.and_then(TagSpec::role) == Some(TagRole::TemplateBlock) {
+            tag.bits
+                .first()
+                .filter(|name| name.span.contains(offset))
+                .map_or(Self::None, |name| Self::TemplateBlock {
+                    name: name.as_str().to_string(),
+                    span: name.span,
+                })
         } else {
             spec.and_then(|spec| LiteralTemplateReference::from_spec(spec, tag.bits))
                 .filter(|reference| reference.bit_span.contains(offset))

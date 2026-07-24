@@ -631,7 +631,13 @@ impl LanguageServer for DjangoLanguageServer {
                     return None;
                 }
 
-                djls_ide::find_references(db, file, offset)
+                djls_ide::find_references(
+                    db,
+                    file,
+                    offset,
+                    snapshot.client_info().position_encoding(),
+                    params.context.include_declaration,
+                )
             })
             .await;
 

@@ -407,6 +407,308 @@ fn goto_definition_returns_none_for_originless_inconclusive_search() {
 }
 
 #[test]
+fn goto_definition_resolves_template_block_to_nearest_parent() {
+    let mut db = TestDatabase::new();
+    let parent_source = "{% block title %}Parent{% endblock %}";
+    let child_source = "{% extends \"base.html\" %}\n{% block title %}Child{% endblock %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file("/test/project/templates/base.html", parent_source)
+        .file("/test/project/templates/child.html", child_source)
+        .install(&mut db)
+        .expect("Template Block navigation fixture should install");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("child Template fixture should exist");
+    let parent = db
+        .file(Utf8Path::new("/test/project/templates/base.html"))
+        .expect("parent Template fixture should exist");
+
+    let response = goto_definition(&db, child, offset_of(child_source, "title"), true)
+        .expect("overridden Template Block should resolve to its parent");
+
+    assert_eq!(
+        response,
+        ls_types::GotoDefinitionResponse::Link(vec![ls_types::LocationLink {
+            origin_selection_range: Some(ls_types::Range::new(
+                ls_types::Position::new(1, 9),
+                ls_types::Position::new(1, 14),
+            )),
+            target_uri: "file:///test/project/templates/base.html"
+                .parse()
+                .expect("test URI should parse"),
+            target_range: ls_types::Range::new(
+                ls_types::Position::new(0, 0),
+                ls_types::Position::new(
+                    0,
+                    u32::try_from(parent_source.len())
+                        .expect("parent Template length should fit in u32"),
+                ),
+            ),
+            target_selection_range: ls_types::Range::new(
+                ls_types::Position::new(0, 9),
+                ls_types::Position::new(0, 14),
+            ),
+        }])
+    );
+    let root_response = goto_definition(&db, parent, offset_of(parent_source, "title"), true)
+        .expect("a root Template Block should resolve to itself");
+    let ls_types::GotoDefinitionResponse::Link(root_links) = root_response else {
+        panic!("LocationLink client should receive a root Template Block link")
+    };
+    assert_eq!(
+        root_links[0].target_uri.as_str(),
+        "file:///test/project/templates/base.html"
+    );
+    assert_eq!(
+        root_links[0].target_selection_range,
+        ls_types::Range::new(
+            ls_types::Position::new(0, 9),
+            ls_types::Position::new(0, 14),
+        )
+    );
+
+    let references = find_references(
+        &db,
+        child,
+        offset_of(child_source, "title"),
+        PositionEncoding::Utf8,
+        true,
+    )
+    .expect("Template Block references should include the root and override");
+    assert_eq!(
+        references,
+        vec![
+            ls_types::Location {
+                uri: "file:///test/project/templates/base.html"
+                    .parse()
+                    .expect("test URI should parse"),
+                range: ls_types::Range::new(
+                    ls_types::Position::new(0, 9),
+                    ls_types::Position::new(0, 14),
+                ),
+            },
+            ls_types::Location {
+                uri: "file:///test/project/templates/child.html"
+                    .parse()
+                    .expect("test URI should parse"),
+                range: ls_types::Range::new(
+                    ls_types::Position::new(1, 9),
+                    ls_types::Position::new(1, 14),
+                ),
+            },
+        ]
+    );
+}
+
+#[test]
+fn goto_definition_resolves_a_projectless_root_block_to_itself() {
+    let db = TestDatabase::new();
+    let source = "{% block title %}Root{% endblock %}";
+    db.add_file("/projectless.html", source)
+        .expect("projectless Template fixture should load");
+    let file = db
+        .file(Utf8Path::new("/projectless.html"))
+        .expect("projectless Template fixture should exist");
+
+    let response = goto_definition(&db, file, offset_of(source, "title"), true)
+        .expect("projectless root Template Block should resolve to itself");
+    let ls_types::GotoDefinitionResponse::Link(links) = response else {
+        panic!("LocationLink client should receive a projectless Template Block link")
+    };
+    assert_eq!(links[0].target_uri.as_str(), "file:///projectless.html");
+    assert_eq!(
+        links[0].target_selection_range,
+        ls_types::Range::new(
+            ls_types::Position::new(0, 9),
+            ls_types::Position::new(0, 14),
+        )
+    );
+}
+
+#[test]
+fn goto_definition_encodes_template_block_targets_for_link_and_plain_clients() {
+    let mut db = TestDatabase::new();
+    let parent_source = "😀{% block title %}Parent{% endblock %}";
+    let child_source = "{% extends \"base.html\" %}\n😀{% block title %}Child{% endblock %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file("/test/project/templates/base.html", parent_source)
+        .file("/test/project/templates/child.html", child_source)
+        .install(&mut db)
+        .expect("encoded Template Block navigation fixture should install");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("encoded child Template fixture should exist");
+    let offset = offset_of(child_source, "title");
+
+    let linked = ide_goto_definition(&db, child, offset, true, PositionEncoding::Utf16)
+        .expect("encoded Template Block should resolve for a link client");
+    let ls_types::GotoDefinitionResponse::Link(links) = linked else {
+        panic!("LocationLink client should receive a Template Block link")
+    };
+    assert_eq!(
+        links[0].origin_selection_range,
+        Some(ls_types::Range::new(
+            ls_types::Position::new(1, 11),
+            ls_types::Position::new(1, 16),
+        ))
+    );
+    assert_eq!(links[0].target_range.start, ls_types::Position::new(0, 2));
+    assert_eq!(
+        links[0].target_selection_range,
+        ls_types::Range::new(
+            ls_types::Position::new(0, 11),
+            ls_types::Position::new(0, 16),
+        )
+    );
+
+    let plain = ide_goto_definition(&db, child, offset, false, PositionEncoding::Utf16)
+        .expect("encoded Template Block should resolve for a plain client");
+    let ls_types::GotoDefinitionResponse::Scalar(location) = plain else {
+        panic!("plain client should receive one Template Block location")
+    };
+    assert_eq!(
+        location.uri,
+        "file:///test/project/templates/base.html"
+            .parse()
+            .expect("test URI should parse")
+    );
+    assert_eq!(location.range.start, ls_types::Position::new(0, 2));
+
+    let references = find_references(&db, child, offset, PositionEncoding::Utf16, true)
+        .expect("encoded Template Block references should resolve");
+    assert_eq!(
+        references
+            .iter()
+            .map(|location| location.range)
+            .collect::<Vec<_>>(),
+        vec![
+            ls_types::Range::new(
+                ls_types::Position::new(0, 11),
+                ls_types::Position::new(0, 16),
+            ),
+            ls_types::Range::new(
+                ls_types::Position::new(1, 11),
+                ls_types::Position::new(1, 16),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn goto_definition_does_not_skip_an_uncertain_parent_block() {
+    let mut db = TestDatabase::new();
+    let base_source = "{% block title %}Base{% endblock %}";
+    let child_source = "{% extends \"layout.html\" %}\n{% block title %}Child{% endblock %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]\n",
+        )
+        .file("/test/project/templates/base.html", base_source)
+        .file(
+            "/test/project/templates/layout.html",
+            "{% extends \"base.html\" %}\n{% load unknown_library %}\n{% block title %}Layout{% endblock %}",
+        )
+        .file("/test/project/templates/child.html", child_source)
+        .install(&mut db)
+        .expect("uncertain parent Template Block fixture should install");
+    let child = db
+        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .expect("child Template fixture should exist");
+    let base = db
+        .file(Utf8Path::new("/test/project/templates/base.html"))
+        .expect("base Template fixture should exist");
+
+    let response = goto_definition(&db, child, offset_of(child_source, "title"), true)
+        .expect("an uncertain parent should leave the local Template Block as the target");
+    let ls_types::GotoDefinitionResponse::Link(links) = response else {
+        panic!("LocationLink client should receive the local Template Block link")
+    };
+    assert_eq!(
+        links[0].target_uri.as_str(),
+        "file:///test/project/templates/child.html"
+    );
+    assert_eq!(
+        links[0].target_selection_range,
+        ls_types::Range::new(
+            ls_types::Position::new(1, 9),
+            ls_types::Position::new(1, 14),
+        )
+    );
+    assert!(
+        find_references(
+            &db,
+            base,
+            offset_of(base_source, "title"),
+            PositionEncoding::Utf8,
+            false,
+        )
+        .is_none(),
+        "reverse references must not cross an uncertain block"
+    );
+    let local_references = find_references(
+        &db,
+        child,
+        offset_of(child_source, "title"),
+        PositionEncoding::Utf8,
+        true,
+    )
+    .expect("the definite local block should remain a declaration");
+    assert_eq!(local_references.len(), 1);
+    assert_eq!(
+        local_references[0].uri.as_str(),
+        "file:///test/project/templates/child.html"
+    );
+}
+
+#[test]
+fn find_references_keeps_an_originless_local_override() {
+    let mut db = TestDatabase::new();
+    let source = "{% extends \"base.html\" %}\n{% block title %}Scratch{% endblock %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(
+            "/test/project/templates/base.html",
+            "{% block title %}Base{% endblock %}",
+        )
+        .file("/test/project/scratch.html", source)
+        .install(&mut db)
+        .expect("originless block-reference fixture should install");
+    let scratch = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("originless Template fixture should exist");
+
+    let references = find_references(
+        &db,
+        scratch,
+        offset_of(source, "title"),
+        PositionEncoding::Utf8,
+        false,
+    )
+    .expect("the originless local override should remain a reference");
+    assert_eq!(references.len(), 1);
+    assert_eq!(
+        references[0].uri.as_str(),
+        "file:///test/project/scratch.html"
+    );
+}
+
+#[test]
 fn goto_definition_resolves_template_library_to_module_start() {
     let source = "{% load custom %}";
     let (db, file) = custom_symbol_navigation_fixture(source, CUSTOM_SYMBOL_LIBRARY)
@@ -874,6 +1176,8 @@ fn find_references_resolves_extends_with_the_source_origin_skipped() {
             )
             .expect("test source offset should fit in u32"),
         ),
+        PositionEncoding::Utf8,
+        false,
     )
     .expect("the shadowing template should reference the next origin");
 
@@ -926,6 +1230,8 @@ fn find_references_skips_the_source_file_across_template_name_aliases() {
             )
             .expect("test source offset should fit in u32"),
         ),
+        PositionEncoding::Utf8,
+        false,
     )
     .expect("every source alias should resolve the extends reference to the parent");
 
@@ -969,6 +1275,8 @@ fn find_references_reports_template_name_interior_range() {
             )
             .expect("test source offset should fit in u32"),
         ),
+        PositionEncoding::Utf8,
+        false,
     )
     .expect("template reference should resolve to at least one reference");
 

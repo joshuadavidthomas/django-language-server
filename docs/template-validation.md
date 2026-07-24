@@ -49,7 +49,7 @@ Each layer has a different failure mode and a different fix:
 
 The same inventory powers editor navigation. Resolved `{% load %}` library names become document links and go-to-definition targets for their Python source files. Selective-load symbols and available Tag and Filter names jump to definite local Python declarations. Dynamic, imported, member, and ambiguous callables are skipped rather than guessed.
 
-Template directory discovery also powers go to definition for literal `{% extends %}` and `{% include %}` names. Editors that support definition links receive exact origin and declaration ranges.
+Template directory discovery also powers go to definition for literal `{% extends %}` and `{% include %}` names. An overridden `{% block %}` name resolves to the nearest definite parent block; a root block resolves to itself. Find references returns the root block and its definite overrides. Editors that support definition links receive exact origin and declaration ranges.
 
 This gives you diagnostics based on the same template tag inventory Django would use at runtime, while distinguishing "not installed or misspelled" from "installed but not activated".
 

@@ -5,9 +5,14 @@ use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolSource;
 use djls_project::template_resolution;
 use djls_project::template_symbol_source;
+use djls_semantic::BlockSite;
 use djls_semantic::SemanticOffsetContext;
 use djls_semantic::TemplateReferenceKind;
+use djls_semantic::ancestor_blocks;
+use djls_semantic::block_definition_at;
+use djls_semantic::block_overrides;
 use djls_semantic::effective_symbol_candidate_at;
+use djls_semantic::parent_block;
 use djls_semantic::references_to_template_name;
 use djls_semantic::resolve_reference_for_file;
 use djls_semantic::resolve_reference_origins;
@@ -26,6 +31,7 @@ use crate::ext::Utf8PathExt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DefinitionTarget {
+    Block(BlockSite),
     File(File),
     Symbol(TemplateSymbolSource),
 }
@@ -257,6 +263,20 @@ pub fn goto_definition(
                 position_encoding,
             )
         }
+        SemanticOffsetContext::TemplateBlock { name, span } => {
+            let local = block_definition_at(db, file, span)?;
+            let target = db
+                .project()
+                .and_then(|project| parent_block(db, project, file, &name))
+                .unwrap_or(local);
+            exact_definition_response(
+                db,
+                encoded_range(db, file, span, position_encoding)?,
+                vec![DefinitionTarget::Block(target)],
+                supports_location_links,
+                position_encoding,
+            )
+        }
         SemanticOffsetContext::Tag { name, span, .. } => symbol_occurrence_response(
             db,
             file,
@@ -283,8 +303,43 @@ pub fn find_references(
     db: &dyn djls_semantic::Db,
     file: File,
     offset: Offset,
+    position_encoding: PositionEncoding,
+    include_declaration: bool,
 ) -> Option<Vec<ls_types::Location>> {
     match SemanticOffsetContext::from_offset(db, file, offset) {
+        SemanticOffsetContext::TemplateBlock { name, span } => {
+            let local = block_definition_at(db, file, span)?;
+            let sites = if let Some(project) = db.project() {
+                let root = ancestor_blocks(db, project, file, &name)
+                    .last()
+                    .copied()
+                    .unwrap_or(local);
+                let mut sites = block_overrides(db, project, root.file, &name);
+                if local != root && !sites.contains(&local) {
+                    sites.push(local);
+                }
+                if include_declaration {
+                    sites.insert(0, root);
+                }
+                sites
+            } else if include_declaration {
+                vec![local]
+            } else {
+                Vec::new()
+            };
+            let locations = sites
+                .into_iter()
+                .filter_map(|site| {
+                    let (uri, _definition_range, name_range) =
+                        DefinitionTarget::Block(site).to_lsp_parts(db, position_encoding)?;
+                    Some(ls_types::Location {
+                        uri,
+                        range: name_range,
+                    })
+                })
+                .collect::<Vec<_>>();
+            (!locations.is_empty()).then_some(locations)
+        }
         SemanticOffsetContext::TemplateReference {
             name: template_name,
             kind,
@@ -333,7 +388,7 @@ pub fn find_references(
                     };
                     let location = ls_types::Location {
                         uri,
-                        range: reference.span(db).to_lsp_range(ref_file.line_index(db)),
+                        range: encoded_range(db, ref_file, reference.span(db), position_encoding)?,
                     };
                     if !locations.contains(&location) {
                         locations.push(location);

@@ -32,9 +32,9 @@ Prefer conservative diagnostics over false positives when project facts are part
 
 #### Inheritance block intelligence
 
-**Status:** 📅 Planned
+**Status:** 🚧 Partially supported
 
-Users should be able to navigate and understand Django template inheritance without manual search. The first pass should support going to parent block definitions, finding child block overrides, and completing block names from parent templates.
+Go to definition resolves block names across template inheritance, and find references returns the root block and its definite overrides. Completing block names from parent templates remains.
 
 #### Code actions for safe diagnostics
 
@@ -102,13 +102,13 @@ Hover is supported for template tags, filters, libraries, selectively loaded sym
 
 **Status:** 🚧 Partially supported
 
-Go to definition works for literal template references in `{% extends %}` and `{% include %}`, Template Library arguments in `{% load %}`, selective-load symbols, and available Template Tags and Filters with definite local Python declarations. Clients that support definition links receive exact origin and declaration ranges; older clients receive plain locations. Ambiguous definitions and dynamic, imported, or member callables do not produce guessed targets. The next improvement is parent block navigation across inheritance.
+Go to definition works for literal template references in `{% extends %}` and `{% include %}`, block names, Template Library arguments in `{% load %}`, selective-load symbols, and available Template Tags and Filters with definite local Python declarations. Block overrides resolve to the nearest definite parent; root or uncertain-parent blocks resolve to themselves. Clients that support definition links receive exact origin and declaration ranges; older clients receive plain locations. Ambiguous definitions and dynamic, imported, or member callables do not produce guessed targets.
 
 #### Find references
 
 **Status:** 🚧 Partially supported
 
-Find references works for templates used by `{% extends %}` and `{% include %}`. Block override/reference search should come next, with variable, URL, static asset, settings, and model references later.
+Find references works for templates used by `{% extends %}` and `{% include %}` and for definite block definitions across template inheritance. Variable, URL, static asset, settings, and model references remain.
 
 #### Document symbols
 
@@ -217,13 +217,12 @@ Execute commands may be useful for hierarchy views, project-status inspection, o
 ## Priority Order
 
 1. Template-name completion for `{% extends %}` and `{% include %}`.
-2. Block navigation across inheritance.
-3. Block references and block-name completion.
-4. Code actions for existing diagnostics.
-5. URL/static completions and diagnostics.
-6. Settings hover and typo diagnostics.
-7. Model facts surfaced through navigation and hover.
-8. Template context and variable intelligence.
+2. Block-name completion.
+3. Code actions for existing diagnostics.
+4. URL/static completions and diagnostics.
+5. Settings hover and typo diagnostics.
+6. Model facts surfaced through navigation and hover.
+7. Template context and variable intelligence.
 
 ## Deferred or Not Planned
 

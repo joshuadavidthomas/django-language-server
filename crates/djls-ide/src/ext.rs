@@ -134,29 +134,23 @@ impl DefinitionTargetExt for DefinitionTarget {
         db: &dyn djls_semantic::Db,
         encoding: PositionEncoding,
     ) -> Option<(ls_types::Uri, ls_types::Range, ls_types::Range)> {
-        match self {
+        let (file, definition_span, name_span) = match self {
+            DefinitionTarget::Block(site) => (site.file, site.full_span, site.name_span),
             DefinitionTarget::File(file) => {
                 let uri = file.path(db).to_lsp_uri()?;
                 let range = ls_types::Range::default();
-                Some((uri, range, range))
+                return Some((uri, range, range));
             }
             DefinitionTarget::Symbol(source) => {
-                let file = source.file();
-                let text = file.try_source(db).ok()?;
-                let line_index = file.line_index(db);
-                let range = source.definition_span().to_lsp_range_with_encoding(
-                    text.as_str(),
-                    line_index,
-                    encoding,
-                );
-                let selection_range = source.name_span().to_lsp_range_with_encoding(
-                    text.as_str(),
-                    line_index,
-                    encoding,
-                );
-                Some((file.path(db).to_lsp_uri()?, range, selection_range))
+                (source.file(), source.definition_span(), source.name_span())
             }
-        }
+        };
+        let text = file.try_source(db).ok()?;
+        let line_index = file.line_index(db);
+        let range = definition_span.to_lsp_range_with_encoding(text.as_str(), line_index, encoding);
+        let selection_range =
+            name_span.to_lsp_range_with_encoding(text.as_str(), line_index, encoding);
+        Some((file.path(db).to_lsp_uri()?, range, selection_range))
     }
 }
 
