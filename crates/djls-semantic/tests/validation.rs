@@ -649,7 +649,7 @@ fn configured_same_name_specs_remain_keyed_by_library() {
 }
 
 #[test]
-fn configured_dynamic_registration_is_available_through_its_library_catalog() {
+fn configured_source_registration_is_available_through_its_library_catalog() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -682,7 +682,7 @@ fn configured_dynamic_registration_is_available_through_its_library_catalog() {
     let symbol = dynamic
         .symbol(TemplateSymbolKind::Tag, "dynamic_panel")
         .expect("configured-only definition should enter the keyed catalog");
-    assert!(matches!(symbol.definition, SymbolDefinition::Unknown));
+    assert!(matches!(symbol.definition, SymbolDefinition::Exact { .. }));
     assert!(matches!(
         dynamic
             .symbol(TemplateSymbolKind::Tag, "sourced_tag")

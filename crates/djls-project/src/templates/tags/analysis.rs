@@ -133,15 +133,28 @@ impl<'a> CompileFunction<'a> {
 /// (no database), helper calls evaluate to `Unknown`.
 #[must_use]
 pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
+    analyze_compile_function_with_context(func, None, None)
+}
+
+pub(crate) fn analyze_compile_function_in_file(
+    db: &dyn djls_source::Db,
+    file: File,
+    func: &StmtFunctionDef,
+) -> TagRule {
+    analyze_compile_function_with_context(func, Some(db), Some(file))
+}
+
+fn analyze_compile_function_with_context(
+    func: &StmtFunctionDef,
+    db: Option<&dyn djls_source::Db>,
+    file: Option<File>,
+) -> TagRule {
     let Some(compile_fn) = CompileFunction::from_ast(func) else {
         return TagRule::default();
     };
 
     let mut env = state::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
-    let mut ctx = CallContext {
-        db: None,
-        file: None,
-    };
+    let mut ctx = CallContext { db, file };
 
     let result = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
 

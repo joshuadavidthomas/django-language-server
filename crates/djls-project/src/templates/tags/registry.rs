@@ -1,3 +1,4 @@
+use djls_source::File;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::templates::FilterArity;
@@ -34,7 +35,12 @@ impl RegistrationKind {
         }
     }
 
-    pub(crate) fn extract_tag_rule(self, func: &StmtFunctionDef) -> Option<Box<TagRule>> {
+    pub(crate) fn extract_tag_rule(
+        self,
+        db: &dyn djls_source::Db,
+        implementation_file: Option<File>,
+        func: &StmtFunctionDef,
+    ) -> Option<Box<TagRule>> {
         match self {
             Self::Filter => None,
             Self::SimpleTag | Self::InclusionTag => {
@@ -42,7 +48,10 @@ impl RegistrationKind {
                 rule.has_content().then(|| Box::new(rule))
             }
             Self::Tag | Self::SimpleBlockTag => {
-                let mut rule = analysis::analyze_compile_function(func);
+                let mut rule = implementation_file.map_or_else(
+                    || analysis::analyze_compile_function(func),
+                    |file| analysis::analyze_compile_function_in_file(db, file, func),
+                );
                 if self.var_assignment().strips_suffix() {
                     rule.as_var = self.var_assignment();
                 }

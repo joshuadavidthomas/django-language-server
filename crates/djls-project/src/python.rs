@@ -7,6 +7,7 @@ mod name;
 mod parse;
 mod path_eval;
 mod search_paths;
+mod source_occurrences;
 
 pub use interpreter::Interpreter;
 pub(crate) use intrinsic::PythonIntrinsic;
@@ -35,3 +36,5 @@ pub(crate) use parse::python_syntax_errors;
 pub(crate) use path_eval::PythonPath;
 pub use search_paths::SearchPath;
 pub use search_paths::SearchPaths;
+pub(crate) use source_occurrences::PythonFunctionDefinition;
+pub(crate) use source_occurrences::PythonSourceLookup;

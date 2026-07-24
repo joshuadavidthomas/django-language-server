@@ -900,6 +900,59 @@ fn goto_definition_resolves_loaded_tag_and_filter_to_local_functions() {
 }
 
 #[test]
+fn goto_definition_resolves_imported_registration_callable() {
+    let source = "{% load bird %}\n{% bird component %}";
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .file(
+            "/test/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'OPTIONS': {'libraries': {'bird': 'app.templatetags.bird_tags'}}}]\n",
+        )
+        .file("/test/project/app/__init__.py", "")
+        .file("/test/project/app/templatetags/__init__.py", "")
+        .file(
+            "/test/project/app/templatetags/bird_tags.py",
+            "from django import template\nfrom . import bird\nregister = template.Library()\nregister.tag(bird.TAG, bird.do_bird)\n",
+        )
+        .file(
+            "/test/project/app/templatetags/bird.py",
+            "TAG = 'bird'\n\ndef do_bird(parser, token):\n    return None\n",
+        )
+        .file("/test/project/templates/page.html", source)
+        .install(&mut db)
+        .expect("imported registration navigation fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("Template fixture should exist");
+
+    let response = goto_definition(&db, file, offset_of(source, "bird component"), true)
+        .expect("imported Tag callable should resolve");
+    let ls_types::GotoDefinitionResponse::Link(links) = response else {
+        panic!("LocationLink client should receive an imported Tag link")
+    };
+    assert_eq!(links.len(), 1);
+    assert_eq!(
+        links[0].target_uri.as_str(),
+        "file:///test/project/app/templatetags/bird.py"
+    );
+    assert_eq!(
+        links[0].target_range,
+        ls_types::Range::new(
+            ls_types::Position::new(2, 0),
+            ls_types::Position::new(3, 15),
+        )
+    );
+    assert_eq!(
+        links[0].target_selection_range,
+        ls_types::Range::new(
+            ls_types::Position::new(2, 4),
+            ls_types::Position::new(2, 11),
+        )
+    );
+}
+
+#[test]
 fn goto_definition_follows_source_order_shadowing() {
     let source = "{% shared %}{% load alpha %}{% shared %}{% load beta %}{% shared %}";
     let mut db = TestDatabase::new();

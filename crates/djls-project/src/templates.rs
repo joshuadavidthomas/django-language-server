@@ -37,6 +37,7 @@ pub use registrations::TemplateLibraryFilterFacts;
 pub use registrations::TemplateLibraryTagFacts;
 pub use registrations::template_library_definition_facts;
 pub use registrations::template_library_filter_facts;
+pub use registrations::template_library_registration_dependencies;
 pub use registrations::template_library_tag_facts;
 pub use registrations::template_symbol_source;
 pub use resolution::InconclusiveTemplateResolution;

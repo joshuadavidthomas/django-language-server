@@ -98,6 +98,7 @@ pub use templates::template_directories;
 pub use templates::template_library_catalog;
 pub use templates::template_library_definition_facts;
 pub use templates::template_library_filter_facts;
+pub use templates::template_library_registration_dependencies;
 pub use templates::template_library_tag_facts;
 pub use templates::template_resolution;
 pub use templates::template_symbol_source;
