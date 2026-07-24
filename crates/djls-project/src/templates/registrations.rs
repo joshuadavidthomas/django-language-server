@@ -43,15 +43,15 @@ pub(crate) struct RegistrationInfo {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LocalFunctionSource {
-    declaration_span: djls_source::Span,
-    selection_span: djls_source::Span,
+    definition_span: djls_source::Span,
+    name_span: djls_source::Span,
 }
 
 impl LocalFunctionSource {
     fn from_function(function: &StmtFunctionDef) -> Self {
         Self {
-            declaration_span: function.span(),
-            selection_span: function.name.span(),
+            definition_span: function.span(),
+            name_span: function.name.span(),
         }
     }
 }
@@ -1253,8 +1253,8 @@ fn template_library_source_analysis(
                 .map(|local_source| {
                     TemplateSymbolSource::new(
                         file,
-                        local_source.declaration_span,
-                        local_source.selection_span,
+                        local_source.definition_span,
+                        local_source.name_span,
                     )
                 });
                 symbol_sources.set(kind, symbol_name, source);
@@ -1429,7 +1429,7 @@ mod tests {
     }
 
     fn registered_source<'a>(source: &'a str, registration: &RegistrationInfo) -> Option<&'a str> {
-        let span = registration.local_source?.declaration_span;
+        let span = registration.local_source?.definition_span;
         source.get(span.start_usize()..span.end_usize())
     }
 
@@ -1463,9 +1463,7 @@ mod tests {
             .local_source
             .expect("decorated registration should retain its local source");
         assert_eq!(
-            source.get(
-                local_source.selection_span.start_usize()..local_source.selection_span.end_usize()
-            ),
+            source.get(local_source.name_span.start_usize()..local_source.name_span.end_usize()),
             Some("implementation")
         );
     }

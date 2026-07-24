@@ -66,18 +66,18 @@ impl SymbolDefinition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TemplateSymbolSource {
     file: File,
-    declaration_span: Span,
-    selection_span: Span,
+    definition_span: Span,
+    name_span: Span,
 }
 
 impl TemplateSymbolSource {
-    pub(crate) fn new(file: File, declaration_span: Span, selection_span: Span) -> Self {
-        debug_assert!(declaration_span.start() <= selection_span.start());
-        debug_assert!(selection_span.end() <= declaration_span.end());
+    pub(crate) fn new(file: File, definition_span: Span, name_span: Span) -> Self {
+        debug_assert!(definition_span.start() <= name_span.start());
+        debug_assert!(name_span.end() <= definition_span.end());
         Self {
             file,
-            declaration_span,
-            selection_span,
+            definition_span,
+            name_span,
         }
     }
 
@@ -87,13 +87,13 @@ impl TemplateSymbolSource {
     }
 
     #[must_use]
-    pub fn declaration_span(self) -> Span {
-        self.declaration_span
+    pub fn definition_span(self) -> Span {
+        self.definition_span
     }
 
     #[must_use]
-    pub fn selection_span(self) -> Span {
-        self.selection_span
+    pub fn name_span(self) -> Span {
+        self.name_span
     }
 }
 

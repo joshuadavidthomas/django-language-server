@@ -243,20 +243,19 @@ fn template_symbol_source_separates_definition_identity_from_location() {
     assert_eq!(source_location.file(), file);
     assert_eq!(
         source.get(
-            source_location.declaration_span().start_usize()
-                ..source_location.declaration_span().end_usize()
+            source_location.definition_span().start_usize()
+                ..source_location.definition_span().end_usize()
         ),
         Some("@register.simple_tag(name='shown')\ndef implementation(value):\n    return value")
     );
     assert_eq!(
         source.get(
-            source_location.selection_span().start_usize()
-                ..source_location.selection_span().end_usize()
+            source_location.name_span().start_usize()..source_location.name_span().end_usize()
         ),
         Some("implementation")
     );
-    assert!(source_location.declaration_span().start() <= source_location.selection_span().start());
-    assert!(source_location.selection_span().end() <= source_location.declaration_span().end());
+    assert!(source_location.definition_span().start() <= source_location.name_span().start());
+    assert!(source_location.name_span().end() <= source_location.definition_span().end());
     assert_eq!(symbol.definition, definition);
 }
 
@@ -309,12 +308,12 @@ fn template_symbol_location_shift_backdates_semantic_products() {
     assert_eq!(tag_facts_after, tag_facts_before);
     assert_eq!(filter_facts_after, filter_facts_before);
     assert_eq!(
-        source_after.declaration_span().start(),
-        source_before.declaration_span().start() + 1
+        source_after.definition_span().start(),
+        source_before.definition_span().start() + 1
     );
     assert_eq!(
-        source_after.selection_span().start(),
-        source_before.selection_span().start() + 1
+        source_after.name_span().start(),
+        source_before.name_span().start() + 1
     );
 
     let events = event_log

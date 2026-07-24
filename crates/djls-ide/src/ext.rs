@@ -144,12 +144,12 @@ impl DefinitionTargetExt for DefinitionTarget {
                 let file = source.file();
                 let text = file.try_source(db).ok()?;
                 let line_index = file.line_index(db);
-                let range = source.declaration_span().to_lsp_range_with_encoding(
+                let range = source.definition_span().to_lsp_range_with_encoding(
                     text.as_str(),
                     line_index,
                     encoding,
                 );
-                let selection_range = source.selection_span().to_lsp_range_with_encoding(
+                let selection_range = source.name_span().to_lsp_range_with_encoding(
                     text.as_str(),
                     line_index,
                     encoding,
