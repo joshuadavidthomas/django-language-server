@@ -32,7 +32,8 @@ A language server for the Django web framework.
   ![Diagnostics](docs/assets/diagnostics.png)
 - [ ] **Go to definition** - Jump to template, block, or variable definitions
     - [x] Template navigation for `{% extends %}` and `{% include %}`
-    - [x] Exact template-name highlighting in editors that support definition links
+    - [x] Template Library, Tag, Filter, and selective-load symbol navigation
+    - [x] Exact source highlighting in editors that support definition links
     - [ ] Block and variable definitions
 - [ ] **Find references** - See where templates, blocks, and variables are used
     - [x] Template references for `{% extends %}` and `{% include %}`
@@ -78,7 +79,7 @@ Once configured, open any Django template file in your project to get:
 - Template tag and filter completions with snippets
 - Real-time syntax validation and diagnostics
 - Hover documentation for template tags, filters, libraries, and template references
-- Navigation to template definitions and references, including exact template-name highlighting for goto in supported editors
+- Navigation to templates and to Python definitions for Template Libraries, Tags, and Filters
 - Clickable links for `{% extends %}`, `{% include %}`, and `{% load %}` names
 - Quick fixes for unloaded template tags/filters and mismatched `{% endblock %}` names
 - Folding for Django template regions

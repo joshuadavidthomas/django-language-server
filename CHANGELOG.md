@@ -27,6 +27,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added a quick-fix code action for renaming mismatched `{% endblock %}` names.
 - Added completion for resolvable template names inside quoted `{% extends %}` and `{% include %}` arguments.
 - Added document links for resolvable Django template and template-library references.
+- Added go to definition for Django Template Libraries, Tags, and Filters.
 - Added opt-in whole-document Django template formatting through `djangofmt`.
 - Added startup progress reporting for Django project discovery and IDE cache warm-up.
 - Added a public `ROADMAP.md` for current and planned Django/LSP capabilities.

@@ -47,9 +47,9 @@ Each layer has a different failure mode and a different fix:
 
 `{% load %}` library names are checked against the active static inventory first. If the library exists on the project's Python search paths but its app is not in `INSTALLED_APPS`, djls reports S121. If no inactive-library evidence exists, djls reports S120.
 
-The same inventory powers editor links: resolved `{% load %}` library names become document links to their `templatetags/*.py` source files. Unresolved libraries are skipped.
+The same inventory powers editor navigation. Resolved `{% load %}` library names become document links and go-to-definition targets for their Python source files. Selective-load symbols and available Tag and Filter names jump to definite local Python declarations. Dynamic, imported, member, and ambiguous callables are skipped rather than guessed.
 
-Template directory discovery also powers goto definition for literal `{% extends %}` and `{% include %}` names. Editors that support definition links receive the exact template-name range as the origin.
+Template directory discovery also powers go to definition for literal `{% extends %}` and `{% include %}` names. Editors that support definition links receive exact origin and declaration ranges.
 
 This gives you diagnostics based on the same template tag inventory Django would use at runtime, while distinguishing "not installed or misspelled" from "installed but not activated".
 

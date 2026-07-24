@@ -102,7 +102,7 @@ Hover is supported for template tags, filters, libraries, selectively loaded sym
 
 **Status:** 🚧 Partially supported
 
-Go to definition works for literal template references in `{% extends %}` and `{% include %}`. Clients that support definition links receive exact origin ranges for the referenced template name; older clients still receive plain locations. The next improvement is parent block navigation across inheritance.
+Go to definition works for literal template references in `{% extends %}` and `{% include %}`, Template Library arguments in `{% load %}`, selective-load symbols, and available Template Tags and Filters with definite local Python declarations. Clients that support definition links receive exact origin and declaration ranges; older clients receive plain locations. Ambiguous definitions and dynamic, imported, or member callables do not produce guessed targets. The next improvement is parent block navigation across inheritance.
 
 #### Find references
 
