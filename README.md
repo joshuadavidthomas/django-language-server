@@ -34,11 +34,12 @@ A language server for the Django web framework.
     - [x] Template navigation for `{% extends %}` and `{% include %}`
     - [x] Template Library, Tag, Filter, and selective-load symbol navigation
     - [x] Exact source highlighting in editors that support definition links
-    - [x] Parent block definitions across template inheritance
+    - [x] Block definitions across template inheritance
     - [ ] Variable definitions
 - [ ] **Find references** - See where templates, blocks, and variables are used
     - [x] Template references for `{% extends %}` and `{% include %}`
-    - [ ] Block and variable references
+    - [x] Block references across template inheritance
+    - [ ] Variable references
 - [x] **Document links** - Click through resolved template references and template libraries
     - [x] Template names in `{% extends %}` and `{% include %}`
     - [x] Template libraries in `{% load %}`
@@ -80,7 +81,8 @@ Once configured, open any Django template file in your project to get:
 - Template tag and filter completions with snippets
 - Real-time syntax validation and diagnostics
 - Hover documentation for template tags, filters, libraries, and template references
-- Navigation to templates, parent blocks, and Python definitions for Template Libraries, Tags, and Filters
+- Navigation to templates, inherited blocks, and Python definitions for Template Libraries, Tags, and Filters
+- Reference search across template inheritance blocks
 - Clickable links for `{% extends %}`, `{% include %}`, and `{% load %}` names
 - Quick fixes for unloaded template tags/filters and mismatched `{% endblock %}` names
 - Folding for Django template regions

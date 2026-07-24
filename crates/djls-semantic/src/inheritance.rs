@@ -265,16 +265,38 @@ pub struct BlockSite {
     pub full_span: Span,
 }
 
-/// Nearest ancestor definition of `name`.
-pub fn parent_block(db: &dyn Db, project: Project, file: File, name: &str) -> Option<BlockSite> {
+/// Exact local block definition at `name_span`.
+pub fn block_definition_at(db: &dyn Db, file: File, name_span: Span) -> Option<BlockSite> {
+    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
+        return None;
+    };
+    template_symbols(db, file, nodelist)
+        .blocks()
+        .iter()
+        .find(|block| block.name_span == name_span)
+        .map(|block| BlockSite {
+            file,
+            name_span: block.name_span,
+            full_span: block.full_span,
+        })
+}
+
+/// Definite ancestor definitions of `name`, nearest first and stopping at uncertainty.
+pub fn ancestor_blocks(db: &dyn Db, project: Project, file: File, name: &str) -> Vec<BlockSite> {
+    let mut ancestors = Vec::new();
     for origin in template_inheritance(db, project, file).ancestors(db) {
         match block_site_in_scope(db, origin.file(db), file, name) {
-            BlockSiteLookup::Found(site) => return Some(site),
+            BlockSiteLookup::Found(site) => ancestors.push(site),
             BlockSiteLookup::Absent => {}
-            BlockSiteLookup::Inconclusive => return None,
+            BlockSiteLookup::Inconclusive => break,
         }
     }
-    None
+    ancestors
+}
+
+/// Nearest ancestor definition of `name`.
+pub fn parent_block(db: &dyn Db, project: Project, file: File, name: &str) -> Option<BlockSite> {
+    ancestor_blocks(db, project, file, name).into_iter().next()
 }
 
 /// Block names visible from ancestors, using the nearest definition site per name.
@@ -308,81 +330,53 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
     inherited
 }
 
-/// Descendant templates that define `name`, discovered through exact reverse extends edges.
+/// Descendant templates that define `name`, discovered through definite reverse extends edges.
 ///
-/// Each candidate reference is re-resolved from its source origin and backend scope. Traversal
-/// therefore follows the concrete origin selected by Django rather than every file sharing a
-/// template name.
+/// A physical descendant contributes an edge only when its feasible origins agree on the same
+/// parent file. This is the reverse of `template_inheritance`, not a union of backend-local chains.
 pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) -> Vec<BlockSite> {
     let resolution = template_resolution(db, project);
-    let roots = resolution
-        .template_names_for_file(db, file)
-        .iter()
-        .flat_map(|template_name| resolution.origins_for_name(db, *template_name))
-        .filter(|origin| origin.file(db) == file)
-        .copied()
-        .collect::<Vec<_>>();
-    if roots.is_empty() {
+    if resolution.template_names_for_file(db, file).is_empty() {
         return Vec::new();
     }
 
-    let mut queue = VecDeque::from(roots.clone());
-    let mut visited_origins = roots.into_iter().collect::<FxHashSet<_>>();
-    let mut emitted_sites = FxHashSet::default();
+    let mut candidate_files = Vec::new();
+    for origin in resolution.origins(db) {
+        let candidate = origin.file(db);
+        if !candidate_files.contains(&candidate) {
+            candidate_files.push(candidate);
+        }
+    }
+
+    let mut queue = VecDeque::from([file]);
+    let mut visited_files = FxHashSet::from_iter([file]);
     let mut overrides = Vec::new();
 
     while let Some(target) = queue.pop_front() {
-        for descendant in resolution.origins(db) {
-            if !origin_extends_exact_target(db, resolution, descendant, target) {
+        for descendant in &candidate_files {
+            if visited_files.contains(descendant) {
+                continue;
+            }
+            let inheritance = template_inheritance(db, project, *descendant);
+            let Some(parent) = inheritance.ancestors(db).first() else {
+                continue;
+            };
+            if parent.file(db) != target || !visited_files.insert(*descendant) {
                 continue;
             }
 
-            if !visited_origins.insert(descendant) {
-                continue;
+            match block_site_in_scope(db, *descendant, *descendant, name) {
+                BlockSiteLookup::Found(site) => {
+                    overrides.push(site);
+                    queue.push_back(*descendant);
+                }
+                BlockSiteLookup::Absent => queue.push_back(*descendant),
+                BlockSiteLookup::Inconclusive => {}
             }
-
-            // A physical descendant can be reached through several origin names. Keep traversing
-            // each origin because its relative-name anchor and backend scope differ, but emit its
-            // block definition only once.
-            if let BlockSiteLookup::Found(site) =
-                block_site_in_scope(db, descendant.file(db), descendant.file(db), name)
-                && emitted_sites.insert((site.file, site.name_span, site.full_span))
-            {
-                overrides.push(site);
-            }
-            queue.push_back(descendant);
         }
     }
 
     overrides
-}
-
-fn origin_extends_exact_target<'db>(
-    db: &'db dyn Db,
-    resolution: TemplateResolution<'db>,
-    source: TemplateOrigin<'db>,
-    target: TemplateOrigin<'db>,
-) -> bool {
-    let file = source.file(db);
-    let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
-        return false;
-    };
-    let Some(ExtendsTarget::Literal { name, .. }) =
-        template_symbols_in_scope(db, file, nodelist, file).extends()
-    else {
-        return false;
-    };
-    let Some(resolved_name) =
-        resolve_relative_name(Some(source.template_name(db).name(db)), name, false)
-    else {
-        return false;
-    };
-    let name = TemplateName::new(db, resolved_name.into_owned());
-    let scope = resolution.backend_scope_for_origin(db, source);
-    matches!(
-        resolution.resolve_excluding_origins_in_scope(db, name, &[source], &scope),
-        TemplateResolutionResult::Found(origin) if origin == target
-    )
 }
 
 enum BlockSiteLookup {

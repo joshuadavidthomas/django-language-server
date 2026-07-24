@@ -27,7 +27,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added a quick-fix code action for renaming mismatched `{% endblock %}` names.
 - Added completion for resolvable template names inside quoted `{% extends %}` and `{% include %}` arguments.
 - Added document links for resolvable Django template and template-library references.
-- Added go to definition from overridden Django template blocks to their nearest parent blocks.
+- Added find references across Django template block inheritance chains.
+- Added go to definition for Django template block names, resolving overrides to their nearest parent blocks.
 - Added go to definition for Django Template Libraries, Tags, and Filters.
 - Added opt-in whole-document Django template formatting through `djangofmt`.
 - Added startup progress reporting for Django project discovery and IDE cache warm-up.

@@ -115,6 +115,79 @@ async def test_goto_definition_for_parent_template_block(client: LanguageClient)
 
 
 @pytest.mark.asyncio
+async def test_goto_definition_for_root_template_block(client: LanguageClient):
+    client.text_document_did_open(
+        DidOpenTextDocumentParams(
+            text_document=TextDocumentItem(
+                uri=BASE_TEMPLATE.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=BASE_TEMPLATE.read_text(encoding="utf-8"),
+            )
+        )
+    )
+
+    result = await client.text_document_definition_async(
+        DefinitionParams(
+            text_document=TextDocumentIdentifier(uri=BASE_TEMPLATE.as_uri()),
+            position=position_in(BASE_TEMPLATE, "title %}"),
+        )
+    )
+
+    assert result is not None
+    assert len(result) == 1
+    link = result[0]
+    parent_name = position_in(BASE_TEMPLATE, "title %}")
+    assert link.origin_selection_range == Range(
+        start=parent_name,
+        end=Position(
+            line=parent_name.line,
+            character=parent_name.character + len("title"),
+        ),
+    )
+    assert link.target_uri == BASE_TEMPLATE.as_uri()
+    assert link.target_range.start == position_in(BASE_TEMPLATE, "{% block title")
+    assert link.target_selection_range == link.origin_selection_range
+
+
+@pytest.mark.asyncio
+async def test_find_references_for_template_block(client: LanguageClient):
+    client.text_document_did_open(
+        DidOpenTextDocumentParams(
+            text_document=TextDocumentItem(
+                uri=HOME_TEMPLATE.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=HOME_TEMPLATE.read_text(encoding="utf-8"),
+            )
+        )
+    )
+
+    result = await client.text_document_references_async(
+        ReferenceParams(
+            text_document=TextDocumentIdentifier(uri=HOME_TEMPLATE.as_uri()),
+            position=position_in(HOME_TEMPLATE, "title %}"),
+            context=ReferenceContext(include_declaration=True),
+        )
+    )
+
+    assert result is not None
+    assert {
+        (
+            location.uri,
+            location.range.start.line,
+            location.range.start.character,
+            location.range.end.line,
+            location.range.end.character,
+        )
+        for location in result
+    } == {
+        (BASE_TEMPLATE.as_uri(), 7, 15, 7, 20),
+        (HOME_TEMPLATE.as_uri(), 2, 9, 2, 14),
+    }
+
+
+@pytest.mark.asyncio
 async def test_goto_definition_for_include_template_reference(client: LanguageClient):
     client.text_document_did_open(
         DidOpenTextDocumentParams(

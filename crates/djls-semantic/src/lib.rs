@@ -31,6 +31,8 @@ pub use inheritance::ExtendsTarget;
 pub use inheritance::PartialDef;
 pub use inheritance::TemplateInheritance;
 pub use inheritance::TemplateSymbols;
+pub use inheritance::ancestor_blocks;
+pub use inheritance::block_definition_at;
 pub use inheritance::block_overrides;
 pub use inheritance::inherited_blocks;
 pub use inheritance::parent_block;

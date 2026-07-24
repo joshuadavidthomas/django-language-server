@@ -773,6 +773,38 @@ fn reverse_inheritance_follows_the_exact_backend_origin() {
 }
 
 #[test]
+fn reverse_inheritance_rejects_a_shared_child_with_backend_local_parents() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared', '/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared', '/test/project/b'], 'APP_DIRS': False},\n]\n";
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/a/base.html",
+            "{% block content %}A{% endblock %}",
+        )
+        .file(
+            "/test/project/b/base.html",
+            "{% block content %}B{% endblock %}",
+        )
+        .file(
+            "/test/project/shared/child.html",
+            "{% extends 'base.html' %}{% block content %}Child{% endblock %}",
+        )
+        .install(&mut db)
+        .expect("shared-child backend fixture should install");
+    let a_base = db
+        .file(Utf8Path::new("/test/project/a/base.html"))
+        .expect("backend A base Template should exist");
+    let b_base = db
+        .file(Utf8Path::new("/test/project/b/base.html"))
+        .expect("backend B base Template should exist");
+
+    assert!(block_overrides(&db, project, a_base, "content").is_empty());
+    assert!(block_overrides(&db, project, b_base, "content").is_empty());
+}
+
+#[test]
 fn template_inheritance_reports_missing_parent_as_unresolved() {
     let db = TestDatabase::new();
     let project = project_with_templates(
