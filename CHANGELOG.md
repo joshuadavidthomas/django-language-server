@@ -45,6 +45,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Changed the `djls-check` pre-commit hook to install the matching django-language-server release from `djls-pre-commit`.
 - Changed Django settings analysis to keep mutually exclusive configuration branches separate instead of combining their values into one partial result.
 - Changed Django settings analysis to treat closed unsupported Python literals as malformed rather than unresolved.
 - Changed template semantics and IDE features to use each file's feasible backends and the Template Library definitions active at each source position.
