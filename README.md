@@ -30,13 +30,14 @@ A language server for the Django web framework.
   ![Completions](docs/assets/autocomplete.png)
 - [x] **Diagnostics** - Real-time error checking and validation
   ![Diagnostics](docs/assets/diagnostics.png)
-- [ ] **Go to definition** - Jump to template, block, or variable definitions
+- [x] **Command-line checks** - Validate template files and directories with `djls check`
+- [x] **Go to definition** - Jump to template, block, and registered Python definitions
     - [x] Template navigation for `{% extends %}` and `{% include %}`
     - [x] Template Library, Tag, Filter, and selective-load symbol navigation
     - [x] Exact source highlighting in editors that support definition links
     - [x] Block definitions across template inheritance
     - [ ] Variable definitions
-- [ ] **Find references** - See where templates, blocks, and variables are used
+- [x] **Find references** - See where templates and inherited blocks are used
     - [x] Template references for `{% extends %}` and `{% include %}`
     - [x] Block references across template inheritance
     - [ ] Variable references
@@ -49,8 +50,8 @@ A language server for the Django web framework.
   ![Hover tag](docs/assets/hover-tag.png)
   ![Hover filter](docs/assets/hover-filter.png)
   ![Hover template](docs/assets/hover-template.png)
-- [x] **Code actions** - Quick fixes for unloaded template libraries and mismatched closing block names
-- [x] **Formatting** - Opt-in whole-document Django template formatting through `djangofmt`
+- [x] **Code actions** - Quick fixes for unloaded tags or filters and mismatched closing block names
+- [x] **Formatting** - Opt-in LSP document formatting through `djangofmt`
 - [ ] **Rename** - Refactor names across files
 - [x] **Document symbols** - Outline view of template structure
 - [ ] **Workspace symbols** - Search across all project templates
@@ -74,7 +75,7 @@ uv tool install django-language-server
 # or: pipx install django-language-server
 ```
 
-See the [Installation](docs/installation.md) guide for more options including pip, standalone binaries, and building from source.
+See the [Installation](docs/installation.md) guide for Homebrew, pip, standalone binaries, and source builds. The [`djls` CLI](docs/cli.md) can also check templates without an editor.
 
 Once configured, open any Django template file in your project to get:
 
@@ -87,7 +88,7 @@ Once configured, open any Django template file in your project to get:
 - Quick fixes for unloaded template tags/filters and mismatched `{% endblock %}` names
 - Folding for Django template regions
 - Outline symbols for template structure
-- Opt-in whole-document formatting through `djangofmt`
+- Opt-in LSP document formatting through `djangofmt`
 
 ## Documentation
 

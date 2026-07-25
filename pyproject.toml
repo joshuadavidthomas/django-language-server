@@ -82,7 +82,7 @@ classifiers = [
 ]
 
 [project.urls]
-Documentation = "https://django-language-server.readthedocs.io/"
+Documentation = "https://djls.joshthomas.dev"
 Issues = "https://github.com/joshuadavidthomas/django-language-server/issues"
 Source = "https://github.com/joshuadavidthomas/django-language-server"
 
@@ -104,6 +104,10 @@ version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
 ]
 "docs/pre-commit.md" = [
   '    rev: v{version}',
+]
+"docs/installation.md" = [
+  '    VERSION="{version}"',
+  '    \$Version = "{version}"',
 ]
 
 [tool.djlint]

@@ -2,7 +2,7 @@
 
 ## Requirements
 
-A client that supports the Language Server Protocol (LSP) is required, along with a supported version of Python and Django. See [Versioning](versioning.md) for the full list of supported versions and the version support policy.
+Django Language Server needs a discoverable project environment with a supported Python and Django version. An LSP client is required only for editor features through `djls serve`; [`djls check`](cli.md#djls-check) runs in a terminal. See [Versioning](versioning.md) for supported versions and the version support policy.
 
 ## Try it out
 
@@ -25,7 +25,15 @@ The language server is published to PyPI with pre-built wheels for the following
 - **Windows**: x64
 - **Source distribution**: Available for other platforms
 
-Installing it adds the `djls` command-line tool to your environment.
+Installing it adds the `djls` command-line tool to your environment. See the [command-line reference](cli.md) for `djls check` and `djls serve`.
+
+### Homebrew
+
+Install the standalone macOS binary from the personal Homebrew tap:
+
+```bash
+brew install joshuadavidthomas/homebrew/django-language-server
+```
 
 ### System-wide tool installation
 
@@ -60,30 +68,33 @@ Standalone binaries are available for macOS, Linux, and Windows from [GitHub Rel
 === "Linux/macOS"
 
     ```bash
-    # Download the latest release for your platform
-    # Example for Linux x64:
-    curl -LO https://github.com/joshuadavidthomas/django-language-server/releases/latest/download/django-language-server-VERSION-linux-x64.tar.gz
+    # Set the release and platform: linux-x64, linux-arm64,
+    # darwin-x64, or darwin-arm64.
+    VERSION="6.0.3"
+    PLATFORM="linux-x64"
+    ARCHIVE="django-language-server-v${VERSION}-${PLATFORM}"
 
-    # Extract the archive
-    tar -xzf django-language-server-VERSION-linux-x64.tar.gz
+    curl -LO "https://github.com/joshuadavidthomas/django-language-server/releases/download/v${VERSION}/${ARCHIVE}.tar.gz"
+    tar -xzf "${ARCHIVE}.tar.gz"
 
-    # Move the binary to a location in your PATH
-    sudo mv django-language-server-VERSION-linux-x64/djls /usr/local/bin/
+    # Move the binary to a location in your PATH.
+    sudo mv "${ARCHIVE}/djls" /usr/local/bin/
     ```
 
 === "Windows"
 
     ```powershell
-    # Download the latest release for your platform
-    # Example for Windows x64:
-    Invoke-WebRequest -Uri "https://github.com/joshuadavidthomas/django-language-server/releases/latest/download/django-language-server-VERSION-windows-x64.zip" -OutFile "django-language-server-VERSION-windows-x64.zip"
+    # Set this to the release you want to install.
+    $Version = "6.0.3"
+    $Archive = "django-language-server-v$Version-windows-x64.zip"
 
-    # Extract the archive
-    Expand-Archive -Path "django-language-server-VERSION-windows-x64.zip" -DestinationPath .
+    # Download and extract the Windows x64 archive.
+    Invoke-WebRequest -Uri "https://github.com/joshuadavidthomas/django-language-server/releases/download/v$Version/$Archive" -OutFile $Archive
+    Expand-Archive -Path $Archive -DestinationPath .
 
-    # Move the binary to a location in your PATH (requires admin)
-    # Or add the directory containing djls.exe to your PATH
-    Move-Item -Path "django-language-server-VERSION-windows-x64\djls.exe" -Destination "$env:LOCALAPPDATA\Programs\djls.exe"
+    # Move the binary to a location in your PATH (requires admin),
+    # or add its extracted directory to your PATH.
+    Move-Item -Path "django-language-server-v$Version-windows-x64\djls.exe" -Destination "$env:LOCALAPPDATA\Programs\djls.exe"
     ```
 
 ## Building from source

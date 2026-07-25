@@ -29,6 +29,8 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: installation.md
+  - Command-line interface: cli.md
+  - Pre-commit: pre-commit.md
   - Configuration:
       - configuration/index.md
   - Template Validation: template-validation.md
