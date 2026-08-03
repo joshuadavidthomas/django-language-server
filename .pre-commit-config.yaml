@@ -36,6 +36,6 @@ repos:
         types: [rust]
         pass_filenames: false
   - repo: https://github.com/woodruffw/zizmor-pre-commit
-    rev: v1.27.0
+    rev: v1.29.0
     hooks:
       - id: zizmor
