@@ -50,7 +50,10 @@ enum TemplateLibraryKind {
 ///
 /// Configured-only libraries have no source file. Keeping that absence in the identity prevents
 /// settings-case evidence from masquerading as a navigable Python source.
-#[salsa::interned(no_lifetime, debug)]
+///
+/// This ID appears in lifetime-free domain values. Callers use it only with its originating
+/// database, while permanent interner retention prevents Salsa from recycling its slot.
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
 pub struct TemplateLibraryId {
     #[returns(copy)]
     pub file: Option<File>,
