@@ -212,7 +212,7 @@ impl<'a> LoadState<'a> {
         self,
         symbol: &str,
         kind: TemplateSymbolKind,
-        scoped_libraries: ScopedTemplateLibraries<'_>,
+        scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     ) -> bool {
         let mut can_shadow = false;
         let mut fold_library = |library: &LoadArgument| match scoped_libraries

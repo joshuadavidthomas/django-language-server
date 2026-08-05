@@ -19,15 +19,15 @@ use crate::tags::effective_tag_spec_in_scope;
 use crate::tags::library_tag_specs;
 
 /// Identity of an opening Tag Definition contributing semantic grammar.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GrammarOpeningDefinition {
-    library: TemplateLibraryId,
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
+pub struct GrammarOpeningDefinition<'db> {
+    library: TemplateLibraryId<'db>,
     name: String,
 }
 
-impl GrammarOpeningDefinition {
+impl<'db> GrammarOpeningDefinition<'db> {
     #[must_use]
-    pub fn library(&self) -> &TemplateLibraryId {
+    pub fn library(&self) -> &TemplateLibraryId<'db> {
         &self.library
     }
 
@@ -38,21 +38,21 @@ impl GrammarOpeningDefinition {
 }
 
 /// Project vocabulary used only to prime orphan closer/intermediate candidates.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SemanticGrammarVocabulary {
-    closers: BTreeMap<String, Vec<GrammarOpeningDefinition>>,
-    intermediates: BTreeMap<String, Vec<GrammarOpeningDefinition>>,
+#[derive(Clone, Debug, Default, PartialEq, Eq, salsa::SalsaValue)]
+pub struct SemanticGrammarVocabulary<'db> {
+    closers: BTreeMap<String, Vec<GrammarOpeningDefinition<'db>>>,
+    intermediates: BTreeMap<String, Vec<GrammarOpeningDefinition<'db>>>,
     open: bool,
 }
 
-impl SemanticGrammarVocabulary {
+impl<'db> SemanticGrammarVocabulary<'db> {
     #[must_use]
-    pub fn closer_candidates(&self, name: &str) -> &[GrammarOpeningDefinition] {
+    pub fn closer_candidates(&self, name: &str) -> &[GrammarOpeningDefinition<'db>] {
         self.closers.get(name).map_or(&[], Vec::as_slice)
     }
 
     #[must_use]
-    pub fn intermediate_candidates(&self, name: &str) -> &[GrammarOpeningDefinition] {
+    pub fn intermediate_candidates(&self, name: &str) -> &[GrammarOpeningDefinition<'db>] {
         self.intermediates.get(name).map_or(&[], Vec::as_slice)
     }
 
@@ -64,7 +64,7 @@ impl SemanticGrammarVocabulary {
 
 /// Build the cheap spelling-to-opening-identity vocabulary for a Project.
 #[salsa::tracked(returns(ref))]
-pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGrammarVocabulary {
+pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGrammarVocabulary<'_> {
     let libraries = template_library_catalog(db, project);
     let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
     let mut vocabulary = SemanticGrammarVocabulary {
@@ -109,9 +109,9 @@ pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGra
     vocabulary
 }
 
-fn push_candidate(
-    candidates: &mut Vec<GrammarOpeningDefinition>,
-    candidate: GrammarOpeningDefinition,
+fn push_candidate<'db>(
+    candidates: &mut Vec<GrammarOpeningDefinition<'db>>,
+    candidate: GrammarOpeningDefinition<'db>,
 ) {
     if !candidates.contains(&candidate) {
         candidates.push(candidate);
@@ -231,7 +231,7 @@ impl SparseTagGrammar {
         project: Project,
         nodelist: NodeList<'_>,
         loaded: &LoadedLibraries,
-        scoped_libraries: ScopedTemplateLibraries<'_>,
+        scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     ) -> Self {
         let mut loaded_names = Vec::new();
         let mut load_cursor = loaded.cursor();
@@ -334,7 +334,7 @@ fn classify_project_orphan(
     project: Project,
     spelling: &str,
     load_state: &LoadState<'_>,
-    scoped_libraries: ScopedTemplateLibraries<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_, '_>,
 ) -> TagClassification {
     let vocabulary = semantic_grammar_vocabulary(db, project);
 
@@ -383,11 +383,11 @@ fn classify_project_orphan(
     }
 }
 
-fn resolve_orphan_candidates(
-    db: &dyn Db,
+fn resolve_orphan_candidates<'db>(
+    db: &'db dyn Db,
     project: Project,
-    scoped_libraries: ScopedTemplateLibraries<'_>,
-    candidates: &[GrammarOpeningDefinition],
+    scoped_libraries: ScopedTemplateLibraries<'_, 'db>,
+    candidates: &[GrammarOpeningDefinition<'db>],
     load_state: &LoadState<'_>,
     matches_spelling: impl Fn(&TagSpec) -> bool,
 ) -> (Vec<String>, bool) {

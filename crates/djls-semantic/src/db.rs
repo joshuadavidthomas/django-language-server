@@ -31,7 +31,10 @@ pub trait Db: ProjectDb {
     fn model_graph(&self) -> &ModelGraph;
 }
 
-pub fn scoped_template_libraries_for_file(db: &dyn Db, file: File) -> ScopedTemplateLibraries<'_> {
+pub fn scoped_template_libraries_for_file(
+    db: &dyn Db,
+    file: File,
+) -> ScopedTemplateLibraries<'_, '_> {
     db.project().map_or_else(
         || ScopedTemplateLibraries::from_project_inventory(TemplateLibraryCatalog::empty_ref()),
         |project| scoped_template_libraries(db, project, file),

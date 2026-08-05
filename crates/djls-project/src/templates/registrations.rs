@@ -1303,14 +1303,14 @@ enum TemplateLibrarySymbolInventory {
 }
 
 /// Equality-bearing registration facts for one Template Library source module.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateLibraryDefinitionFacts {
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
+pub struct TemplateLibraryDefinitionFacts<'db> {
     state: TemplateLibraryDefinitionState,
-    tags: BTreeMap<String, TemplateSymbol>,
-    filters: BTreeMap<String, TemplateSymbol>,
+    tags: BTreeMap<String, TemplateSymbol<'db>>,
+    filters: BTreeMap<String, TemplateSymbol<'db>>,
 }
 
-impl TemplateLibraryDefinitionFacts {
+impl<'db> TemplateLibraryDefinitionFacts<'db> {
     #[must_use]
     pub fn is_library(&self) -> bool {
         matches!(self.state, TemplateLibraryDefinitionState::Library { .. })
@@ -1345,12 +1345,12 @@ impl TemplateLibraryDefinitionFacts {
         )
     }
 
-    pub(crate) fn symbols(&self) -> impl Iterator<Item = &TemplateSymbol> {
+    pub(crate) fn symbols(&self) -> impl Iterator<Item = &TemplateSymbol<'db>> {
         self.tags.values().chain(self.filters.values())
     }
 
     #[must_use]
-    pub fn symbol(&self, kind: TemplateSymbolKind, name: &str) -> Option<&TemplateSymbol> {
+    pub fn symbol(&self, kind: TemplateSymbolKind, name: &str) -> Option<&TemplateSymbol<'db>> {
         match kind {
             TemplateSymbolKind::Tag => self.tags.get(name),
             TemplateSymbolKind::Filter => self.filters.get(name),
@@ -1402,9 +1402,9 @@ impl TemplateLibrarySymbolSources {
 /// Registration discovery happens here once. Equality-bearing projections below keep changes in
 /// Tag Definitions, Filter Definitions, source locations, Tag Rules, Block Specs, and Filter Arity
 /// independent.
-#[derive(Clone, Debug, PartialEq)]
-struct TemplateLibrarySourceAnalysis {
-    definitions: TemplateLibraryDefinitionFacts,
+#[derive(Clone, Debug, PartialEq, salsa::SalsaValue)]
+struct TemplateLibrarySourceAnalysis<'db> {
+    definitions: TemplateLibraryDefinitionFacts<'db>,
     symbol_sources: TemplateLibrarySymbolSources,
     registration_dependencies: Vec<djls_source::File>,
     tag_rules: TagRuleMap,
@@ -1412,7 +1412,7 @@ struct TemplateLibrarySourceAnalysis {
     filter_arities: FilterArityMap,
 }
 
-impl TemplateLibrarySourceAnalysis {
+impl TemplateLibrarySourceAnalysis<'_> {
     fn failed() -> Self {
         Self {
             definitions: TemplateLibraryDefinitionFacts {
@@ -1431,10 +1431,10 @@ impl TemplateLibrarySourceAnalysis {
 
 #[allow(clippy::too_many_lines)]
 #[salsa::tracked(returns(ref))]
-fn template_library_source_analysis(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
-) -> TemplateLibrarySourceAnalysis {
+fn template_library_source_analysis<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
+) -> TemplateLibrarySourceAnalysis<'db> {
     let Some(file) = key.file(db) else {
         return TemplateLibrarySourceAnalysis::failed();
     };
@@ -1626,19 +1626,19 @@ impl TemplateLibraryFilterFacts {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn template_library_definition_facts(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
-) -> TemplateLibraryDefinitionFacts {
+pub fn template_library_definition_facts<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
+) -> TemplateLibraryDefinitionFacts<'db> {
     template_library_source_analysis(db, key)
         .definitions
         .clone()
 }
 
 #[salsa::tracked(returns(ref))]
-fn template_library_symbol_sources(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
+fn template_library_symbol_sources<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
 ) -> TemplateLibrarySymbolSources {
     template_library_source_analysis(db, key)
         .symbol_sources
@@ -1647,9 +1647,9 @@ fn template_library_symbol_sources(
 
 /// Python source dependencies followed while resolving one Template Library's registrations.
 #[salsa::tracked(returns(ref))]
-pub fn template_library_registration_dependencies(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
+pub fn template_library_registration_dependencies<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
 ) -> Vec<djls_source::File> {
     template_library_source_analysis(db, key)
         .registration_dependencies
@@ -1657,9 +1657,9 @@ pub fn template_library_registration_dependencies(
 }
 
 #[must_use]
-pub fn template_symbol_source(
-    db: &dyn ProjectDb,
-    symbol: &TemplateSymbol,
+pub fn template_symbol_source<'db>(
+    db: &'db dyn ProjectDb,
+    symbol: &TemplateSymbol<'db>,
 ) -> Option<TemplateSymbolSource> {
     let SymbolDefinition::Exact { library } = &symbol.definition else {
         return None;
@@ -1668,9 +1668,9 @@ pub fn template_symbol_source(
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn template_library_tag_facts(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
+pub fn template_library_tag_facts<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
 ) -> TemplateLibraryTagFacts {
     let analysis = template_library_source_analysis(db, key);
     TemplateLibraryTagFacts {
@@ -1680,9 +1680,9 @@ pub fn template_library_tag_facts(
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn template_library_filter_facts(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
+pub fn template_library_filter_facts<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
 ) -> TemplateLibraryFilterFacts {
     TemplateLibraryFilterFacts {
         filter_arities: template_library_source_analysis(db, key)

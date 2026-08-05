@@ -24,15 +24,15 @@ use crate::templates::template_resolution;
 /// Template settings case or backend, so the compact scope retains those alternatives and lookup
 /// only makes a library or symbol definite when every feasible backend agrees.
 #[derive(Clone, Copy)]
-pub struct ScopedTemplateLibraries<'db> {
-    catalog: &'db TemplateLibraryCatalog,
-    scope: &'db TemplateBackendScope,
+pub struct ScopedTemplateLibraries<'a, 'db> {
+    catalog: &'a TemplateLibraryCatalog<'db>,
+    scope: &'a TemplateBackendScope,
 }
 
-impl<'db> ScopedTemplateLibraries<'db> {
+impl<'a, 'db> ScopedTemplateLibraries<'a, 'db> {
     /// Wrap project-global inventory for commands and tests that have no concrete project file.
     #[must_use]
-    pub fn from_project_inventory(catalog: &'db TemplateLibraryCatalog) -> Self {
+    pub fn from_project_inventory(catalog: &'a TemplateLibraryCatalog<'db>) -> Self {
         Self {
             catalog,
             scope: TemplateBackendScope::project_inventory_ref(),
@@ -50,7 +50,7 @@ impl<'db> ScopedTemplateLibraries<'db> {
         symbol_name: &str,
         kind: TemplateSymbolKind,
         loaded_names: &[&str],
-    ) -> Vec<EffectiveDefinitionLibrary<'db>> {
+    ) -> Vec<EffectiveDefinitionLibrary<'a, 'db>> {
         self.catalog.effective_definition_libraries_in_scope(
             self.scope,
             symbol_name,
@@ -61,7 +61,7 @@ impl<'db> ScopedTemplateLibraries<'db> {
 
     /// Return each feasible backend's ordered builtin and load updates.
     #[must_use]
-    pub fn library_chains(self, loaded_names: &[&str]) -> Vec<TemplateLibraryChain<'db>> {
+    pub fn library_chains(self, loaded_names: &[&str]) -> Vec<TemplateLibraryChain<'a, 'db>> {
         self.catalog
             .library_chains_in_scope(self.scope, loaded_names)
     }
@@ -75,7 +75,7 @@ impl<'db> ScopedTemplateLibraries<'db> {
         self,
         loaded_names: &[&str],
         initial: impl FnMut() -> State,
-        step: impl FnMut(&mut State, TemplateLibraryChainStep<'db>),
+        step: impl FnMut(&mut State, TemplateLibraryChainStep<'a, 'db>),
         finish: impl FnMut(State),
     ) {
         self.catalog
@@ -88,7 +88,7 @@ impl<'db> ScopedTemplateLibraries<'db> {
         symbol_name: &str,
         kind: TemplateSymbolKind,
         loaded_names: &[&str],
-        visitor: impl FnMut(EffectiveDefinitionLibrary<'db>),
+        visitor: impl FnMut(EffectiveDefinitionLibrary<'a, 'db>),
     ) {
         self.catalog.for_each_effective_definition_library_in_scope(
             self.scope,
@@ -101,12 +101,12 @@ impl<'db> ScopedTemplateLibraries<'db> {
 
     /// Resolve a load name within the backends that can render this file.
     #[must_use]
-    pub fn loadable_library(self, name: &LibraryName) -> LoadableLibraryLookup<'db> {
+    pub fn loadable_library(self, name: &LibraryName) -> LoadableLibraryLookup<'a, 'db> {
         self.catalog.loadable_library_in_scope(self.scope, name)
     }
 
     #[must_use]
-    pub fn loadable_library_str(self, name: &str) -> LoadableLibraryLookup<'db> {
+    pub fn loadable_library_str(self, name: &str) -> LoadableLibraryLookup<'a, 'db> {
         self.catalog.loadable_library_str_in_scope(self.scope, name)
     }
 
@@ -134,7 +134,7 @@ impl<'db> ScopedTemplateLibraries<'db> {
 
     /// Return the concrete library identities participating in the selected Template Backend Scope.
     #[must_use]
-    pub fn resolved_libraries(self) -> Vec<&'db TemplateLibrary> {
+    pub fn resolved_libraries(self) -> Vec<&'a TemplateLibrary<'db>> {
         self.catalog.resolved_libraries_in_scope(self.scope)
     }
 
@@ -157,7 +157,7 @@ impl<'db> ScopedTemplateLibraries<'db> {
     pub fn inventory_symbol_names(
         self,
         kind: TemplateSymbolKind,
-    ) -> impl Iterator<Item = &'db str> + 'db {
+    ) -> impl Iterator<Item = &'a str> + 'a {
         self.catalog.inventory_symbol_names(kind)
     }
 
@@ -167,7 +167,7 @@ impl<'db> ScopedTemplateLibraries<'db> {
         self,
         name: &str,
         kind: TemplateSymbolKind,
-    ) -> Vec<TemplateSymbolCandidate> {
+    ) -> Vec<TemplateSymbolCandidate<'db>> {
         self.catalog
             .scoped_symbol_candidates_in_scope(self.scope, name, kind)
     }
@@ -191,7 +191,7 @@ pub fn scoped_template_libraries(
     db: &dyn ProjectDb,
     project: Project,
     file: File,
-) -> ScopedTemplateLibraries<'_> {
+) -> ScopedTemplateLibraries<'_, '_> {
     ScopedTemplateLibraries {
         catalog: template_library_catalog(db, project),
         scope: template_library_scope(db, project, file),

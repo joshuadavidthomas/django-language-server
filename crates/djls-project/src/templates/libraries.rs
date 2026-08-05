@@ -50,11 +50,8 @@ enum TemplateLibraryKind {
 ///
 /// Configured-only libraries have no source file. Keeping that absence in the identity prevents
 /// settings-case evidence from masquerading as a navigable Python source.
-///
-/// This ID appears in lifetime-free domain values. Callers use it only with its originating
-/// database, while permanent interner retention prevents Salsa from recycling its slot.
-#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
-pub struct TemplateLibraryId {
+#[salsa::interned(debug)]
+pub struct TemplateLibraryId<'db> {
     #[returns(copy)]
     pub file: Option<File>,
     #[returns(ref)]
@@ -99,24 +96,24 @@ impl TemplateLibraryModule {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateLibrary {
-    id: TemplateLibraryId,
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
+pub struct TemplateLibrary<'db> {
+    id: TemplateLibraryId<'db>,
     module: TemplateLibraryModule,
     kind: TemplateLibraryKind,
     symbol_observation: TemplateSymbolObservation,
-    symbols: Vec<TemplateSymbol>,
+    symbols: Vec<TemplateSymbol<'db>>,
     tag_symbols: BTreeMap<String, usize>,
     filter_symbols: BTreeMap<String, usize>,
 }
 
-impl TemplateLibrary {
+impl<'db> TemplateLibrary<'db> {
     fn new(
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         module: TemplateLibraryModule,
         kind: TemplateLibraryKind,
         symbol_observation: TemplateSymbolObservation,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     ) -> Self {
         let symbols = merge_symbols(symbols);
         let mut tag_symbols = BTreeMap::new();
@@ -144,10 +141,10 @@ impl TemplateLibrary {
 
     #[must_use]
     fn builtin(
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         module: PythonSourceModule,
         symbol_observation: TemplateSymbolObservation,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     ) -> Self {
         Self::new(
             id,
@@ -160,9 +157,9 @@ impl TemplateLibrary {
 
     #[must_use]
     pub(crate) fn configured_builtin(
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         module: PythonModuleName,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     ) -> Self {
         Self::new(
             id,
@@ -174,7 +171,7 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    fn source_less_builtin(id: TemplateLibraryId, module: PythonModuleName) -> Self {
+    fn source_less_builtin(id: TemplateLibraryId<'db>, module: PythonModuleName) -> Self {
         Self::new(
             id,
             TemplateLibraryModule::Configured(module),
@@ -186,11 +183,11 @@ impl TemplateLibrary {
 
     #[must_use]
     fn loadable(
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         load_name: LibraryName,
         module: PythonSourceModule,
         symbol_observation: TemplateSymbolObservation,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     ) -> Self {
         Self::new(
             id,
@@ -203,10 +200,10 @@ impl TemplateLibrary {
 
     #[must_use]
     pub(crate) fn configured_loadable(
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         load_name: LibraryName,
         module: PythonModuleName,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     ) -> Self {
         Self::new(
             id,
@@ -219,7 +216,7 @@ impl TemplateLibrary {
 
     #[must_use]
     fn source_less_loadable(
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         load_name: LibraryName,
         module: PythonModuleName,
     ) -> Self {
@@ -234,11 +231,11 @@ impl TemplateLibrary {
 
     #[must_use]
     pub(crate) fn configured_available_in_app(
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         load_name: LibraryName,
         app: PythonModuleName,
         module: PythonModuleName,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     ) -> Self {
         Self::new(
             id,
@@ -251,12 +248,12 @@ impl TemplateLibrary {
 
     #[must_use]
     fn available_in_app(
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         load_name: LibraryName,
         app: PythonModuleName,
         module: PythonSourceModule,
         symbol_observation: TemplateSymbolObservation,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     ) -> Self {
         Self::new(
             id,
@@ -293,17 +290,17 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn id(&self) -> TemplateLibraryId {
+    pub fn id(&self) -> TemplateLibraryId<'db> {
         self.id
     }
 
     #[must_use]
-    pub fn symbols(&self) -> &[TemplateSymbol] {
+    pub fn symbols(&self) -> &[TemplateSymbol<'db>] {
         &self.symbols
     }
 
     #[must_use]
-    pub fn symbol(&self, kind: TemplateSymbolKind, name: &str) -> Option<&TemplateSymbol> {
+    pub fn symbol(&self, kind: TemplateSymbolKind, name: &str) -> Option<&TemplateSymbol<'db>> {
         let index = match kind {
             TemplateSymbolKind::Tag => self.tag_symbols.get(name),
             TemplateSymbolKind::Filter => self.filter_symbols.get(name),
@@ -359,8 +356,8 @@ impl TemplateLibrary {
     }
 }
 
-fn merge_symbols(symbols: Vec<TemplateSymbol>) -> Vec<TemplateSymbol> {
-    let mut merged: Vec<TemplateSymbol> = Vec::new();
+fn merge_symbols<'db>(symbols: Vec<TemplateSymbol<'db>>) -> Vec<TemplateSymbol<'db>> {
+    let mut merged: Vec<TemplateSymbol<'db>> = Vec::new();
     for new_symbol in symbols {
         if let Some(existing) = merged
             .iter_mut()
@@ -401,23 +398,23 @@ pub enum TemplateSymbolAvailability {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateSymbolCandidate {
-    pub symbol: TemplateSymbol,
+pub struct TemplateSymbolCandidate<'db> {
+    pub symbol: TemplateSymbol<'db>,
     pub availability: TemplateSymbolAvailability,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LoadableLibraryLookup<'a> {
-    Found(&'a TemplateLibrary),
-    Ambiguous(Vec<&'a TemplateLibrary>),
-    Inconclusive(Vec<&'a TemplateLibrary>),
+pub enum LoadableLibraryLookup<'a, 'db> {
+    Found(&'a TemplateLibrary<'db>),
+    Ambiguous(Vec<&'a TemplateLibrary<'db>>),
+    Inconclusive(Vec<&'a TemplateLibrary<'db>>),
     Absent,
 }
 
-impl<'a> LoadableLibraryLookup<'a> {
+impl<'a, 'db> LoadableLibraryLookup<'a, 'db> {
     /// Return the library only when every feasible settings case agrees.
     #[must_use]
-    pub fn found(self) -> Option<&'a TemplateLibrary> {
+    pub fn found(self) -> Option<&'a TemplateLibrary<'db>> {
         match self {
             Self::Found(library) => Some(library),
             Self::Ambiguous(_) | Self::Inconclusive(_) | Self::Absent => None,
@@ -450,26 +447,26 @@ pub enum ScopedTemplateSymbolLookup {
 /// `Unobserved` retains the identity of a definite source-less library whose open symbol inventory
 /// may contain the requested name. `Unknown` is reserved for uncertainty with no library identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EffectiveDefinitionLibrary<'a> {
-    Known(Option<&'a TemplateLibrary>),
-    Unobserved(&'a TemplateLibrary),
+pub enum EffectiveDefinitionLibrary<'a, 'db> {
+    Known(Option<&'a TemplateLibrary<'db>>),
+    Unobserved(&'a TemplateLibrary<'db>),
     Unknown,
 }
 
 /// One ordered Template Library update in a feasible backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TemplateLibraryChainStep<'a> {
-    Library(&'a TemplateLibrary),
+pub enum TemplateLibraryChainStep<'a, 'db> {
+    Library(&'a TemplateLibrary<'db>),
     Unknown,
 }
 
 /// Builtins followed by loaded libraries for one feasible backend.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateLibraryChain<'a>(Vec<TemplateLibraryChainStep<'a>>);
+pub struct TemplateLibraryChain<'a, 'db>(Vec<TemplateLibraryChainStep<'a, 'db>>);
 
-impl<'a> TemplateLibraryChain<'a> {
+impl<'a, 'db> TemplateLibraryChain<'a, 'db> {
     #[must_use]
-    pub fn steps(&self) -> &[TemplateLibraryChainStep<'a>] {
+    pub fn steps(&self) -> &[TemplateLibraryChainStep<'a, 'db>] {
         &self.0
     }
 }
@@ -649,12 +646,12 @@ impl TemplateBackendLibraries {
 }
 
 type TestingBackendSettings = (Vec<(LibraryName, PythonModuleName)>, Vec<PythonModuleName>);
-type DiscoveredLibrary = (
+type DiscoveredLibrary<'db> = (
     LibraryName,
-    TemplateLibraryId,
+    TemplateLibraryId<'db>,
     PythonSourceModule,
     TemplateSymbolObservation,
-    Vec<TemplateSymbol>,
+    Vec<TemplateSymbol<'db>>,
 );
 
 #[derive(Clone)]
@@ -679,16 +676,16 @@ pub enum TemplateLibraryFixtureError {
     MissingBuiltin { module: PythonModuleName },
 }
 
-enum ConfiguredLibraryModule {
+enum ConfiguredLibraryModule<'db> {
     Source {
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         module: PythonSourceModule,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
         symbol_observation: TemplateSymbolObservation,
         recovered: bool,
     },
     SourceLess {
-        id: TemplateLibraryId,
+        id: TemplateLibraryId<'db>,
         module: PythonModuleName,
     },
     NotLibrary,
@@ -698,9 +695,9 @@ enum ConfiguredLibraryModule {
 ///
 /// The catalog indexes definitions and load names while retaining backend-correlated availability,
 /// open evidence, and omission causes. File-specific access belongs to `ScopedTemplateLibraries`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateLibraryCatalog {
-    libraries: Vec<TemplateLibrary>,
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
+pub struct TemplateLibraryCatalog<'db> {
+    libraries: Vec<TemplateLibrary<'db>>,
     definitions_by_name: BTreeMap<TemplateSymbolKind, BTreeMap<String, Vec<usize>>>,
     loadable_by_name: BTreeMap<LibraryName, usize>,
     settings_cases: TemplateLibrarySettingsCases,
@@ -708,7 +705,7 @@ pub struct TemplateLibraryCatalog {
     issues: Vec<TemplateLibraryIssue>,
 }
 
-impl Default for TemplateLibraryCatalog {
+impl Default for TemplateLibraryCatalog<'_> {
     fn default() -> Self {
         Self {
             libraries: Vec::new(),
@@ -791,21 +788,24 @@ impl<'a> LibraryBackendAlternative<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct LibraryScopeView<'a> {
-    libraries: &'a TemplateLibraryCatalog,
+struct LibraryScopeView<'a, 'db> {
+    libraries: &'a TemplateLibraryCatalog<'db>,
     scope: &'a TemplateBackendScope,
 }
 
-impl<'a> LibraryScopeView<'a> {
-    const fn new(libraries: &'a TemplateLibraryCatalog, scope: &'a TemplateBackendScope) -> Self {
+impl<'a, 'db> LibraryScopeView<'a, 'db> {
+    const fn new(
+        libraries: &'a TemplateLibraryCatalog<'db>,
+        scope: &'a TemplateBackendScope,
+    ) -> Self {
         Self { libraries, scope }
     }
 
-    fn project_inventory(libraries: &'a TemplateLibraryCatalog) -> Self {
+    fn project_inventory(libraries: &'a TemplateLibraryCatalog<'db>) -> Self {
         Self::new(libraries, TemplateBackendScope::project_inventory_ref())
     }
 
-    fn alternatives(self) -> LibraryAlternativeIter<'a> {
+    fn alternatives(self) -> LibraryAlternativeIter<'a, 'db> {
         let kind = match self.scope.kind() {
             TemplateBackendScopeKind::ProjectInventory => {
                 LibraryAlternativeIterKind::ProjectInventory {
@@ -850,12 +850,12 @@ enum LibraryAlternativeIterKind<'a> {
     Scoped(Iter<'a, TemplateBackendSelection>),
 }
 
-struct LibraryAlternativeIter<'a> {
-    libraries: &'a TemplateLibraryCatalog,
+struct LibraryAlternativeIter<'a, 'db> {
+    libraries: &'a TemplateLibraryCatalog<'db>,
     kind: LibraryAlternativeIterKind<'a>,
 }
 
-impl<'a> Iterator for LibraryAlternativeIter<'a> {
+impl<'a> Iterator for LibraryAlternativeIter<'a, '_> {
     type Item = LibraryBackendAlternative<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -918,20 +918,20 @@ impl<'a> Iterator for LibraryAlternativeIter<'a> {
     }
 }
 
-impl TemplateLibraryCatalog {
+impl<'db> TemplateLibraryCatalog<'db> {
     pub(crate) fn loadable_library_in_scope<'a>(
         &'a self,
         scope: &'a TemplateBackendScope,
         name: &LibraryName,
-    ) -> LoadableLibraryLookup<'a> {
+    ) -> LoadableLibraryLookup<'a, 'db> {
         self.loadable_library_in_view(LibraryScopeView::new(self, scope), name)
     }
 
     fn loadable_library_in_view<'a>(
         &'a self,
-        view: LibraryScopeView<'a>,
+        view: LibraryScopeView<'a, 'db>,
         name: &LibraryName,
-    ) -> LoadableLibraryLookup<'a> {
+    ) -> LoadableLibraryLookup<'a, 'db> {
         let mut outcomes = Vec::new();
         let mut indexes = Vec::new();
         let mut unresolved = false;
@@ -1009,7 +1009,7 @@ impl TemplateLibraryCatalog {
         &'a self,
         scope: &'a TemplateBackendScope,
         name: &str,
-    ) -> LoadableLibraryLookup<'a> {
+    ) -> LoadableLibraryLookup<'a, 'db> {
         match LibraryName::parse(name) {
             Ok(name) => self.loadable_library_in_scope(scope, &name),
             Err(_) => LoadableLibraryLookup::Absent,
@@ -1023,7 +1023,7 @@ impl TemplateLibraryCatalog {
         Self::completion_library_names_in_view(LibraryScopeView::new(self, scope))
     }
 
-    fn completion_library_names_in_view(view: LibraryScopeView<'_>) -> Vec<LibraryName> {
+    fn completion_library_names_in_view(view: LibraryScopeView<'_, '_>) -> Vec<LibraryName> {
         view.alternatives()
             .filter_map(LibraryBackendAlternative::backend)
             .flat_map(|backend| backend.loadable_by_name.keys())
@@ -1036,11 +1036,14 @@ impl TemplateLibraryCatalog {
     pub(crate) fn resolved_libraries_in_scope(
         &self,
         scope: &TemplateBackendScope,
-    ) -> Vec<&TemplateLibrary> {
+    ) -> Vec<&TemplateLibrary<'db>> {
         self.resolved_libraries_in_view(LibraryScopeView::new(self, scope))
     }
 
-    fn resolved_libraries_in_view(&self, view: LibraryScopeView<'_>) -> Vec<&TemplateLibrary> {
+    fn resolved_libraries_in_view(
+        &self,
+        view: LibraryScopeView<'_, '_>,
+    ) -> Vec<&TemplateLibrary<'db>> {
         let mut indexes = Vec::new();
         for backend in view
             .alternatives()
@@ -1071,16 +1074,16 @@ impl TemplateLibraryCatalog {
         scope: &TemplateBackendScope,
         name: &str,
         kind: TemplateSymbolKind,
-    ) -> Vec<TemplateSymbolCandidate> {
+    ) -> Vec<TemplateSymbolCandidate<'db>> {
         self.scoped_symbol_candidates_in_view(LibraryScopeView::new(self, scope), name, kind)
     }
 
     fn scoped_symbol_candidates_in_view(
         &self,
-        view: LibraryScopeView<'_>,
+        view: LibraryScopeView<'_, '_>,
         name: &str,
         kind: TemplateSymbolKind,
-    ) -> Vec<TemplateSymbolCandidate> {
+    ) -> Vec<TemplateSymbolCandidate<'db>> {
         let lookup = self.scoped_symbol_lookup_in_view(view, name, kind);
         let libraries = self.resolved_libraries_in_view(view);
         let mut candidates = Vec::new();
@@ -1162,7 +1165,7 @@ impl TemplateLibraryCatalog {
 
     fn scoped_symbol_lookup_in_view(
         &self,
-        view: LibraryScopeView<'_>,
+        view: LibraryScopeView<'_, '_>,
         name: &str,
         kind: TemplateSymbolKind,
     ) -> ScopedTemplateSymbolLookup {
@@ -1246,7 +1249,7 @@ impl TemplateLibraryCatalog {
 
     fn template_symbol_lookup_in_view(
         &self,
-        view: LibraryScopeView<'_>,
+        view: LibraryScopeView<'_, '_>,
         name: &str,
         kind: TemplateSymbolKind,
     ) -> AppTemplateSymbolLookup {
@@ -1332,7 +1335,7 @@ impl TemplateLibraryCatalog {
 
     fn missing_library_lookup_in_view(
         &self,
-        view: LibraryScopeView<'_>,
+        view: LibraryScopeView<'_, '_>,
         name: &LibraryName,
     ) -> MissingTemplateLibraryLookup {
         match self.loadable_library_in_view(view, name) {
@@ -1399,7 +1402,7 @@ impl TemplateLibraryCatalog {
         symbol_name: &str,
         kind: TemplateSymbolKind,
         loaded_names: &[&str],
-    ) -> Vec<EffectiveDefinitionLibrary<'a>> {
+    ) -> Vec<EffectiveDefinitionLibrary<'a, 'db>> {
         let mut definitions = Vec::new();
         self.for_each_effective_definition_library_in_scope(
             scope,
@@ -1417,7 +1420,7 @@ impl TemplateLibraryCatalog {
         symbol_name: &str,
         kind: TemplateSymbolKind,
         loaded_names: &[&str],
-        visitor: impl FnMut(EffectiveDefinitionLibrary<'a>),
+        visitor: impl FnMut(EffectiveDefinitionLibrary<'a, 'db>),
     ) {
         self.for_each_effective_definition_library_in_view(
             LibraryScopeView::new(self, scope),
@@ -1430,13 +1433,14 @@ impl TemplateLibraryCatalog {
 
     fn for_each_effective_definition_library_in_view<'a>(
         &'a self,
-        view: LibraryScopeView<'a>,
+        view: LibraryScopeView<'a, 'db>,
         symbol_name: &str,
         kind: TemplateSymbolKind,
         loaded_names: &[&str],
-        mut visitor: impl FnMut(EffectiveDefinitionLibrary<'a>),
+        mut visitor: impl FnMut(EffectiveDefinitionLibrary<'a, 'db>),
     ) {
-        let has_symbol = |library: &TemplateLibrary| library.symbol(kind, symbol_name).is_some();
+        let has_symbol =
+            |library: &TemplateLibrary<'db>| library.symbol(kind, symbol_name).is_some();
         let mut visited = false;
 
         for alternative in view.alternatives() {
@@ -1521,7 +1525,7 @@ impl TemplateLibraryCatalog {
         &'a self,
         scope: &'a TemplateBackendScope,
         loaded_names: &[&str],
-    ) -> Vec<TemplateLibraryChain<'a>> {
+    ) -> Vec<TemplateLibraryChain<'a, 'db>> {
         let mut chains = Vec::new();
         self.fold_library_chains_in_scope(scope, loaded_names, Vec::new, Vec::push, |steps| {
             chains.push(TemplateLibraryChain(steps));
@@ -1534,7 +1538,7 @@ impl TemplateLibraryCatalog {
         scope: &'a TemplateBackendScope,
         loaded_names: &[&str],
         initial: impl FnMut() -> State,
-        step: impl FnMut(&mut State, TemplateLibraryChainStep<'a>),
+        step: impl FnMut(&mut State, TemplateLibraryChainStep<'a, 'db>),
         finish: impl FnMut(State),
     ) {
         self.fold_library_chains_in_view(
@@ -1548,10 +1552,10 @@ impl TemplateLibraryCatalog {
 
     fn fold_library_chains_in_view<'a, State>(
         &'a self,
-        view: LibraryScopeView<'a>,
+        view: LibraryScopeView<'a, 'db>,
         loaded_names: &[&str],
         mut initial: impl FnMut() -> State,
-        mut step: impl FnMut(&mut State, TemplateLibraryChainStep<'a>),
+        mut step: impl FnMut(&mut State, TemplateLibraryChainStep<'a, 'db>),
         mut finish: impl FnMut(State),
     ) {
         let mut visited = false;
@@ -1619,7 +1623,7 @@ impl TemplateLibraryCatalog {
     }
 
     #[must_use]
-    pub(crate) fn from_libraries(libraries: Vec<TemplateLibrary>) -> Self {
+    pub(crate) fn from_libraries(libraries: Vec<TemplateLibrary<'db>>) -> Self {
         Self::from_libraries_and_settings_cases(
             libraries,
             TemplateLibrarySettingsCases::Standalone {
@@ -1629,7 +1633,7 @@ impl TemplateLibraryCatalog {
         )
     }
 
-    pub(crate) fn from_libraries_with_omissions(libraries: Vec<TemplateLibrary>) -> Self {
+    pub(crate) fn from_libraries_with_omissions(libraries: Vec<TemplateLibrary<'db>>) -> Self {
         Self::from_libraries_and_settings_cases(
             libraries,
             TemplateLibrarySettingsCases::Standalone {
@@ -1640,7 +1644,7 @@ impl TemplateLibraryCatalog {
     }
 
     fn from_libraries_and_settings_cases(
-        libraries: Vec<TemplateLibrary>,
+        libraries: Vec<TemplateLibrary<'db>>,
         settings_cases: TemplateLibrarySettingsCases,
     ) -> Self {
         let mut inventory = Self {
@@ -1782,17 +1786,19 @@ impl TemplateLibraryCatalog {
             .map(String::as_str)
     }
 
-    fn resolved_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
+    fn resolved_libraries(&self) -> impl Iterator<Item = &TemplateLibrary<'db>> + '_ {
         self.resolved_libraries_in_view(LibraryScopeView::project_inventory(self))
             .into_iter()
     }
 
-    fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
+    fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary<'db>> + '_ {
         self.resolved_libraries()
             .filter(|library| matches!(&library.kind, TemplateLibraryKind::Builtin))
     }
 
-    fn loadable_libraries(&self) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
+    fn loadable_libraries(
+        &self,
+    ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary<'db>)> + '_ {
         self.resolved_libraries().filter_map(|library| {
             let TemplateLibraryKind::Loadable { load_name } = &library.kind else {
                 return None;
@@ -1802,7 +1808,7 @@ impl TemplateLibraryCatalog {
     }
 
     #[must_use]
-    fn available_in_app_candidates(&self, name: &LibraryName) -> Vec<&TemplateLibrary> {
+    fn available_in_app_candidates(&self, name: &LibraryName) -> Vec<&TemplateLibrary<'db>> {
         self.available_in_app_by_name
             .get(name)
             .into_iter()
@@ -1815,7 +1821,7 @@ impl TemplateLibraryCatalog {
         &self,
         symbol_name: &str,
         kind: TemplateSymbolKind,
-    ) -> Vec<&TemplateLibrary> {
+    ) -> Vec<&TemplateLibrary<'db>> {
         let mut candidates: Vec<_> = self
             .available_in_app_by_name
             .values()
@@ -1827,7 +1833,7 @@ impl TemplateLibraryCatalog {
         candidates
     }
 
-    fn insert_library(&mut self, library: TemplateLibrary) -> usize {
+    fn insert_library(&mut self, library: TemplateLibrary<'db>) -> usize {
         if let Some(index) = self
             .libraries
             .iter()
@@ -1888,7 +1894,7 @@ impl TemplateLibraryCatalog {
         }
     }
 
-    fn push_library(&mut self, library: TemplateLibrary) -> usize {
+    fn push_library(&mut self, library: TemplateLibrary<'db>) -> usize {
         let index = self.libraries.len();
         let names: Vec<_> = library
             .symbols()
@@ -1935,7 +1941,7 @@ impl TemplateLibraryCatalog {
 
     fn insert_available_candidates(
         &mut self,
-        db: &dyn ProjectDb,
+        db: &'db dyn ProjectDb,
         project: Project,
         loadable_template_library_modules: &BTreeSet<PythonModuleName>,
     ) {
@@ -2013,7 +2019,10 @@ impl TemplateLibraryCatalog {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn template_library_catalog(db: &dyn ProjectDb, project: Project) -> TemplateLibraryCatalog {
+pub fn template_library_catalog(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> TemplateLibraryCatalog<'_> {
     project.touch_search_path_roots(db);
 
     if settings_module_file(db, project).is_none() {
@@ -2086,12 +2095,12 @@ pub fn template_library_catalog(db: &dyn ProjectDb, project: Project) -> Templat
     libraries
 }
 
-fn discover_installed_app_libraries(
-    db: &dyn ProjectDb,
+fn discover_installed_app_libraries<'db>(
+    db: &'db dyn ProjectDb,
     project: Project,
     installed_apps: &[InstalledAppEvidence],
     common_libraries: &BTreeMap<LibraryName, usize>,
-    libraries: &mut TemplateLibraryCatalog,
+    libraries: &mut TemplateLibraryCatalog<'db>,
     loadable_modules: &mut BTreeSet<PythonModuleName>,
 ) -> InstalledAppLibraries {
     let mut app_libraries = common_libraries.clone();
@@ -2154,12 +2163,12 @@ fn discover_installed_app_libraries(
     }
 }
 
-fn build_library_settings_case(
-    db: &dyn ProjectDb,
+fn build_library_settings_case<'db>(
+    db: &'db dyn ProjectDb,
     project: Project,
     settings_case: &TemplateSettingsCase,
     app_libraries: &InstalledAppLibraries,
-    libraries: &mut TemplateLibraryCatalog,
+    libraries: &mut TemplateLibraryCatalog<'db>,
 ) -> TemplateLibrarySettingsCase {
     let slots = settings_case
         .slots()
@@ -2228,12 +2237,12 @@ fn resolved_library_references(
         .collect()
 }
 
-fn insert_configured_backend_libraries(
-    db: &dyn ProjectDb,
+fn insert_configured_backend_libraries<'db>(
+    db: &'db dyn ProjectDb,
     project: Project,
     backend: &TemplateBackendCase,
     app_libraries: &BTreeMap<LibraryName, usize>,
-    libraries: &mut TemplateLibraryCatalog,
+    libraries: &mut TemplateLibraryCatalog<'db>,
 ) -> TemplateBackendLibraries {
     let mut result = insert_backend_library_values(
         db,
@@ -2252,13 +2261,13 @@ fn insert_configured_backend_libraries(
     result
 }
 
-fn insert_backend_library_values(
-    db: &dyn ProjectDb,
+fn insert_backend_library_values<'db>(
+    db: &'db dyn ProjectDb,
     project: Project,
     configured_libraries: &[(String, PythonModuleName)],
     configured_builtins: &[PythonModuleName],
     app_libraries: &BTreeMap<LibraryName, usize>,
-    libraries: &mut TemplateLibraryCatalog,
+    libraries: &mut TemplateLibraryCatalog<'db>,
 ) -> TemplateBackendLibraries {
     let mut result = TemplateBackendLibraries {
         loadable_by_name: resolved_library_references(app_libraries),
@@ -2349,11 +2358,11 @@ fn insert_backend_library_values(
     result
 }
 
-fn insert_loadable_libraries(
-    libraries: &mut TemplateLibraryCatalog,
+fn insert_loadable_libraries<'db>(
+    libraries: &mut TemplateLibraryCatalog<'db>,
     loadable_modules: &mut BTreeSet<PythonModuleName>,
     loadable_by_name: &mut BTreeMap<LibraryName, usize>,
-    discovered: Vec<DiscoveredLibrary>,
+    discovered: Vec<DiscoveredLibrary<'db>>,
 ) {
     for (load_name, id, module, symbol_observation, symbols) in discovered {
         loadable_modules.insert(module.name().clone());
@@ -2368,11 +2377,11 @@ fn insert_loadable_libraries(
     }
 }
 
-fn templatetag_package_libraries(
-    db: &dyn ProjectDb,
+fn templatetag_package_libraries<'db>(
+    db: &'db dyn ProjectDb,
     project: Project,
     package_module: &PythonModuleName,
-) -> (Vec<DiscoveredLibrary>, Vec<TemplateLibraryIssue>) {
+) -> (Vec<DiscoveredLibrary<'db>>, Vec<TemplateLibraryIssue>) {
     let (candidates, candidate_issues) =
         templatetag_candidates_in_package(db, project, package_module).into_parts();
     let mut issues = candidate_issues
@@ -2413,7 +2422,7 @@ fn library_from_module_name(
     db: &dyn ProjectDb,
     project: Project,
     module_name: PythonModuleName,
-) -> ConfiguredLibraryModule {
+) -> ConfiguredLibraryModule<'_> {
     let Some(module) = PythonSourceModule::resolve(db, project, module_name.clone()) else {
         return ConfiguredLibraryModule::SourceLess {
             id: TemplateLibraryId::new(db, None, module_name.clone()),
@@ -2437,14 +2446,14 @@ fn library_from_module_name(
     }
 }
 
-fn cmp_available_libraries(left: &TemplateLibrary, right: &TemplateLibrary) -> Ordering {
+fn cmp_available_libraries(left: &TemplateLibrary<'_>, right: &TemplateLibrary<'_>) -> Ordering {
     left.available_in_app_module()
         .cmp(&right.available_in_app_module())
         .then_with(|| left.load_name().cmp(&right.load_name()))
         .then_with(|| left.module_name_str().cmp(right.module_name_str()))
 }
 
-fn same_available_in_app_library(left: &TemplateLibrary, right: &TemplateLibrary) -> bool {
+fn same_available_in_app_library(left: &TemplateLibrary<'_>, right: &TemplateLibrary<'_>) -> bool {
     let (Some(left_app), Some(right_app)) = (
         left.available_in_app_module(),
         right.available_in_app_module(),

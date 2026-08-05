@@ -28,7 +28,7 @@ pub(crate) enum SymbolAvailability {
 /// Template Library catalog or construct a complete per-Template symbol index.
 #[must_use]
 pub(crate) fn resolve_occurrence_availability(
-    scoped_libraries: ScopedTemplateLibraries<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     load_state: &LoadState<'_>,
     name: &str,
     kind: TemplateSymbolKind,
@@ -89,10 +89,9 @@ mod tests {
     use crate::scoping::LoadedLibraries;
     use crate::scoping::loads::LoadArgument;
 
-    fn catalog() -> anyhow::Result<TemplateLibraryCatalog> {
-        let db = djls_testing::TestDatabase::new();
+    fn catalog(db: &djls_testing::TestDatabase) -> anyhow::Result<TemplateLibraryCatalog<'_>> {
         make_template_library_catalog(
-            &db,
+            db,
             &[json!({
                 "kind": "tag",
                 "name": "custom",
@@ -110,7 +109,8 @@ mod tests {
 
     #[test]
     fn occurrence_lookup_respects_positioned_loads() {
-        let catalog = catalog().expect("template library catalog fixture should build");
+        let db = djls_testing::TestDatabase::new();
+        let catalog = catalog(&db).expect("template library catalog fixture should build");
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&catalog);
         let loaded = LoadedLibraries::new(vec![LoadStatement::new(
             Span::new(10, 10),

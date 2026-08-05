@@ -2014,23 +2014,28 @@ env_file = ".env.local"
         };
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
-        let libraries = template_library_catalog(&db, project);
-        let keys: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
-            .resolved_libraries()
-            .into_iter()
-            .filter(|library| matches!(library.module_name_str(), "alpha_tags" | "beta_tags"))
-            .map(TemplateLibrary::id)
-            .collect();
-        assert_eq!(keys.len(), 2);
+        let identities: Vec<_> = {
+            let libraries = template_library_catalog(&db, project);
+            ScopedTemplateLibraries::from_project_inventory(libraries)
+                .resolved_libraries()
+                .into_iter()
+                .filter(|library| matches!(library.module_name_str(), "alpha_tags" | "beta_tags"))
+                .map(|library| {
+                    let id = library.id();
+                    (id.file(&db), id.module(&db).clone())
+                })
+                .collect()
+        };
+        assert_eq!(identities.len(), 2);
         let primed =
             prime_template_library_products(&db).expect("test fixture should install a project");
         assert_eq!(primed.reprime_files().len(), 2);
         assert_eq!(primed.full_reload_files().len(), 1);
         event_log.take();
 
-        let alpha_key = *keys
+        let alpha_identity = identities
             .iter()
-            .find(|key| key.module(&db).as_str() == "alpha_tags")
+            .find(|(_file, module)| module.as_str() == "alpha_tags")
             .expect("test source should contain the expected text");
         fs.lock()
             .expect("test mutex should not be poisoned")
@@ -2040,6 +2045,7 @@ env_file = ".env.local"
             prime_template_library_products(&db).expect("test fixture should install a project");
         assert_eq!(reprime.reprime_files().len(), 2);
         assert_eq!(reprime.full_reload_files().len(), 1);
+        let alpha_key = TemplateLibraryId::new(&db, alpha_identity.0, alpha_identity.1.clone());
         let alpha_tags = library_tag_specs(&db, project, alpha_key);
         let alpha_filters = library_filter_specs(&db, alpha_key);
         assert_eq!(
@@ -2056,12 +2062,13 @@ env_file = ".env.local"
                 .expect("expected test fixture entry should exist")
                 .expects_arg
         );
-        for key in keys
+        for (file, module) in identities
             .iter()
-            .filter(|key| key.module(&db).as_str() == "beta_tags")
+            .filter(|(_file, module)| module.as_str() == "beta_tags")
         {
-            let _ = library_tag_specs(&db, project, *key);
-            let _ = library_filter_specs(&db, *key);
+            let key = TemplateLibraryId::new(&db, *file, module.clone());
+            let _ = library_tag_specs(&db, project, key);
+            let _ = library_filter_specs(&db, key);
         }
         let events = event_log.take();
         assert_eq!(
@@ -2086,6 +2093,7 @@ env_file = ".env.local"
             prime_template_library_products(&db).expect("test fixture should install a project");
         assert_eq!(reprime.reprime_files().len(), 2);
         assert_eq!(reprime.full_reload_files().len(), 1);
+        let alpha_key = TemplateLibraryId::new(&db, alpha_identity.0, alpha_identity.1.clone());
         let alpha_tags = library_tag_specs(&db, project, alpha_key);
         let alpha_filters = library_filter_specs(&db, alpha_key);
         assert_eq!(
@@ -2102,12 +2110,13 @@ env_file = ".env.local"
                 .expect("expected test fixture entry should exist")
                 .expects_arg
         );
-        for key in keys
+        for (file, module) in identities
             .iter()
-            .filter(|key| key.module(&db).as_str() == "beta_tags")
+            .filter(|(_file, module)| module.as_str() == "beta_tags")
         {
-            let _ = library_tag_specs(&db, project, *key);
-            let _ = library_filter_specs(&db, *key);
+            let key = TemplateLibraryId::new(&db, *file, module.clone());
+            let _ = library_tag_specs(&db, project, key);
+            let _ = library_filter_specs(&db, key);
         }
         let events = event_log.take();
         assert_eq!(
@@ -2164,13 +2173,12 @@ env_file = ".env.local"
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = path_to_file(&db, camino::Utf8Path::new("/test/project/tags.py"))
             .expect("fixture file should exist");
-        let library = TemplateLibraryId::new(
-            &db,
-            Some(file),
-            PythonModuleName::parse("test.project.tags")
-                .expect("test Python module name should be valid"),
-        );
-        let _result = template_library_filter_facts(&db, library);
+        let module = PythonModuleName::parse("test.project.tags")
+            .expect("test Python module name should be valid");
+        {
+            let library = TemplateLibraryId::new(&db, Some(file), module.clone());
+            let _result = template_library_filter_facts(&db, library);
+        }
         event_log.take();
 
         // Bump the file revision — but the source is still empty (file not in FS)
@@ -2178,6 +2186,7 @@ env_file = ".env.local"
 
         // Salsa's backdate optimization: file.try_source() returns the same empty text,
         // so the per-library Filter facts do not re-execute.
+        let library = TemplateLibraryId::new(&db, Some(file), module);
         let _result = template_library_filter_facts(&db, library);
         let events = event_log.take();
         assert!(

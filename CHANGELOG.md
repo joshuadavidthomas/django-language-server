@@ -67,6 +67,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Moved Python spec extraction and template-origin resolution into `djls-project`, leaving `djls-semantic` as the project-meaning layer.
 - **Internal**: Refactored template semantics around `TemplateTree` for validation, references, outlines, folding, and opaque-region handling.
 - **Internal**: Reworked template analysis around per-library semantic products, sparse per-Template projections, and generation-gated production priming.
+- **Internal**: Propagated the Salsa database lifetime through interned Template Library identities and the domain values that retain them.
 - **Internal**: Updated realistic template benchmarks to use project-backed source extraction, canonical builtin roles, and snapshot-backed workload contracts.
 - **Internal**: Moved corpus tooling and shared test fixtures into `djls-testing`.
 - **Internal**: Reworked Python settings evaluation around module identities, typed import outcomes, invariant-preserving collections, and correlated list alternatives.

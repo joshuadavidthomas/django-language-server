@@ -70,7 +70,10 @@ impl LibraryFilterSpecs {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryId) -> LibraryFilterSpecs {
+pub fn library_filter_specs<'db>(
+    db: &'db dyn Db,
+    key: TemplateLibraryId<'db>,
+) -> LibraryFilterSpecs {
     let facts = template_library_filter_facts(db, key);
     let mut specs = FilterAritySpecs::new();
     specs.merge_filter_arities(facts.filter_arities());
@@ -80,7 +83,7 @@ pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryId) -> LibraryFilte
 /// Return the effective filter arity at one occurrence when every feasible backend agrees.
 pub(crate) fn effective_filter_arity_in_scope(
     db: &dyn Db,
-    scoped_libraries: ScopedTemplateLibraries<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     filter_name: &str,
     load_state: &LoadState<'_>,
 ) -> Option<FilterArity> {

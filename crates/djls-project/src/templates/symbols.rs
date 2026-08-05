@@ -46,14 +46,14 @@ impl SymbolKey {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SymbolDefinition {
-    Exact { library: TemplateLibraryId },
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
+pub enum SymbolDefinition<'db> {
+    Exact { library: TemplateLibraryId<'db> },
     Module(PythonModuleName),
     Unknown,
 }
 
-impl SymbolDefinition {
+impl SymbolDefinition<'_> {
     pub(crate) fn rank(&self) -> u8 {
         match self {
             Self::Exact { .. } => 2,
@@ -97,15 +97,15 @@ impl TemplateSymbolSource {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateSymbol {
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
+pub struct TemplateSymbol<'db> {
     pub kind: TemplateSymbolKind,
     pub name: TemplateSymbolName,
-    pub definition: SymbolDefinition,
+    pub definition: SymbolDefinition<'db>,
     pub doc: Option<String>,
 }
 
-impl TemplateSymbol {
+impl TemplateSymbol<'_> {
     #[must_use]
     pub fn name(&self) -> &str {
         self.name.as_str()

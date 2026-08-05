@@ -142,7 +142,7 @@ fn render_template_reference_hover(
 }
 
 fn render_effective_symbol_hover(
-    scoped_libraries: ScopedTemplateLibraries<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     name: &str,
     kind: TemplateSymbolKind,
     loaded_libraries: &[String],
@@ -190,7 +190,7 @@ fn render_effective_symbol_hover(
 }
 
 fn render_library_symbol_hover(
-    scoped_libraries: ScopedTemplateLibraries<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     name: &str,
     library: &str,
     kind: Option<TemplateSymbolKind>,
@@ -371,12 +371,13 @@ mod tests {
         Loadable(&'static str),
     }
 
-    fn candidate(
+    fn candidate<'db>(
+        db: &'db djls_testing::TestDatabase,
         kind: TemplateSymbolKind,
         name: &str,
         doc: Option<&str>,
         origin: TestOrigin,
-    ) -> Result<TemplateSymbolCandidate, Box<dyn std::error::Error>> {
+    ) -> Result<TemplateSymbolCandidate<'db>, Box<dyn std::error::Error>> {
         let mut libraries = HashMap::new();
         let mut builtins = Vec::new();
         let mut fixture = match (kind, origin) {
@@ -407,9 +408,8 @@ mod tests {
             TemplateSymbolKind::Tag => (vec![fixture], Vec::new()),
             TemplateSymbolKind::Filter => (Vec::new(), vec![fixture]),
         };
-        let db = djls_testing::TestDatabase::new();
         let libraries = djls_testing::make_template_library_catalog(
-            &db, &tags, &filters, &libraries, &builtins,
+            db, &tags, &filters, &libraries, &builtins,
         )?;
 
         Ok(ScopedTemplateLibraries::from_project_inventory(&libraries)
@@ -421,8 +421,10 @@ mod tests {
 
     #[test]
     fn tag_hover_includes_signature_and_docstring() {
+        let db = djls_testing::TestDatabase::new();
         let candidates = vec![
             candidate(
+                &db,
                 TemplateSymbolKind::Tag,
                 "if",
                 Some("Evaluate a condition."),
@@ -441,8 +443,10 @@ mod tests {
 
     #[test]
     fn filter_hover_falls_back_to_load_hint() {
+        let db = djls_testing::TestDatabase::new();
         let candidates = vec![
             candidate(
+                &db,
                 TemplateSymbolKind::Filter,
                 "intcomma",
                 None,

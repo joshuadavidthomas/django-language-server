@@ -62,7 +62,11 @@ impl LibraryTagSpecs {
 /// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
 #[salsa::tracked(returns(ref))]
 #[allow(clippy::needless_pass_by_value)]
-pub fn library_tag_specs(db: &dyn Db, project: Project, key: TemplateLibraryId) -> LibraryTagSpecs {
+pub fn library_tag_specs<'db>(
+    db: &'db dyn Db,
+    project: Project,
+    key: TemplateLibraryId<'db>,
+) -> LibraryTagSpecs {
     let mut specs = builtin_tag_specs();
     specs.retain(|_, spec| spec.module() == key.module(db).as_str());
 
@@ -80,7 +84,11 @@ pub fn library_tag_specs(db: &dyn Db, project: Project, key: TemplateLibraryId) 
 
 /// Equality-bearing configured fallback for one Template Library.
 #[salsa::tracked(returns(ref))]
-fn configured_library_tag_specs(db: &dyn Db, project: Project, key: TemplateLibraryId) -> TagSpecs {
+fn configured_library_tag_specs<'db>(
+    db: &'db dyn Db,
+    project: Project,
+    key: TemplateLibraryId<'db>,
+) -> TagSpecs {
     project
         .tagspecs(db)
         .libraries
@@ -126,7 +134,7 @@ fn effective_tag_spec_in_project(
 pub(crate) fn effective_tag_spec_in_scope(
     db: &dyn Db,
     project: Project,
-    scoped_libraries: ScopedTemplateLibraries<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     name: &str,
     loaded: &[&str],
 ) -> Option<TagSpec> {
@@ -274,7 +282,7 @@ fn hardcoded_tag_inventory_is_complete(module: &str) -> bool {
 fn completion_tag_candidate_names(
     db: &dyn Db,
     project: Project,
-    scoped_libraries: ScopedTemplateLibraries<'_>,
+    scoped_libraries: ScopedTemplateLibraries<'_, '_>,
 ) -> HashSet<String> {
     let mut names: HashSet<_> = scoped_libraries
         .inventory_symbol_names(TemplateSymbolKind::Tag)
