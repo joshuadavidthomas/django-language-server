@@ -407,10 +407,8 @@ mod tests {
             TemplateSymbolKind::Tag => (vec![fixture], Vec::new()),
             TemplateSymbolKind::Filter => (Vec::new(), vec![fixture]),
         };
-        let db = djls_testing::TestDatabase::new();
-        let libraries = djls_testing::make_template_library_catalog(
-            &db, &tags, &filters, &libraries, &builtins,
-        )?;
+        let libraries =
+            djls_testing::make_template_library_catalog(&tags, &filters, &libraries, &builtins)?;
 
         Ok(ScopedTemplateLibraries::from_project_inventory(&libraries)
             .scoped_symbol_candidates(name, kind)

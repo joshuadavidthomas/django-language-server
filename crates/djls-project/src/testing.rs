@@ -366,23 +366,18 @@ pub enum TemplateLibraryInput {
 }
 
 #[must_use]
-pub fn template_library_catalog(
-    db: &dyn Db,
-    inputs: Vec<TemplateLibraryInput>,
-) -> TemplateLibraryCatalog {
-    build_template_library_catalog(db, inputs, false)
+pub fn template_library_catalog(inputs: Vec<TemplateLibraryInput>) -> TemplateLibraryCatalog {
+    build_template_library_catalog(inputs, false)
 }
 
 #[must_use]
 pub fn template_library_catalog_with_omissions(
-    db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
 ) -> TemplateLibraryCatalog {
-    build_template_library_catalog(db, inputs, true)
+    build_template_library_catalog(inputs, true)
 }
 
 fn build_template_library_catalog(
-    db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
     has_omissions: bool,
 ) -> TemplateLibraryCatalog {
@@ -390,7 +385,7 @@ fn build_template_library_catalog(
         .into_iter()
         .map(|input| match input {
             TemplateLibraryInput::Builtin { module, symbols } => {
-                let key = TemplateLibraryId::new(db, None, module.clone());
+                let key = TemplateLibraryId::new(None, module.clone());
                 TemplateLibrary::configured_builtin(key, module, symbols)
             }
             TemplateLibraryInput::Loadable {
@@ -398,7 +393,7 @@ fn build_template_library_catalog(
                 module,
                 symbols,
             } => {
-                let key = TemplateLibraryId::new(db, None, module.clone());
+                let key = TemplateLibraryId::new(None, module.clone());
                 TemplateLibrary::configured_loadable(key, load_name, module, symbols)
             }
             TemplateLibraryInput::AvailableInApp {
@@ -407,7 +402,7 @@ fn build_template_library_catalog(
                 module,
                 symbols,
             } => {
-                let key = TemplateLibraryId::new(db, None, module.clone());
+                let key = TemplateLibraryId::new(None, module.clone());
                 TemplateLibrary::configured_available_in_app(key, load_name, app, module, symbols)
             }
         })
@@ -421,20 +416,18 @@ fn build_template_library_catalog(
 }
 
 pub fn template_library_catalog_with_settings_cases(
-    db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
 ) -> Result<TemplateLibraryCatalog, TemplateLibraryFixtureError> {
-    configure_template_library_catalog(template_library_catalog(db, inputs), settings_cases)
+    configure_template_library_catalog(template_library_catalog(inputs), settings_cases)
 }
 
 pub fn template_library_catalog_with_settings_case_omissions(
-    db: &dyn Db,
     inputs: Vec<TemplateLibraryInput>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
 ) -> Result<TemplateLibraryCatalog, TemplateLibraryFixtureError> {
     configure_template_library_catalog(
-        template_library_catalog_with_omissions(db, inputs),
+        template_library_catalog_with_omissions(inputs),
         settings_cases,
     )
 }

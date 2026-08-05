@@ -230,12 +230,11 @@ fn template_symbol_source_separates_definition_identity_from_location() {
         .file(path)
         .expect("template-tag fixture should exist in the test database");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("test.templatetags.navigation")
             .expect("test Python module name should be valid"),
     );
-    let symbol = template_library_definition_facts(&db, key)
+    let symbol = template_library_definition_facts(&db, &key)
         .symbol(TemplateSymbolKind::Tag, "shown")
         .expect("registered Tag should be extracted");
     let definition = symbol.definition.clone();
@@ -273,15 +272,14 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         .file(path)
         .expect("template-tag fixture should exist in the test database");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("test.templatetags.navigation")
             .expect("test Python module name should be valid"),
     );
 
-    let definitions_before = template_library_definition_facts(&db, key).clone();
-    let tag_facts_before = template_library_tag_facts(&db, key).clone();
-    let filter_facts_before = template_library_filter_facts(&db, key).clone();
+    let definitions_before = template_library_definition_facts(&db, &key).clone();
+    let tag_facts_before = template_library_tag_facts(&db, &key).clone();
+    let filter_facts_before = template_library_filter_facts(&db, &key).clone();
     let symbol_before = definitions_before
         .symbol(TemplateSymbolKind::Tag, "shown")
         .expect("registered Tag should be extracted");
@@ -297,9 +295,9 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         .expect("shifted template-tag fixture should be added to the test database");
     SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
-    let definitions_after = template_library_definition_facts(&db, key).clone();
-    let tag_facts_after = template_library_tag_facts(&db, key).clone();
-    let filter_facts_after = template_library_filter_facts(&db, key).clone();
+    let definitions_after = template_library_definition_facts(&db, &key).clone();
+    let tag_facts_after = template_library_tag_facts(&db, &key).clone();
+    let filter_facts_after = template_library_filter_facts(&db, &key).clone();
     let symbol_after = definitions_after
         .symbol(TemplateSymbolKind::Tag, "shown")
         .expect("shifted registered Tag should be extracted");
@@ -354,12 +352,11 @@ fn template_symbol_source_rejects_open_registration_inventory() {
         .file(path)
         .expect("template-tag fixture should exist in the test database");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("test.templatetags.open")
             .expect("test Python module name should be valid"),
     );
-    let symbol = template_library_definition_facts(&db, key)
+    let symbol = template_library_definition_facts(&db, &key)
         .symbol(TemplateSymbolKind::Tag, "shown")
         .expect("known registration should survive the open inventory");
 
@@ -377,12 +374,11 @@ fn template_symbol_source_resolves_a_preceding_plain_function() {
         .file(path)
         .expect("direct-registration fixture should exist in the test database");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("test.templatetags.direct")
             .expect("test Python module name should be valid"),
     );
-    let symbol = template_library_definition_facts(&db, key)
+    let symbol = template_library_definition_facts(&db, &key)
         .symbol(TemplateSymbolKind::Tag, "direct")
         .expect("direct registration should be extracted");
     let location = template_symbol_source(&db, symbol)
@@ -406,18 +402,17 @@ fn named_expression_rebinding_invalidates_later_python_function_facts() {
         .file(path)
         .expect("named-expression fixture should exist in the test database");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("test.templatetags.named")
             .expect("test Python module name should be valid"),
     );
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "first")
             .is_none(),
         "a callable-derived name must not fall back to source spelling"
     );
-    assert!(template_library_tag_facts(&db, key).tag_rules().is_empty());
+    assert!(template_library_tag_facts(&db, &key).tag_rules().is_empty());
 }
 
 #[test]
@@ -431,12 +426,11 @@ fn template_symbol_source_rejects_member_callable() {
         .file(path)
         .expect("template-tag fixture should exist in the test database");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("test.templatetags.member")
             .expect("test Python module name should be valid"),
     );
-    let symbol = template_library_definition_facts(&db, key)
+    let symbol = template_library_definition_facts(&db, &key)
         .symbol(TemplateSymbolKind::Tag, "member")
         .expect("member registration should remain a known Tag Definition");
 
@@ -454,19 +448,18 @@ fn later_unresolved_callable_clears_an_overwritten_tag_rule() {
         .file(path)
         .expect("overwritten-registration fixture should exist");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("test.templatetags.overwritten")
             .expect("test Python module name should be valid"),
     );
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "shown")
             .is_some()
     );
     assert!(
-        !template_library_tag_facts(&db, key)
+        !template_library_tag_facts(&db, &key)
             .tag_rules()
             .contains_key(&SymbolKey::tag("test.templatetags.overwritten", "shown"))
     );
@@ -481,12 +474,11 @@ fn explicit_names_survive_keyword_member_callables() {
         .expect("keyword-member fixture should be added");
     let file = db.file(path).expect("keyword-member fixture should exist");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("test.templatetags.keyword_member")
             .expect("test Python module name should be valid"),
     );
-    let facts = template_library_definition_facts(&db, key);
+    let facts = template_library_definition_facts(&db, &key);
 
     assert!(facts.symbol(TemplateSymbolKind::Tag, "known_tag").is_some());
     assert!(
@@ -510,8 +502,8 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let module_name = PythonModuleName::parse("test.templatetags.known")
         .expect("test Python module name should be valid");
 
-    let key = TemplateLibraryId::new(&db, Some(file), module_name);
-    assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
+    let key = TemplateLibraryId::new(Some(file), module_name);
+    assert!(!template_library_tag_facts(&db, &key).tag_rules().is_empty());
     drop(
         event_log
             .take()
@@ -522,7 +514,7 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
         .expect("updated template-tag fixture should be added to the test database");
     SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
-    assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
+    assert!(!template_library_tag_facts(&db, &key).tag_rules().is_empty());
     let events = event_log
         .take()
         .expect("Salsa event log should be readable after the fixture edit");
@@ -545,12 +537,12 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         .expect("default-tags fixture should exist in the test database");
     let tags_module = PythonModuleName::parse("django.template.defaulttags")
         .expect("test Python module name should be valid");
-    let tags_key = TemplateLibraryId::new(&db, Some(tags_file), tags_module);
-    let facts = template_library_definition_facts(&db, tags_key);
+    let tags_key = TemplateLibraryId::new(Some(tags_file), tags_module);
+    let facts = template_library_definition_facts(&db, &tags_key);
     assert!(facts.is_library());
     assert!(facts.symbol(TemplateSymbolKind::Tag, "for").is_some());
     assert!(facts.symbol(TemplateSymbolKind::Filter, "for").is_none());
-    let tag_facts = template_library_tag_facts(&db, tags_key);
+    let tag_facts = template_library_tag_facts(&db, &tags_key);
     assert!(
         tag_facts.tag_rules().keys().any(
             |key| key.name == "for" && key.registration_module == "django.template.defaulttags"
@@ -588,12 +580,11 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         .file(Utf8Path::new("/test/defaultfilters.py"))
         .expect("default-filters fixture should exist in the test database");
     let filters_key = TemplateLibraryId::new(
-        &db,
         Some(filters_file),
         PythonModuleName::parse("django.template.defaultfilters")
             .expect("test Python module name should be valid"),
     );
-    let filters = template_library_filter_facts(&db, filters_key);
+    let filters = template_library_filter_facts(&db, &filters_key);
     assert!(
         filters
             .filter_arities()
@@ -615,17 +606,22 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         1
     );
 
-    let _ = template_library_filter_facts(&db, filters_key);
+    let equal_filters_key =
+        TemplateLibraryId::new(filters_key.file(), filters_key.module().clone());
+    assert_eq!(equal_filters_key, filters_key);
+    let _ = template_library_filter_facts(&db, &equal_filters_key);
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after repeated Filter queries");
     assert_eq!(
-        execution_count(
-            &db,
-            &event_log
-                .take()
-                .expect("Salsa event log should be readable after repeated Filter queries"),
-            "template_library_filter_facts",
-        ),
+        execution_count(&db, &events, "template_library_source_analysis"),
         0,
-        "same-revision extraction should be memoized",
+        "equal structural identities should share registration analysis",
+    );
+    assert_eq!(
+        execution_count(&db, &events, "template_library_filter_facts"),
+        0,
+        "equal structural identities should share Filter facts",
     );
 }
 
@@ -647,7 +643,7 @@ fn imported_registration_fixture(
         .file(Utf8Path::new("/test/project/pkg/tags.py"))
         .map_err(|error| error.to_string())?;
     let module = PythonModuleName::parse("pkg.tags").map_err(|error| error.to_string())?;
-    let key = TemplateLibraryId::new(&db, Some(file), module);
+    let key = TemplateLibraryId::new(Some(file), module);
     Ok((db, key))
 }
 
@@ -660,7 +656,7 @@ fn from_import_prefers_an_exact_package_member_over_a_same_named_child() {
     )
     .expect("member-precedence fixture should install");
 
-    let facts = template_library_definition_facts(&db, key);
+    let facts = template_library_definition_facts(&db, &key);
     assert!(facts.symbol(TemplateSymbolKind::Tag, "child_tag").is_none());
 }
 
@@ -674,7 +670,7 @@ fn from_import_does_not_bypass_package_getattr() {
     .expect("package-getattr fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "child_tag")
             .is_none()
     );
@@ -700,15 +696,59 @@ fn from_import_resolves_a_namespace_package_sibling() {
         .file(Utf8Path::new("/test/project/pkg/tags.py"))
         .expect("namespace registration source should exist");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("pkg.tags").expect("namespace module name should be valid"),
     );
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "namespace_tag")
             .is_some()
+    );
+}
+
+#[test]
+fn template_library_facts_follow_the_current_project() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/first")
+        .django_settings_module("settings")
+        .file("/test/first/settings.py", "INSTALLED_APPS = []\n")
+        .file("/test/first/pkg/__init__.py", "")
+        .file(
+            "/test/first/pkg/tags.py",
+            "from django import template\nfrom . import implementation\nregister = template.Library()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
+        )
+        .file(
+            "/test/first/pkg/implementation.py",
+            "TAG = 'first_project_tag'\ndef compile_tag(parser, token): pass\n",
+        )
+        .install(&mut db)
+        .expect("first project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/first/pkg/tags.py"))
+        .expect("first project registration source should exist");
+    let key = TemplateLibraryId::new(
+        Some(file),
+        PythonModuleName::parse("pkg.tags").expect("fixture module name should be valid"),
+    );
+
+    assert!(
+        template_library_definition_facts(&db, &key)
+            .symbol(TemplateSymbolKind::Tag, "first_project_tag")
+            .is_some()
+    );
+
+    ProjectFixture::new("/test/second")
+        .django_settings_module("settings")
+        .file("/test/second/settings.py", "INSTALLED_APPS = []\n")
+        .install(&mut db)
+        .expect("second project fixture should install");
+
+    assert!(
+        template_library_definition_facts(&db, &key)
+            .symbol(TemplateSymbolKind::Tag, "first_project_tag")
+            .is_none(),
+        "registration imports must be resolved against the current project",
     );
 }
 
@@ -722,7 +762,7 @@ fn reading_imported_module_members_through_an_unrelated_call_keeps_resolution_ex
     .expect("module-member-read fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "member_reads")
             .is_some()
     );
@@ -753,11 +793,10 @@ fn unused_lazy_from_import_does_not_open_registration_evidence() {
         .file(Utf8Path::new("/test/project/pkg/tags.py"))
         .expect("focused-occurrence registration source should exist");
     let key = TemplateLibraryId::new(
-        &db,
         Some(file),
         PythonModuleName::parse("pkg.tags").expect("fixture module name should be valid"),
     );
-    let symbol = template_library_definition_facts(&db, key)
+    let symbol = template_library_definition_facts(&db, &key)
         .symbol(TemplateSymbolKind::Tag, "focused")
         .expect("the exact registration should survive the unrelated recovered read");
 
@@ -774,7 +813,7 @@ fn invoking_an_imported_module_member_invalidates_resolution() {
     .expect("module-member-call fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "member_call")
             .is_none()
     );
@@ -790,7 +829,7 @@ fn invoking_an_alias_of_an_imported_module_member_invalidates_resolution() {
     .expect("aliased module-member-call fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "aliased_member_call")
             .is_none()
     );
@@ -806,7 +845,7 @@ fn invoking_an_indirect_imported_module_callee_invalidates_resolution() {
     .expect("indirect module-callee fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "indirect_member_call")
             .is_none()
     );
@@ -822,7 +861,7 @@ fn invoking_a_wrapped_imported_module_member_invalidates_resolution() {
     .expect("wrapped module-member-call fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "wrapped_member_call")
             .is_none()
     );
@@ -838,7 +877,7 @@ fn passing_an_imported_module_object_to_a_call_invalidates_resolution() {
     .expect("module-call-escape fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "escaped_call")
             .is_none()
     );
@@ -854,7 +893,7 @@ fn escaped_imported_module_invalidates_aliased_resolution() {
     .expect("module-escape fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "escaped")
             .is_none()
     );
@@ -870,7 +909,7 @@ fn unconditional_import_failure_discards_prior_module_values() {
     .expect("import-failure fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "never_imported")
             .is_none()
     );
@@ -886,13 +925,13 @@ fn imported_duplicate_function_uses_the_resolved_definition_span() {
     )
     .expect("duplicate-function fixture should install");
 
-    let rule =
-        &template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "duplicate")];
+    let rule = &template_library_tag_facts(&db, &key).tag_rules()
+        [&SymbolKey::tag("pkg.tags", "duplicate")];
     assert_eq!(
         rule.arg_constraints,
         vec![ArgumentCountConstraint::Exact(3)]
     );
-    let symbol = template_library_definition_facts(&db, key)
+    let symbol = template_library_definition_facts(&db, &key)
         .symbol(TemplateSymbolKind::Tag, "duplicate")
         .expect("duplicate function registration should resolve");
     let source =
@@ -914,7 +953,7 @@ fn imported_source_edits_invalidate_registration_products() {
     )
     .expect("imported-edit fixture should install");
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "before")
             .is_some()
     );
@@ -930,7 +969,7 @@ fn imported_source_edits_invalidate_registration_products() {
     )])
     .apply(&mut db);
 
-    let definitions = template_library_definition_facts(&db, key);
+    let definitions = template_library_definition_facts(&db, &key);
     assert!(
         definitions
             .symbol(TemplateSymbolKind::Tag, "before")
@@ -942,7 +981,7 @@ fn imported_source_edits_invalidate_registration_products() {
             .is_some()
     );
     assert_eq!(
-        template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "after")]
+        template_library_tag_facts(&db, &key).tag_rules()[&SymbolKey::tag("pkg.tags", "after")]
             .arg_constraints,
         vec![ArgumentCountConstraint::Exact(3)]
     );
@@ -957,7 +996,7 @@ fn same_length_imported_function_rename_invalidates_callable_only_name() {
     )
     .expect("function-rename fixture should install");
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "alpha")
             .is_some()
     );
@@ -980,7 +1019,7 @@ fn same_length_imported_function_rename_invalidates_callable_only_name() {
     ])
     .apply(&mut db);
 
-    let definitions = template_library_definition_facts(&db, key);
+    let definitions = template_library_definition_facts(&db, &key);
     assert!(
         definitions
             .symbol(TemplateSymbolKind::Tag, "alpha")
@@ -1001,7 +1040,7 @@ fn malformed_imported_registration_keywords_fail_closed() {
         "TAG = 'malformed'\ndef compile_tag(parser, token): pass\n",
     )
     .expect("malformed-registration fixture should install");
-    let facts = template_library_definition_facts(&db, key);
+    let facts = template_library_definition_facts(&db, &key);
     assert!(facts.symbol(TemplateSymbolKind::Tag, "malformed").is_none());
     let retained = facts
         .symbol(TemplateSymbolKind::Tag, "retained")
@@ -1019,7 +1058,7 @@ fn imported_module_attribute_mutation_invalidates_later_resolution() {
     .expect("attribute-mutation fixture should install");
 
     assert!(
-        template_library_definition_facts(&db, key)
+        template_library_definition_facts(&db, &key)
             .symbol(TemplateSymbolKind::Tag, "mutated")
             .is_none()
     );
@@ -1033,7 +1072,7 @@ fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() 
         "TAG = 'recovered'\ndef compile_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 1: raise ValueError()\ndef broken(\n",
     )
     .expect("recovered-import fixture should install");
-    let facts = template_library_definition_facts(&db, key);
+    let facts = template_library_definition_facts(&db, &key);
     let imported = facts
         .symbol(TemplateSymbolKind::Tag, "recovered")
         .expect("recovered imported positive fact should survive");
@@ -1043,7 +1082,7 @@ fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() 
     assert_eq!(template_symbol_source(&db, imported), None);
     assert_eq!(template_symbol_source(&db, retained), None);
     assert!(
-        template_library_tag_facts(&db, key)
+        template_library_tag_facts(&db, &key)
             .tag_rules()
             .contains_key(&SymbolKey::tag("pkg.tags", "recovered"))
     );
@@ -1057,12 +1096,12 @@ fn literal_name_with_unresolved_imported_callable_keeps_only_the_name_fact() {
         "",
     )
     .expect("unresolved-callable fixture should install");
-    let facts = template_library_definition_facts(&db, key);
+    let facts = template_library_definition_facts(&db, &key);
     let symbol = facts
         .symbol(TemplateSymbolKind::Tag, "literal")
         .expect("existing literal-name behavior should remain");
     assert_eq!(template_symbol_source(&db, symbol), None);
-    assert!(template_library_tag_facts(&db, key).tag_rules().is_empty());
+    assert!(template_library_tag_facts(&db, &key).tag_rules().is_empty());
 }
 
 #[test]
@@ -1074,7 +1113,7 @@ fn imported_callable_only_registration_uses_the_function_name() {
     )
     .expect("callable-only fixture should install");
 
-    let facts = template_library_definition_facts(&db, key);
+    let facts = template_library_definition_facts(&db, &key);
     assert!(
         facts
             .symbol(TemplateSymbolKind::Tag, "compile_tag")
@@ -1168,12 +1207,11 @@ def do_asset(parser, token):
         .file(Utf8Path::new("/test/project/app/templatetags/bird_tags.py"))
         .expect("registration source should exist");
     let key = TemplateLibraryId::new(
-        &db,
         Some(registration_file),
         PythonModuleName::parse("app.templatetags.bird_tags")
             .expect("fixture module name should be valid"),
     );
-    let definitions = template_library_definition_facts(&db, key);
+    let definitions = template_library_definition_facts(&db, &key);
     for name in [
         "bird",
         "bird:css",
@@ -1195,7 +1233,7 @@ def do_asset(parser, token):
             .is_some()
     );
 
-    let tag_facts = template_library_tag_facts(&db, key);
+    let tag_facts = template_library_tag_facts(&db, &key);
     let bird_key = SymbolKey::tag("app.templatetags.bird_tags", "bird");
     assert_eq!(
         tag_facts.tag_rules()[&bird_key].arg_constraints,
@@ -1215,7 +1253,7 @@ def do_asset(parser, token):
         Some("endbird:slot")
     );
     let filter_key = SymbolKey::filter("app.templatetags.bird_tags", "bird_filter");
-    let filter_arity = &template_library_filter_facts(&db, key).filter_arities()[&filter_key];
+    let filter_arity = &template_library_filter_facts(&db, &key).filter_arities()[&filter_key];
     assert!(filter_arity.expects_arg);
     assert!(!filter_arity.arg_optional);
 
@@ -1237,7 +1275,7 @@ def do_asset(parser, token):
         "def do_bird(parser, token):\n    bits = split_bits(token)\n    if len(bits) != 2:\n        raise ValueError(\"bird takes one argument\")\n    nodelist = parser.parse((\"endbird\",))\n    parser.delete_first_token()\n    return nodelist"
     );
 
-    let covered_paths = template_library_registration_dependencies(&db, key)
+    let covered_paths = template_library_registration_dependencies(&db, &key)
         .iter()
         .map(|file| file.path(&db).as_str())
         .collect::<Vec<_>>();
@@ -1274,11 +1312,10 @@ fn unresolved_imported_registration_opens_only_its_library_inventory() {
         .file(Utf8Path::new("/test/project/dynamic.py"))
         .expect("dynamic library should exist");
     let dynamic = TemplateLibraryId::new(
-        &db,
         Some(dynamic_file),
         PythonModuleName::parse("dynamic").expect("fixture module should be valid"),
     );
-    let dynamic_facts = template_library_definition_facts(&db, dynamic);
+    let dynamic_facts = template_library_definition_facts(&db, &dynamic);
     let dynamic_retained = dynamic_facts
         .symbol(TemplateSymbolKind::Tag, "retained")
         .expect("exact registration should survive uncertainty");
@@ -1293,11 +1330,10 @@ fn unresolved_imported_registration_opens_only_its_library_inventory() {
         .file(Utf8Path::new("/test/project/known.py"))
         .expect("known library should exist");
     let known = TemplateLibraryId::new(
-        &db,
         Some(known_file),
         PythonModuleName::parse("known").expect("fixture module should be valid"),
     );
-    let known_facts = template_library_definition_facts(&db, known);
+    let known_facts = template_library_definition_facts(&db, &known);
     let known_retained = known_facts
         .symbol(TemplateSymbolKind::Tag, "retained")
         .expect("closed library should retain its exact registration");

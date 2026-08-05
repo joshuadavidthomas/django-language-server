@@ -83,7 +83,7 @@ pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGra
                 continue;
             };
             let definition = GrammarOpeningDefinition {
-                library: library.id(),
+                library: library.id().clone(),
                 name: name.clone(),
             };
             push_candidate(
@@ -406,7 +406,7 @@ fn resolve_orphan_candidates(
                 alternatives += 1;
                 match definition {
                     EffectiveDefinitionLibrary::Known(Some(library))
-                        if library.id() == *candidate.library() =>
+                        if library.id() == candidate.library() =>
                     {
                         matching += 1;
                     }
@@ -422,7 +422,7 @@ fn resolve_orphan_candidates(
         }
         if matching == alternatives
             && matching > 0
-            && library_tag_specs(db, project, *candidate.library())
+            && library_tag_specs(db, project, candidate.library())
                 .get(candidate.name())
                 .is_some_and(&matches_spelling)
             && !openers.iter().any(|name| name == candidate.name())

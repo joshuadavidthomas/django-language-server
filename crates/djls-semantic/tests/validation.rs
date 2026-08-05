@@ -741,7 +741,7 @@ fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
         .find(|definition| definition.name() == "if")
         .expect("builtin if should contribute its closer spelling");
     assert_eq!(
-        if_definition.library().module(&db).as_str(),
+        if_definition.library().module().as_str(),
         "django.template.defaulttags"
     );
     assert!(

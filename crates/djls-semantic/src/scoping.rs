@@ -491,8 +491,8 @@ pub fn effective_symbol_candidate_at(
 }
 
 fn effective_definitions_agree(
-    left: &(TemplateLibraryId, TemplateSymbolCandidate),
-    right: &(TemplateLibraryId, TemplateSymbolCandidate),
+    left: &(&TemplateLibraryId, TemplateSymbolCandidate),
+    right: &(&TemplateLibraryId, TemplateSymbolCandidate),
 ) -> bool {
     left.1.symbol.has_same_definition(&right.1.symbol)
         || (left.0 == right.0

@@ -25,6 +25,7 @@ use super::tags::blocks::EndTagEvidence;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
+use crate::project::Project;
 use crate::python::PythonFunctionDefinition;
 use crate::python::PythonSourceLookup;
 use crate::python::PythonSourceModule;
@@ -1429,13 +1430,34 @@ impl TemplateLibrarySourceAnalysis {
     }
 }
 
+/// Database-bound query key for an owned Template Library identity.
+///
+/// The default interner retention is deliberate: domain values keep the owned identity, so Salsa
+/// may reclaim this memoization key and safely recreate it on the next query.
+#[salsa::interned]
+struct TemplateLibraryFactsKey<'db> {
+    #[returns(copy)]
+    project: Option<Project>,
+    #[returns(ref)]
+    identity: TemplateLibraryId,
+}
+
+fn template_library_facts_key<'db>(
+    db: &'db dyn ProjectDb,
+    identity: &TemplateLibraryId,
+) -> TemplateLibraryFactsKey<'db> {
+    TemplateLibraryFactsKey::new(db, db.project(), identity.clone())
+}
+
 #[allow(clippy::too_many_lines)]
 #[salsa::tracked(returns(ref))]
 fn template_library_source_analysis(
     db: &dyn ProjectDb,
-    key: TemplateLibraryId,
+    key: TemplateLibraryFactsKey<'_>,
 ) -> TemplateLibrarySourceAnalysis {
-    let Some(file) = key.file(db) else {
+    let project = key.project(db);
+    let identity = key.identity(db);
+    let Some(file) = identity.file() else {
         return TemplateLibrarySourceAnalysis::failed();
     };
     let Ok(Some(module)) = RecoveredPythonModule::from_file(db, file) else {
@@ -1453,9 +1475,9 @@ fn template_library_source_analysis(
     let mut tag_rules = TagRuleMap::default();
     let mut block_specs = BlockSpecs::default();
     let mut filter_arities = FilterArityMap::default();
-    let registration_module = key.module(db).as_str();
-    let project_module = db.project().and_then(|project| {
-        PythonSourceModule::resolve(db, project, key.module(db).clone())
+    let registration_module = identity.module().as_str();
+    let project_module = project.and_then(|project| {
+        PythonSourceModule::resolve(db, project, identity.module().clone())
             .filter(|source| source.file() == file)
             .map(|source| (project, source))
     });
@@ -1486,7 +1508,9 @@ fn template_library_source_analysis(
                 let symbol = TemplateSymbol {
                     kind,
                     name,
-                    definition: SymbolDefinition::Exact { library: key },
+                    definition: SymbolDefinition::Exact {
+                        library: identity.clone(),
+                    },
                     doc: None,
                 };
                 let symbol_name = symbol.name().to_string();
@@ -1625,35 +1649,93 @@ impl TemplateLibraryFilterFacts {
     }
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn template_library_definition_facts(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
-) -> TemplateLibraryDefinitionFacts {
-    template_library_source_analysis(db, key)
-        .definitions
-        .clone()
+mod queries {
+    use super::ProjectDb;
+    use super::TemplateLibraryDefinitionFacts;
+    use super::TemplateLibraryFactsKey;
+    use super::TemplateLibraryFilterFacts;
+    use super::TemplateLibrarySymbolSources;
+    use super::TemplateLibraryTagFacts;
+    use super::template_library_source_analysis;
+
+    #[salsa::tracked(returns(ref))]
+    pub(super) fn template_library_definition_facts(
+        db: &dyn ProjectDb,
+        key: TemplateLibraryFactsKey<'_>,
+    ) -> TemplateLibraryDefinitionFacts {
+        template_library_source_analysis(db, key)
+            .definitions
+            .clone()
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub(super) fn template_library_symbol_sources(
+        db: &dyn ProjectDb,
+        key: TemplateLibraryFactsKey<'_>,
+    ) -> TemplateLibrarySymbolSources {
+        template_library_source_analysis(db, key)
+            .symbol_sources
+            .clone()
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub(super) fn template_library_registration_dependencies(
+        db: &dyn ProjectDb,
+        key: TemplateLibraryFactsKey<'_>,
+    ) -> Vec<djls_source::File> {
+        template_library_source_analysis(db, key)
+            .registration_dependencies
+            .clone()
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub(super) fn template_library_tag_facts(
+        db: &dyn ProjectDb,
+        key: TemplateLibraryFactsKey<'_>,
+    ) -> TemplateLibraryTagFacts {
+        let analysis = template_library_source_analysis(db, key);
+        TemplateLibraryTagFacts {
+            tag_rules: analysis.tag_rules.clone(),
+            block_specs: analysis.block_specs.clone(),
+        }
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub(super) fn template_library_filter_facts(
+        db: &dyn ProjectDb,
+        key: TemplateLibraryFactsKey<'_>,
+    ) -> TemplateLibraryFilterFacts {
+        TemplateLibraryFilterFacts {
+            filter_arities: template_library_source_analysis(db, key)
+                .filter_arities
+                .clone(),
+        }
+    }
 }
 
-#[salsa::tracked(returns(ref))]
-fn template_library_symbol_sources(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
-) -> TemplateLibrarySymbolSources {
-    template_library_source_analysis(db, key)
-        .symbol_sources
-        .clone()
+pub fn template_library_definition_facts<'db>(
+    db: &'db dyn ProjectDb,
+    identity: &TemplateLibraryId,
+) -> &'db TemplateLibraryDefinitionFacts {
+    queries::template_library_definition_facts(db, template_library_facts_key(db, identity))
+}
+
+fn template_library_symbol_sources<'db>(
+    db: &'db dyn ProjectDb,
+    identity: &TemplateLibraryId,
+) -> &'db TemplateLibrarySymbolSources {
+    queries::template_library_symbol_sources(db, template_library_facts_key(db, identity))
 }
 
 /// Python source dependencies followed while resolving one Template Library's registrations.
-#[salsa::tracked(returns(ref))]
-pub fn template_library_registration_dependencies(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
-) -> Vec<djls_source::File> {
-    template_library_source_analysis(db, key)
-        .registration_dependencies
-        .clone()
+pub fn template_library_registration_dependencies<'db>(
+    db: &'db dyn ProjectDb,
+    identity: &TemplateLibraryId,
+) -> &'db Vec<djls_source::File> {
+    queries::template_library_registration_dependencies(
+        db,
+        template_library_facts_key(db, identity),
+    )
 }
 
 #[must_use]
@@ -1664,31 +1746,21 @@ pub fn template_symbol_source(
     let SymbolDefinition::Exact { library } = &symbol.definition else {
         return None;
     };
-    template_library_symbol_sources(db, *library).symbol(symbol.kind, symbol.name())
+    template_library_symbol_sources(db, library).symbol(symbol.kind, symbol.name())
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn template_library_tag_facts(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
-) -> TemplateLibraryTagFacts {
-    let analysis = template_library_source_analysis(db, key);
-    TemplateLibraryTagFacts {
-        tag_rules: analysis.tag_rules.clone(),
-        block_specs: analysis.block_specs.clone(),
-    }
+pub fn template_library_tag_facts<'db>(
+    db: &'db dyn ProjectDb,
+    identity: &TemplateLibraryId,
+) -> &'db TemplateLibraryTagFacts {
+    queries::template_library_tag_facts(db, template_library_facts_key(db, identity))
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn template_library_filter_facts(
-    db: &dyn ProjectDb,
-    key: TemplateLibraryId,
-) -> TemplateLibraryFilterFacts {
-    TemplateLibraryFilterFacts {
-        filter_arities: template_library_source_analysis(db, key)
-            .filter_arities
-            .clone(),
-    }
+pub fn template_library_filter_facts<'db>(
+    db: &'db dyn ProjectDb,
+    identity: &TemplateLibraryId,
+) -> &'db TemplateLibraryFilterFacts {
+    queries::template_library_filter_facts(db, template_library_facts_key(db, identity))
 }
 
 #[cfg(test)]

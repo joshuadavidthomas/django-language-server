@@ -1053,9 +1053,7 @@ mod tests {
             .iter()
             .map(|(name, module)| ((*name).to_string(), (*module).to_string()))
             .collect::<HashMap<_, _>>();
-        let db = TestDatabase::new();
         Ok(djls_testing::make_template_library_catalog(
-            &db,
             &[],
             &[],
             &libraries,
@@ -1084,9 +1082,7 @@ mod tests {
         let mut filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
         filter["doc"] = "Translate text.".into();
 
-        let db = TestDatabase::new();
         Ok(djls_testing::make_template_library_catalog(
-            &db,
             &[],
             &[filter],
             &libraries,
@@ -1104,9 +1100,7 @@ mod tests {
             djls_testing::library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
         ];
 
-        let db = TestDatabase::new();
         Ok(djls_testing::make_template_library_catalog(
-            &db,
             &tags,
             &[],
             &libraries,

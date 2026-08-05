@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
+use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolKey;
 use djls_project::TemplateLibraryId;
@@ -69,12 +70,34 @@ impl LibraryFilterSpecs {
     }
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn library_filter_specs(db: &dyn Db, key: TemplateLibraryId) -> LibraryFilterSpecs {
-    let facts = template_library_filter_facts(db, key);
-    let mut specs = FilterAritySpecs::new();
-    specs.merge_filter_arities(facts.filter_arities());
-    LibraryFilterSpecs(specs)
+mod queries {
+    use super::Db;
+    use super::FilterAritySpecs;
+    use super::LibraryFilterSpecs;
+    use super::Project;
+    use super::TemplateLibraryId;
+    use super::template_library_filter_facts;
+
+    #[salsa::tracked(returns(ref))]
+    #[allow(clippy::needless_pass_by_value)]
+    pub(super) fn library_filter_specs(
+        db: &dyn Db,
+        _project: Project,
+        key: TemplateLibraryId,
+    ) -> LibraryFilterSpecs {
+        let facts = template_library_filter_facts(db, &key);
+        let mut specs = FilterAritySpecs::new();
+        specs.merge_filter_arities(facts.filter_arities());
+        LibraryFilterSpecs(specs)
+    }
+}
+
+pub fn library_filter_specs<'db>(
+    db: &'db dyn Db,
+    project: Project,
+    key: &TemplateLibraryId,
+) -> &'db LibraryFilterSpecs {
+    queries::library_filter_specs(db, project, key.clone())
 }
 
 /// Return the effective filter arity at one occurrence when every feasible backend agrees.
@@ -84,6 +107,7 @@ pub(crate) fn effective_filter_arity_in_scope(
     filter_name: &str,
     load_state: &LoadState<'_>,
 ) -> Option<FilterArity> {
+    let project = db.project()?;
     let loaded = load_state.libraries_loading_symbol(filter_name);
     let mut agreed = None;
     let mut alternatives_agree = true;
@@ -93,10 +117,12 @@ pub(crate) fn effective_filter_arity_in_scope(
         &loaded,
         |alternative| {
             let definition = match alternative {
-                EffectiveDefinitionLibrary::Known(library) => library
-                    .and_then(|library| library_filter_specs(db, library.id()).get(filter_name)),
+                EffectiveDefinitionLibrary::Known(library) => library.and_then(|library| {
+                    library_filter_specs(db, project, library.id()).get(filter_name)
+                }),
                 EffectiveDefinitionLibrary::Unobserved(library) => {
-                    let Some(arity) = library_filter_specs(db, library.id()).get(filter_name)
+                    let Some(arity) =
+                        library_filter_specs(db, project, library.id()).get(filter_name)
                     else {
                         alternatives_agree = false;
                         return;

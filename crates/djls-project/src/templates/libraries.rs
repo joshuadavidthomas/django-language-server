@@ -46,19 +46,34 @@ enum TemplateLibraryKind {
     },
 }
 
-/// Stable interned identity for one Template Library module.
+/// Stable identity for one Template Library module.
 ///
 /// Configured-only libraries have no source file. Keeping that absence in the identity prevents
 /// settings-case evidence from masquerading as a navigable Python source.
 ///
-/// This ID appears in lifetime-free domain values. Callers use it only with its originating
-/// database, while permanent interner retention prevents Salsa from recycling its slot.
-#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+/// A source-backed identity contains a Salsa [`File`] handle. Query it only through the database
+/// storage that created that file; cloned database snapshots share that storage and remain valid.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TemplateLibraryId {
-    #[returns(copy)]
-    pub file: Option<File>,
-    #[returns(ref)]
-    pub module: PythonModuleName,
+    file: Option<File>,
+    module: PythonModuleName,
+}
+
+impl TemplateLibraryId {
+    #[must_use]
+    pub fn new(file: Option<File>, module: PythonModuleName) -> Self {
+        Self { file, module }
+    }
+
+    #[must_use]
+    pub fn file(&self) -> Option<File> {
+        self.file
+    }
+
+    #[must_use]
+    pub fn module(&self) -> &PythonModuleName {
+        &self.module
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -293,8 +308,8 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn id(&self) -> TemplateLibraryId {
-        self.id
+    pub fn id(&self) -> &TemplateLibraryId {
+        &self.id
     }
 
     #[must_use]
@@ -1961,11 +1976,10 @@ impl TemplateLibraryCatalog {
             }
 
             let id = TemplateLibraryId::new(
-                db,
                 Some(candidate.module.file()),
                 candidate.module.name().clone(),
             );
-            let facts = template_library_definition_facts(db, id);
+            let facts = template_library_definition_facts(db, &id);
             if facts.source_failed() {
                 self.issues
                     .push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
@@ -2383,11 +2397,10 @@ fn templatetag_package_libraries(
 
     for candidate in candidates {
         let id = TemplateLibraryId::new(
-            db,
             Some(candidate.module.file()),
             candidate.module.name().clone(),
         );
-        let facts = template_library_definition_facts(db, id);
+        let facts = template_library_definition_facts(db, &id);
         if facts.source_failed() {
             issues.push(TemplateLibraryIssue::NamedSource(candidate.name.clone()));
             continue;
@@ -2416,12 +2429,12 @@ fn library_from_module_name(
 ) -> ConfiguredLibraryModule {
     let Some(module) = PythonSourceModule::resolve(db, project, module_name.clone()) else {
         return ConfiguredLibraryModule::SourceLess {
-            id: TemplateLibraryId::new(db, None, module_name.clone()),
+            id: TemplateLibraryId::new(None, module_name.clone()),
             module: module_name,
         };
     };
-    let id = TemplateLibraryId::new(db, Some(module.file()), module.name().clone());
-    let facts = template_library_definition_facts(db, id);
+    let id = TemplateLibraryId::new(Some(module.file()), module.name().clone());
+    let facts = template_library_definition_facts(db, &id);
     if facts.is_library() {
         ConfiguredLibraryModule::Source {
             id,

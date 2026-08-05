@@ -59,33 +59,56 @@ impl LibraryTagSpecs {
     }
 }
 
+mod queries {
+    use super::Db;
+    use super::LibraryTagSpecs;
+    use super::Project;
+    use super::TemplateLibraryId;
+    use super::builtin_tag_specs;
+    use super::configured_library_tag_specs;
+    use super::template_library_tag_facts;
+
+    /// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
+    #[salsa::tracked(returns(ref))]
+    pub(super) fn library_tag_specs(
+        db: &dyn Db,
+        project: Project,
+        key: TemplateLibraryId,
+    ) -> LibraryTagSpecs {
+        let mut specs = builtin_tag_specs();
+        specs.retain(|_, spec| spec.module() == key.module().as_str());
+
+        let facts = template_library_tag_facts(db, &key);
+        if !facts.tag_rules().is_empty() {
+            specs.merge_tag_rules(facts.tag_rules());
+        }
+        if !facts.block_specs().is_empty() {
+            specs.merge_block_specs(facts.block_specs());
+        }
+
+        specs.merge_fallback(configured_library_tag_specs(db, project, key).clone());
+        LibraryTagSpecs(specs)
+    }
+}
+
 /// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
-#[salsa::tracked(returns(ref))]
-#[allow(clippy::needless_pass_by_value)]
-pub fn library_tag_specs(db: &dyn Db, project: Project, key: TemplateLibraryId) -> LibraryTagSpecs {
-    let mut specs = builtin_tag_specs();
-    specs.retain(|_, spec| spec.module() == key.module(db).as_str());
-
-    let facts = template_library_tag_facts(db, key);
-    if !facts.tag_rules().is_empty() {
-        specs.merge_tag_rules(facts.tag_rules());
-    }
-    if !facts.block_specs().is_empty() {
-        specs.merge_block_specs(facts.block_specs());
-    }
-
-    specs.merge_fallback(configured_library_tag_specs(db, project, key).clone());
-    LibraryTagSpecs(specs)
+pub fn library_tag_specs<'db>(
+    db: &'db dyn Db,
+    project: Project,
+    key: &TemplateLibraryId,
+) -> &'db LibraryTagSpecs {
+    queries::library_tag_specs(db, project, key.clone())
 }
 
 /// Equality-bearing configured fallback for one Template Library.
 #[salsa::tracked(returns(ref))]
+#[allow(clippy::needless_pass_by_value)]
 fn configured_library_tag_specs(db: &dyn Db, project: Project, key: TemplateLibraryId) -> TagSpecs {
     project
         .tagspecs(db)
         .libraries
         .iter()
-        .filter(|library| library.module == key.module(db).as_str())
+        .filter(|library| library.module == key.module().as_str())
         .map(TagSpecs::from_tagspec_library)
         .fold(TagSpecs::default(), |mut specs, configured| {
             specs.merge(configured);

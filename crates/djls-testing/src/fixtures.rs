@@ -9,7 +9,6 @@ use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::ArgumentCountConstraint;
 use djls_project::ChoiceAt;
-use djls_project::Db as ProjectDb;
 use djls_project::ExtractedDiagnosticConstraint;
 use djls_project::ExtractedDiagnosticMessage;
 use djls_project::ExtractedMessageTemplate;
@@ -121,7 +120,6 @@ enum TemplateSymbolLibraryFixture {
 
 /// Build Template Library facts from JSON fixture rows.
 pub fn make_template_library_catalog(
-    db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
@@ -158,7 +156,7 @@ pub fn make_template_library_catalog(
                 },
             ),
     );
-    Ok(testing::template_library_catalog(db, library_inputs))
+    Ok(testing::template_library_catalog(library_inputs))
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;

@@ -78,7 +78,7 @@ pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemp
         let key = library.id();
         let _ = template_library_definition_facts(db, key);
         let _ = library_tag_specs(db, project, key);
-        let _ = library_filter_specs(db, key);
+        let _ = library_filter_specs(db, project, key);
         if let Some(file) = library.source_file()
             && !reprime_files.contains(&file)
         {

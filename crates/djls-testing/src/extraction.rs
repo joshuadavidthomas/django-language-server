@@ -35,9 +35,9 @@ pub fn extract_bundle(
     file: File,
     registration_module: PythonModuleName,
 ) -> ExtractionBundle {
-    let key = TemplateLibraryId::new(db, Some(file), registration_module);
-    let tag_facts = template_library_tag_facts(db, key);
-    let filter_facts = template_library_filter_facts(db, key);
+    let key = TemplateLibraryId::new(Some(file), registration_module);
+    let tag_facts = template_library_tag_facts(db, &key);
+    let filter_facts = template_library_filter_facts(db, &key);
     let tag_rules = tag_facts.tag_rules().to_owned();
     let filter_arities = filter_facts.filter_arities().to_owned();
     let block_specs = tag_facts.block_specs().to_owned();

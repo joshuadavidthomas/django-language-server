@@ -1,5 +1,6 @@
 use std::io;
 
+use camino::Utf8Path;
 use djls_conf::TagDef;
 use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
@@ -15,6 +16,7 @@ use djls_project::ScopedTemplateSymbolLookup;
 use djls_project::SymbolDefinition;
 use djls_project::TemplateLibraryAppCandidates;
 use djls_project::TemplateLibraryCatalog;
+use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
@@ -34,6 +36,31 @@ fn module(name: &str) -> TestResult<PythonModuleName> {
 
 fn library_name(name: &str) -> TestResult<LibraryName> {
     Ok(LibraryName::parse(name)?)
+}
+
+#[test]
+fn template_library_identity_is_structural() {
+    let db = TestDatabase::new();
+    db.add_file("/test/project/pkg/tags.py", "")
+        .expect("template-tag fixture should be added");
+    let file = db
+        .file(Utf8Path::new("/test/project/pkg/tags.py"))
+        .expect("template-tag fixture should exist");
+    let module_name = PythonModuleName::parse("pkg.tags").expect("module name should be valid");
+    let identity = TemplateLibraryId::new(Some(file), module_name.clone());
+
+    assert_eq!(
+        identity,
+        TemplateLibraryId::new(Some(file), module_name.clone())
+    );
+    assert_ne!(identity, TemplateLibraryId::new(None, module_name));
+    assert_ne!(
+        identity,
+        TemplateLibraryId::new(
+            Some(file),
+            PythonModuleName::parse("pkg.other_tags").expect("module name should be valid"),
+        )
+    );
 }
 
 fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TestResult<TemplateSymbol> {
@@ -82,11 +109,10 @@ fn available_in_app(
 }
 
 fn libraries(open: bool, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraryCatalog {
-    let db = TestDatabase::new();
     if open {
-        testing::template_library_catalog_with_omissions(&db, inputs)
+        testing::template_library_catalog_with_omissions(inputs)
     } else {
-        testing::template_library_catalog(&db, inputs)
+        testing::template_library_catalog(inputs)
     }
 }
 
@@ -128,11 +154,10 @@ fn configured_libraries(
     inputs: Vec<TemplateLibraryInput>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
 ) -> TestResult<TemplateLibraryCatalog> {
-    let db = TestDatabase::new();
     Ok(if open {
-        testing::template_library_catalog_with_settings_case_omissions(&db, inputs, settings_cases)?
+        testing::template_library_catalog_with_settings_case_omissions(inputs, settings_cases)?
     } else {
-        testing::template_library_catalog_with_settings_cases(&db, inputs, settings_cases)?
+        testing::template_library_catalog_with_settings_cases(inputs, settings_cases)?
     })
 }
 
@@ -392,7 +417,7 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
             .symbol(TemplateSymbolKind::Tag, "panel")
             .is_some_and(|symbol| matches!(symbol.definition, SymbolDefinition::Unknown))
     );
-    assert_eq!(library.id().file(&db), None);
+    assert_eq!(library.id().file(), None);
 }
 
 #[test]
@@ -659,18 +684,13 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
 
 #[test]
 fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
-    let db = TestDatabase::new();
-    let libraries = testing::template_library_catalog(
-        &db,
-        vec![
-            builtin("django.template.defaulttags", Vec::new())
-                .expect("builtin library fixture should be valid"),
-            builtin("project.builtins", Vec::new())
-                .expect("builtin library fixture should be valid"),
-            builtin("django.template.defaulttags", Vec::new())
-                .expect("builtin library fixture should be valid"),
-        ],
-    );
+    let libraries = testing::template_library_catalog(vec![
+        builtin("django.template.defaulttags", Vec::new())
+            .expect("builtin library fixture should be valid"),
+        builtin("project.builtins", Vec::new()).expect("builtin library fixture should be valid"),
+        builtin("django.template.defaulttags", Vec::new())
+            .expect("builtin library fixture should be valid"),
+    ]);
     let scoped_libraries = project_inventory(&libraries);
     let modules: Vec<_> = scoped_libraries
         .resolved_libraries()

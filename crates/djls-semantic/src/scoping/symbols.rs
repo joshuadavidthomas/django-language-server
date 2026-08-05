@@ -90,9 +90,7 @@ mod tests {
     use crate::scoping::loads::LoadArgument;
 
     fn catalog() -> anyhow::Result<TemplateLibraryCatalog> {
-        let db = djls_testing::TestDatabase::new();
         make_template_library_catalog(
-            &db,
             &[json!({
                 "kind": "tag",
                 "name": "custom",
