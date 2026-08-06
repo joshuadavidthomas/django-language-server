@@ -11,7 +11,9 @@ use djls_project::template_library_tag_facts;
 use djls_project::template_symbol_source;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::python_syntax_errors;
+use djls_project::testing::template_library_definition_facts_snapshot;
 use djls_source::ChangeEvent;
+use djls_source::File;
 use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_testing::ExtractionBundle;
@@ -272,21 +274,21 @@ fn template_symbol_location_shift_backdates_semantic_products() {
     let file = db
         .file(path)
         .expect("template-tag fixture should exist in the test database");
-    let key = TemplateLibraryId::new(
-        &db,
-        Some(file),
-        PythonModuleName::parse("test.templatetags.navigation")
-            .expect("test Python module name should be valid"),
-    );
-
-    let definitions_before = template_library_definition_facts(&db, key).clone();
-    let tag_facts_before = template_library_tag_facts(&db, key).clone();
-    let filter_facts_before = template_library_filter_facts(&db, key).clone();
-    let symbol_before = definitions_before
-        .symbol(TemplateSymbolKind::Tag, "shown")
-        .expect("registered Tag should be extracted");
-    let source_before =
-        template_symbol_source(&db, symbol_before).expect("local declaration should be navigable");
+    let module = PythonModuleName::parse("test.templatetags.navigation")
+        .expect("test Python module name should be valid");
+    let (definitions_before, tag_facts_before, filter_facts_before, source_before) = {
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        let definition_snapshot = template_library_definition_facts_snapshot(&db, key);
+        let definitions = template_library_definition_facts(&db, key);
+        let tag_facts = template_library_tag_facts(&db, key).clone();
+        let filter_facts = template_library_filter_facts(&db, key).clone();
+        let symbol = definitions
+            .symbol(TemplateSymbolKind::Tag, "shown")
+            .expect("registered Tag should be extracted");
+        let source =
+            template_symbol_source(&db, symbol).expect("local declaration should be navigable");
+        (definition_snapshot, tag_facts, filter_facts, source)
+    };
     drop(
         event_log
             .take()
@@ -297,18 +299,20 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         .expect("shifted template-tag fixture should be added to the test database");
     SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
-    let definitions_after = template_library_definition_facts(&db, key).clone();
-    let tag_facts_after = template_library_tag_facts(&db, key).clone();
-    let filter_facts_after = template_library_filter_facts(&db, key).clone();
+    let key = TemplateLibraryId::new(&db, Some(file), module);
+    let definition_snapshot_after = template_library_definition_facts_snapshot(&db, key);
+    let definitions_after = template_library_definition_facts(&db, key);
+    let tag_facts_after = template_library_tag_facts(&db, key);
+    let filter_facts_after = template_library_filter_facts(&db, key);
     let symbol_after = definitions_after
         .symbol(TemplateSymbolKind::Tag, "shown")
         .expect("shifted registered Tag should be extracted");
     let source_after =
         template_symbol_source(&db, symbol_after).expect("shifted declaration should navigate");
 
-    assert_eq!(definitions_after, definitions_before);
-    assert_eq!(tag_facts_after, tag_facts_before);
-    assert_eq!(filter_facts_after, filter_facts_before);
+    assert_eq!(definition_snapshot_after, definitions_before);
+    assert_eq!(tag_facts_after, &tag_facts_before);
+    assert_eq!(filter_facts_after, &filter_facts_before);
     assert_eq!(
         source_after.definition_span().start(),
         source_before.definition_span().start() + 1
@@ -510,8 +514,10 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let module_name = PythonModuleName::parse("test.templatetags.known")
         .expect("test Python module name should be valid");
 
-    let key = TemplateLibraryId::new(&db, Some(file), module_name);
-    assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
+    {
+        let key = TemplateLibraryId::new(&db, Some(file), module_name.clone());
+        assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
+    }
     drop(
         event_log
             .take()
@@ -522,6 +528,7 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
         .expect("updated template-tag fixture should be added to the test database");
     SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
+    let key = TemplateLibraryId::new(&db, Some(file), module_name);
     assert!(!template_library_tag_facts(&db, key).tag_rules().is_empty());
     let events = event_log
         .take()
@@ -633,7 +640,7 @@ fn imported_registration_fixture(
     package_init: &str,
     registration_source: &str,
     implementation_source: &str,
-) -> Result<(TestDatabase, TemplateLibraryId), String> {
+) -> Result<(TestDatabase, File, PythonModuleName), String> {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/test/project")
         .django_settings_module("settings")
@@ -647,18 +654,18 @@ fn imported_registration_fixture(
         .file(Utf8Path::new("/test/project/pkg/tags.py"))
         .map_err(|error| error.to_string())?;
     let module = PythonModuleName::parse("pkg.tags").map_err(|error| error.to_string())?;
-    let key = TemplateLibraryId::new(&db, Some(file), module);
-    Ok((db, key))
+    Ok((db, file, module))
 }
 
 #[test]
 fn from_import_prefers_an_exact_package_member_over_a_same_named_child() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "implementation = 'not the child module'\n",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'child_tag'\ndef compile_tag(parser, token): pass\n",
     )
     .expect("member-precedence fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     let facts = template_library_definition_facts(&db, key);
     assert!(facts.symbol(TemplateSymbolKind::Tag, "child_tag").is_none());
@@ -666,12 +673,13 @@ fn from_import_prefers_an_exact_package_member_over_a_same_named_child() {
 
 #[test]
 fn from_import_does_not_bypass_package_getattr() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "def __getattr__(name): return dynamic_member\n",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'child_tag'\ndef compile_tag(parser, token): pass\n",
     )
     .expect("package-getattr fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -714,12 +722,13 @@ fn from_import_resolves_a_namespace_package_sibling() {
 
 #[test]
 fn reading_imported_module_members_through_an_unrelated_call_keeps_resolution_exact() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nconsume([implementation.TAG, implementation.compile_tag])\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'member_reads'\ndef compile_tag(parser, token): pass\n",
     )
     .expect("module-member-read fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -766,12 +775,13 @@ fn unused_lazy_from_import_does_not_open_registration_evidence() {
 
 #[test]
 fn invoking_an_imported_module_member_invalidates_resolution() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nimplementation.configure()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'member_call'\ndef configure(): pass\ndef compile_tag(parser, token): pass\n",
     )
     .expect("module-member-call fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -782,12 +792,13 @@ fn invoking_an_imported_module_member_invalidates_resolution() {
 
 #[test]
 fn invoking_an_alias_of_an_imported_module_member_invalidates_resolution() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nhook = implementation.configure\nhook()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'aliased_member_call'\ndef configure(): pass\ndef compile_tag(parser, token): pass\n",
     )
     .expect("aliased module-member-call fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -798,12 +809,13 @@ fn invoking_an_alias_of_an_imported_module_member_invalidates_resolution() {
 
 #[test]
 fn invoking_an_indirect_imported_module_callee_invalidates_resolution() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nimplementation.HOOKS[0]()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'indirect_member_call'\nHOOKS = []\ndef compile_tag(parser, token): pass\n",
     )
     .expect("indirect module-callee fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -814,12 +826,13 @@ fn invoking_an_indirect_imported_module_callee_invalidates_resolution() {
 
 #[test]
 fn invoking_a_wrapped_imported_module_member_invalidates_resolution() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\n(implementation.configure if enabled else noop)()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'wrapped_member_call'\ndef configure(): pass\ndef compile_tag(parser, token): pass\n",
     )
     .expect("wrapped module-member-call fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -830,12 +843,13 @@ fn invoking_a_wrapped_imported_module_member_invalidates_resolution() {
 
 #[test]
 fn passing_an_imported_module_object_to_a_call_invalidates_resolution() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nconsume(implementation)\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'escaped_call'\ndef compile_tag(parser, token): pass\n",
     )
     .expect("module-call-escape fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -846,12 +860,13 @@ fn passing_an_imported_module_object_to_a_call_invalidates_resolution() {
 
 #[test]
 fn escaped_imported_module_invalidates_aliased_resolution() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nbox = [implementation]\nbox[0].TAG = dynamic_name\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'escaped'\ndef compile_tag(parser, token): pass\n",
     )
     .expect("module-escape fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -862,12 +877,13 @@ fn escaped_imported_module_invalidates_aliased_resolution() {
 
 #[test]
 fn unconditional_import_failure_discards_prior_module_values() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'never_imported'\ndef compile_tag(parser, token): pass\nraise RuntimeError()\n",
     )
     .expect("import-failure fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -879,12 +895,13 @@ fn unconditional_import_failure_discards_prior_module_values() {
 #[test]
 fn imported_duplicate_function_uses_the_resolved_definition_span() {
     let implementation = "TAG = 'duplicate'\ndef compile_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 2: raise ValueError()\ndef compile_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 3: raise ValueError()\n";
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         implementation,
     )
     .expect("duplicate-function fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     let rule =
         &template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "duplicate")];
@@ -907,17 +924,20 @@ fn imported_duplicate_function_uses_the_resolved_definition_span() {
 
 #[test]
 fn imported_source_edits_invalidate_registration_products() {
-    let (mut db, key) = imported_registration_fixture(
+    let (mut db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'before'\ndef compile_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 2: raise ValueError()\n",
     )
     .expect("imported-edit fixture should install");
-    assert!(
-        template_library_definition_facts(&db, key)
-            .symbol(TemplateSymbolKind::Tag, "before")
-            .is_some()
-    );
+    {
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        assert!(
+            template_library_definition_facts(&db, key)
+                .symbol(TemplateSymbolKind::Tag, "before")
+                .is_some()
+        );
+    }
 
     let implementation_path = Utf8Path::new("/test/project/pkg/implementation.py");
     db.add_file(
@@ -930,6 +950,7 @@ fn imported_source_edits_invalidate_registration_products() {
     )])
     .apply(&mut db);
 
+    let key = TemplateLibraryId::new(&db, Some(file), module);
     let definitions = template_library_definition_facts(&db, key);
     assert!(
         definitions
@@ -950,17 +971,20 @@ fn imported_source_edits_invalidate_registration_products() {
 
 #[test]
 fn same_length_imported_function_rename_invalidates_callable_only_name() {
-    let (mut db, key) = imported_registration_fixture(
+    let (mut db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom .implementation import alpha\nregister = template.Library()\nregister.tag(alpha)\n",
         "def alpha(parser, token): pass\n",
     )
     .expect("function-rename fixture should install");
-    assert!(
-        template_library_definition_facts(&db, key)
-            .symbol(TemplateSymbolKind::Tag, "alpha")
-            .is_some()
-    );
+    {
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        assert!(
+            template_library_definition_facts(&db, key)
+                .symbol(TemplateSymbolKind::Tag, "alpha")
+                .is_some()
+        );
+    }
 
     let registration_path = Utf8Path::new("/test/project/pkg/tags.py");
     let implementation_path = Utf8Path::new("/test/project/pkg/implementation.py");
@@ -980,6 +1004,7 @@ fn same_length_imported_function_rename_invalidates_callable_only_name() {
     ])
     .apply(&mut db);
 
+    let key = TemplateLibraryId::new(&db, Some(file), module);
     let definitions = template_library_definition_facts(&db, key);
     assert!(
         definitions
@@ -995,12 +1020,13 @@ fn same_length_imported_function_rename_invalidates_callable_only_name() {
 
 #[test]
 fn malformed_imported_registration_keywords_fail_closed() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\n@register.simple_tag\ndef retained(): pass\nregister.tag(implementation.TAG, implementation.compile_tag, nonsense=True)\n",
         "TAG = 'malformed'\ndef compile_tag(parser, token): pass\n",
     )
     .expect("malformed-registration fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
     let facts = template_library_definition_facts(&db, key);
     assert!(facts.symbol(TemplateSymbolKind::Tag, "malformed").is_none());
     let retained = facts
@@ -1011,12 +1037,13 @@ fn malformed_imported_registration_keywords_fail_closed() {
 
 #[test]
 fn imported_module_attribute_mutation_invalidates_later_resolution() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\nimplementation.TAG = dynamic_name\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'mutated'\ndef compile_tag(parser, token): pass\n",
     )
     .expect("attribute-mutation fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     assert!(
         template_library_definition_facts(&db, key)
@@ -1027,12 +1054,13 @@ fn imported_module_attribute_mutation_invalidates_later_resolution() {
 
 #[test]
 fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom . import implementation\nregister = template.Library()\n@register.simple_tag\ndef retained(): pass\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         "TAG = 'recovered'\ndef compile_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 1: raise ValueError()\ndef broken(\n",
     )
     .expect("recovered-import fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
     let facts = template_library_definition_facts(&db, key);
     let imported = facts
         .symbol(TemplateSymbolKind::Tag, "recovered")
@@ -1051,12 +1079,13 @@ fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() 
 
 #[test]
 fn literal_name_with_unresolved_imported_callable_keeps_only_the_name_fact() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom missing import implementation\nregister = template.Library()\nregister.tag('literal', implementation.compile_tag)\n",
         "",
     )
     .expect("unresolved-callable fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
     let facts = template_library_definition_facts(&db, key);
     let symbol = facts
         .symbol(TemplateSymbolKind::Tag, "literal")
@@ -1067,12 +1096,13 @@ fn literal_name_with_unresolved_imported_callable_keeps_only_the_name_fact() {
 
 #[test]
 fn imported_callable_only_registration_uses_the_function_name() {
-    let (db, key) = imported_registration_fixture(
+    let (db, file, module) = imported_registration_fixture(
         "",
         "from django import template\nfrom .implementation import compile_tag as tag_callable, imported_filter as filter_callable\nregister = template.Library()\nregister.tag(tag_callable)\nregister.filter(filter_callable)\n",
         "def compile_tag(parser, token): pass\ndef imported_filter(value): return value\n",
     )
     .expect("callable-only fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
 
     let facts = template_library_definition_facts(&db, key);
     assert!(

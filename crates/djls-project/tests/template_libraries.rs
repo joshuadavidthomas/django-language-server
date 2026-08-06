@@ -36,7 +36,11 @@ fn library_name(name: &str) -> TestResult<LibraryName> {
     Ok(LibraryName::parse(name)?)
 }
 
-fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TestResult<TemplateSymbol> {
+fn symbol(
+    kind: TemplateSymbolKind,
+    name: &str,
+    doc: Option<&str>,
+) -> TestResult<TemplateSymbol<'static>> {
     Ok(TemplateSymbol {
         kind,
         name: TemplateSymbolName::parse(name)?,
@@ -47,8 +51,8 @@ fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TestResult
 
 fn builtin(
     module_name: &str,
-    symbols: Vec<TestResult<TemplateSymbol>>,
-) -> TestResult<TemplateLibraryInput> {
+    symbols: Vec<TestResult<TemplateSymbol<'static>>>,
+) -> TestResult<TemplateLibraryInput<'static>> {
     Ok(TemplateLibraryInput::Builtin {
         module: module(module_name)?,
         symbols: symbols.into_iter().collect::<TestResult<_>>()?,
@@ -58,8 +62,8 @@ fn builtin(
 fn loadable(
     load_name: &str,
     module_name: &str,
-    symbols: Vec<TestResult<TemplateSymbol>>,
-) -> TestResult<TemplateLibraryInput> {
+    symbols: Vec<TestResult<TemplateSymbol<'static>>>,
+) -> TestResult<TemplateLibraryInput<'static>> {
     Ok(TemplateLibraryInput::Loadable {
         load_name: library_name(load_name)?,
         module: module(module_name)?,
@@ -71,8 +75,8 @@ fn available_in_app(
     load_name: &str,
     app: &str,
     module_name: &str,
-    symbols: Vec<TestResult<TemplateSymbol>>,
-) -> TestResult<TemplateLibraryInput> {
+    symbols: Vec<TestResult<TemplateSymbol<'static>>>,
+) -> TestResult<TemplateLibraryInput<'static>> {
     Ok(TemplateLibraryInput::AvailableInApp {
         load_name: library_name(load_name)?,
         app: module(app)?,
@@ -81,12 +85,15 @@ fn available_in_app(
     })
 }
 
-fn libraries(open: bool, inputs: Vec<TemplateLibraryInput>) -> TemplateLibraryCatalog {
-    let db = TestDatabase::new();
+fn libraries<'db>(
+    db: &'db TestDatabase,
+    open: bool,
+    inputs: Vec<TemplateLibraryInput<'static>>,
+) -> TemplateLibraryCatalog<'db> {
     if open {
-        testing::template_library_catalog_with_omissions(&db, inputs)
+        testing::template_library_catalog_with_omissions(db, inputs)
     } else {
-        testing::template_library_catalog(&db, inputs)
+        testing::template_library_catalog(db, inputs)
     }
 }
 
@@ -105,7 +112,9 @@ fn backend(
     Ok(TemplateBackendLibrariesInput { loadable, builtins })
 }
 
-fn project_inventory(libraries: &TemplateLibraryCatalog) -> ScopedTemplateLibraries<'_> {
+fn project_inventory<'a, 'db>(
+    libraries: &'a TemplateLibraryCatalog<'db>,
+) -> ScopedTemplateLibraries<'a, 'db> {
     ScopedTemplateLibraries::from_project_inventory(libraries)
 }
 
@@ -123,28 +132,29 @@ fn available_in_app_candidates(
     }
 }
 
-fn configured_libraries(
+fn configured_libraries<'db>(
+    db: &'db TestDatabase,
     open: bool,
-    inputs: Vec<TemplateLibraryInput>,
+    inputs: Vec<TemplateLibraryInput<'static>>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> TestResult<TemplateLibraryCatalog> {
-    let db = TestDatabase::new();
+) -> TestResult<TemplateLibraryCatalog<'db>> {
     Ok(if open {
-        testing::template_library_catalog_with_settings_case_omissions(&db, inputs, settings_cases)?
+        testing::template_library_catalog_with_settings_case_omissions(db, inputs, settings_cases)?
     } else {
-        testing::template_library_catalog_with_settings_cases(&db, inputs, settings_cases)?
+        testing::template_library_catalog_with_settings_cases(db, inputs, settings_cases)?
     })
 }
 
 #[test]
 fn closed_and_open_misses_are_distinct() {
+    let db = TestDatabase::new();
     let name = library_name("missing").expect("test library name should be valid");
-    let closed = libraries(false, Vec::new());
+    let closed = libraries(&db, false, Vec::new());
     assert_eq!(
         project_inventory(&closed).loadable_library(&name),
         LoadableLibraryLookup::Absent
     );
-    let open = libraries(true, Vec::new());
+    let open = libraries(&db, true, Vec::new());
     assert_eq!(
         project_inventory(&open).loadable_library(&name),
         LoadableLibraryLookup::Inconclusive(Vec::new())
@@ -153,6 +163,7 @@ fn closed_and_open_misses_are_distinct() {
 
 #[test]
 fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder() {
+    let db = TestDatabase::new();
     let inputs = vec![
         loadable("shared", "project.alpha", Vec::new())
             .expect("loadable library fixture should be valid"),
@@ -160,6 +171,7 @@ fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
             .expect("loadable library fixture should be valid"),
     ];
     let unanimous = configured_libraries(
+        &db,
         false,
         inputs.clone(),
         vec![vec![
@@ -174,6 +186,7 @@ fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
     ));
 
     let disagreement = configured_libraries(
+        &db,
         false,
         inputs.clone(),
         vec![vec![
@@ -190,6 +203,7 @@ fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
     ));
 
     let present_absent = configured_libraries(
+        &db,
         false,
         inputs.clone(),
         vec![vec![
@@ -205,6 +219,7 @@ fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
     ));
 
     let open = configured_libraries(
+        &db,
         true,
         inputs,
         vec![vec![
@@ -221,6 +236,7 @@ fn settings_case_lookup_distinguishes_unanimous_disagreement_and_open_remainder(
 
 #[test]
 fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
+    let db = TestDatabase::new();
     let inputs = vec![
         loadable(
             "shared",
@@ -244,6 +260,7 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
         .expect("loadable library fixture should be valid"),
     ];
     let libraries = configured_libraries(
+        &db,
         false,
         inputs,
         vec![vec![
@@ -279,7 +296,9 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
 
 #[test]
 fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
+    let db = TestDatabase::new();
     let inventory = configured_libraries(
+        &db,
         false,
         vec![
             builtin(
@@ -513,7 +532,9 @@ fn definite_load_restores_certainty_after_uncertain_builtins() {
 
 #[test]
 fn loadable_duplicate_load_name_uses_last_record() {
+    let db = TestDatabase::new();
     let libraries = libraries(
+        &db,
         false,
         vec![
             loadable("custom", "project.templatetags.original", Vec::new())
@@ -534,9 +555,11 @@ fn loadable_duplicate_load_name_uses_last_record() {
 
 #[test]
 fn available_symbol_guidance_survives_open_remainder() {
+    let db = TestDatabase::new();
     let app = module("available_in_app").expect("test Python module name should be valid");
     let load_name = library_name("extra_tags").expect("test library name should be valid");
     let libraries = libraries(
+        &db,
         true,
         vec![
             available_in_app(
@@ -556,7 +579,9 @@ fn available_symbol_guidance_survives_open_remainder() {
 
 #[test]
 fn available_in_app_library_guidance_is_sorted_and_deduplicated() {
+    let db = TestDatabase::new();
     let libraries = libraries(
+        &db,
         false,
         vec![
             available_in_app("shared", "beta", "beta.templatetags.shared", Vec::new())
@@ -592,7 +617,9 @@ fn available_in_app_library_guidance_is_sorted_and_deduplicated() {
 
 #[test]
 fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
+    let db = TestDatabase::new();
     let libraries = libraries(
+        &db,
         false,
         vec![
             builtin(

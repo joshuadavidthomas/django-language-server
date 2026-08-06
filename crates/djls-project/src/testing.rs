@@ -48,11 +48,14 @@ use crate::python::python_syntax_errors as project_python_syntax_errors;
 use crate::settings::django_settings as project_django_settings;
 use crate::settings::settings_module_file as project_settings_module_file;
 use crate::templates::LibraryName;
+use crate::templates::SymbolDefinition;
 use crate::templates::TemplateLibrary;
 use crate::templates::TemplateLibraryCatalog;
 pub use crate::templates::TemplateLibraryFixtureError;
 use crate::templates::TemplateLibraryId;
 use crate::templates::TemplateSymbol;
+use crate::templates::TemplateSymbolKind;
+use crate::templates::template_library_definition_facts;
 
 pub fn python_syntax_errors(db: &dyn SourceDb, file: File) -> Option<Vec<PythonSyntaxError>> {
     project_python_syntax_errors(db, file).map(<[PythonSyntaxError]>::to_vec)
@@ -341,51 +344,128 @@ pub fn django_settings(db: &dyn Db, project: Project) -> impl Serialize + '_ {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TemplateLibraryDefinitionFactsSnapshot {
+    state: TemplateLibraryDefinitionStateSnapshot,
+    symbols: Vec<TemplateSymbolSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TemplateLibraryDefinitionStateSnapshot {
+    Failed,
+    ParsedNotLibrary {
+        recovered: bool,
+    },
+    Library {
+        recovered: bool,
+        symbols_are_unobserved: bool,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TemplateSymbolSnapshot {
+    kind: TemplateSymbolKind,
+    name: String,
+    definition: SymbolDefinitionSnapshot,
+    doc: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SymbolDefinitionSnapshot {
+    Exact {
+        file: Option<File>,
+        module: PythonModuleName,
+    },
+    Module(PythonModuleName),
+    Unknown,
+}
+
+#[must_use]
+pub fn template_library_definition_facts_snapshot<'db>(
+    db: &'db dyn Db,
+    key: TemplateLibraryId<'db>,
+) -> TemplateLibraryDefinitionFactsSnapshot {
+    let facts = template_library_definition_facts(db, key);
+    let state = if facts.source_failed() {
+        TemplateLibraryDefinitionStateSnapshot::Failed
+    } else if facts.is_library() {
+        TemplateLibraryDefinitionStateSnapshot::Library {
+            recovered: facts.is_recovered(),
+            symbols_are_unobserved: facts.symbols_are_unobserved(),
+        }
+    } else {
+        TemplateLibraryDefinitionStateSnapshot::ParsedNotLibrary {
+            recovered: facts.is_recovered(),
+        }
+    };
+    TemplateLibraryDefinitionFactsSnapshot {
+        state,
+        symbols: facts
+            .symbols()
+            .map(|symbol| TemplateSymbolSnapshot {
+                kind: symbol.kind,
+                name: symbol.name().to_string(),
+                definition: match &symbol.definition {
+                    SymbolDefinition::Exact { library } => SymbolDefinitionSnapshot::Exact {
+                        file: library.file(db),
+                        module: library.module(db).clone(),
+                    },
+                    SymbolDefinition::Module(module) => {
+                        SymbolDefinitionSnapshot::Module(module.clone())
+                    }
+                    SymbolDefinition::Unknown => SymbolDefinitionSnapshot::Unknown,
+                },
+                doc: symbol.doc.clone(),
+            })
+            .collect(),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateBackendLibrariesInput {
     pub loadable: Vec<(LibraryName, PythonModuleName)>,
     pub builtins: Vec<PythonModuleName>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TemplateLibraryInput {
+pub enum TemplateLibraryInput<'db> {
     Builtin {
         module: PythonModuleName,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     },
     Loadable {
         load_name: LibraryName,
         module: PythonModuleName,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     },
     AvailableInApp {
         load_name: LibraryName,
         app: PythonModuleName,
         module: PythonModuleName,
-        symbols: Vec<TemplateSymbol>,
+        symbols: Vec<TemplateSymbol<'db>>,
     },
 }
 
 #[must_use]
-pub fn template_library_catalog(
-    db: &dyn Db,
-    inputs: Vec<TemplateLibraryInput>,
-) -> TemplateLibraryCatalog {
+pub fn template_library_catalog<'db>(
+    db: &'db dyn Db,
+    inputs: Vec<TemplateLibraryInput<'db>>,
+) -> TemplateLibraryCatalog<'db> {
     build_template_library_catalog(db, inputs, false)
 }
 
 #[must_use]
-pub fn template_library_catalog_with_omissions(
-    db: &dyn Db,
-    inputs: Vec<TemplateLibraryInput>,
-) -> TemplateLibraryCatalog {
+pub fn template_library_catalog_with_omissions<'db>(
+    db: &'db dyn Db,
+    inputs: Vec<TemplateLibraryInput<'db>>,
+) -> TemplateLibraryCatalog<'db> {
     build_template_library_catalog(db, inputs, true)
 }
 
-fn build_template_library_catalog(
-    db: &dyn Db,
-    inputs: Vec<TemplateLibraryInput>,
+fn build_template_library_catalog<'db>(
+    db: &'db dyn Db,
+    inputs: Vec<TemplateLibraryInput<'db>>,
     has_omissions: bool,
-) -> TemplateLibraryCatalog {
+) -> TemplateLibraryCatalog<'db> {
     let libraries = inputs
         .into_iter()
         .map(|input| match input {
@@ -420,19 +500,19 @@ fn build_template_library_catalog(
     }
 }
 
-pub fn template_library_catalog_with_settings_cases(
-    db: &dyn Db,
-    inputs: Vec<TemplateLibraryInput>,
+pub fn template_library_catalog_with_settings_cases<'db>(
+    db: &'db dyn Db,
+    inputs: Vec<TemplateLibraryInput<'db>>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> Result<TemplateLibraryCatalog, TemplateLibraryFixtureError> {
+) -> Result<TemplateLibraryCatalog<'db>, TemplateLibraryFixtureError> {
     configure_template_library_catalog(template_library_catalog(db, inputs), settings_cases)
 }
 
-pub fn template_library_catalog_with_settings_case_omissions(
-    db: &dyn Db,
-    inputs: Vec<TemplateLibraryInput>,
+pub fn template_library_catalog_with_settings_case_omissions<'db>(
+    db: &'db dyn Db,
+    inputs: Vec<TemplateLibraryInput<'db>>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> Result<TemplateLibraryCatalog, TemplateLibraryFixtureError> {
+) -> Result<TemplateLibraryCatalog<'db>, TemplateLibraryFixtureError> {
     configure_template_library_catalog(
         template_library_catalog_with_omissions(db, inputs),
         settings_cases,
@@ -440,9 +520,9 @@ pub fn template_library_catalog_with_settings_case_omissions(
 }
 
 fn configure_template_library_catalog(
-    mut catalog: TemplateLibraryCatalog,
+    mut catalog: TemplateLibraryCatalog<'_>,
     settings_cases: Vec<Vec<TemplateBackendLibrariesInput>>,
-) -> Result<TemplateLibraryCatalog, TemplateLibraryFixtureError> {
+) -> Result<TemplateLibraryCatalog<'_>, TemplateLibraryFixtureError> {
     catalog.set_testing_settings_cases(
         settings_cases
             .into_iter()

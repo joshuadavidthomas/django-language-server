@@ -120,13 +120,13 @@ enum TemplateSymbolLibraryFixture {
 }
 
 /// Build Template Library facts from JSON fixture rows.
-pub fn make_template_library_catalog(
-    db: &dyn ProjectDb,
+pub fn make_template_library_catalog<'db>(
+    db: &'db dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
-) -> anyhow::Result<TemplateLibraryCatalog> {
+) -> anyhow::Result<TemplateLibraryCatalog<'db>> {
     let mut builtin_symbols = builtin_symbol_buckets(builtins)?;
     let mut loadable_symbols = loadable_symbol_buckets(libraries)?;
 
@@ -161,8 +161,9 @@ pub fn make_template_library_catalog(
     Ok(testing::template_library_catalog(db, library_inputs))
 }
 
-type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;
-type LoadableLibrarySymbolBuckets = BTreeMap<LibraryName, (PythonModuleName, Vec<TemplateSymbol>)>;
+type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol<'static>>)>;
+type LoadableLibrarySymbolBuckets =
+    BTreeMap<LibraryName, (PythonModuleName, Vec<TemplateSymbol<'static>>)>;
 
 fn builtin_symbol_buckets(builtins: &[String]) -> anyhow::Result<BuiltinSymbolBuckets> {
     builtins
@@ -227,7 +228,7 @@ fn add_fixture_symbol(
 fn add_builtin_symbol(
     buckets: &mut BuiltinSymbolBuckets,
     module_name: &str,
-    symbol: &TemplateSymbol,
+    symbol: &TemplateSymbol<'static>,
 ) -> anyhow::Result<()> {
     let module = PythonModuleName::parse(module_name)
         .with_context(|| format!("invalid builtin fixture module `{module_name}`"))?;
@@ -243,7 +244,7 @@ fn add_loadable_symbol(
     buckets: &mut LoadableLibrarySymbolBuckets,
     load_name: &str,
     module_name: &str,
-    symbol: TemplateSymbol,
+    symbol: TemplateSymbol<'static>,
 ) -> anyhow::Result<()> {
     let load_name = LibraryName::parse(load_name)
         .with_context(|| format!("invalid fixture library name `{load_name}`"))?;

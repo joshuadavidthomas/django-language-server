@@ -404,14 +404,14 @@ pub(crate) fn template_analysis_projection_for_file<'db>(
 /// Django applies builtins and then loaded libraries in source order, with later definitions
 /// shadowing earlier ones. The candidate is omitted when feasible backends disagree.
 #[must_use]
-pub fn effective_symbol_candidate_at(
-    db: &dyn Db,
+pub fn effective_symbol_candidate_at<'db>(
+    db: &'db dyn Db,
     file: File,
-    nodelist: NodeList<'_>,
+    nodelist: NodeList<'db>,
     position: u32,
     name: &str,
     kind: TemplateSymbolKind,
-) -> Option<TemplateSymbolCandidate> {
+) -> Option<TemplateSymbolCandidate<'db>> {
     let scoped_libraries = scoped_template_libraries_for_file(db, file);
     let projection = template_analysis_projection_for_file(db, file, nodelist);
     let load_state = projection.loaded_libraries(db).available_at(position);
