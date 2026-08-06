@@ -10,19 +10,11 @@ use crate::ext::DiagnosticExt;
 ///
 /// Returns `None` when `file` is not a diagnostics target. For template files,
 /// triggers parsing and validation via Salsa-tracked queries (cached across
-/// calls), then converts the accumulated errors to LSP types. Diagnostics are
-/// filtered and severity-adjusted per `diagnostics_config`.
+/// calls), then converts the accumulated errors to LSP types using the client's
+/// negotiated position encoding. Diagnostics are filtered and severity-adjusted
+/// per `diagnostics_config`.
 #[must_use]
 pub fn collect_diagnostics(
-    db: &dyn djls_semantic::Db,
-    file: File,
-) -> Option<Vec<ls_types::Diagnostic>> {
-    collect_diagnostics_with_encoding(db, file, PositionEncoding::Utf8)
-}
-
-/// Collect all LSP diagnostics using the client's negotiated position encoding.
-#[must_use]
-pub fn collect_diagnostics_with_encoding(
     db: &dyn djls_semantic::Db,
     file: File,
     encoding: PositionEncoding,

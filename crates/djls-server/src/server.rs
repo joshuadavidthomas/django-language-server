@@ -110,7 +110,7 @@ impl DjangoLanguageServer {
         let Some(diagnostics) = self
             .with_ready_snapshot(move |snapshot| {
                 let file = path_to_file(snapshot.db(), &path).ok()?;
-                djls_ide::collect_diagnostics_with_encoding(
+                djls_ide::collect_diagnostics(
                     snapshot.db(),
                     file,
                     snapshot.client_info().position_encoding(),
@@ -499,7 +499,7 @@ impl LanguageServer for DjangoLanguageServer {
                     return Vec::new();
                 };
 
-                djls_ide::collect_diagnostics_with_encoding(
+                djls_ide::collect_diagnostics(
                     snapshot.db(),
                     file,
                     snapshot.client_info().position_encoding(),

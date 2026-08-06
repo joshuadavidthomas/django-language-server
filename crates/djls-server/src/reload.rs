@@ -17,7 +17,7 @@ use djls_db::DjangoDatabase;
 use djls_ide::PrimedTemplateLibraries;
 use djls_ide::WarmCachePart;
 use djls_ide::WarmCachePhase;
-use djls_ide::collect_diagnostics_with_encoding;
+use djls_ide::collect_diagnostics;
 use djls_ide::prime_template_library_products;
 use djls_ide::warm_cache_phases;
 use djls_project::Db as ProjectDb;
@@ -999,7 +999,7 @@ async fn collect_snapshot_diagnostics(
         let joined = spawn_blocking(move || {
             Cancelled::catch(AssertUnwindSafe(|| {
                 let file = path_to_file(snapshot.db(), &path).ok()?;
-                collect_diagnostics_with_encoding(
+                collect_diagnostics(
                     snapshot.db(),
                     file,
                     snapshot.client_info().position_encoding(),

@@ -117,7 +117,7 @@ fn apply_edit(source: &str, edit: &ls_types::TextEdit) -> String {
 
 fn diagnostic_codes(source: &str) -> TestResult<Vec<String>> {
     let db = db_with_source(source)?;
-    Ok(collect_diagnostics(&db, file(&db)?)
+    Ok(collect_diagnostics(&db, file(&db)?, PositionEncoding::Utf8)
         .ok_or_else(|| io::Error::other("template file should return diagnostics"))?
         .into_iter()
         .filter_map(|diagnostic| match diagnostic.code {
@@ -311,7 +311,8 @@ fn severity_off_suppresses_diagnostic_and_code_action() {
         .expect("validation fixture with custom diagnostics should build");
 
     let file = file(&db).expect("template fixture file should exist");
-    let diagnostics = collect_diagnostics(&db, file).expect("template should return diagnostics");
+    let diagnostics = collect_diagnostics(&db, file, PositionEncoding::Utf8)
+        .expect("template should return diagnostics");
     let actions = collect_actions(&db, request_at(source, "trans"))
         .expect("disabled diagnostic should return a code action response");
 

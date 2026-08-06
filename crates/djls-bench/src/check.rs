@@ -81,6 +81,7 @@ mod tests {
     use djls_semantic::validate_template_file;
     use djls_source::DiagnosticRenderer;
     use djls_source::File;
+    use djls_source::PositionEncoding;
     use djls_templates::parse_template;
     use insta::assert_yaml_snapshot;
     use salsa::Database as _;
@@ -502,7 +503,7 @@ mod tests {
                     .collect(),
             });
 
-            if let Some(diagnostics) = collect_diagnostics(db, file) {
+            if let Some(diagnostics) = collect_diagnostics(db, file, PositionEncoding::Utf8) {
                 ide_eligible_file_count += 1;
                 normalized_ide_diagnostics
                     .extend(normalize_lsp_diagnostics(path.as_str(), diagnostics));
@@ -676,7 +677,7 @@ mod tests {
         };
         let mut original_diagnostics = Vec::new();
         for _ in 0..DIAGNOSTICS_WARMUP_ITERS {
-            original_diagnostics = collect_diagnostics(&db, file)
+            original_diagnostics = collect_diagnostics(&db, file, PositionEncoding::Utf8)
                 .expect("incremental Template fixture should be eligible for diagnostics");
         }
         let original_diagnostics =
@@ -688,7 +689,7 @@ mod tests {
         drop(take_will_execute_names(&db, &events));
 
         db.set_file_contents(file, &modified);
-        let modified_diagnostics = collect_diagnostics(&db, file)
+        let modified_diagnostics = collect_diagnostics(&db, file, PositionEncoding::Utf8)
             .expect("modified Template fixture should be eligible for diagnostics");
         let modified_diagnostics =
             normalize_lsp_diagnostics(fixture.path.as_str(), modified_diagnostics);
@@ -696,14 +697,14 @@ mod tests {
         assert_execution_count(&modified_names, "validate_template_file", 1);
 
         db.set_file_contents(file, &original);
-        let restored_diagnostics = collect_diagnostics(&db, file)
+        let restored_diagnostics = collect_diagnostics(&db, file, PositionEncoding::Utf8)
             .expect("restored Template fixture should be eligible for diagnostics");
         let restored_diagnostics =
             normalize_lsp_diagnostics(fixture.path.as_str(), restored_diagnostics);
         let restored_names = take_will_execute_names(&db, &events);
         assert_execution_count(&restored_names, "validate_template_file", 1);
 
-        let repeated_diagnostics = collect_diagnostics(&db, file)
+        let repeated_diagnostics = collect_diagnostics(&db, file, PositionEncoding::Utf8)
             .expect("repeated Template fixture should be eligible for diagnostics");
         let repeated_diagnostics =
             normalize_lsp_diagnostics(fixture.path.as_str(), repeated_diagnostics);

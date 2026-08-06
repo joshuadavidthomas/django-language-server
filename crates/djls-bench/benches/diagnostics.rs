@@ -24,6 +24,7 @@ use djls_source::DiagnosticRenderer;
 use djls_source::File;
 use djls_source::FileError;
 use djls_source::FileReadError;
+use djls_source::PositionEncoding;
 
 fn main() {
     divan::main();
@@ -81,7 +82,11 @@ fn render_synthetic(bencher: Bencher) {
 }
 
 fn benchmark_diagnostics(db: &Db, file: File, context: &str) -> usize {
-    require_some(context, collect_diagnostics(db, file)).len()
+    require_some(
+        context,
+        collect_diagnostics(db, file, PositionEncoding::Utf8),
+    )
+    .len()
 }
 
 fn verify_expected_diagnostics(
@@ -89,7 +94,7 @@ fn verify_expected_diagnostics(
     file: File,
     path: &Utf8PathBuf,
 ) -> Result<(), DiagnosticsSetupError> {
-    let diagnostics = collect_diagnostics(db, file)
+    let diagnostics = collect_diagnostics(db, file, PositionEncoding::Utf8)
         .ok_or_else(|| DiagnosticsSetupError::DiagnosticsUnavailable { path: path.clone() })?;
     if diagnostics.is_empty() {
         return Err(DiagnosticsSetupError::MissingDiagnostics { path: path.clone() });

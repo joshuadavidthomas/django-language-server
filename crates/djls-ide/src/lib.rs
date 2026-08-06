@@ -16,7 +16,6 @@ mod warmup;
 pub use code_actions::code_actions;
 pub use completions::completion;
 pub use diagnostics::collect_diagnostics;
-pub use diagnostics::collect_diagnostics_with_encoding;
 pub use folding::collect_folding_ranges;
 pub use formatting::format_document;
 pub use hover::hover;
