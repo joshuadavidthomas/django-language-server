@@ -41,9 +41,7 @@ impl OutlineKindExt for djls_semantic::OutlineKind {
 }
 
 trait OffsetExt {
-    fn to_lsp_position(&self, line_index: &LineIndex) -> ls_types::Position;
-
-    fn to_lsp_position_with_encoding(
+    fn to_lsp_position(
         &self,
         source: &str,
         line_index: &LineIndex,
@@ -52,19 +50,15 @@ trait OffsetExt {
 }
 
 impl OffsetExt for Offset {
-    fn to_lsp_position(&self, line_index: &LineIndex) -> ls_types::Position {
-        let (line, character) = line_index.to_line_col(*self).into();
-        ls_types::Position { line, character }
-    }
-
-    fn to_lsp_position_with_encoding(
+    fn to_lsp_position(
         &self,
         source: &str,
         line_index: &LineIndex,
         encoding: PositionEncoding,
     ) -> ls_types::Position {
         let Some(source_line) = line_index.line_at_offset(source, *self) else {
-            return self.to_lsp_position(line_index);
+            let (line, character) = line_index.to_line_col(*self).into();
+            return ls_types::Position { line, character };
         };
         let byte_offset = source_line.byte_offset(*self);
         let line_prefix = &source_line.text()[..byte_offset];
@@ -87,8 +81,6 @@ impl OffsetExt for Offset {
 }
 
 pub(crate) trait SpanExt {
-    fn to_lsp_range(&self, line_index: &LineIndex) -> ls_types::Range;
-
     fn to_lsp_range_with_encoding(
         &self,
         source: &str,
@@ -98,12 +90,6 @@ pub(crate) trait SpanExt {
 }
 
 impl SpanExt for Span {
-    fn to_lsp_range(&self, line_index: &LineIndex) -> ls_types::Range {
-        let start = self.start_offset().to_lsp_position(line_index);
-        let end = self.end_offset().to_lsp_position(line_index);
-        ls_types::Range { start, end }
-    }
-
     fn to_lsp_range_with_encoding(
         &self,
         source: &str,
@@ -112,10 +98,10 @@ impl SpanExt for Span {
     ) -> ls_types::Range {
         let start = self
             .start_offset()
-            .to_lsp_position_with_encoding(source, line_index, encoding);
+            .to_lsp_position(source, line_index, encoding);
         let end = self
             .end_offset()
-            .to_lsp_position_with_encoding(source, line_index, encoding);
+            .to_lsp_position(source, line_index, encoding);
         ls_types::Range { start, end }
     }
 }
@@ -330,16 +316,17 @@ pub(crate) trait FoldSpanExt {
 
 impl FoldSpanExt for FoldSpan {
     fn to_lsp_folding_range(self, line_index: &LineIndex) -> Option<ls_types::FoldingRange> {
-        let range = self.span.to_lsp_range(line_index);
+        let (start_line, _) = line_index.to_line_col(self.span.start_offset()).into();
+        let (end_line, _) = line_index.to_line_col(self.span.end_offset()).into();
 
-        if range.start.line >= range.end.line {
+        if start_line >= end_line {
             return None;
         }
 
         Some(ls_types::FoldingRange {
-            start_line: range.start.line,
+            start_line,
             start_character: None,
-            end_line: range.end.line,
+            end_line,
             end_character: None,
             kind: Some(self.kind.to_lsp_kind()),
             collapsed_text: None,
@@ -375,14 +362,18 @@ pub(crate) trait DiagnosticExt: std::fmt::Display {
 
     fn to_lsp_diagnostic(
         &self,
+        source: &str,
         line_index: &LineIndex,
+        encoding: PositionEncoding,
         config: &djls_conf::DiagnosticsConfig,
     ) -> Option<ls_types::Diagnostic> {
         let code = self.diagnostic_code();
         let severity = config.get_severity(code).to_lsp_severity()?;
         let range = self
             .diagnostic_span()
-            .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
+            .map(|(start, length)| {
+                Span::new(start, length).to_lsp_range_with_encoding(source, line_index, encoding)
+            })
             .unwrap_or_default();
 
         Some(ls_types::Diagnostic {

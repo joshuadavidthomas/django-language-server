@@ -110,7 +110,11 @@ impl DjangoLanguageServer {
         let Some(diagnostics) = self
             .with_ready_snapshot(move |snapshot| {
                 let file = path_to_file(snapshot.db(), &path).ok()?;
-                djls_ide::collect_diagnostics(snapshot.db(), file)
+                djls_ide::collect_diagnostics_with_encoding(
+                    snapshot.db(),
+                    file,
+                    snapshot.client_info().position_encoding(),
+                )
             })
             .await
         else {
@@ -466,7 +470,12 @@ impl LanguageServer for DjangoLanguageServer {
                     return None;
                 }
 
-                djls_ide::hover(db, file, offset)
+                djls_ide::hover(
+                    db,
+                    file,
+                    offset,
+                    snapshot.client_info().position_encoding(),
+                )
             })
             .await;
 
@@ -490,7 +499,12 @@ impl LanguageServer for DjangoLanguageServer {
                     return Vec::new();
                 };
 
-                djls_ide::collect_diagnostics(snapshot.db(), file).unwrap_or_default()
+                djls_ide::collect_diagnostics_with_encoding(
+                    snapshot.db(),
+                    file,
+                    snapshot.client_info().position_encoding(),
+                )
+                .unwrap_or_default()
             })
             .await;
 
@@ -550,7 +564,11 @@ impl LanguageServer for DjangoLanguageServer {
                     return Vec::new();
                 }
 
-                djls_ide::document_symbols(db, file)
+                djls_ide::document_symbols(
+                    db,
+                    file,
+                    snapshot.client_info().position_encoding(),
+                )
             })
             .await;
 
@@ -575,7 +593,11 @@ impl LanguageServer for DjangoLanguageServer {
                     return Vec::new();
                 }
 
-                djls_ide::document_links(db, file)
+                djls_ide::document_links(
+                    db,
+                    file,
+                    snapshot.client_info().position_encoding(),
+                )
             })
             .await;
 

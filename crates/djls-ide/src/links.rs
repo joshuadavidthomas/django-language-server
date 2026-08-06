@@ -5,12 +5,20 @@ use djls_semantic::scoped_template_libraries_for_file;
 use djls_semantic::template_library_references_in_file;
 use djls_semantic::template_references_in_file;
 use djls_source::File;
+use djls_source::PositionEncoding;
 use tower_lsp_server::ls_types;
 
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
 
-pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
+pub fn document_links(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    encoding: PositionEncoding,
+) -> Vec<ls_types::DocumentLink> {
+    let Ok(source) = file.try_source(db) else {
+        return Vec::new();
+    };
     let line_index = file.line_index(db);
     let scoped_libraries = scoped_template_libraries_for_file(db, file);
     let mut links = Vec::new();
@@ -30,7 +38,11 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
                         reference.kind(),
                     )? {
                         TemplateResolutionResult::Found(origin) => Some(ls_types::DocumentLink {
-                            range: reference.span().to_lsp_range(line_index),
+                            range: reference.span().to_lsp_range_with_encoding(
+                                source.as_str(),
+                                line_index,
+                                encoding,
+                            ),
                             target: Some(origin.path_buf(db).to_lsp_uri()?),
                             tooltip: None,
                             data: None,
@@ -65,7 +77,11 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
             .filter_map(|reference| {
                 let target = scoped_libraries.library_link(reference.load_name())?;
                 Some(ls_types::DocumentLink {
-                    range: reference.span().to_lsp_range(line_index),
+                    range: reference.span().to_lsp_range_with_encoding(
+                        source.as_str(),
+                        line_index,
+                        encoding,
+                    ),
                     target: Some(target.path(db).to_lsp_uri()?),
                     tooltip: None,
                     data: None,

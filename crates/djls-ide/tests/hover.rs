@@ -1,10 +1,15 @@
 use camino::Utf8Path;
-use djls_ide::hover;
+use djls_ide::hover as ide_hover;
 use djls_source::File;
 use djls_source::Offset;
+use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
+
+fn hover(db: &TestDatabase, file: File, offset: Offset) -> Option<ls_types::Hover> {
+    ide_hover(db, file, offset, PositionEncoding::Utf16)
+}
 
 fn hover_markdown(hover: ls_types::Hover) -> Option<String> {
     match hover.contents {
@@ -40,6 +45,40 @@ fn collision_fixture(source: &str) -> Result<(TestDatabase, File), Box<dyn std::
         .install(&mut db)?;
     let file = db.file(Utf8Path::new("/test/project/templates/page.html"))?;
     Ok((db, file))
+}
+
+#[test]
+fn hover_ranges_follow_position_encoding() {
+    let source = "é😀 {% shared %}";
+    let (db, file) = collision_fixture(source).expect("hover range fixture should build");
+    let offset = Offset::new(
+        u32::try_from(
+            source
+                .find("shared")
+                .expect("test source should contain shared"),
+        )
+        .expect("test source offset should fit in u32"),
+    );
+
+    let utf16 = ide_hover(&db, file, offset, PositionEncoding::Utf16)
+        .expect("builtin tag should have a UTF-16 hover");
+    let utf32 = ide_hover(&db, file, offset, PositionEncoding::Utf32)
+        .expect("builtin tag should have a UTF-32 hover");
+
+    assert_eq!(
+        utf16.range,
+        Some(ls_types::Range::new(
+            ls_types::Position::new(0, 7),
+            ls_types::Position::new(0, 13),
+        ))
+    );
+    assert_eq!(
+        utf32.range,
+        Some(ls_types::Range::new(
+            ls_types::Position::new(0, 6),
+            ls_types::Position::new(0, 12),
+        ))
+    );
 }
 
 #[test]

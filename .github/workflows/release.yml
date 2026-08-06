@@ -13,6 +13,39 @@ permissions:
   contents: read
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify release tag matches package version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python_version="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          cargo_version="$(python3 -c 'import tomllib; print(tomllib.load(open("crates/djls/Cargo.toml", "rb"))["package"]["version"])')"
+          normalized_cargo_version="${cargo_version/-a/a}"
+          normalized_cargo_version="${normalized_cargo_version/-b/b}"
+          normalized_cargo_version="${normalized_cargo_version/-rc/rc}"
+          expected_tag="v${python_version}"
+
+          printf 'Release tag: %s\n' "$RELEASE_TAG"
+          printf 'Python package version: %s\n' "$python_version"
+          printf 'Cargo package version: %s\n' "$cargo_version"
+
+          if [[ "$normalized_cargo_version" != "$python_version" ]]; then
+            printf 'Python package version %s does not match Cargo package version %s.\n' "$python_version" "$cargo_version" >&2
+            exit 1
+          fi
+
+          if [[ "$RELEASE_TAG" != "$expected_tag" ]]; then
+            printf 'Release tag must be %s, but got %s.\n' "$expected_tag" "$RELEASE_TAG" >&2
+            exit 1
+          fi
+
   lint:
     uses: ./.github/workflows/lint.yml
     permissions:
@@ -25,7 +58,7 @@ jobs:
 
   build:
     uses: ./.github/workflows/build.yml
-    needs: [lint, test]
+    needs: [preflight, lint, test]
     permissions:
       attestations: write
       contents: read

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::Read as _;
 use std::io::Result as IoResult;
 use std::io::Write as _;
@@ -24,6 +25,7 @@ use djls_project::ProjectFactsData;
 use djls_project::run_django_discovery;
 use djls_source::CaseSensitivity;
 use djls_source::DiagnosticRenderer;
+use djls_source::FileError;
 use djls_source::FileSystem;
 use djls_source::OsFileSystem;
 use djls_source::RootWalk;
@@ -101,10 +103,15 @@ impl CheckInput {
         db: &DjangoDatabase,
         project_root: &Utf8Path,
         walk_options: &WalkOptions,
-    ) -> Vec<Utf8PathBuf> {
+    ) -> Result<Vec<Utf8PathBuf>> {
         match self {
-            Self::Files { .. } => discover_files(requested_paths, db, project_root, walk_options),
-            Self::Stdin { path, .. } => vec![path.clone()],
+            Self::Files { .. } => Ok(discover_files(
+                requested_paths,
+                db,
+                project_root,
+                walk_options,
+            )?),
+            Self::Stdin { path, .. } => Ok(vec![path.clone()]),
         }
     }
 
@@ -194,7 +201,7 @@ impl Command for Check {
             follow_links: self.follow,
             max_depth: self.max_depth,
         };
-        let files = input.files(&self.paths, &db, &project_root, &walk_options);
+        let files = input.files(&self.paths, &db, &project_root, &walk_options)?;
         if files.is_empty() {
             return Ok(Exit::success());
         }
@@ -263,6 +270,24 @@ fn report_results(
     Ok(Exit::error().with_message(message))
 }
 
+#[derive(Debug)]
+struct TemplateIndexError {
+    path: Utf8PathBuf,
+    source: FileError,
+}
+
+impl fmt::Display for TemplateIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Cannot index Template path `{}`", self.path)
+    }
+}
+
+impl std::error::Error for TemplateIndexError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
 /// Validate paths with the same per-clone Rayon execution used by the batch CLI.
 fn check_files_parallel(
     db: DjangoDatabase,
@@ -277,23 +302,21 @@ fn check_files_parallel(
             let db = db.clone();
             let tx = tx.clone();
             scope.spawn(move |_| {
-                let Ok(file) = path_to_file(&db, &path) else {
-                    return;
-                };
-                match check_template(&db, file) {
-                    Ok(result) if result.has_diagnostics() => {
-                        drop(tx.send(Ok(result)));
-                    }
-                    Ok(_) => {}
-                    Err(error) => {
-                        drop(tx.send(Err(error.into())));
-                    }
-                }
+                let result = (|| -> Result<Option<CheckedTemplate>> {
+                    let file = path_to_file(&db, &path).map_err(|source| TemplateIndexError {
+                        path: path.clone(),
+                        source,
+                    })?;
+                    let checked = check_template(&db, file)?;
+                    Ok(checked.has_diagnostics().then_some(checked))
+                })();
+                drop(tx.send(result));
             });
         }
     });
 
-    rx.into_iter().collect()
+    let checked: Vec<Option<CheckedTemplate>> = rx.into_iter().collect::<Result<_>>()?;
+    Ok(checked.into_iter().flatten().collect())
 }
 
 struct SingleFileOverlay {
@@ -375,6 +398,7 @@ fn pick_renderer(color: ColorMode) -> DiagnosticRenderer {
 #[cfg(test)]
 mod tests {
     use djls_project::EnvironmentPhase;
+    use djls_source::InMemoryFileSystem;
 
     use super::*;
 
@@ -400,5 +424,27 @@ mod tests {
             .expect_err("check should require a configured Project");
 
         assert_eq!(error.to_string(), "No Project configured for check");
+    }
+
+    #[test]
+    fn indexing_failure_reaches_batch_check_caller() {
+        let db = DjangoDatabase::new(
+            Arc::new(InMemoryFileSystem::new()),
+            &Settings::default(),
+            None,
+        );
+        let path = Utf8PathBuf::from("/project/disappeared.html");
+
+        let error = check_files_parallel(db, vec![path.clone()])
+            .err()
+            .expect("a Template that disappeared before indexing should fail the check");
+
+        assert_eq!(
+            error.chain().map(ToString::to_string).collect::<Vec<_>>(),
+            [
+                format!("Cannot index Template path `{path}`"),
+                "Not found".to_owned(),
+            ]
+        );
     }
 }
