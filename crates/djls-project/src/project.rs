@@ -199,8 +199,8 @@ fn load_env_file(
                 tracing::debug!("Loaded env var from file: {}", key);
                 vars.push((key, value));
             }
-            Err(err) => {
-                tracing::warn!("Failed to parse env file entry: {}", err);
+            Err(_) => {
+                tracing::warn!("{}", env_file_parse_warning(&env_path));
             }
         }
     }
@@ -211,6 +211,10 @@ fn load_env_file(
         );
     }
     vars
+}
+
+fn env_file_parse_warning(env_path: &Utf8Path) -> String {
+    format!("Could not parse an entry in env file {env_path}; skipped the entry")
 }
 
 fn django_settings_module_name(
@@ -380,6 +384,26 @@ mod tests {
                 ("SECRET".to_string(), "my secret value".to_string())
             );
             assert_eq!(vars[1], ("OTHER".to_string(), "single quoted".to_string()));
+        }
+
+        #[test]
+        fn malformed_entry_warning_does_not_include_file_contents() {
+            const SENTINEL_SECRET: &str = "djls-sentinel-secret-do-not-log";
+            let env_path = Utf8Path::new("/project/.env");
+            let malformed = format!("SECRET=\"{SENTINEL_SECRET}");
+            let error = dotenvy::from_read_iter(malformed.as_bytes())
+                .next()
+                .expect("malformed env entry should produce a parser result")
+                .expect_err("unterminated quoted value should fail to parse");
+
+            let warning = env_file_parse_warning(env_path);
+
+            assert!(matches!(error, dotenvy::Error::LineParse(_, _)));
+            assert_eq!(
+                warning,
+                "Could not parse an entry in env file /project/.env; skipped the entry"
+            );
+            assert!(!warning.contains(SENTINEL_SECRET));
         }
     }
 }

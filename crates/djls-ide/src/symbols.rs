@@ -2,32 +2,45 @@ use djls_semantic::OutlineItem;
 use djls_semantic::build_template_outline_for_file;
 use djls_source::File;
 use djls_source::LineIndex;
+use djls_source::PositionEncoding;
 use tower_lsp_server::ls_types;
 
 use crate::ext::OutlineKindExt;
 use crate::ext::SpanExt;
 
 #[must_use]
-pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentSymbol> {
+pub fn document_symbols(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    encoding: PositionEncoding,
+) -> Vec<ls_types::DocumentSymbol> {
     let djls_templates::TemplateParseResult::Parsed(nodelist) =
         djls_templates::parse_template(db, file)
     else {
         return Vec::new();
     };
 
+    let Ok(source) = file.try_source(db) else {
+        return Vec::new();
+    };
     let outline = build_template_outline_for_file(db, file, nodelist);
     let line_index = file.line_index(db);
     outline
         .iter()
-        .map(|item| item_to_document_symbol(item, line_index))
+        .map(|item| item_to_document_symbol(item, source.as_str(), line_index, encoding))
         .collect()
 }
 
-fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_types::DocumentSymbol {
+fn item_to_document_symbol(
+    item: &OutlineItem,
+    source: &str,
+    line_index: &LineIndex,
+    encoding: PositionEncoding,
+) -> ls_types::DocumentSymbol {
     let children = (!item.children.is_empty()).then(|| {
         item.children
             .iter()
-            .map(|child| item_to_document_symbol(child, line_index))
+            .map(|child| item_to_document_symbol(child, source, line_index, encoding))
             .collect()
     });
 
@@ -41,8 +54,12 @@ fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_typ
         // We set both to `None` because template outline items are not deprecated.
         #[allow(deprecated)]
         deprecated: None,
-        range: item.span.to_lsp_range(line_index),
-        selection_range: item.selection_span.to_lsp_range(line_index),
+        range: item
+            .span
+            .to_lsp_range_with_encoding(source, line_index, encoding),
+        selection_range: item
+            .selection_span
+            .to_lsp_range_with_encoding(source, line_index, encoding),
         children,
     }
 }
@@ -92,7 +109,7 @@ mod tests {
 
         let symbols = outline
             .iter()
-            .map(|item| item_to_document_symbol(item, &line_index))
+            .map(|item| item_to_document_symbol(item, source, &line_index, PositionEncoding::Utf16))
             .collect::<Vec<_>>();
 
         assert_eq!(symbols.len(), 1);
@@ -119,5 +136,40 @@ mod tests {
         let filters = children[1].children.as_ref().expect("filters should exist");
         assert_eq!(filters[0].name, "lower");
         assert_eq!(filters[0].kind, ls_types::SymbolKind::FUNCTION);
+    }
+
+    #[test]
+    fn outline_conversion_follows_position_encoding() {
+        let source = "é😀 {{ user }}";
+        let line_index = LineIndex::from(source);
+        let start = source
+            .find("user")
+            .expect("test source should contain user");
+        let item = OutlineItem {
+            label: "user".to_string(),
+            detail: None,
+            kind: djls_semantic::OutlineKind::Variable,
+            span: Span::saturating_from_bounds_usize(7, source.len()),
+            selection_span: Span::saturating_from_bounds_usize(start, start + "user".len()),
+            children: Vec::new(),
+        };
+
+        let utf16 = item_to_document_symbol(&item, source, &line_index, PositionEncoding::Utf16);
+        let utf32 = item_to_document_symbol(&item, source, &line_index, PositionEncoding::Utf32);
+
+        assert_eq!(
+            utf16.selection_range,
+            ls_types::Range::new(
+                ls_types::Position::new(0, 7),
+                ls_types::Position::new(0, 11),
+            )
+        );
+        assert_eq!(
+            utf32.selection_range,
+            ls_types::Range::new(
+                ls_types::Position::new(0, 6),
+                ls_types::Position::new(0, 10),
+            )
+        );
     }
 }

@@ -999,7 +999,11 @@ async fn collect_snapshot_diagnostics(
         let joined = spawn_blocking(move || {
             Cancelled::catch(AssertUnwindSafe(|| {
                 let file = path_to_file(snapshot.db(), &path).ok()?;
-                collect_diagnostics(snapshot.db(), file)
+                collect_diagnostics(
+                    snapshot.db(),
+                    file,
+                    snapshot.client_info().position_encoding(),
+                )
             }))
         })
         .await;

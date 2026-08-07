@@ -1,6 +1,7 @@
 use djls_semantic::collect_template_diagnostics;
 use djls_source::File;
 use djls_source::FileKind;
+use djls_source::PositionEncoding;
 use tower_lsp_server::ls_types;
 
 use crate::ext::DiagnosticExt;
@@ -9,12 +10,14 @@ use crate::ext::DiagnosticExt;
 ///
 /// Returns `None` when `file` is not a diagnostics target. For template files,
 /// triggers parsing and validation via Salsa-tracked queries (cached across
-/// calls), then converts the accumulated errors to LSP types. Diagnostics are
-/// filtered and severity-adjusted per `diagnostics_config`.
+/// calls), then converts the accumulated errors to LSP types using the client's
+/// negotiated position encoding. Diagnostics are filtered and severity-adjusted
+/// per `diagnostics_config`.
 #[must_use]
 pub fn collect_diagnostics(
     db: &dyn djls_semantic::Db,
     file: File,
+    encoding: PositionEncoding,
 ) -> Option<Vec<ls_types::Diagnostic>> {
     let Ok(source) = file.try_source(db) else {
         return None;
@@ -31,13 +34,17 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error in collected.template_errors {
-        if let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) {
+        if let Some(diagnostic) =
+            error.to_lsp_diagnostic(source.as_str(), line_index, encoding, &config)
+        {
             diagnostics.push(diagnostic);
         }
     }
 
     for error in collected.validation_errors {
-        if let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) {
+        if let Some(diagnostic) =
+            error.to_lsp_diagnostic(source.as_str(), line_index, encoding, &config)
+        {
             diagnostics.push(diagnostic);
         }
     }
@@ -67,7 +74,12 @@ mod tests {
         });
 
         let diagnostic = error
-            .to_lsp_diagnostic(&line_index, &djls_conf::DiagnosticsConfig::default())
+            .to_lsp_diagnostic(
+                source,
+                &line_index,
+                PositionEncoding::Utf8,
+                &djls_conf::DiagnosticsConfig::default(),
+            )
             .expect("default diagnostic severity should be enabled");
 
         assert_eq!(
@@ -76,6 +88,35 @@ mod tests {
         );
         assert_eq!(diagnostic.range.start, ls_types::Position::new(0, 6));
         assert_eq!(diagnostic.range.end, ls_types::Position::new(0, 8));
+    }
+
+    #[test]
+    fn diagnostic_ranges_follow_position_encoding() {
+        let source = "é😀 {{ value";
+        let line_index = LineIndex::from(source);
+        let error = TemplateError::from(ParseError::MalformedConstruct {
+            position: 7,
+            opener: "{{".to_string(),
+            closer: "}}".to_string(),
+            content: "value".to_string(),
+        });
+        let config = djls_conf::DiagnosticsConfig::default();
+
+        let utf16 = error
+            .to_lsp_diagnostic(source, &line_index, PositionEncoding::Utf16, &config)
+            .expect("UTF-16 diagnostic should be enabled");
+        let utf32 = error
+            .to_lsp_diagnostic(source, &line_index, PositionEncoding::Utf32, &config)
+            .expect("UTF-32 diagnostic should be enabled");
+
+        assert_eq!(
+            utf16.range,
+            ls_types::Range::new(ls_types::Position::new(0, 4), ls_types::Position::new(0, 6),)
+        );
+        assert_eq!(
+            utf32.range,
+            ls_types::Range::new(ls_types::Position::new(0, 3), ls_types::Position::new(0, 5),)
+        );
     }
 
     #[test]

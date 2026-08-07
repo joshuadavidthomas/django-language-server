@@ -3,10 +3,16 @@ use djls_conf::TagDef;
 use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
-use djls_ide::document_links;
+use djls_ide::document_links as ide_document_links;
+use djls_source::File;
+use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
+
+fn document_links(db: &TestDatabase, file: File) -> Vec<ls_types::DocumentLink> {
+    ide_document_links(db, file, PositionEncoding::Utf16)
+}
 
 #[test]
 fn document_links_do_not_leak_templates_from_another_backend() {
@@ -51,6 +57,46 @@ fn document_links_resolve_absolute_references_from_originless_files() {
     assert_eq!(
         links[0].target.as_ref().map(|uri| uri.as_str()),
         Some("file:///test/project/templates/card.html")
+    );
+}
+
+#[test]
+fn document_link_ranges_follow_position_encoding() {
+    let mut db = TestDatabase::new();
+    let template_path = "/test/project/templates/page.html";
+    let source = "é😀 {% include \"card.html\" %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/test/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(template_path, source)
+        .file("/test/project/templates/card.html", "card")
+        .install(&mut db)
+        .expect("document link range fixture should install");
+    let file = db
+        .file(Utf8Path::new(template_path))
+        .expect("template fixture should exist");
+
+    let utf16 = ide_document_links(&db, file, PositionEncoding::Utf16);
+    let utf32 = ide_document_links(&db, file, PositionEncoding::Utf32);
+
+    assert_eq!(utf16.len(), 1);
+    assert_eq!(utf32.len(), 1);
+    assert_eq!(
+        utf16[0].range,
+        ls_types::Range::new(
+            ls_types::Position::new(0, 16),
+            ls_types::Position::new(0, 25),
+        )
+    );
+    assert_eq!(
+        utf32[0].range,
+        ls_types::Range::new(
+            ls_types::Position::new(0, 15),
+            ls_types::Position::new(0, 24),
+        )
     );
 }
 

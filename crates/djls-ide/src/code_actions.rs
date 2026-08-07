@@ -71,7 +71,9 @@ pub fn code_actions(
         match error {
             ValidationError::UnloadedTag { library, .. }
             | ValidationError::UnloadedFilter { library, .. } => {
-                let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) else {
+                let Some(diagnostic) =
+                    error.to_lsp_diagnostic(source_text, line_index, encoding, &config)
+                else {
                     continue;
                 };
                 let insertion_offset =
@@ -87,7 +89,9 @@ pub fn code_actions(
             }
             ValidationError::AmbiguousUnloadedTag { libraries, .. }
             | ValidationError::AmbiguousUnloadedFilter { libraries, .. } => {
-                let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) else {
+                let Some(diagnostic) =
+                    error.to_lsp_diagnostic(source_text, line_index, encoding, &config)
+                else {
                     continue;
                 };
                 let insertion_offset =
@@ -110,7 +114,9 @@ pub fn code_actions(
             ValidationError::UnmatchedBlockName {
                 expected, got_span, ..
             } => {
-                let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) else {
+                let Some(diagnostic) =
+                    error.to_lsp_diagnostic(source_text, line_index, encoding, &config)
+                else {
                     continue;
                 };
                 let edit = ls_types::TextEdit::new(

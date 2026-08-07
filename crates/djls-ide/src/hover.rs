@@ -18,11 +18,17 @@ use djls_semantic::resolve_reference_for_file;
 use djls_semantic::scoped_template_libraries_for_file;
 use djls_source::File;
 use djls_source::Offset;
+use djls_source::PositionEncoding;
 use tower_lsp_server::ls_types;
 
 use crate::ext::SpanExt;
 
-pub fn hover(db: &dyn SemanticDb, file: File, offset: Offset) -> Option<ls_types::Hover> {
+pub fn hover(
+    db: &dyn SemanticDb,
+    file: File,
+    offset: Offset,
+    encoding: PositionEncoding,
+) -> Option<ls_types::Hover> {
     let scoped_libraries = scoped_template_libraries_for_file(db, file);
     let (markdown, span) = match SemanticOffsetContext::from_offset(db, file, offset) {
         SemanticOffsetContext::TemplateReference {
@@ -86,12 +92,17 @@ pub fn hover(db: &dyn SemanticDb, file: File, offset: Offset) -> Option<ls_types
         | SemanticOffsetContext::None => None,
     }?;
 
+    let source = file.try_source(db).ok()?;
     Some(ls_types::Hover {
         contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
             kind: ls_types::MarkupKind::Markdown,
             value: markdown,
         }),
-        range: Some(span.to_lsp_range(file.line_index(db))),
+        range: Some(span.to_lsp_range_with_encoding(
+            source.as_str(),
+            file.line_index(db),
+            encoding,
+        )),
     })
 }
 

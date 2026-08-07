@@ -1,3 +1,5 @@
+use std::fmt;
+use std::io;
 use std::io::IsTerminal;
 
 use anyhow::Context;
@@ -35,19 +37,59 @@ impl ColorMode {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum FileDiscoveryError {
+    Missing(Utf8PathBuf),
+    Inaccessible {
+        path: Utf8PathBuf,
+        kind: io::ErrorKind,
+    },
+}
+
+impl fmt::Display for FileDiscoveryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Missing(path) => write!(f, "Cannot check `{path}`: path does not exist"),
+            Self::Inaccessible { path, kind } => {
+                write!(f, "Cannot check `{path}`: {}", io::Error::from(*kind))
+            }
+        }
+    }
+}
+
+impl std::error::Error for FileDiscoveryError {}
+
 pub(crate) fn discover_files(
     paths: &[Utf8PathBuf],
     db: &DjangoDatabase,
     project_root: &Utf8Path,
     options: &WalkOptions,
-) -> Vec<Utf8PathBuf> {
+) -> std::result::Result<Vec<Utf8PathBuf>, FileDiscoveryError> {
     let roots = discovery_roots(paths, db, project_root);
+    let explicit = !paths.is_empty();
 
     let mut files = Vec::new();
     for path in &roots {
         let entries = match db.walk_root(path, options) {
             RootWalk::File(entry) => vec![entry],
-            RootWalk::Directory { entries, .. } => entries,
+            RootWalk::Directory { entries, issues } => {
+                if explicit && let Some(kind) = issues.into_iter().next() {
+                    return Err(FileDiscoveryError::Inaccessible {
+                        path: path.clone(),
+                        kind,
+                    });
+                }
+                entries
+            }
+            RootWalk::Missing if explicit => {
+                return Err(FileDiscoveryError::Missing(path.clone()));
+            }
+            RootWalk::Inaccessible(kind) if explicit => {
+                return Err(FileDiscoveryError::Inaccessible {
+                    path: path.clone(),
+                    kind,
+                });
+            }
             RootWalk::Missing | RootWalk::Inaccessible(_) => continue,
         };
         for entry in entries {
@@ -69,7 +111,7 @@ pub(crate) fn discover_files(
 
     files.sort();
     files.dedup();
-    files
+    Ok(files)
 }
 
 /// Selects the directories a batch command enumerates templates from.
@@ -127,9 +169,46 @@ mod tests {
     use std::sync::Arc;
 
     use djls_conf::Settings;
+    use djls_source::CaseSensitivity;
+    use djls_source::FileSystem;
     use djls_source::OsFileSystem;
 
     use super::*;
+
+    struct InaccessibleDirectoryFileSystem;
+
+    impl FileSystem for InaccessibleDirectoryFileSystem {
+        fn read_to_string(&self, _path: &Utf8Path) -> io::Result<String> {
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        }
+
+        fn exists(&self, _path: &Utf8Path) -> bool {
+            true
+        }
+
+        fn is_file(&self, _path: &Utf8Path) -> bool {
+            false
+        }
+
+        fn is_dir(&self, _path: &Utf8Path) -> bool {
+            true
+        }
+
+        fn case_sensitivity(&self) -> CaseSensitivity {
+            CaseSensitivity::CaseSensitive
+        }
+
+        fn path_exists_case_sensitive(&self, _path: &Utf8Path, _prefix: &Utf8Path) -> bool {
+            true
+        }
+
+        fn walk_root(&self, _root: &Utf8Path, _options: &WalkOptions) -> RootWalk {
+            RootWalk::Directory {
+                entries: Vec::new(),
+                issues: vec![io::ErrorKind::PermissionDenied],
+            }
+        }
+    }
 
     fn project_database(project_root: &Utf8Path) -> anyhow::Result<DjangoDatabase> {
         let settings = Settings::new(project_root, None)?;
@@ -226,7 +305,8 @@ mod tests {
             &db,
             &dir_path,
             &WalkOptions::default(),
-        );
+        )
+        .expect("explicit Template directory should be discovered");
         let names: Vec<_> = files.iter().filter_map(|path| path.file_name()).collect();
 
         assert!(names.contains(&"page.html"));
@@ -253,7 +333,8 @@ mod tests {
             &db,
             &dir_path,
             &WalkOptions::default(),
-        );
+        )
+        .expect("explicit Template file should be discovered");
 
         let canonical = Utf8PathBuf::from_path_buf(
             file_path
@@ -285,9 +366,81 @@ mod tests {
             &db,
             &dir_path,
             &WalkOptions::default(),
-        );
+        )
+        .expect("explicit Template paths should be discovered");
 
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_name(), Some("page.html"));
+    }
+
+    #[test]
+    fn missing_explicit_path_is_an_error() {
+        let db = DjangoDatabase::new(
+            Arc::new(OsFileSystem::default()),
+            &Settings::default(),
+            None,
+        );
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let project_root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
+        let missing = project_root.join("missing.html");
+
+        let error = discover_files(
+            std::slice::from_ref(&missing),
+            &db,
+            &project_root,
+            &WalkOptions::default(),
+        )
+        .expect_err("a missing explicit path should fail discovery");
+
+        assert_eq!(error, FileDiscoveryError::Missing(missing.clone()));
+        assert_eq!(
+            error.to_string(),
+            format!("Cannot check `{missing}`: path does not exist")
+        );
+    }
+
+    #[test]
+    fn inaccessible_explicit_directory_is_an_error() {
+        let db = DjangoDatabase::new(
+            Arc::new(InaccessibleDirectoryFileSystem),
+            &Settings::default(),
+            None,
+        );
+        let project_root = Utf8Path::new("/project");
+        let inaccessible = Utf8PathBuf::from("/project/templates");
+
+        let error = discover_files(
+            std::slice::from_ref(&inaccessible),
+            &db,
+            project_root,
+            &WalkOptions::default(),
+        )
+        .expect_err("an inaccessible explicit directory should fail discovery");
+
+        assert_eq!(
+            error,
+            FileDiscoveryError::Inaccessible {
+                path: inaccessible,
+                kind: io::ErrorKind::PermissionDenied,
+            }
+        );
+    }
+
+    #[test]
+    fn missing_implicit_root_produces_empty_discovery() {
+        let db = DjangoDatabase::new(
+            Arc::new(OsFileSystem::default()),
+            &Settings::default(),
+            None,
+        );
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let project_root = Utf8PathBuf::from_path_buf(dir.path().join("missing-project"))
+            .expect("temporary test path should be valid UTF-8");
+
+        let files = discover_files(&[], &db, &project_root, &WalkOptions::default())
+            .expect("a missing implicit root should be an empty discovery");
+
+        assert!(files.is_empty());
     }
 }

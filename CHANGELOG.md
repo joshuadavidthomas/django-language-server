@@ -84,6 +84,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed LSP ranges for diagnostics, hover, document links, document symbols, and code actions when clients use UTF-16 or UTF-32 position encoding.
+- Fixed `djls check` returning success when an explicit path could not be read or indexed.
+- Fixed malformed env-file entries exposing their contents in server logs.
+- **Internal**: Added a release preflight check that requires the release tag to match the package version.
 - Fixed false unknown tag and filter diagnostics when a template library imports or dynamically mutates its Django registration object.
 - Fixed static path evaluation to follow imported helper aliases without mistaking shadowed `Path`, `str`, or `os` bindings for standard-library helpers.
 - Fixed static Django settings evaluation through ordinary and `from` imports, including dotted module chains, module attributes, named package children, and `__all__`-controlled star exports.
