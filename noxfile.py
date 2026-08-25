@@ -25,7 +25,7 @@ PY_LATEST = PY_VERSIONS[-1]
 DJ52 = "5.2"
 DJ52_CORPUS_VERSION = "5.2.11"
 DJ60 = "6.0"
-DJ61 = "6.1rc1"
+DJ61 = "6.1"
 DJMAIN = "main"
 DJMAIN_MIN_PY = PY312
 DJ_VERSIONS = [DJ52, DJ60, DJ61, DJMAIN]
@@ -107,7 +107,17 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
-    session.run("cargo", "run", "-p", "djls-testing", "--bin", "corpus", "--", "sync", external=True)
+    session.run(
+        "cargo",
+        "run",
+        "-p",
+        "djls-testing",
+        "--bin",
+        "corpus",
+        "--",
+        "sync",
+        external=True,
+    )
     session.run(*command, external=True)
 
 

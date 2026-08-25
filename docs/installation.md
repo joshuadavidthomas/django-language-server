@@ -70,7 +70,7 @@ Standalone binaries are available for macOS, Linux, and Windows from [GitHub Rel
     ```bash
     # Set the release and platform: linux-x64, linux-arm64,
     # darwin-x64, or darwin-arm64.
-    VERSION="6.0.3"
+    VERSION="6.1.0"
     PLATFORM="linux-x64"
     ARCHIVE="django-language-server-v${VERSION}-${PLATFORM}"
 
@@ -85,7 +85,7 @@ Standalone binaries are available for macOS, Linux, and Windows from [GitHub Rel
 
     ```powershell
     # Set this to the release you want to install.
-    $Version = "6.0.3"
+    \Version = "6.1.0"
     $Archive = "django-language-server-v$Version-windows-x64.zip"
 
     # Download and extract the Windows x64 archive.
