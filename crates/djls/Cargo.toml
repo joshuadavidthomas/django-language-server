@@ -1,6 +1,6 @@
 [package]
 name = "djls"
-version = "6.0.3"
+version = "6.1.0"
 edition.workspace = true
 
 [dependencies]

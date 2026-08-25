@@ -9,7 +9,7 @@ Add the hook to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/joshuadavidthomas/djls-pre-commit
-    rev: v6.0.3  # use the latest release tag
+    rev: v6.1.0  # use the latest release tag
     hooks:
       - id: djls-check
 ```
@@ -25,7 +25,7 @@ Pass [`djls check` options](cli.md#options) through `args`:
 ```yaml
 repos:
   - repo: https://github.com/joshuadavidthomas/djls-pre-commit
-    rev: v6.0.3
+    rev: v6.1.0
     hooks:
       - id: djls-check
         args: [--select, "S100,S117", --color, never]
