@@ -2,11 +2,9 @@
 
 ## Scope
 
-This roadmap describes the feature direction for Django Language Server: what is supported today, what should come next, and which larger capabilities are intentionally deferred.
+Django Language Server is a template-first language server. This roadmap records what works now, what should ship next, and which broader Django features depend on stronger Project Facts.
 
-The project is currently a template-first Django language server. The near-term goal is to make Django template editing feel complete before expanding into broader Django/Python intelligence.
-
-## Status Legend
+## Status legend
 
 - ✅ Supported
 - 🚧 Partially supported
@@ -16,221 +14,99 @@ The project is currently a template-first Django language server. The near-term 
 
 ## Strategy
 
-Finish high-value template IDE features first: template-name completion, block navigation, block references, and quick fixes. Broader Django intelligence should build from static project facts through settings, URLs/static assets, model facts, view context, and finally template variable types.
+Finish the remaining high-value Django template features, then separate generic Python analysis from Django Project Facts before expanding into URLs, settings, Models, Template Context, and ORM queries. Prefer conservative diagnostics when Project Facts are incomplete or dynamic. Build rename, code lens, and type-driven features only after symbol identity and references can support safe edits.
 
-Prefer conservative diagnostics over false positives when project facts are partial or dynamic. Defer rename, code lens, and type-driven features until references and symbol identity are strong enough to make them safe.
+## Current support
 
-## Django Domain Roadmap
+| Area | Status | Current behavior |
+|---|---|---|
+| Template diagnostics | ✅ | Syntax, tag and Filter Definition availability, Filter Arity, block structure, and template-usage diagnostics |
+| Template completion | 🚧 | Template Tags, tag arguments, Template Libraries, selective loads, Filters, and literal Template Names; parent Inheritance Block names remain |
+| Hover | ✅ | Template Tags, Filters, Template Libraries, selective loads, and Template References |
+| Go to definition | ✅ | Literal Template References, Inheritance Blocks, Template Libraries, Template Tags, and Filters when the target is definite |
+| Find references | 🚧 | Template References and definite Inheritance Block chains; other Django domains remain |
+| Document links | ✅ | Resolved Template References and Template Library names |
+| Document symbols and folding | ✅ | Template structure outlines and folding ranges |
+| Formatting | ✅ | Opt-in whole-document formatting through `djangofmt` |
+| Code actions | 🚧 | Missing and ambiguous `{% load %}` fixes and mismatched `{% endblock %}` name renames; safe `{% extends %}` placement remains |
+| Project discovery | ✅ | Static Django Discovery without importing Django or running project Python |
+| Configuration | ✅ | Project, diagnostics, formatter, environment, and manual tag-spec settings |
+| Workspace folders | ✅ | Multi-root workspace discovery and workspace-folder changes |
+| File watching | 🚧 | Open buffers and filesystem changes invalidate source facts; project-status feedback remains limited |
 
-### Now
+## Now
 
-#### Template reference polish
-
-**Status:** 🚧 Partially supported
-
-`{% extends %}` and `{% include %}` references should feel complete across completion, navigation, and editor links. Document links are supported for resolved `{% extends %}`, `{% include %}`, and `{% load %}` template-library names. Go to definition resolves literal `{% extends %}` and `{% include %}` names and sends exact origin ranges to clients that support definition links. Remaining first-pass polish should add template-name completion from discovered templates.
-
-#### Inheritance block intelligence
-
-**Status:** 🚧 Partially supported
-
-Go to definition resolves block names across template inheritance, and find references returns the root block and its definite overrides. Completing block names from parent templates remains.
-
-#### Code actions for safe diagnostics
-
-**Status:** 📅 Planned
-
-Common template diagnostics should offer quick fixes when the edit is deterministic. Start with missing `{% load %}` statements, unmatched block names, and invalid `{% extends %}` placement.
-
-### Next
-
-#### URL and static asset intelligence
-
-**Status:** 💭 Considering
-
-`{% url %}` and `{% static %}` should eventually gain completion, diagnostics, hover, and navigation. Start with URL-name discovery/completion, unresolved URL diagnostics, and static file completion from known static roots.
-
-#### Settings support
-
-**Status:** 💭 Considering
-
-Django settings modules should get useful hover, typo diagnostics, and eventually completions. Start with known-setting hover and obvious misspelling diagnostics before taking on Python edit-context completion.
-
-#### Django model facts in editor features
-
-**Status:** 💭 Considering
-
-Django model and relation facts should become visible through hover, navigation, diagnostics, and completions. The first useful slice is qualified model identity, field and relation spans, and relation-target navigation.
-
-### Later
-
-#### Template context and variable intelligence
-
-**Status:** 💭 Considering
-
-Template variables should eventually support member completion, hover, and goto based on view context, context processors, model facts, and local template bindings. Early slices can collect local bindings from `{% for %}`, `{% with %}`, and `as` aliases before attempting broader type inference.
-
-#### ORM query intelligence
-
-**Status:** 💭 Considering
-
-Common ORM expressions should eventually complete and validate field paths, relations, and lookup suffixes. Start with simple `Model.objects.filter(...)`, `order_by(...)`, `select_related(...)`, and `prefetch_related(...)` shapes.
-
-## LSP Capability Roadmap
-
-### Language Features
-
-#### Diagnostics
-
-**Status:** ✅ Supported
-
-Template syntax and semantic validation are supported, including tag/filter availability, filter arity, block structure, and template usage rules. The next step is quick fixes, richer related information, and conservative diagnostics for new Django domains.
-
-#### Completion
-
-**Status:** 🚧 Partially supported
-
-The server completes template tag names, tag arguments, `{% load %}` library names, selective load symbols, and filter names. Next up are template-name completions, block-name completions, filter arguments, URL names, static files, and eventually template variables.
-
-#### Hover
-
-**Status:** ✅ Supported
-
-Hover is supported for template tags, filters, libraries, selectively loaded symbols, and template references. Later hovers should cover variables, models, settings, URL names, and static assets once those facts exist.
-
-#### Go to definition / declaration / implementation
-
-**Status:** 🚧 Partially supported
-
-Go to definition works for literal template references in `{% extends %}` and `{% include %}`, block names, Template Library arguments in `{% load %}`, selective-load symbols, and available Template Tags and Filters with definite local or imported module-level Python declarations. Block overrides resolve to the nearest definite parent; root or uncertain-parent blocks resolve to themselves. Clients that support definition links receive exact origin and declaration ranges; older clients receive plain locations. Ambiguous definitions and dynamic, transformed, recovered, or member callables do not produce guessed targets.
-
-#### Find references
-
-**Status:** 🚧 Partially supported
-
-Find references works for templates used by `{% extends %}` and `{% include %}` and for definite block definitions across template inheritance. Variable, URL, static asset, settings, and model references remain.
-
-#### Document symbols
-
-**Status:** ✅ Supported
-
-Document symbols are supported for template structure outlines. They can become richer once block and inheritance relationships are modeled across files.
-
-#### Document links
-
-**Status:** ✅ Supported
-
-Document links make resolved `{% extends %}` and `{% include %}` template names clickable in editors, and link `{% load %}` template-library names to their resolved `templatetags/*.py` source files. Static asset and URL links can follow once those domains have facts.
-
-#### Folding range
-
-**Status:** ✅ Supported
-
-Folding is supported for Django template blocks, comments, and import regions. Keep this aligned with future template-structure changes.
-
-#### Formatting
-
-**Status:** ✅ Supported
-
-Opt-in whole-document Django template formatting is supported. Range formatting and on-type formatting should wait until whole-document formatting has enough real-world validation.
-
-#### Code actions
+### Block-name completion
 
 **Status:** 📅 Planned
 
-Code actions should start as deterministic quick fixes for existing diagnostics. Missing loads, unmatched block names, and invalid extends placement are the best first targets.
+Complete `{% block name %}` arguments from definite parent Templates. The inheritance query layer already provides the nearest inherited block definitions; the remaining work is IDE completion and LSP coverage.
 
-#### Rename
+### Safe `{% extends %}` placement action
 
-**Status:** 💭 Considering
+**Status:** 📅 Planned
 
-Rename is most plausible first for inheritance blocks across an extends/override chain. It should wait until block definitions and references are reliable.
+Offer the S122 quick fix only when moving `{% extends %}` ahead of preceding content preserves unrelated source text. This is the final slice in the current code-action plan bank.
 
-#### Selection range
+### Python analysis ownership
 
-**Status:** 💭 Considering
+**Status:** 📅 Planned
 
-Selection range could provide semantic expand-selection through template tokens, tag arguments, full tags, block contents, full blocks, parent blocks, and the whole document. This is useful polish after the structural model is stable enough for editor interaction.
+Finish the bounded settings and environment inputs already in flight, then separate generic Python analysis from Django project analysis. Broader URL, view, settings, and Model work resumes after that boundary is in place.
 
-#### Semantic tokens
+## Next
 
-**Status:** 💭 Considering
-
-Semantic tokens could provide Django-aware token categories for richer template highlighting. This is lower leverage than navigation, completion, and code actions.
-
-#### Inlay hints
-
-**Status:** 💭 Considering
-
-Inlay hints could show resolved template paths, URL targets, setting values, or inferred model/context types inline. They should wait for stronger domain facts and careful noise control.
-
-#### Signature help
-
-**Status:** 💭 Considering
-
-Signature help could show parameter hints while typing custom tag and filter arguments. It depends on richer tag/filter argument metadata.
-
-#### Document highlight
-
-**Status:** 💭 Considering
-
-Document highlight could show matching template names, block names, local bindings, and later variables. Single-file block-name highlights are the smallest useful first slice.
-
-#### Code lens
-
-**Status:** 💭 Considering
-
-Code lens could show inline counts and actions for template inheritance, block overrides, and template hierarchy. It should consume block references and inheritance relationships rather than create a separate model.
-
-### Workspace Features
-
-#### Workspace symbols
-
-**Status:** 💭 Considering
-
-Workspace symbols could search templates, inheritance blocks, URL names, settings, and model symbols across the project. Template and inheritance block symbols are the natural first slice.
-
-#### Configuration
-
-**Status:** ✅ Supported
-
-Project settings, diagnostics configuration, formatter configuration, environment inputs, and manual tag-spec fallbacks are supported. Prefer better inference over new override knobs, and add configuration only for real user decisions or unavoidable project-specific facts.
-
-#### Workspace folders
-
-**Status:** ✅ Supported
-
-Workspace folder support and workspace folder change handling are supported. Future work should keep multi-root behavior aligned with project discovery and source-file identity.
-
-#### File watching and file operations
+### Template Partial intelligence
 
 **Status:** 🚧 Partially supported
 
-Open document buffers, filesystem-backed project discovery, and source-file invalidation are partially supported. The goal is to keep project facts, template indexes, and editor features responsive to file changes.
+The semantic layer recognizes Template Partial definitions, but editor navigation, completion, and references do not expose them yet. Plan those consumers before implementation.
 
-#### Execute command
+### URL and static asset intelligence
 
 **Status:** 💭 Considering
 
-Execute commands may be useful for hierarchy views, project-status inspection, or future refactorings. Add commands only when a concrete feature needs them.
+Start with URL-name and static-file completion, then add conservative unresolved-reference diagnostics, hover, and navigation from extracted Project Facts.
 
-## Priority Order
+### Settings support
 
-1. Template-name completion for `{% extends %}` and `{% include %}`.
-2. Block-name completion.
-3. Code actions for existing diagnostics.
-4. URL/static completions and diagnostics.
-5. Settings hover and typo diagnostics.
-6. Model facts surfaced through navigation and hover.
-7. Template context and variable intelligence.
+**Status:** 💭 Considering
 
-## Deferred or Not Planned
+Start with known-setting hover and clear typo diagnostics. Python edit-context completion can wait until the Python analysis boundary has settled.
 
-- **Type definition / type hierarchy:** defer unless template type inference becomes real.
-- **Call hierarchy:** better handled by Python language servers.
-- **Monikers:** no clear Django use.
-- **Document colors:** not Django-specific.
-- **Inline values:** debugger-adjacent; not relevant right now.
-- **Notebook documents:** not relevant.
-- **On-type formatting:** defer until whole-document formatting is proven.
-- **Broad Python IDE replacement:** not a goal. DJLS should complement Python language servers, not replace them.
+### Django Model facts in editor features
+
+**Status:** 💭 Considering
+
+Expose qualified Django Model identity, field and relation spans, and relation-target navigation and hover. Finish the active proxy/MTI representation and conformance work before adding editor consumers.
+
+## Later
+
+### Template Context and Template Variable intelligence
+
+**Status:** 💭 Considering
+
+Collect local bindings from `{% for %}`, `{% with %}`, and `as` aliases before attempting view-derived Template Context or member types.
+
+### ORM query intelligence
+
+**Status:** 💭 Considering
+
+Complete and validate field paths, relations, and lookup suffixes for common query shapes only after Model facts and Python expression ownership are stable.
+
+### Other LSP features
+
+- Complete Filter arguments when their callable metadata is precise enough.
+- Start rename with definite Inheritance Block chains.
+- Start document highlights with block names in one Template.
+- Start workspace symbols with Templates and Inheritance Blocks.
+- Consider code lens, signature help, semantic tokens, selection ranges, and inlay hints after their source facts are stable.
+
+## Deferred or not planned
+
+- **Broad Python IDE replacement:** 🚫 DJLS complements Python language servers.
+- **Type definition and type hierarchy:** defer until Template Variable type inference exists.
+- **Call hierarchy:** leave Python call relationships to Python language servers.
+- **Range and on-type formatting:** defer until whole-document formatting has wider use.
+- **Notebook documents, monikers, document colors, and inline debugger values:** no Django-specific use.
+- **Full Jinja analysis:** demand-gated; supporting Django's Jinja backend requires a separate syntax layer.
