@@ -380,8 +380,8 @@ mod invalidation_tests {
 
     /// Create a test database with event logging and a pre-configured project.
     ///
-    /// Uses `Interpreter::discover(None)` to match what `Project::bootstrap`
-    /// produces, avoiding spurious interpreter mismatches from `$VIRTUAL_ENV`.
+    /// Uses `Interpreter::discover(None)` to match the automatic interpreter
+    /// selection produced by `Project::bootstrap`.
     fn test_db_with_project() -> (DjangoDatabase, EventLog) {
         let event_log = EventLog::default();
         let settings = Settings::default();
