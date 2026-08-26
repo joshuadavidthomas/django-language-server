@@ -18,6 +18,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+## [6.1.0]
+
 ### Added
 
 - Added support for Django 6.1.
@@ -368,7 +370,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Josh Thomas <josh@joshthomas.dev> (maintainer)
 
-[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v6.0.3...HEAD
+[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v6.1.0...HEAD
 [5.1.0a0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a0
 [5.1.0a1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a1
 [5.1.0a2]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a2
@@ -382,3 +384,4 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 [6.0.1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.0.1
 [6.0.2]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.0.2
 [6.0.3]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.0.3
+[6.1.0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.1.0
