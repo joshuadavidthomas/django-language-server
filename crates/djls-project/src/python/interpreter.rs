@@ -11,24 +11,18 @@ use djls_source::WalkOptions;
 /// to use for a project.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Interpreter {
-    /// Automatically discover interpreter (`VIRTUAL_ENV`, project venv dirs)
+    /// Automatically discover a project-local interpreter, then fall back to
+    /// `VIRTUAL_ENV`.
     Auto,
-    /// Use specific virtual environment path
+    /// Use a specific virtual environment path.
     VenvPath(Utf8PathBuf),
 }
 
 impl Interpreter {
-    /// Discover interpreter based on explicit path, `VIRTUAL_ENV`, or auto
+    /// Use an explicitly configured environment or automatic discovery.
     #[must_use]
     pub fn discover(venv_path: Option<&Utf8Path>) -> Self {
-        let virtual_env = std::env::var("VIRTUAL_ENV").ok().map(Utf8PathBuf::from);
-        Self::discover_from_sources(venv_path, virtual_env.as_deref())
-    }
-
-    fn discover_from_sources(venv_path: Option<&Utf8Path>, virtual_env: Option<&Utf8Path>) -> Self {
-        venv_path
-            .or(virtual_env)
-            .map_or(Self::Auto, |path| Self::VenvPath(path.to_path_buf()))
+        venv_path.map_or(Self::Auto, |path| Self::VenvPath(path.to_path_buf()))
     }
 
     pub(crate) fn site_packages_path(
@@ -38,15 +32,27 @@ impl Interpreter {
     ) -> Option<Utf8PathBuf> {
         match self {
             Self::VenvPath(path) => Self::site_packages_path_in_venv(fs, path),
-            Self::Auto => [".venv", "venv", "env", ".env"]
-                .into_iter()
-                .map(|dir| project_root.join(dir))
-                .find_map(|venv| {
-                    fs.is_dir(&venv)
-                        .then(|| Self::site_packages_path_in_venv(fs, &venv))
-                        .flatten()
-                }),
+            Self::Auto => {
+                let virtual_env = std::env::var("VIRTUAL_ENV").ok().map(Utf8PathBuf::from);
+                Self::auto_site_packages_path(fs, project_root, virtual_env.as_deref())
+            }
         }
+    }
+
+    fn auto_site_packages_path(
+        fs: &dyn FileSystem,
+        project_root: &Utf8Path,
+        virtual_env: Option<&Utf8Path>,
+    ) -> Option<Utf8PathBuf> {
+        [".venv", "venv", "env", ".env"]
+            .into_iter()
+            .map(|dir| project_root.join(dir))
+            .find_map(|venv| {
+                fs.is_dir(&venv)
+                    .then(|| Self::site_packages_path_in_venv(fs, &venv))
+                    .flatten()
+            })
+            .or_else(|| virtual_env.and_then(|path| Self::site_packages_path_in_venv(fs, path)))
     }
 
     fn site_packages_path_in_venv(fs: &dyn FileSystem, venv: &Utf8Path) -> Option<Utf8PathBuf> {
@@ -121,8 +127,7 @@ mod tests {
 
         #[test]
         fn test_discover_with_explicit_venv_path() {
-            let interpreter =
-                Interpreter::discover_from_sources(Some(Utf8Path::new("/path/to/venv")), None);
+            let interpreter = Interpreter::discover(Some(Utf8Path::new("/path/to/venv")));
             assert_eq!(
                 interpreter,
                 Interpreter::VenvPath(Utf8PathBuf::from("/path/to/venv"))
@@ -130,36 +135,78 @@ mod tests {
         }
 
         #[test]
-        fn test_discover_with_virtual_env_var() {
-            let interpreter =
-                Interpreter::discover_from_sources(None, Some(Utf8Path::new("/env/path")));
-            assert_eq!(
-                interpreter,
-                Interpreter::VenvPath(Utf8PathBuf::from("/env/path"))
-            );
-        }
-
-        #[test]
-        fn test_discover_explicit_overrides_env_var() {
-            let interpreter = Interpreter::discover_from_sources(
-                Some(Utf8Path::new("/explicit/path")),
-                Some(Utf8Path::new("/env/path")),
-            );
-            assert_eq!(
-                interpreter,
-                Interpreter::VenvPath(Utf8PathBuf::from("/explicit/path"))
-            );
-        }
-
-        #[test]
-        fn test_discover_auto_when_no_hints() {
-            let interpreter = Interpreter::discover_from_sources(None, None);
-            assert_eq!(interpreter, Interpreter::Auto);
+        fn test_discover_auto_without_explicit_path() {
+            assert_eq!(Interpreter::discover(None), Interpreter::Auto);
         }
     }
 
     mod resolution {
         use super::*;
+
+        #[test]
+        fn auto_prefers_project_venv_over_virtual_env() {
+            let mut fs = djls_source::InMemoryFileSystem::new();
+            fs.add_file(
+                "/project/.venv/lib/python3.12/site-packages/django/__init__.py".into(),
+                String::new(),
+            );
+            fs.add_file(
+                "/hook/lib/python3.14/site-packages/django_language_server/__init__.py".into(),
+                String::new(),
+            );
+
+            let site_packages = Interpreter::auto_site_packages_path(
+                &fs,
+                Utf8Path::new("/project"),
+                Some(Utf8Path::new("/hook")),
+            );
+
+            assert_eq!(
+                site_packages.as_deref(),
+                Some(Utf8Path::new("/project/.venv/lib/python3.12/site-packages"))
+            );
+        }
+
+        #[test]
+        fn auto_falls_back_to_virtual_env_without_project_venv() {
+            let mut fs = djls_source::InMemoryFileSystem::new();
+            fs.add_file(
+                "/hook/lib/python3.14/site-packages/django/__init__.py".into(),
+                String::new(),
+            );
+
+            let site_packages = Interpreter::auto_site_packages_path(
+                &fs,
+                Utf8Path::new("/project"),
+                Some(Utf8Path::new("/hook")),
+            );
+
+            assert_eq!(
+                site_packages.as_deref(),
+                Some(Utf8Path::new("/hook/lib/python3.14/site-packages"))
+            );
+        }
+
+        #[test]
+        fn auto_skips_unusable_project_venv_before_virtual_env() {
+            let mut fs = djls_source::InMemoryFileSystem::new();
+            fs.add_file("/project/.venv/pyvenv.cfg".into(), String::new());
+            fs.add_file(
+                "/hook/lib/python3.14/site-packages/django/__init__.py".into(),
+                String::new(),
+            );
+
+            let site_packages = Interpreter::auto_site_packages_path(
+                &fs,
+                Utf8Path::new("/project"),
+                Some(Utf8Path::new("/hook")),
+            );
+
+            assert_eq!(
+                site_packages.as_deref(),
+                Some(Utf8Path::new("/hook/lib/python3.14/site-packages"))
+            );
+        }
 
         #[test]
         fn site_packages_path_finds_posix_venv_layout() {
