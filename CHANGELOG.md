@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ## Changed
 
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
+- Changed `djls check` to reject explicit files with unsupported extensions.
 
 ## [6.1.0]
 

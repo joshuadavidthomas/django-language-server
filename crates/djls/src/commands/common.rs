@@ -40,6 +40,7 @@ impl ColorMode {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum FileDiscoveryError {
     Missing(Utf8PathBuf),
+    UnsupportedFile(Utf8PathBuf),
     Inaccessible {
         path: Utf8PathBuf,
         kind: io::ErrorKind,
@@ -50,6 +51,10 @@ impl fmt::Display for FileDiscoveryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Missing(path) => write!(f, "Cannot check `{path}`: path does not exist"),
+            Self::UnsupportedFile(path) => write!(
+                f,
+                "Cannot check `{path}`: expected a .html, .htm, or .djhtml file"
+            ),
             Self::Inaccessible { path, kind } => {
                 write!(f, "Cannot check `{path}`: {}", io::Error::from(*kind))
             }
@@ -71,7 +76,12 @@ pub(crate) fn discover_files(
     let mut files = Vec::new();
     for path in &roots {
         let entries = match db.walk_root(path, options) {
-            RootWalk::File(entry) => vec![entry],
+            RootWalk::File(entry) => {
+                if explicit && !is_template(&entry.path) {
+                    return Err(FileDiscoveryError::UnsupportedFile(entry.path));
+                }
+                vec![entry]
+            }
             RootWalk::Directory { entries, issues } => {
                 if explicit && let Some(kind) = issues.into_iter().next() {
                     return Err(FileDiscoveryError::Inaccessible {
@@ -344,6 +354,38 @@ mod tests {
         )
         .expect("canonical test fixture path should be valid UTF-8");
         assert_eq!(files, vec![canonical]);
+    }
+
+    #[test]
+    fn rejects_explicit_files_with_unsupported_types() {
+        let dir = tempfile::tempdir().expect("temporary test directory should be created");
+        let project_root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf())
+            .expect("temporary test path should be valid UTF-8");
+        let db = DjangoDatabase::new(
+            Arc::new(OsFileSystem::default()),
+            &Settings::default(),
+            None,
+        );
+
+        for name in ["style.css", "README"] {
+            let path = project_root.join(name);
+            std::fs::write(path.as_std_path(), "not a Template")
+                .expect("unsupported test file should be written");
+
+            let error = discover_files(
+                std::slice::from_ref(&path),
+                &db,
+                &project_root,
+                &WalkOptions::default(),
+            )
+            .expect_err("an explicit non-Template file should fail discovery");
+
+            assert_eq!(error, FileDiscoveryError::UnsupportedFile(path.clone()));
+            assert_eq!(
+                error.to_string(),
+                format!("Cannot check `{path}`: expected a .html, .htm, or .djhtml file")
+            );
+        }
     }
 
     #[test]

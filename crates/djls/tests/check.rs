@@ -680,6 +680,30 @@ fn check_explicit_paths_take_precedence_over_known_roots() {
 }
 
 #[test]
+fn check_rejects_an_explicit_file_with_an_unsupported_type() {
+    let dir = tempfile::tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
+    std::fs::write(dir.path().join("style.css"), "body {}")
+        .expect("unsupported test file should be written");
+
+    let output = Command::new(djls_binary())
+        .args(["check", "style.css"])
+        .current_dir(dir.path())
+        .output()
+        .expect("djls check process should run");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        format!(
+            "Cannot check `{}`: expected a .html, .htm, or .djhtml file\n",
+            dir.path().join("style.css").display()
+        )
+    );
+}
+
+#[test]
 fn check_no_templates_exits_zero() {
     let dir = tempfile::tempdir().expect("temporary test directory should be created");
     setup_project(dir.path()).expect("test project fixture should be configured");
