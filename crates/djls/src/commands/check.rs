@@ -130,7 +130,15 @@ enum SummaryStyle {
 }
 
 #[derive(Debug, Parser)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "these booleans represent independent CLI flags"
+)]
 pub(crate) struct Check {
+    /// Do not print diagnostics or a summary.
+    #[arg(long, short, conflicts_with = "verbose")]
+    quiet: bool,
+
     /// Template files or directories to check. Pass `-` to read stdin; stdin is
     /// analyzed as a generic Template in the current Project; stdin cannot be
     /// combined with paths. If omitted, discovers Template directories from the
@@ -181,14 +189,14 @@ fn require_configured_discovery(
 }
 
 impl Command for Check {
-    fn execute(&self, args: &Args) -> Result<Exit> {
+    fn execute(&self, _args: &Args) -> Result<Exit> {
         let project_root = resolve_project_root()?;
         let settings = Settings::new(&project_root, None).context("Failed to load settings")?;
         let input = CheckInput::collect(&self.paths)?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
         let fmt = pick_renderer(self.color);
-        let quiet = args.quiet;
+        let quiet = self.quiet;
 
         let mut db = DjangoDatabase::new(input.file_system(), &settings, Some(&project_root));
         db.apply_project_settings(settings);
