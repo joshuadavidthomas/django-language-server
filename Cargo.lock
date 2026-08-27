@@ -866,6 +866,7 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "dunce",
+ "ignore",
  "rayon",
  "tempfile",
 ]

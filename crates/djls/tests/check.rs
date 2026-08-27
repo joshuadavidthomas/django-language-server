@@ -680,6 +680,20 @@ fn check_explicit_paths_take_precedence_over_known_roots() {
 }
 
 #[test]
+fn check_rejects_an_invalid_glob() {
+    let output = Command::new(djls_binary())
+        .args(["check", "--glob", "["])
+        .output()
+        .expect("djls check process should run");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid value '[' for '--glob <GLOBS>'"));
+    assert!(stderr.contains("unclosed character class"));
+}
+
+#[test]
 fn check_no_templates_exits_zero() {
     let dir = tempfile::tempdir().expect("temporary test directory should be created");
     setup_project(dir.path()).expect("test project fixture should be configured");

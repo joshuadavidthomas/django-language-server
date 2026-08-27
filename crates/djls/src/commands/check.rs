@@ -152,7 +152,7 @@ pub(crate) struct Check {
     /// Include or exclude files matching a glob pattern. Prefix with `!` to
     /// exclude. May be specified multiple times. Later patterns take
     /// precedence.
-    #[arg(short = 'g', long = "glob")]
+    #[arg(short = 'g', long = "glob", value_parser = parse_glob)]
     globs: Vec<String>,
 
     /// Don't respect ignore files (.gitignore, .ignore, etc.).
@@ -170,6 +170,12 @@ pub(crate) struct Check {
     /// When to use colors.
     #[arg(long, value_enum, default_value_t = ColorMode::Auto)]
     color: ColorMode,
+}
+
+fn parse_glob(value: &str) -> std::result::Result<String, String> {
+    let mut overrides = ignore::overrides::OverrideBuilder::new(".");
+    overrides.add(value).map_err(|error| error.to_string())?;
+    Ok(value.to_owned())
 }
 
 fn require_configured_discovery(
