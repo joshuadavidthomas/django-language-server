@@ -137,11 +137,13 @@ pub(crate) struct Check {
     /// Django project.
     paths: Vec<Utf8PathBuf>,
 
-    /// Select specific diagnostic codes to enable (e.g. S100,S101).
+    /// Set matching diagnostics to error, overriding project settings. Accepts
+    /// codes or prefixes (for example, S100,S2,T).
     #[arg(long, value_delimiter = ',')]
     select: Vec<String>,
 
-    /// Ignore specific diagnostic codes (e.g. S108,S109).
+    /// Disable matching diagnostics, overriding project settings. Accepts codes
+    /// or prefixes (for example, S108,S1,T).
     #[arg(long, value_delimiter = ',')]
     ignore: Vec<String>,
 

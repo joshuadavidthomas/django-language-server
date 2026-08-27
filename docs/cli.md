@@ -38,8 +38,8 @@ printf '{{ value|default }}' | djls check -
 
 | Option | Meaning |
 |---|---|
-| `--select CODE,...` | Enable the named diagnostic codes, overriding project configuration |
-| `--ignore CODE,...` | Disable the named diagnostic codes |
+| `--select SELECTOR,...` | Set matching diagnostics to error, overriding project settings |
+| `--ignore SELECTOR,...` | Disable matching diagnostics, overriding project settings |
 | `-g, --glob PATTERN` | Include or exclude matching files; prefix exclusions with `!`; later patterns win |
 | `-., --hidden` | Include hidden files and directories |
 | `--no-ignore` | Do not read `.gitignore`, `.ignore`, and related ignore files |
@@ -47,6 +47,8 @@ printf '{{ value|default }}' | djls check -
 | `-d, --max-depth DEPTH` | Limit directory traversal depth |
 | `--color always\|auto\|never` | Control colored diagnostic output |
 | `-q, --quiet` | Suppress output and report the result through the exit status |
+
+A diagnostic selector may be a full code such as `S100` or a prefix such as `S1` or `S`. More specific selectors take precedence.
 
 `djls check` exits with status 0 when no enabled diagnostics are found and status 1 when diagnostics or a command error occur. Run `djls check --help` for the command's full help text.
 
