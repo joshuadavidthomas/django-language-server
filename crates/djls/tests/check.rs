@@ -509,7 +509,7 @@ fn check_multi_backend_stdin_uses_inventory_while_concrete_path_uses_backend() {
 }
 
 #[test]
-fn check_help_describes_generic_stdin_template() {
+fn check_help_describes_stdin_project_context() {
     let output = Command::new(djls_binary())
         .args(["check", "--help"])
         .output()
@@ -519,11 +519,12 @@ fn check_help_describes_generic_stdin_template() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let normalized = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        normalized.contains("stdin is analyzed as a generic Template in the current Project"),
+        normalized
+            .contains("stdin is checked using template libraries from the whole Django project"),
         "{stdout}"
     );
     assert!(
-        normalized.contains("stdin cannot be combined with paths"),
+        normalized.contains("cannot be combined with paths"),
         "{stdout}"
     );
 }

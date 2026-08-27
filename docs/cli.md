@@ -19,7 +19,7 @@ Run the command from the Django project root so it can load `djls.toml`, `.djls.
 | No path | Check templates in the directories discovered from Django settings |
 | File paths | Check the named template files |
 | Directory paths | Recursively check supported template files below those directories |
-| `-` | Read one template from standard input; cannot be combined with paths |
+| `-` | Read one template from standard input using template libraries from the whole Django project; cannot be combined with paths |
 
 File and directory scans recognize `.html`, `.htm`, and `.djhtml` files.
 

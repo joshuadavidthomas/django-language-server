@@ -132,9 +132,9 @@ enum SummaryStyle {
 #[derive(Debug, Parser)]
 pub(crate) struct Check {
     /// Template files or directories to check. Pass `-` to read stdin; stdin is
-    /// analyzed as a generic Template in the current Project; stdin cannot be
-    /// combined with paths. If omitted, discovers Template directories from the
-    /// Django project.
+    /// checked using template libraries from the whole Django project and cannot
+    /// be combined with paths. If omitted, checks the template directories found
+    /// in Django settings.
     paths: Vec<Utf8PathBuf>,
 
     /// Select specific diagnostic codes to enable (e.g. S100,S101).
