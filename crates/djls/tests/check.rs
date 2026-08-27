@@ -267,7 +267,7 @@ fn check_broken_template_exits_one() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "Found 1 error in 1 file.\n"
+        "Found 1 diagnostic in 1 file.\n"
     );
 }
 
@@ -292,7 +292,7 @@ fn check_plural_path_summary_reports_errors_and_files_exactly() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "Found 2 errors in 2 files.\n"
+        "Found 2 diagnostics in 2 files.\n"
     );
 }
 
@@ -318,7 +318,7 @@ fn check_plural_errors_with_singular_file_summary_exactly() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "Found 2 errors in 1 file.\n"
+        "Found 2 diagnostics in 1 file.\n"
     );
 }
 
@@ -420,7 +420,10 @@ fn check_stdin_detects_errors() {
         stdout.contains("S100"),
         "Expected S100 in stdin output:\n{stdout}"
     );
-    assert_eq!(String::from_utf8_lossy(&output.stderr), "Found 1 error.\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "Found 1 diagnostic.\n"
+    );
 }
 
 #[test]
@@ -449,7 +452,10 @@ fn check_plural_stdin_summary_reports_errors_exactly() {
         .expect("djls check process should finish");
 
     assert_eq!(output.status.code(), Some(1));
-    assert_eq!(String::from_utf8_lossy(&output.stderr), "Found 2 errors.\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "Found 2 diagnostics.\n"
+    );
 }
 
 #[test]

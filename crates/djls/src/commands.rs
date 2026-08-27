@@ -14,7 +14,7 @@ pub(crate) trait Command {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum DjlsCommand {
-    /// Check Django template files for errors
+    /// Check Django template files for diagnostics
     Check(self::check::Check),
     /// Start the LSP server
     Serve(self::serve::Serve),

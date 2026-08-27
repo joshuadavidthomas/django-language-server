@@ -225,7 +225,7 @@ fn report_results(
 ) -> Result<Exit> {
     results.sort_by(|left, right| left.path().cmp(right.path()));
 
-    let mut error_count = 0;
+    let mut diagnostic_count = 0;
     let mut file_count = 0;
     let stdout = stdout();
     let mut stdout = stdout.lock();
@@ -235,7 +235,7 @@ fn report_results(
             let count = result.renderable_diagnostic_count(config);
             if count > 0 {
                 file_count += 1;
-                error_count += count;
+                diagnostic_count += count;
             }
             continue;
         }
@@ -246,26 +246,30 @@ fn report_results(
         }
 
         file_count += 1;
-        error_count += rendered.len();
+        diagnostic_count += rendered.len();
         for output in rendered {
             writeln!(stdout, "{output}\n")?;
         }
     }
 
-    if error_count == 0 {
+    if diagnostic_count == 0 {
         return Ok(Exit::success());
     }
     if quiet {
         return Ok(Exit::error());
     }
 
-    let error_word = if error_count == 1 { "error" } else { "errors" };
+    let diagnostic_word = if diagnostic_count == 1 {
+        "diagnostic"
+    } else {
+        "diagnostics"
+    };
     let message = match summary_style {
         SummaryStyle::Files => {
             let file_word = if file_count == 1 { "file" } else { "files" };
-            format!("Found {error_count} {error_word} in {file_count} {file_word}.")
+            format!("Found {diagnostic_count} {diagnostic_word} in {file_count} {file_word}.")
         }
-        SummaryStyle::Stdin => format!("Found {error_count} {error_word}."),
+        SummaryStyle::Stdin => format!("Found {diagnostic_count} {diagnostic_word}."),
     };
     Ok(Exit::error().with_message(message))
 }
