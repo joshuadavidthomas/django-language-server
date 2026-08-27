@@ -868,6 +868,7 @@ dependencies = [
  "dunce",
  "rayon",
  "tempfile",
+ "tracing-subscriber",
 ]
 
 [[package]]

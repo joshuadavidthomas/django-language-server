@@ -18,8 +18,20 @@ use tower_lsp_server::Server;
 
 use crate::server::DjangoLanguageServer;
 
+/// Requested server log detail.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LogVerbosity {
+    /// Use `RUST_LOG`, defaulting to info.
+    #[default]
+    Default,
+    /// Include debug events.
+    Debug,
+    /// Include trace events in the server log file.
+    Trace,
+}
+
 /// Run the Django language server.
-pub fn run() -> Result<()> {
+pub fn run(verbosity: LogVerbosity) -> Result<()> {
     if std::io::stdin().is_terminal() {
         eprintln!("Django Language Server is running directly in a terminal.");
         eprintln!(
@@ -41,15 +53,18 @@ pub fn run() -> Result<()> {
         let stdout = tokio::io::stdout();
 
         let (service, socket) = LspService::build(|client| {
-            let logging = logging::init_tracing({
-                let client = client.clone();
-                move |message_type, message| {
+            let logging = logging::init_tracing(
+                {
                     let client = client.clone();
-                    tokio::spawn(async move {
-                        client.log_message(message_type, message).await;
-                    });
-                }
-            });
+                    move |message_type, message| {
+                        let client = client.clone();
+                        tokio::spawn(async move {
+                            client.log_message(message_type, message).await;
+                        });
+                    }
+                },
+                verbosity,
+            );
 
             DjangoLanguageServer::new(client, logging)
         })

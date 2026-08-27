@@ -20,10 +20,10 @@ enum ConnectionType {
 }
 
 impl Command for Serve {
-    fn execute(&self, _args: &Args) -> Result<Exit> {
+    fn execute(&self, args: &Args) -> Result<Exit> {
         match self.connection_type {
             ConnectionType::Stdio => {
-                djls_server::run()?;
+                djls_server::run(args.log_verbosity())?;
                 Ok(Exit::success())
             }
             ConnectionType::Tcp => bail!("`djls serve --connection-type tcp` is not supported yet"),

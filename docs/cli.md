@@ -47,6 +47,7 @@ printf '{{ value|default }}' | djls check -
 | `-d, --max-depth DEPTH` | Limit directory traversal depth |
 | `--color always\|auto\|never` | Control colored diagnostic output |
 | `-q, --quiet` | Suppress output and report the result through the exit status |
+| `-v, --verbose` | Include debug logs; repeat as `-vv` to include trace logs |
 
 `djls check` exits with status 0 when no enabled diagnostics are found and status 1 when diagnostics or a command error occur. Run `djls check --help` for the command's full help text.
 

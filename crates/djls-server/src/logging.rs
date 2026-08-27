@@ -24,9 +24,12 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+
+use crate::LogVerbosity;
 
 /// A tracing Layer that forwards events to the LSP client.
 ///
@@ -136,11 +139,17 @@ impl LoggingGuard {
 /// - `EnvFilter`: respects `RUST_LOG` env var, defaults to "info"
 ///
 /// Returns a [`LoggingGuard`] that must be kept alive for the logging to work.
-pub(crate) fn init_tracing<F>(send_message: F) -> LoggingGuard
+pub(crate) fn init_tracing<F>(send_message: F, verbosity: LogVerbosity) -> LoggingGuard
 where
     F: Fn(ls_types::MessageType, String) + Send + Sync + 'static,
 {
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = match verbosity {
+        LogVerbosity::Default => {
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+        }
+        LogVerbosity::Debug => EnvFilter::new("debug"),
+        LogVerbosity::Trace => EnvFilter::new("trace"),
+    };
 
     let (non_blocking, guard) = match djls_conf::log_dir() {
         Ok(log_dir) => {
@@ -166,7 +175,11 @@ where
 
     let lsp_layer = LspLayer::new(send_message);
     let lsp_disabled = Arc::clone(&lsp_layer.disabled);
-    let lsp_layer = lsp_layer.with_filter(tracing_subscriber::filter::LevelFilter::INFO);
+    let lsp_level = match verbosity {
+        LogVerbosity::Default => LevelFilter::INFO,
+        LogVerbosity::Debug | LogVerbosity::Trace => LevelFilter::DEBUG,
+    };
+    let lsp_layer = lsp_layer.with_filter(lsp_level);
 
     Registry::default().with(log_layer).with(lsp_layer).init();
 

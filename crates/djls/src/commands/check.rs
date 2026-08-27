@@ -2,6 +2,7 @@ use std::fmt;
 use std::io::Read as _;
 use std::io::Result as IoResult;
 use std::io::Write as _;
+use std::io::stderr;
 use std::io::stdin;
 use std::io::stdout;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ use djls_ide::prepare_project_template_analysis;
 use djls_project::EnvironmentAssemblyError;
 use djls_project::ProjectFactsData;
 use djls_project::run_django_discovery;
+use djls_server::LogVerbosity;
 use djls_source::CaseSensitivity;
 use djls_source::DiagnosticRenderer;
 use djls_source::FileError;
@@ -32,6 +34,7 @@ use djls_source::RootWalk;
 use djls_source::WalkOptions;
 use djls_source::path_to_file;
 use rayon::scope;
+use tracing_subscriber::EnvFilter;
 
 use crate::args::Args;
 use crate::commands::Command;
@@ -172,6 +175,19 @@ pub(crate) struct Check {
     color: ColorMode,
 }
 
+fn init_tracing(verbosity: LogVerbosity) -> Result<()> {
+    let filter = match verbosity {
+        LogVerbosity::Default => return Ok(()),
+        LogVerbosity::Debug => EnvFilter::new("debug"),
+        LogVerbosity::Trace => EnvFilter::new("trace"),
+    };
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(stderr)
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("Failed to initialize tracing: {error}"))
+}
+
 fn require_configured_discovery(
     outcome: std::result::Result<Option<ProjectFactsData>, EnvironmentAssemblyError>,
 ) -> Result<ProjectFactsData> {
@@ -182,6 +198,7 @@ fn require_configured_discovery(
 
 impl Command for Check {
     fn execute(&self, args: &Args) -> Result<Exit> {
+        init_tracing(args.log_verbosity())?;
         let project_root = resolve_project_root()?;
         let settings = Settings::new(&project_root, None).context("Failed to load settings")?;
         let input = CheckInput::collect(&self.paths)?;
