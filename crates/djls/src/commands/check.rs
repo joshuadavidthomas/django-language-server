@@ -167,7 +167,7 @@ pub(crate) struct Check {
     #[arg(short = 'd', long)]
     max_depth: Option<usize>,
 
-    /// When to use colors.
+    /// Control when diagnostic output uses color.
     #[arg(long, value_enum, default_value_t = ColorMode::Auto)]
     color: ColorMode,
 }
