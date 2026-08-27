@@ -21,15 +21,9 @@ use crate::server::DjangoLanguageServer;
 /// Run the Django language server.
 pub fn run() -> Result<()> {
     if std::io::stdin().is_terminal() {
-        eprintln!("Django Language Server is running directly in a terminal.");
-        eprintln!(
-            "This server is designed to communicate over stdin/stdout with a language client."
-        );
-        eprintln!("It is not intended to be used directly in a terminal.");
-        eprintln!();
-        eprintln!("The server is now waiting for LSP messages, but no editor is connected.");
-        eprintln!("To exit: press ENTER to send invalid input and trigger an error exit.");
-        eprintln!("Ctrl+C may not work as expected due to LSP stdio communication.");
+        eprintln!("`djls serve` communicates with an editor over standard input and output.");
+        eprintln!("No editor is connected; waiting for LSP messages.");
+        eprintln!("Press Enter to stop the server. Ctrl+C may not work with LSP stdio.");
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
