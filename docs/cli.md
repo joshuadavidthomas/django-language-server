@@ -60,7 +60,15 @@ Start the Language Server Protocol server over standard input and output:
 $ djls serve
 ```
 
-Editors normally start this command through their [LSP client configuration](clients/index.md). TCP transport is not supported.
+Editors normally start this command through their [LSP client configuration](clients/index.md).
+
+To listen for one LSP client over TCP, provide an explicit address:
+
+```console
+$ djls serve --connection-type tcp --address 127.0.0.1:9257
+```
+
+The server exits when that client disconnects. DJLS does not choose a default TCP port.
 
 ## Formatting
 
