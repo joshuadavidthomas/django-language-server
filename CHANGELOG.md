@@ -18,9 +18,13 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
-## Changed
+### Changed
 
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
+
+### Fixed
+
+- Fixed `djls --help` to describe django-language-server instead of its CLI implementation.
 
 ## [6.1.0]
 

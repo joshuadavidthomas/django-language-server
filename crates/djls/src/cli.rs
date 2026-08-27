@@ -6,7 +6,7 @@ use crate::commands::Command;
 use crate::commands::DjlsCommand;
 use crate::exit::Exit;
 
-/// Main CLI structure that defines the command-line interface
+/// A language server for the Django web framework.
 #[derive(Parser)]
 #[command(name = "djls")]
 #[command(version, about)]
