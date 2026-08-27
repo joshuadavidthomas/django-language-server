@@ -31,13 +31,37 @@ pub(crate) fn run(args: Vec<String>) -> Result<()> {
 
     match result {
         Ok(exit) => exit.process_exit(),
-        Err(e) => {
-            let mut msg = e.to_string();
-            if let Some(source) = e.source() {
-                msg.push_str(", caused by ");
-                msg.push_str(&source.to_string());
-            }
-            Exit::error().with_message(msg).process_exit()
-        }
+        Err(error) => Exit::error()
+            .with_message(format_error(&error))
+            .process_exit(),
+    }
+}
+
+fn format_error(error: &anyhow::Error) -> String {
+    let mut message = format!("error: {error}");
+    for cause in error.chain().skip(1) {
+        message.push_str("\n  caused by: ");
+        message.push_str(&cause.to_string());
+    }
+    message
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Context as _;
+
+    use super::format_error;
+
+    #[test]
+    fn formats_the_complete_error_chain() {
+        let error = Err::<(), _>(anyhow::anyhow!("root cause"))
+            .context("middle context")
+            .context("top context")
+            .expect_err("test error chain should fail");
+
+        assert_eq!(
+            format_error(&error),
+            "error: top context\n  caused by: middle context\n  caused by: root cause"
+        );
     }
 }
