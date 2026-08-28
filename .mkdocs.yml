@@ -43,6 +43,7 @@ nav:
       - Zed: clients/zed.md
   - Versioning: versioning.md
   - Changelog: changelog.md
+  - How it works: how-it-works.md
   - Contributing: contributing.md
 repo_name: django-language-server
 repo_url: https://github.com/joshuadavidthomas/django-language-server
