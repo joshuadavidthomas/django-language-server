@@ -21,6 +21,8 @@ cog.outl(f"![Django Version](https://img.shields.io/badge/django-{'%20%7C%20'.jo
 
 A language server for the Django web framework.
 
+New to language servers, or unsure whether you need one? Start with [Why a language server?](docs/why.md)
+
 > [!CAUTION]
 > This project is in early stages. ~~All~~ Most features are incomplete and missing.
 
