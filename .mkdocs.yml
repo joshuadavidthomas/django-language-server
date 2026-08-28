@@ -29,20 +29,23 @@ markdown_extensions:
 nav:
   - Home: index.md
   - "Why a language server?": why.md
-  - Installation: installation.md
-  - Command-line interface: cli.md
-  - Pre-commit: pre-commit.md
-  - Configuration:
-      - configuration/index.md
-  - Template Validation: template-validation.md
-  - Clients:
+  - Getting started: getting-started.md
+  - Editors:
       - clients/index.md
       - Neovim: clients/neovim.md
       - Sublime Text: clients/sublime-text.md
       - VS Code: clients/vscode.md
       - Zed: clients/zed.md
-  - Versioning: versioning.md
-  - Changelog: changelog.md
+  - Usage:
+      - Command-line interface: cli.md
+      - Pre-commit: pre-commit.md
+      - Configuration:
+          - configuration/index.md
+      - Template Validation: template-validation.md
+  - Reference:
+      - Installation: installation.md
+      - Versioning: versioning.md
+      - Changelog: changelog.md
   - Contributing: contributing.md
 repo_name: django-language-server
 repo_url: https://github.com/joshuadavidthomas/django-language-server
