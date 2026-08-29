@@ -27,15 +27,42 @@ Before opening a PR, make sure the tests, clippy, formatting, and linting all pa
 
 ## Getting oriented
 
-Django Language Server is exactly what the name says: a standalone program that editors start in the background and query over the Language Server Protocol. The editor draws what you see (completion menus, squiggles, hover popups); this server computes what they show by statically analyzing the open Django project. Neither side knows the other's internals; they only exchange protocol messages.
+Django Language Server is exactly what the name says: a standalone program that editors start in the background and query over the Language Server Protocol (LSP). If you have never worked with a language server before, this section is the mental model; the documents linked at the end go deeper once it is in place.
 
-If you have never worked with a language server before, read [How it works](https://djls.joshthomas.dev/how-it-works/) first. It walks through the editor/server split and the message flow, and makes the rest of the codebase much easier to place.
+### The editor/server split
 
-Three documents describe the system, in a sensible reading order:
+The editor owns presentation: completion menus, squiggly underlines, hover popups, jumping between files. The server owns analysis: parsing templates, validating tags and filters, resolving `{% extends %}` chains, knowing which template tag libraries the project can load. The two communicate only through JSON-RPC messages whose shapes the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) defines, and neither knows the other's internals. That separation is why one server can support every editor. It also splits responsibility cleanly when debugging: how a result is displayed is editor behavior; what the result contains is decided in this repository.
 
-1. [How it works](https://djls.joshthomas.dev/how-it-works/) — how an editor and the server talk, and which side is responsible for what
-2. [ARCHITECTURE.md](ARCHITECTURE.md) — crate boundaries, the Salsa database, and how data flows through the template pipeline
-3. [CONTEXT.md](CONTEXT.md) — the domain glossary; the canonical name for every concept in the codebase
+A typical session, condensed:
+
+1. The editor spawns `djls serve` as a child process and speaks JSON-RPC over its stdin and stdout.
+2. An `initialize` exchange negotiates capabilities: completion, hover, diagnostics, go to definition, and so on.
+3. The server statically reads the project (settings module, `INSTALLED_APPS`, template directories, template tag libraries). It never imports or runs project code.
+4. Opening a template sends `textDocument/didOpen` with the file's full text. The server analyzes it and pushes back diagnostics, which the editor draws as squiggles.
+5. Each keystroke sends `textDocument/didChange`. The server re-analyzes from the editor's buffer, not the file on disk, so unsaved changes are visible to it.
+6. Hover, completion, and go to definition are request/response pairs: the editor sends a position, the server answers from its analysis, and the editor renders the result.
+
+### Inside the server
+
+The server is a Cargo workspace of small crates, layered so that each answers a different kind of question. Two kinds of knowledge feed everything: what tags and filters *exist* (read from the Python side of the project) and what the template *says* (parsed from the template source). Separate subsystems produce each, and they meet in the middle during semantic analysis.
+
+From the bottom up:
+
+| Crate | Answers |
+|---|---|
+| `djls-source` | Files, spans, line indexes, filesystem access. Nearly everything depends on it. |
+| `djls-project` | Project facts: Python environment discovery, settings extraction, template directories, template tag libraries, and the static extraction that derives validation rules (argument counts, block structure, filter arity) from templatetag Python source. |
+| `djls-templates` | Template syntax. A hand-written recursive descent parser that knows nothing about Django semantics and never fails: parse errors become error nodes in its output, because the user is always mid-keystroke in something invalid and the rest of the pipeline has to keep working. |
+| `djls-semantic` | Project meaning. Parsed templates meet project facts here: which libraries are loaded at each position, whether a tag is valid where it appears, structural diagnostics. |
+| `djls-ide` | Translation. Turns analysis into LSP-shaped answers: completions, diagnostics, definitions, references. Everything below it is LSP-unaware. |
+| `djls-server` | The protocol. The only crate that speaks LSP: the session, open-document buffers, request handling. |
+| `djls` | The CLI. `djls serve` starts the server; `djls check` runs the same validation in a terminal. |
+
+Tying the layers together is [Salsa](https://github.com/salsa-rs/salsa), the incremental computation framework also used by rust-analyzer. Analysis is written as queries over inputs, and when a file changes only the queries affected by that change recompute. That is what keeps re-analysis on every keystroke cheap.
+
+A template flows through the pipeline in stages: lexing, parsing into a flat node list, analysis (building the template tree and working out which libraries each position can see), validation, diagnostics. No stage blocks on errors from a previous one. A template full of syntax errors still gets structural analysis on its valid portions, and a template with structural problems still gets validation on the tags that parsed correctly.
+
+This is the ten-thousand-foot view. [ARCHITECTURE.md](ARCHITECTURE.md) has the full map — per-crate detail, the database design, and the invariants the layering maintains — and [CONTEXT.md](CONTEXT.md) is the domain glossary: the canonical name for every concept in the codebase.
 
 ## New to Rust?
 

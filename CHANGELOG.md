@@ -23,7 +23,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added a "Why a language server?" docs page.
 - Added a getting started guide and reorganized the documentation navigation.
 - **Internal**: Added a Hawk visibility-audit job to the lint workflow.
-- Added a "How it works" docs page walking through how an editor and the language server communicate.
 
 ### Changed
 
@@ -35,7 +34,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Reduced analysis time for Django settings with many conditional branches.
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
-- **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path and moved maintainer version-update procedures to `MAINTAINING.md`.
+- **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path, adding editor/server orientation and an architecture overview, and moved maintainer version-update procedures to `MAINTAINING.md`.
 - **Internal**: Moved validation cases into per-file markdown snapshot tests, built every test project from disk through `ProjectFixture`, split the corpus sweeps into per-repository tests, and moved the full-corpus benchmark checks out of `cargo test`, which now runs about fifteen seconds faster.
 
 ### Removed
