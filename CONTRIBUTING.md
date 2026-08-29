@@ -31,7 +31,7 @@ Django Language Server is exactly what the name says: a standalone program that 
 
 ### The editor/server split
 
-The editor owns presentation: completion menus, squiggly underlines, hover popups, jumping between files. The server owns analysis: parsing templates, validating tags and filters, resolving `{% extends %}` chains, knowing which template tag libraries the project can load. The two communicate only through JSON-RPC messages whose shapes the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) defines, and neither knows the other's internals. That separation is why one server can support every editor. It also splits responsibility cleanly when debugging: how a result is displayed is editor behavior; what the result contains is decided in this repository.
+The editor owns presentation: completion menus, squiggly underlines, hover popups, jumping between files. The server owns analysis: parsing templates, validating tags and filters, resolving `{% extends %}` chains, knowing which template tag libraries the project can load. The two communicate only through JSON-RPC messages whose shapes the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) defines, and neither knows the other's internals. That separation lets one server support every editor. It also splits responsibility cleanly when debugging: how a result is displayed is editor behavior; what the result contains is decided in this repository.
 
 A typical session, condensed:
 
