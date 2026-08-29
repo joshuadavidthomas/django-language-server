@@ -27,7 +27,7 @@ See [Template Validation](template-validation.md) for how the analysis works and
 
 ## Related projects
 
-[django-template-lsp](https://github.com/fourdigits/django-template-lsp) is another language server for Django templates. The feature sets differ in both directions: it resolves `{% url %}` to views and suggests `{% static %}` paths; this server validates tag arguments, formats templates, and renames across files.
+[django-template-lsp](https://github.com/fourdigits/django-template-lsp) is the closest project: a language server for Django templates too. Today it does things this server cannot, like URL-name and static-path completion and navigation from `{% url %}` to the view it names. This server does things it cannot, like validation of tag arguments and load scoping, whole-document formatting, and quick fixes for unloaded tags. Neither replaces the other yet.
 
 django-template-lsp runs a Python script inside your project's environment to learn what exists: it imports your settings and template tag libraries and asks Django for its tags, filters, and URLs. Because it executes inside the project, collection fails when the project has syntax errors or missing imports, as its own documentation notes.
 
@@ -35,7 +35,9 @@ Django Language Server never executes project code. It reads the same sources �
 
 Both servers need to find your project's Python environment to locate installed packages; neither needs you to activate it.
 
-Two separate projects are named django-lsp. [One](https://github.com/patrick91/django-lsp) applies the same static approach to the ORM: it follows model relations in Python source to complete relation paths in QuerySet calls and warn about repeated relation queries. It works on Python files, leaving templates to the servers above. [The other](https://github.com/adamghill/django-lsp) adds context-aware autocomplete and hover documentation for Django settings.py, including typo detection.
+Two separate projects are named django-lsp. [One](https://github.com/patrick91/django-lsp) works on Python files instead of templates: it follows model relations in source to complete relation paths in QuerySet calls and warn when a loop issues one relation query per row. [The other](https://github.com/adamghill/django-lsp) works on settings.py: context-aware autocomplete, hover documentation, and typo detection.
+
+The gaps above are all planned. The [roadmap](https://github.com/joshuadavidthomas/django-language-server/blob/main/ROADMAP.md) tracks the order: the remaining template features finish first, then the split between generic Python analysis and Django Project Facts, then URLs, settings, models, template context, and ORM queries. Current work is building the foundations that expansion needs.
 
 ## Do I need it?
 
@@ -45,7 +47,7 @@ If you use PyCharm Professional: probably not. JetBrains builds Django template 
 
 If you want template checking without any editor integration, the [`djls check`](cli.md#djls-check) command runs the same validation in a terminal, and a [pre-commit hook](pre-commit.md) runs it on staged templates before each commit.
 
-Templates are only the start. The goal is everything PyCharm knows about Django — settings, models, the ORM — in every editor with an LSP client. The [roadmap](https://github.com/joshuadavidthomas/django-language-server/blob/main/ROADMAP.md) tracks what works, what comes next, and what is ruled out.
+Templates are only the start. The goal is everything PyCharm knows about Django, in every editor with an LSP client.
 
 ## Next steps
 
