@@ -49,7 +49,7 @@ The CLI application. It parses command-line arguments, starts the LSP server for
 
 ### `crates/djls-server`
 
-The LSP server. This is the crate that wires everything together at runtime.
+The LSP server. This is the crate that wires everything together at runtime. The protocol plumbing itself — JSON-RPC transport, message framing, request dispatch — comes from [tower-lsp-server](https://github.com/tower-lsp-community/tower-lsp-server); this crate implements the request handlers on top.
 
 `Session` owns the `DjangoDatabase`, open-document state, and intrinsic-product readiness. Open documents live in server-local buffers, and an overlay filesystem exposes those buffers through the `djls-source` filesystem seam before falling back to disk. Mutations briefly take the session's `tokio::Mutex`, update the overlay before applying Salsa source changes, and schedule any required Project work.
 
