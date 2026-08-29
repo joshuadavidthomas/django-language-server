@@ -479,7 +479,7 @@ impl<'db> TemplateResolution<'db> {
     }
 
     #[must_use]
-    pub fn resolve_excluding_origins_in_scope(
+    fn resolve_excluding_origins_in_scope(
         self,
         db: &'db dyn ProjectDb,
         name: TemplateName<'db>,

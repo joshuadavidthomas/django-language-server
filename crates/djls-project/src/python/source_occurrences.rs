@@ -77,7 +77,7 @@ pub(crate) struct PythonFunctionDefinition {
 }
 
 impl PythonFunctionDefinition {
-    pub(crate) fn new(origin: PythonFunctionOrigin, function: &StmtFunctionDef) -> Self {
+    fn new(origin: PythonFunctionOrigin, function: &StmtFunctionDef) -> Self {
         Self {
             origin,
             definition_span: function.span(),

@@ -398,7 +398,7 @@ impl BodyAnalysis {
     }
 
     #[must_use]
-    pub const fn is_opaque(self) -> bool {
+    pub(crate) const fn is_opaque(self) -> bool {
         matches!(self, Self::Opaque)
     }
 }
@@ -414,7 +414,7 @@ pub struct TagSpec {
     module: S,
     pub end_tag: Option<EndTag>,
     pub(crate) intermediate_tags: L<IntermediateTag>,
-    pub(crate) body_analysis: BodyAnalysis,
+    body_analysis: BodyAnalysis,
     role: Option<TagRole>,
     /// Extraction-derived validation rules from Python AST analysis.
     ///
@@ -447,7 +447,7 @@ impl TagSpec {
     }
 
     #[must_use]
-    pub fn body_analysis(&self) -> BodyAnalysis {
+    pub(crate) fn body_analysis(&self) -> BodyAnalysis {
         self.body_analysis
     }
 
@@ -461,7 +461,7 @@ impl TagSpec {
         self.extracted_rules.as_deref()
     }
 
-    pub fn set_extracted_rules(&mut self, rules: Arc<TagRule>) {
+    fn set_extracted_rules(&mut self, rules: Arc<TagRule>) {
         self.extracted_rules = Some(rules);
     }
 

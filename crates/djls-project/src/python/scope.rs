@@ -34,7 +34,7 @@ impl ScopeBindings {
         collector
     }
 
-    pub(crate) fn record_target(&mut self, target: &Expr) {
+    fn record_target(&mut self, target: &Expr) {
         record_target_writes(target, &mut self.writes);
     }
 

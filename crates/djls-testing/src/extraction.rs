@@ -18,14 +18,14 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExtractedDefinition {
-    pub kind: TemplateSymbolKind,
-    pub has_doc: bool,
+    kind: TemplateSymbolKind,
+    has_doc: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ExtractionBundle {
-    pub definitions: BTreeMap<String, ExtractedDefinition>,
-    pub symbols_are_unobserved: bool,
+    definitions: BTreeMap<String, ExtractedDefinition>,
+    symbols_are_unobserved: bool,
     pub tag_rules: TagRuleMap,
     pub filter_arities: FilterArityMap,
     pub block_specs: BlockSpecs,
