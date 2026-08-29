@@ -39,7 +39,7 @@ A typical session, condensed:
 2. An `initialize` exchange negotiates capabilities: completion, hover, diagnostics, go to definition, and so on.
 3. The server statically reads the project (settings module, `INSTALLED_APPS`, template directories, template tag libraries). It never imports or runs project code.
 4. Opening a template sends `textDocument/didOpen` with the file's full text. The server analyzes it and pushes back diagnostics, which the editor draws as squiggles.
-5. Each keystroke sends `textDocument/didChange`. The server re-analyzes from the editor's buffer, not the file on disk, so unsaved changes are visible to it.
+5. Each keystroke sends `textDocument/didChange`. The server re-analyzes from the editor's buffer, not the file on disk, so it sees unsaved changes.
 6. Hover, completion, and go to definition are request/response pairs: the editor sends a position, the server answers from its analysis, and the editor renders the result.
 
 ### Inside the server
@@ -58,15 +58,15 @@ From the bottom up:
 | `djls-server` | The protocol. The only crate that speaks LSP: the session, open-document buffers, request handling. The JSON-RPC transport and request dispatch come from [tower-lsp-server](https://github.com/tower-lsp-community/tower-lsp-server); this crate implements the handlers on top. |
 | `djls` | The CLI. `djls serve` starts the server; `djls check` runs the same validation in a terminal. |
 
-Tying the layers together is [Salsa](https://github.com/salsa-rs/salsa), the incremental computation framework also used by rust-analyzer. Analysis is written as queries over inputs, and when a file changes only the queries affected by that change recompute. That is what keeps re-analysis on every keystroke cheap.
+Tying the layers together is [Salsa](https://github.com/salsa-rs/salsa), the incremental computation framework also used by rust-analyzer. You write analysis as queries over inputs, and when a file changes only the affected queries recompute. That keeps re-analysis on every keystroke cheap.
 
 A template flows through the pipeline in stages: lexing, parsing into a flat node list, analysis (building the template tree and working out which libraries each position can see), validation, diagnostics. No stage blocks on errors from a previous one. A template full of syntax errors still gets structural analysis on its valid portions, and a template with structural problems still gets validation on the tags that parsed correctly.
 
-This is the ten-thousand-foot view. [ARCHITECTURE.md](ARCHITECTURE.md) has the full map (per-crate detail, the database design, and the invariants the layering maintains), and [CONTEXT.md](CONTEXT.md) is the domain glossary: the canonical name for every concept in the codebase.
+[ARCHITECTURE.md](ARCHITECTURE.md) has the full map (per-crate detail, the database design, and the invariants the layering maintains), and [CONTEXT.md](CONTEXT.md) is the domain glossary: the canonical name for every concept in the codebase.
 
 ## New to Rust?
 
-The server is written in Rust, but this is a project *for* Django developers, and Django expertise is just as valuable as Rust expertise. Understanding Django's internals and common development patterns helps inform what features would be most valuable and how they should behave.
+The server is written in Rust, but this is a project *for* Django developers, and Django expertise is just as valuable as Rust expertise. Understanding Django's internals and common development patterns helps shape what features would be most valuable and how they should behave.
 
 If you know Python but not Rust and want to contribute code:
 
@@ -164,7 +164,7 @@ Formatting uses the dated nightly pinned in [`tools/rustfmt/rust-toolchain.toml`
 
 [Hawk](https://github.com/astral-sh/hawk) is an experimental Cargo lint from Astral that checks unnecessary public Rust visibility across a closed-world workspace. It is useful here because most crates are internal architecture layers behind the shipped `djls` binary.
 
-Like profiling, you will rarely need to run Hawk yourself. It only pays off when changing public APIs, moving code across crates, or cleaning up visibility. If you are new to the project, skip it and let CI run it: a `hawk` job checks every pull request.
+Like profiling, you will rarely need to run Hawk yourself. If you are new to the project, skip it and let CI run it: a `hawk` job checks every pull request.
 
 ##### Setup
 
@@ -202,7 +202,7 @@ CARGO_PROFILE_TEST_DEBUG=full cargo test
 
 ### Profiling
 
-You will rarely need this; it backs benchmark investigations, not everyday changes.
+You will rarely need this; it is for benchmark investigations, not everyday changes.
 
 #### Setup
 
@@ -275,7 +275,7 @@ The project maintains a [`CHANGELOG.md`](CHANGELOG.md) following [Keep a Changel
 
 ## Maintainer reference
 
-Version-support updates (adding or dropping Python and Django versions) and development-tool pin updates are maintainer procedures, documented in [MAINTAINING.md](MAINTAINING.md).
+Version-support updates (adding or dropping Python and Django versions) and development-tool pin updates are documented in [MAINTAINING.md](MAINTAINING.md).
 
 ## `Justfile`
 
