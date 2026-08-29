@@ -154,7 +154,7 @@ Always review snapshot changes before committing them.
 
 ### Linting
 
-Install the commit-time hooks with `prek install`. Run `just lint` for the all-files local gate; it formats the Justfiles and runs every configured hook, including Rustfmt and Clippy. CI runs the portable pre-commit hooks, Rustfmt, and Clippy as separate jobs.
+Install the commit-time hooks with `prek install`. Run `just lint` for the all-files local gate; it formats the Justfiles and runs every configured hook, including Rustfmt and Clippy. CI runs the portable pre-commit hooks, Rustfmt, Clippy, and Hawk as separate jobs.
 
 #### Formatting
 
@@ -164,7 +164,7 @@ Formatting uses the dated nightly pinned in [`tools/rustfmt/rust-toolchain.toml`
 
 [Hawk](https://github.com/astral-sh/hawk) is an experimental Cargo lint from Astral that checks unnecessary public Rust visibility across a closed-world workspace. It is useful here because most crates are internal architecture layers behind the shipped `djls` binary.
 
-Like profiling, you will rarely need to run Hawk yourself. It is compile-heavy — a single run may perform multiple Cargo analysis passes — and it only pays off when changing public APIs, moving code across crates, or cleaning up visibility. If you are new to the project, skip it and leave visibility findings to review.
+Like profiling, you will rarely need to run Hawk yourself. It is compile-heavy — a single run may perform multiple Cargo analysis passes — and it only pays off when changing public APIs, moving code across crates, or cleaning up visibility. If you are new to the project, skip it and let CI run it — a `hawk` job checks every pull request.
 
 ##### Setup
 
