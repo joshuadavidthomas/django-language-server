@@ -45,6 +45,8 @@ If you use PyCharm Professional: probably not. JetBrains builds Django template 
 
 If you want template checking without any editor integration, the [`djls check`](cli.md#djls-check) command runs the same validation in a terminal, and a [pre-commit hook](pre-commit.md) runs it on staged templates before each commit.
 
+Templates are only the start. The goal is everything PyCharm knows about Django — settings, models, the ORM — in every editor with an LSP client.
+
 ## Next steps
 
 [Install the server](installation.md), then [set up your editor](clients/index.md). Most projects need no configuration; the [configuration guide](configuration/index.md) covers the exceptions.
