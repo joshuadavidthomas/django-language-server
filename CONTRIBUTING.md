@@ -55,7 +55,7 @@ From the bottom up:
 | `djls-templates` | Template syntax. A hand-written recursive descent parser that knows nothing about Django semantics and never fails: parse errors become error nodes in its output, because the user is always mid-keystroke in something invalid and the rest of the pipeline has to keep working. |
 | `djls-semantic` | Project meaning. Parsed templates meet project facts here: which libraries are loaded at each position, whether a tag is valid where it appears, structural diagnostics. |
 | `djls-ide` | Translation. Turns analysis into LSP-shaped answers: completions, diagnostics, definitions, references. Everything below it is LSP-unaware. |
-| `djls-server` | The protocol. The only crate that speaks LSP: the session, open-document buffers, request handling. |
+| `djls-server` | The protocol. The only crate that speaks LSP: the session, open-document buffers, request handling. The JSON-RPC transport and request dispatch come from [tower-lsp-server](https://github.com/tower-lsp-community/tower-lsp-server); this crate implements the handlers on top. |
 | `djls` | The CLI. `djls serve` starts the server; `djls check` runs the same validation in a terminal. |
 
 Tying the layers together is [Salsa](https://github.com/salsa-rs/salsa), the incremental computation framework also used by rust-analyzer. Analysis is written as queries over inputs, and when a file changes only the queries affected by that change recompute. That is what keeps re-analysis on every keystroke cheap.
