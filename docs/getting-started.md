@@ -1,6 +1,6 @@
 # Getting started
 
-This guide goes from nothing to a working editor setup. It follows the recommended path; every other installation method is in the [Installation](installation.md) reference.
+This guide goes from nothing to a working editor setup. The steps below are the recommended path; every other installation method is in the [Installation](installation.md) reference.
 
 ## Prerequisites
 
@@ -41,11 +41,11 @@ Any other editor with an LSP client can run `djls serve`; see [Editor setup](cli
 
 Open a template file from your project and try it out:
 
-- Type `{% lo` and you should be offered `load` as a completion.
+- Type `{% lo` and you should get `load` as a completion.
 - Hover a built-in tag like `{% block %}` and you should see its documentation.
 - Type `{% block content %}` without a matching `{% endblock %}` and an unclosed-tag diagnostic should appear.
 
-If completions and diagnostics show up, the rest (navigation, hover, quick fixes) is working from the same analysis.
+If completions and diagnostics show up, the rest (navigation, hover, quick fixes) comes from the same analysis.
 
 ## If nothing happens
 
@@ -53,6 +53,6 @@ The two usual causes:
 
 **The editor doesn't treat the file as a Django template.** The server only attaches to files your editor identifies as Django templates. Plain `.html` files often need a filetype or syntax rule; each editor page shows how to set one up.
 
-**The server can't find your project's settings or environment.** Both are auto-detected in standard layouts: a `.venv` next to the project, `DJANGO_SETTINGS_MODULE` in the environment. If your project differs, set `django_settings_module` explicitly; see [Configuration](configuration/index.md).
+**The server can't find your project's settings or environment.** It auto-detects both in standard layouts: a `.venv` next to the project, `DJANGO_SETTINGS_MODULE` in the environment. If your project differs, set `django_settings_module` explicitly; see [Configuration](configuration/index.md).
 
 Beyond that, each editor page has its own troubleshooting notes, and setting [`debug = true`](configuration/index.md#debug) in the configuration turns on server logging.
