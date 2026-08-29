@@ -25,7 +25,7 @@ In the editor, that knowledge becomes:
 
 See [Template Validation](template-validation.md) for how the analysis works and where its limits are.
 
-## Other Django template servers
+## Related projects
 
 [django-template-lsp](https://github.com/fourdigits/django-template-lsp) is another language server for Django templates. The feature sets differ in both directions: it resolves `{% url %}` to views and suggests `{% static %}` paths; this server validates tag arguments, formats templates, and renames across files.
 
@@ -35,7 +35,7 @@ Django Language Server never executes project code. It reads the same sources â€
 
 Both servers need to find your project's Python environment to locate installed packages; neither needs you to activate it.
 
-Related: [django-lsp](https://github.com/patrick91/django-lsp) applies the same static approach to the ORM, following model relations in Python source without importing the project. It attaches to Python files rather than templates.
+Two separate projects are named django-lsp. [One](https://github.com/patrick91/django-lsp) applies the same static approach to the ORM: it follows model relations in Python source to complete relation paths in QuerySet calls and warn about repeated relation queries. It works on Python files, leaving templates to the servers above. [The other](https://github.com/adamghill/django-lsp) adds context-aware autocomplete and hover documentation for Django settings.py, including typo detection.
 
 ## Do I need it?
 
