@@ -35,6 +35,8 @@ Django Language Server never executes project code. It reads the same sources â€
 
 Both servers need to find your project's Python environment to locate installed packages; neither needs you to activate it.
 
+Related: [django-lsp](https://github.com/patrick91/django-lsp) applies the same static approach to the ORM, following model relations in Python source without importing the project. It attaches to Python files rather than templates.
+
 ## Do I need it?
 
 If you edit Django templates in Neovim, VS Code, Zed, Sublime Text, Helix, Emacs, or any other editor with LSP support: yes. Without a language server, these editors treat a Django template as HTML with unusual punctuation.
