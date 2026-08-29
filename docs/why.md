@@ -25,6 +25,16 @@ In the editor, that knowledge becomes:
 
 See [Template Validation](template-validation.md) for how the analysis works and where its limits are.
 
+## Other Django template servers
+
+[django-template-lsp](https://github.com/fourdigits/django-template-lsp) is another language server for Django templates. The feature sets differ in both directions: it resolves `{% url %}` to views and suggests `{% static %}` paths; this server validates tag arguments, formats templates, and renames across files.
+
+django-template-lsp runs a Python script inside your project's environment to learn what exists: it imports your settings and template tag libraries and asks Django for its tags, filters, and URLs. Because it executes inside the project, collection fails when the project has syntax errors or missing imports, as its own documentation notes.
+
+Django Language Server never executes project code. It reads the same sources — settings, installed packages, the Python source of template tag libraries — and derives tags, filters, and validation rules by parsing them statically. There is no Django runtime to boot, and the server keeps working on projects with syntax errors or broken imports. Never running anything has a cost: tags registered through dynamic imports or generated code are invisible to it.
+
+Both servers need to find your project's Python environment to locate installed packages; neither needs you to activate it.
+
 ## Do I need it?
 
 If you edit Django templates in Neovim, VS Code, Zed, Sublime Text, Helix, Emacs, or any other editor with LSP support: yes. Without a language server, these editors treat a Django template as HTML with unusual punctuation.
