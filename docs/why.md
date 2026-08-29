@@ -8,7 +8,7 @@ Django Language Server adds that knowledge, in whichever editor you use.
 
 A language server is a separate program that runs next to your editor and answers questions about your code. The two divide the work. The editor owns everything you see: squiggles, completion menus, jumping between files. The server owns the understanding: which template tags your project can use, whether a filter takes an argument, where `base.html` lives.
 
-They communicate over the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) (LSP), a standard both sides agree on. Without it, Django support would mean a separately maintained plugin for VS Code, another for Neovim, another for Zed. With it, one server works in any editor that has an LSP client.
+They communicate over the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) (LSP), a standard both sides agree on. Without it, Django support would mean a separately maintained plugin for VS Code, another for Neovim, another for Zed. With it, one server works in any editor with an LSP client.
 
 In practice you never interact with the server directly. Your editor starts `djls serve` in the background when you open a project and talks to it as you type.
 
