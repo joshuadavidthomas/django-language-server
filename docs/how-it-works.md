@@ -38,6 +38,28 @@ The seam between them is observable. Most editors can log or trace LSP traffic, 
 
 Every answer the server gives is derived from statically reading the project: settings, `INSTALLED_APPS`, template directories, and the Python source that registers template tags and filters. [Template Validation](template-validation.md) describes that analysis and its limits, and [Configuration](configuration/index.md) covers the cases where discovery needs help.
 
+## Inside the server
+
+The server is a Cargo workspace of small crates, layered so that each answers a different kind of question. Two kinds of knowledge feed everything: what tags and filters *exist* (read from the Python side of the project) and what the template *says* (parsed from the template source). Separate subsystems produce each, and they meet in the middle during semantic analysis.
+
+From the bottom up:
+
+| Crate | Answers |
+|---|---|
+| `djls-source` | Files, spans, line indexes, filesystem access. Nearly everything depends on it. |
+| `djls-project` | Project facts: Python environment discovery, settings extraction, template directories, template tag libraries, and the static extraction that derives validation rules (argument counts, block structure, filter arity) from templatetag Python source. |
+| `djls-templates` | Template syntax. A hand-written recursive descent parser that knows nothing about Django semantics and never fails: parse errors become error nodes in its output, because the user is always mid-keystroke in something invalid and the rest of the pipeline has to keep working. |
+| `djls-semantic` | Project meaning. Parsed templates meet project facts here: which libraries are loaded at each position, whether a tag is valid where it appears, structural diagnostics. |
+| `djls-ide` | Translation. Turns analysis into LSP-shaped answers: completions, diagnostics, definitions, references. Everything below it is LSP-unaware. |
+| `djls-server` | The protocol. The only crate that speaks LSP: the session, open-document buffers, request handling. |
+| `djls` | The CLI. `djls serve` starts the server; `djls check` runs the same validation in a terminal. |
+
+Tying the layers together is [Salsa](https://github.com/salsa-rs/salsa), the incremental computation framework also used by rust-analyzer. Analysis is written as queries over inputs, and when a file changes only the queries affected by that change recompute. That is what keeps re-analysis on every keystroke cheap.
+
+A template flows through the pipeline in stages: lexing, parsing into a flat node list, analysis (building the template tree and working out which libraries each position can see), validation, diagnostics. No stage blocks on errors from a previous one. A template full of syntax errors still gets structural analysis on its valid portions, and a template with structural problems still gets validation on the tags that parsed correctly.
+
+This is the ten-thousand-foot view; [ARCHITECTURE.md](https://github.com/joshuadavidthomas/django-language-server/blob/main/ARCHITECTURE.md) has the full map, including per-crate detail, the database design, and the invariants the layering maintains.
+
 ## Going deeper
 
 - [ARCHITECTURE.md](https://github.com/joshuadavidthomas/django-language-server/blob/main/ARCHITECTURE.md) — crate boundaries, the Salsa database, and the template pipeline

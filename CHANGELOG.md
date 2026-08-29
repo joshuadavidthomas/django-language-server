@@ -21,10 +21,12 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added a "Why a language server?" docs page.
+- Added a "How it works" docs page walking through how an editor and the language server communicate.
 
 ### Changed
 
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
+- **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path and moved maintainer version-update procedures to `MAINTAINING.md`.
 
 ## [6.1.0]
 
@@ -44,7 +46,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added opt-in whole-document Django template formatting through `djangofmt`.
 - Added startup progress reporting for Django project discovery and IDE cache warm-up.
 - Added a public `ROADMAP.md` for current and planned Django/LSP capabilities.
-- Added a "How it works" docs page walking through how an editor and the language server communicate.
 - **Internal**: Added domain glossary docs for canonical project terminology.
 - **Internal**: Added block-resolution queries (`parent_block`, `inherited_blocks`, `block_overrides`) over the template inheritance chain.
 - **Internal**: Added the `template_inheritance` extends-chain query with explicit `ChainEnd` terminators and Django origin-skip resolution.
@@ -85,7 +86,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Reworked Django model inheritance around typed base outcomes, C3 ordering, and declaration-owned relation bindings.
 - **Internal**: Reduced development and test debug information to line tables to limit Rust build artifact size.
 - **Internal**: Expanded contributor guidance for setup, testing environments, corpus data, snapshots, linting, and pinned tool updates.
-- **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path and moved maintainer version-update procedures to `MAINTAINING.md`.
 
 ### Removed
 
