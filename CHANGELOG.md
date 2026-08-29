@@ -20,7 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
-- Added a "Why a language server?" docs page covering what a language server does and who needs one.
+- Added a "Why a language server?" docs page.
 
 ### Changed
 

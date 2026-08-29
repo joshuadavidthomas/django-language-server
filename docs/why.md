@@ -2,7 +2,7 @@
 
 Open a Django template in most editors and you get HTML support at best. The editor highlights the angle brackets, but `{% block %}`, `{% url %}`, and `{{ value|date }}` are plain text to it. It cannot complete a tag name, flag a misspelled filter, or jump to the template behind an `{% extends %}`, because it knows nothing about Django.
 
-Django Language Server closes that gap, for every editor at once.
+Django Language Server adds that knowledge, in whichever editor you use.
 
 ## What a language server is
 
@@ -29,9 +29,9 @@ See [Template Validation](template-validation.md) for how the analysis works and
 
 If you edit Django templates in Neovim, VS Code, Zed, Sublime Text, Helix, Emacs, or any other editor with LSP support: yes. Without a language server, these editors treat a Django template as HTML with unusual punctuation.
 
-If you use PyCharm Professional: probably not. JetBrains builds Django template support directly into the IDE, and it already covers most of what this project does. If you have used PyCharm's template tooling, it is a fair preview of what Django Language Server brings to other editors.
+If you use PyCharm Professional: probably not. JetBrains builds Django template support directly into the IDE, and it already covers most of what this project does. PyCharm's template tooling is a fair preview of what Django Language Server brings to other editors.
 
-If you want template checking without any editor integration, the [`djls check`](cli.md#djls-check) command runs the same validation in a terminal, and a [pre-commit hook](pre-commit.md) is available. No LSP client required.
+If you want template checking without any editor integration, the [`djls check`](cli.md#djls-check) command runs the same validation in a terminal, and a [pre-commit hook](pre-commit.md) is available.
 
 ## Next steps
 
