@@ -27,7 +27,7 @@ Before opening a PR, make sure the tests, clippy, formatting, and linting all pa
 
 ## Getting oriented
 
-Django Language Server is exactly what the name says: a standalone program that editors start in the background and query over the Language Server Protocol (LSP). If you have never worked with a language server before, this section is the mental model; the documents linked at the end go deeper once it is in place.
+Django Language Server is exactly what the name says: a standalone program that editors start in the background and query over the Language Server Protocol (LSP). If you have never worked with a language server before, start with this section; the documents linked at the end go deeper.
 
 ### The editor/server split
 
@@ -44,14 +44,14 @@ A typical session, condensed:
 
 ### Inside the server
 
-The server is a Cargo workspace of small crates, layered so that each answers a different kind of question. Two kinds of knowledge feed everything: what tags and filters *exist* (read from the Python side of the project) and what the template *says* (parsed from the template source). Separate subsystems produce each, and they meet in the middle during semantic analysis.
+The codebase is a Cargo workspace of small crates, layered so that each answers a different kind of question. Two kinds of knowledge feed everything: what tags and filters *exist* (read from the Python side of the project) and what the template *says* (parsed from the template source). Separate subsystems produce each, and they meet in the middle during semantic analysis.
 
 From the bottom up:
 
 | Crate | Answers |
 |---|---|
 | `djls-source` | Files, spans, line indexes, filesystem access. Nearly everything depends on it. |
-| `djls-project` | Project facts: Python environment discovery, settings extraction, template directories, template tag libraries, and the static extraction that derives validation rules (argument counts, block structure, filter arity) from templatetag Python source. |
+| `djls-project` | Project facts: Python environment discovery, settings extraction, template directories, template tag libraries, and the static extraction that derives validation rules (argument counts, block structure, filter arity) from the Python source of template tag libraries. |
 | `djls-templates` | Template syntax. A hand-written recursive descent parser that knows nothing about Django semantics and never fails: parse errors become error nodes in its output, because the user is always mid-keystroke in something invalid and the rest of the pipeline has to keep working. |
 | `djls-semantic` | Project meaning. Parsed templates meet project facts here: which libraries are loaded at each position, whether a tag is valid where it appears, structural diagnostics. |
 | `djls-ide` | Translation. Turns analysis into LSP-shaped answers: completions, diagnostics, definitions, references. Everything below it is LSP-unaware. |
@@ -62,7 +62,7 @@ Tying the layers together is [Salsa](https://github.com/salsa-rs/salsa), the inc
 
 A template flows through the pipeline in stages: lexing, parsing into a flat node list, analysis (building the template tree and working out which libraries each position can see), validation, diagnostics. No stage blocks on errors from a previous one. A template full of syntax errors still gets structural analysis on its valid portions, and a template with structural problems still gets validation on the tags that parsed correctly.
 
-This is the ten-thousand-foot view. [ARCHITECTURE.md](ARCHITECTURE.md) has the full map — per-crate detail, the database design, and the invariants the layering maintains — and [CONTEXT.md](CONTEXT.md) is the domain glossary: the canonical name for every concept in the codebase.
+This is the ten-thousand-foot view. [ARCHITECTURE.md](ARCHITECTURE.md) has the full map (per-crate detail, the database design, and the invariants the layering maintains), and [CONTEXT.md](CONTEXT.md) is the domain glossary: the canonical name for every concept in the codebase.
 
 ## New to Rust?
 
@@ -72,7 +72,7 @@ If you know Python but not Rust and want to contribute code:
 
 - [The Rust Book](https://doc.rust-lang.org/book/) is the standard introduction, free and worth reading in order.
 - [Rustlings](https://github.com/rust-lang/rustlings) is a set of small exercises that pairs well with the book.
-- The one genuinely unusual dependency here is [Salsa](https://salsa-rs.github.io/salsa/), the incremental computation framework also used by rust-analyzer and ty. Most changes don't require understanding it; read its book when you start touching query code.
+- The one unusual dependency here is [Salsa](https://salsa-rs.github.io/salsa/), the incremental computation framework also used by rust-analyzer and ty. Most changes don't require understanding it; read its book when you start touching query code.
 
 Plenty of valuable contributions require no Rust at all: editor client configurations, documentation, bug reports with a reproducing template, and feedback on how features behave in real Django projects.
 
@@ -119,7 +119,7 @@ Three commands cover almost all day-to-day work:
 | `cargo insta review` | After tests report snapshot changes; review them interactively |
 | `just lint` | Before committing; formats and runs every lint hook, including Rustfmt and Clippy |
 
-Everything else documented below exists for specific situations — cross-version testing, LSP end-to-end coverage, visibility audits, profiling. Reach for those when the situation comes up, not routinely.
+Everything else documented below exists for specific situations: cross-version testing, LSP end-to-end coverage, visibility audits, profiling. Reach for those when the situation comes up, not routinely.
 
 ### Testing
 
@@ -164,7 +164,7 @@ Formatting uses the dated nightly pinned in [`tools/rustfmt/rust-toolchain.toml`
 
 [Hawk](https://github.com/astral-sh/hawk) is an experimental Cargo lint from Astral that checks unnecessary public Rust visibility across a closed-world workspace. It is useful here because most crates are internal architecture layers behind the shipped `djls` binary.
 
-Like profiling, you will rarely need to run Hawk yourself. It is compile-heavy — a single run may perform multiple Cargo analysis passes — and it only pays off when changing public APIs, moving code across crates, or cleaning up visibility. If you are new to the project, skip it and let CI run it — a `hawk` job checks every pull request.
+Like profiling, you will rarely need to run Hawk yourself. It only pays off when changing public APIs, moving code across crates, or cleaning up visibility. If you are new to the project, skip it and let CI run it: a `hawk` job checks every pull request.
 
 ##### Setup
 
