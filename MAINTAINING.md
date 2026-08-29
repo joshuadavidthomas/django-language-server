@@ -136,7 +136,7 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
 - Update the primary compiler in `rust-toolchain.toml`.
 - Update the formatter nightly in `tools/rustfmt/rust-toolchain.toml`, then run `just fmt` and review any formatting changes.
-- Update cargo-hawk in `.agents/setup` and the [CONTRIBUTING.md](CONTRIBUTING.md) install instructions together with its exact required compiler in `tools/hawk/rust-toolchain.toml`.
+- Update cargo-hawk in `.agents/setup`, its exact required compiler in `tools/hawk/rust-toolchain.toml`, and the [CONTRIBUTING.md](CONTRIBUTING.md) install instructions.
 - Keep the prebuilt cargo-insta version in `.agents/setup` and [CONTRIBUTING.md](CONTRIBUTING.md) aligned with the Insta version resolved in `Cargo.lock`.
 
 Hawk uses compiler-private APIs, so even a patch-level compiler mismatch can make it fail before analysis.
