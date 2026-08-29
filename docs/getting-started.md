@@ -55,4 +55,4 @@ The two usual causes:
 
 **The server can't find your project's settings or environment.** It auto-detects both in standard layouts: a `.venv` next to the project, `DJANGO_SETTINGS_MODULE` in the environment. If your project differs, set `django_settings_module` explicitly; see [Configuration](configuration/index.md).
 
-Beyond that, each editor page has its own troubleshooting notes, and setting [`debug = true`](configuration/index.md#debug) in the configuration turns on server logging.
+Beyond that, each editor page has its own troubleshooting notes.
