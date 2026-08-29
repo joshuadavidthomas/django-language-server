@@ -164,7 +164,7 @@ Formatting uses the dated nightly pinned in [`tools/rustfmt/rust-toolchain.toml`
 
 [Hawk](https://github.com/astral-sh/hawk) is an experimental Cargo lint from Astral that checks unnecessary public Rust visibility across a closed-world workspace. It is useful here because most crates are internal architecture layers behind the shipped `djls` binary.
 
-Like profiling, you will rarely need to run Hawk yourself. If you are new to the project, skip it and let CI run it: a `hawk` job checks every pull request.
+Like profiling, Hawk is something you will rarely run yourself. If you are new to the project, skip it and let CI run it: a `hawk` job checks every pull request.
 
 ##### Setup
 
