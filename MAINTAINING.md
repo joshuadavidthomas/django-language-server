@@ -1,6 +1,6 @@
 # Maintaining
 
-Procedures for maintainers. Day-to-day development is covered in [CONTRIBUTING.md](CONTRIBUTING.md).
+Procedures for maintainers. [CONTRIBUTING.md](CONTRIBUTING.md) covers day-to-day development.
 
 ## Version updates
 
