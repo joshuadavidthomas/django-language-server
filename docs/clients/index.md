@@ -1,6 +1,6 @@
 # Editor setup
 
-Django Language Server works with any editor that supports the Language Server Protocol (LSP). Setup guides exist for:
+Django Language Server works with any editor that supports the Language Server Protocol (LSP). Four editors have setup guides:
 
 - [Neovim](neovim.md)
 - [Sublime Text](sublime-text.md)

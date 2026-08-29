@@ -22,7 +22,7 @@ Check that the binary is on your `PATH`:
 djls --version
 ```
 
-The server runs as its own program, outside your project's virtual environment. It discovers and reads your project's environment on its own, so one global install serves every project.
+The server runs outside your project's virtual environment. It finds each project's environment by itself, so one global install serves every project.
 
 !!! note "No install at all"
 
@@ -35,7 +35,7 @@ The server runs as its own program, outside your project's virtual environment. 
 - [Zed](clients/zed.md): install the Django extension, which can download the server itself
 - [Sublime Text](clients/sublime-text.md): configure the LSP package
 
-Using something else? Any editor with an LSP client can run `djls serve`; see [Editor setup](clients/index.md).
+Any other editor with an LSP client can run `djls serve`; see [Editor setup](clients/index.md).
 
 ## 3. Open a template
 

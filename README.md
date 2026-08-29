@@ -77,7 +77,7 @@ Then set up your editor's LSP client to run the server:
 - [Sublime Text](docs/clients/sublime-text.md) - Set up with LSP package
 - [Zed](docs/clients/zed.md) - Install the extension
 
-Any other editor with an LSP client works too; see [Editor setup](docs/clients/index.md). Homebrew, pip, standalone binaries, and source builds are covered in the [Installation](docs/installation.md) reference, and the [`djls` CLI](docs/cli.md) can check templates without an editor.
+Any other editor with an LSP client works too; see [Editor setup](docs/clients/index.md). The [Installation](docs/installation.md) reference covers Homebrew, pip, standalone binaries, and source builds, and the [`djls` CLI](docs/cli.md) can check templates without an editor.
 
 ## Documentation
 
