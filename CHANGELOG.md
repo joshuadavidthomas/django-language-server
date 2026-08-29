@@ -21,12 +21,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added a "Why a language server?" docs page.
-- Added a "How it works" docs page walking through how an editor and the language server communicate.
 
 ### Changed
 
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
-- **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path and moved maintainer version-update procedures to `MAINTAINING.md`.
+- **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path, adding editor/server orientation and an architecture overview, and moved maintainer version-update procedures to `MAINTAINING.md`.
 
 ## [6.1.0]
 
