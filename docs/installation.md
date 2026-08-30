@@ -1,5 +1,7 @@
 # Installation
 
+This page is a reference for every way to install the server. Setting up for the first time? The [getting started guide](getting-started.md) is the shortest path.
+
 ## Requirements
 
 Django Language Server needs a discoverable project environment with a supported Python and Django version. An LSP client is required only for editor features through `djls serve`; [`djls check`](cli.md#djls-check) runs in a terminal. See [Versioning](versioning.md) for supported versions and the version support policy.
