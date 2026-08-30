@@ -25,6 +25,16 @@ In the editor, that knowledge becomes:
 
 See [Template Validation](template-validation.md) for how the analysis works and where its limits are.
 
+## Do I need it?
+
+If you edit Django templates in Neovim, VS Code, Zed, Sublime Text, Helix, Emacs, or any other editor with LSP support: yes. Without a language server, these editors treat a Django template as HTML with unusual punctuation.
+
+If you use PyCharm Professional: probably not. JetBrains builds Django template support directly into the IDE, and it already covers most of what this project does. PyCharm's template tooling is a fair preview of what Django Language Server brings to other editors.
+
+If you want template checking without any editor integration, the [`djls check`](cli.md#djls-check) command runs the same validation in a terminal, and a [pre-commit hook](pre-commit.md) runs it on staged templates before each commit.
+
+Templates are only the start. The goal is everything PyCharm knows about Django, in every editor with an LSP client.
+
 ## Related projects
 
 [django-template-lsp](https://github.com/fourdigits/django-template-lsp) is the closest project: a language server for Django templates too. Today it does things this server cannot, like URL-name and static-path completion and navigation from `{% url %}` to the view it names. This server does things it cannot, like validation of tag arguments and load scoping, whole-document formatting, and quick fixes for unloaded tags. Neither replaces the other yet.
@@ -38,16 +48,6 @@ Both servers need to find your project's Python environment to locate installed 
 Two separate projects are named django-lsp. [One](https://github.com/patrick91/django-lsp) works on Python files instead of templates: it follows model relations in source to complete relation paths in QuerySet calls and warn when a loop issues one relation query per row. [The other](https://github.com/adamghill/django-lsp) works on settings.py: context-aware autocomplete, hover documentation, and typo detection.
 
 The gaps above are all planned. The [roadmap](https://github.com/joshuadavidthomas/django-language-server/blob/main/ROADMAP.md) tracks the order: the remaining template features finish first, then the split between generic Python analysis and Django Project Facts, then URLs, settings, models, template context, and ORM queries. Current work is building the foundations that expansion needs.
-
-## Do I need it?
-
-If you edit Django templates in Neovim, VS Code, Zed, Sublime Text, Helix, Emacs, or any other editor with LSP support: yes. Without a language server, these editors treat a Django template as HTML with unusual punctuation.
-
-If you use PyCharm Professional: probably not. JetBrains builds Django template support directly into the IDE, and it already covers most of what this project does. PyCharm's template tooling is a fair preview of what Django Language Server brings to other editors.
-
-If you want template checking without any editor integration, the [`djls check`](cli.md#djls-check) command runs the same validation in a terminal, and a [pre-commit hook](pre-commit.md) runs it on staged templates before each commit.
-
-Templates are only the start. The goal is everything PyCharm knows about Django, in every editor with an LSP client.
 
 ## Next steps
 
