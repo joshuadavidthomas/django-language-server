@@ -25,20 +25,67 @@ The project includes an [`AGENTS.md`](AGENTS.md) file with guidelines for AI cod
 
 Before opening a PR, make sure the tests, clippy, formatting, and linting all pass.
 
+## Getting oriented
+
+Django Language Server is exactly what the name says: a standalone program that editors start in the background and query over the Language Server Protocol (LSP). If you have never worked with a language server before, start with this section; the documents linked at the end go deeper.
+
+### The editor/server split
+
+The editor owns presentation: completion menus, squiggly underlines, hover popups, jumping between files. The server owns analysis: parsing templates, validating tags and filters, resolving `{% extends %}` chains, knowing which template tag libraries the project can load. The two communicate only through JSON-RPC messages whose shapes the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) defines, and neither knows the other's internals. That separation lets one server support every editor. It also splits responsibility cleanly when debugging: how a result is displayed is editor behavior; what the result contains is decided in this repository.
+
+A typical session, condensed:
+
+1. The editor spawns `djls serve` as a child process and speaks JSON-RPC over its stdin and stdout.
+2. An `initialize` exchange negotiates capabilities: completion, hover, diagnostics, go to definition, and so on.
+3. The server statically reads the project (settings module, `INSTALLED_APPS`, template directories, template tag libraries). It never imports or runs project code.
+4. Opening a template sends `textDocument/didOpen` with the file's full text. The server analyzes it and pushes back diagnostics, which the editor draws as squiggles.
+5. Each keystroke sends `textDocument/didChange`. The server re-analyzes from the editor's buffer, not the file on disk, so it sees unsaved changes.
+6. Hover, completion, and go to definition are request/response pairs: the editor sends a position, the server answers from its analysis, and the editor renders the result.
+
+### Inside the server
+
+The codebase is a Cargo workspace of small crates, layered so that each answers a different kind of question. Two kinds of knowledge feed everything: what tags and filters *exist* (read from the Python side of the project) and what the template *says* (parsed from the template source). Separate subsystems produce each, and they meet in the middle during semantic analysis.
+
+From the bottom up:
+
+| Crate | Answers |
+|---|---|
+| `djls-source` | Files, spans, line indexes, filesystem access. Nearly everything depends on it. |
+| `djls-project` | Project facts: Python environment discovery, settings extraction, template directories, template tag libraries, and the static extraction that derives validation rules (argument counts, block structure, filter arity) from the Python source of template tag libraries. |
+| `djls-templates` | Template syntax. A hand-written recursive descent parser that knows nothing about Django semantics and never fails: parse errors become error nodes in its output, because the user is always mid-keystroke in something invalid and the rest of the pipeline has to keep working. |
+| `djls-semantic` | Project meaning. Parsed templates meet project facts here: which libraries are loaded at each position, whether a tag is valid where it appears, structural diagnostics. |
+| `djls-ide` | Translation. Turns analysis into LSP-shaped answers: completions, diagnostics, definitions, references. Everything below it is LSP-unaware. |
+| `djls-server` | The protocol. The only crate that speaks LSP: the session, open-document buffers, request handling. The JSON-RPC transport and request dispatch come from [tower-lsp-server](https://github.com/tower-lsp-community/tower-lsp-server); this crate implements the handlers on top. |
+| `djls` | The CLI. `djls serve` starts the server; `djls check` runs the same validation in a terminal. |
+
+Tying the layers together is [Salsa](https://github.com/salsa-rs/salsa), the incremental computation framework also used by rust-analyzer. You write analysis as queries over inputs, and when a file changes only the affected queries recompute. That keeps re-analysis on every keystroke cheap.
+
+A template flows through the pipeline in stages: lexing, parsing into a flat node list, analysis (building the template tree and working out which libraries each position can see), validation, diagnostics. No stage blocks on errors from a previous one. A template full of syntax errors still gets structural analysis on its valid portions, and a template with structural problems still gets validation on the tags that parsed correctly.
+
+[ARCHITECTURE.md](ARCHITECTURE.md) has the full map (per-crate detail, the database design, and the invariants the layering maintains), and [CONTEXT.md](CONTEXT.md) is the domain glossary: the canonical name for every concept in the codebase.
+
+## New to Rust?
+
+The server is written in Rust, but this is a project *for* Django developers, and Django expertise is just as valuable as Rust expertise. Understanding Django's internals and common development patterns helps shape what features would be most valuable and how they should behave.
+
+If you know Python but not Rust and want to contribute code:
+
+- [The Rust Book](https://doc.rust-lang.org/book/) is the standard introduction, free and worth reading in order.
+- [Rustlings](https://github.com/rust-lang/rustlings) is a set of small exercises that pairs well with the book.
+- The one unusual dependency here is [Salsa](https://salsa-rs.github.io/salsa/), the incremental computation framework also used by rust-analyzer and ty. Most changes don't require understanding it; read its book when you start touching query code.
+
+Plenty of valuable contributions require no Rust at all: editor client configurations, documentation, bug reports with a reproducing template, and feedback on how features behave in real Django projects.
+
+So far it's all been built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way — send help!
+
 ## Development
 
-For a detailed look at how the codebase works — data flow, the Salsa database, the template pipeline — see [ARCHITECTURE.md](ARCHITECTURE.md).
-
-The project is written in Rust and uses static analysis to introspect Django projects. It uses a [Cargo workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) with all crates under `crates/`. A few conventions to be aware of:
+The project uses a [Cargo workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) with all crates under `crates/`. A few conventions to be aware of:
 
 - **Dependency versions** are centralized in `[workspace.dependencies]` in the root [`Cargo.toml`](./Cargo.toml). Individual crates reference them with `dep.workspace = true` and never specify versions directly.
 - **Internal crates are listed before third-party crates** in each crate's `[dependencies]`, separated by a blank line. Both groups are kept in alphabetical order.
 - **Lints** are configured once in `[workspace.lints]` in the root `Cargo.toml`. Each crate opts in with `[lints] workspace = true`.
 - **Versioning**: Only the `djls` binary crate carries the release version. All library crates use `version = "0.0.0"`.
-
-Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase — Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
-
-So far it's all been built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way — send help!
 
 ### First-time setup
 
@@ -62,6 +109,18 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 
 The first test or lint run may still download a supported Python version, create Nox environments, compile the Rust workspace, and prepare hook environments. Subsequent runs reuse those artifacts. Amp orbs perform these setup steps automatically through `.agents/setup`.
 
+### The core loop
+
+Three commands cover almost all day-to-day work:
+
+| Command | When |
+|---|---|
+| `cargo test -q` | After every change; runs the Rust workspace tests against your current Python environment |
+| `cargo insta review` | After tests report snapshot changes; review them interactively |
+| `just lint` | Before committing; formats and runs every lint hook, including Rustfmt and Clippy |
+
+Everything else documented below exists for specific situations: cross-version testing, LSP end-to-end coverage, visibility audits, profiling. Reach for those when the situation comes up, not routinely.
+
 ### Testing
 
 | Command | Scope |
@@ -71,7 +130,7 @@ The first test or lint run may still download a supported Python version, create
 | `just testall` | All supported Python and Django combinations |
 | `just e2e` | Python LSP end-to-end tests |
 
-`just test` and `just testall` create isolated Nox environments, install the selected Django version, synchronize the corpus, and then run Cargo. Use `just testall` for Python/Django support changes; the default `just test` is the normal local compatibility check.
+`just test` and `just testall` create isolated Nox environments, install the selected Django version, synchronize the corpus, and then run Cargo. Use `just testall` for Python/Django support changes; the default `just test` is the normal local compatibility check. Use `just e2e` when changing behavior an editor observes: initialization, diagnostics, navigation, completions.
 
 #### Corpus
 
@@ -95,7 +154,7 @@ Always review snapshot changes before committing them.
 
 ### Linting
 
-Install the commit-time hooks with `prek install`. Run `just lint` for the all-files local gate; it formats the Justfiles and runs every configured hook, including Rustfmt and Clippy. CI runs the portable pre-commit hooks, Rustfmt, and Clippy as separate jobs.
+Install the commit-time hooks with `prek install`. Run `just lint` for the all-files local gate; it formats the Justfiles and runs every configured hook, including Rustfmt and Clippy. CI runs the portable pre-commit hooks, Rustfmt, Clippy, and Hawk as separate jobs.
 
 #### Formatting
 
@@ -105,7 +164,7 @@ Formatting uses the dated nightly pinned in [`tools/rustfmt/rust-toolchain.toml`
 
 [Hawk](https://github.com/astral-sh/hawk) is an experimental Cargo lint from Astral that checks unnecessary public Rust visibility across a closed-world workspace. It is useful here because most crates are internal architecture layers behind the shipped `djls` binary.
 
-Hawk is part of the local linting suite for keeping crate boundaries clean.
+It matters most when you are changing public APIs, moving code across crates, or cleaning up visibility. A change that stays completely inside one crate is less important. Each run performs multiple Cargo passes and is heavy on CPU and disk. If you are new to the project, let CI run it: a `hawk` job checks every pull request.
 
 ##### Setup
 
@@ -124,20 +183,11 @@ Run Hawk through `just` rather than `cargo hawk` directly:
 just hawk
 ```
 
-The recipe uses the exact compiler pinned in [`tools/hawk/rust-toolchain.toml`](tools/hawk/rust-toolchain.toml), as required by cargo-hawk 0.1.9, and isolates Hawk's instrumented builds to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74). Use it when changing public APIs, moving code across crates, or cleaning up visibility.
+The recipe uses the exact compiler pinned in [`tools/hawk/rust-toolchain.toml`](tools/hawk/rust-toolchain.toml), as required by cargo-hawk 0.1.9, and isolates Hawk's instrumented builds to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74).
 
-A Hawk run is more compile-intensive than normal linting. It checks the configured production binaries and workspace non-production targets, so a single run may perform multiple Cargo analysis passes. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
+The multiple passes come from Hawk checking the configured production binaries and workspace non-production targets. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
 
 The `just hawk` recipe keeps rustc dead-code and unused-import warnings quiet so the output stays focused on visibility. After applying Hawk fixes, run the normal lint and test checks; newly private code may expose cleanup work that belongs there.
-
-#### Updating development tools
-
-- Update the primary compiler in `rust-toolchain.toml`.
-- Update the formatter nightly in `tools/rustfmt/rust-toolchain.toml`, then run `just fmt` and review any formatting changes.
-- Update cargo-hawk in `.agents/setup` and this guide together with its exact required compiler in `tools/hawk/rust-toolchain.toml`.
-- Keep the prebuilt cargo-insta version in `.agents/setup` and this guide aligned with the Insta version resolved in `Cargo.lock`.
-
-Hawk uses compiler-private APIs, so even a patch-level compiler mismatch can make it fail before analysis.
 
 ### Debug information
 
@@ -151,6 +201,8 @@ CARGO_PROFILE_TEST_DEBUG=full cargo test
 ```
 
 ### Profiling
+
+You will rarely need this; it is for benchmark investigations, not everyday changes.
 
 #### Setup
 
@@ -221,135 +273,9 @@ The project maintains a [`CHANGELOG.md`](CHANGELOG.md) following [Keep a Changel
 - Fixed false positive errors for quoted strings with spaces (e.g., `{% translate "Contact the owner" %}`).
 ```
 
-## Version Updates
+## Maintainer reference
 
-### Python
-
-The project uses [`noxfile.py`](noxfile.py) as the single source of truth for supported Python versions. The `PY_VERSIONS` list in this file controls:
-
-- **Auto-generated documentation**: [cogapp](https://nedbatchelder.com/code/cog/) reads `PY_VERSIONS` to generate Python version classifiers in [`pyproject.toml`](pyproject.toml) and the supported versions list in [`README.md`](README.md)
-- **CI/CD test matrix**: GitHub Actions workflows call the `gha_matrix` nox session to generate the test matrix from `PY_VERSIONS`, so all supported Python versions are tested automatically
-- **Local testing**: The `tests` nox session uses `PY_VERSIONS` to parametrize test runs across all supported Python versions
-
-> [!NOTE]
-> When possible, prefer submitting additions and removals in separate pull requests. This makes it easier to review changes and track the impact of each version update independently.
-
-**To update the list of supported Python versions:**
-
-1. Update [`noxfile.py`](noxfile.py), adding or removing version constants as needed and updating the `PY_VERSIONS` list accordingly.
-
-    For example, to add Python 3.14 and remove Python 3.9:
-
-    ```diff
-    -PY39 = "3.9"
-     PY310 = "3.10"
-     PY311 = "3.11"
-     PY312 = "3.12"
-     PY313 = "3.13"
-    -PY_VERSIONS = [PY39, PY310, PY311, PY312, PY313]
-    +PY314 = "3.14"
-    +PY_VERSIONS = [PY310, PY311, PY312, PY313, PY314]
-    ```
-
-2. Regenerate auto-generated content:
-
-    ```bash
-    just cog
-    ```
-
-    This updates:
-
-    - The `requires-python` field in [`pyproject.toml`](pyproject.toml)
-    - Python version trove classifiers in [`pyproject.toml`](pyproject.toml)
-    - Supported versions list in [`README.md`](README.md)
-
-3. Update the lock file:
-
-    ```bash
-    uv lock
-    ```
-
-4. Test the changes:
-
-    ```bash
-    just testall
-    ```
-
-    Use `just testall` rather than `just test` to ensure all Python versions are tested. The `just test` command only runs against the default versions (the oldest supported Python and Django LTS) and won't catch issues with newly added versions.
-
-    Alternatively, you can test only a specific Python version across all Django versions by `nox` directly:
-
-    ```bash
-    nox --python 3.14 --session tests
-    ```
-
-5. Update [`CHANGELOG.md`](CHANGELOG.md), adding entries for any versions added or removed.
-
-### Django
-
-The project uses [`noxfile.py`](noxfile.py) as the single source of truth for supported Django versions. The `DJ_VERSIONS` list in this file controls:
-
-- **Auto-generated documentation**: [cogapp](https://nedbatchelder.com/code/cog/) reads `DJ_VERSIONS` to generate Django version classifiers in [`pyproject.toml`](pyproject.toml) and the supported versions list in [`README.md`](README.md)
-- **CI/CD test matrix**: GitHub Actions workflows call the `gha_matrix` nox session to generate the test matrix from `DJ_VERSIONS`, so all supported Django versions are tested automatically
-- **Local testing**: The `tests` nox session uses `DJ_VERSIONS` to parametrize test runs across all supported Django versions
-
-> [!NOTE]
-> When possible, prefer submitting additions and removals in separate pull requests. This makes it easier to review changes and track the impact of each version update independently.
-
-**To update the list of supported Django versions:**
-
-1. Update [`noxfile.py`](noxfile.py), adding or removing version constants as needed and updating the `DJ_VERSIONS` list accordingly.
-
-    For example, to add Django 6.1 and remove Django 4.2:
-
-    ```diff
-    -DJ42 = "4.2"
-     DJ51 = "5.1"
-     DJ52 = "5.2"
-     DJ60 = "6.0"
-    +DJ61 = "6.1"
-     DJMAIN = "main"
-    -DJ_VERSIONS = [DJ42, DJ51, DJ52, DJ60, DJMAIN]
-    +DJ_VERSIONS = [DJ51, DJ52, DJ60, DJ61, DJMAIN]
-    ```
-
-2. Update any Python version constraints in the `should_skip()` function if the new Django version has specific Python requirements.
-
-3. Regenerate auto-generated content:
-
-    ```bash
-    just cog
-    ```
-
-    This updates:
-
-    - Django version trove classifiers in [`pyproject.toml`](pyproject.toml)
-    - Supported versions list in [`README.md`](README.md)
-    - Supported versions list in [`docs/installation.md`](docs/installation.md)
-
-4. Update the lock file:
-
-    ```bash
-    uv lock
-    ```
-
-5. Test the changes:
-
-    ```bash
-    just testall
-    ```
-
-    Use `just testall` rather than `just test` to ensure all Django versions are tested. The `just test` command only runs against the default versions (the oldest supported Python and Django LTS) and won't catch issues with newly added versions.
-
-    Alternatively, you can test only a specific Django version across all Python versions by using `nox` directly:
-
-    ```bash
-    nox --session "tests(django='6.1')"
-    ```
-
-6. Update [`CHANGELOG.md`](CHANGELOG.md), adding entries for any versions added or removed.
-
-7. **For major Django releases**: If adding support for a new major Django version (e.g., Django 6.0), the language server version should be bumped to match per [DjangoVer](docs/versioning.md) versioning. For example, when adding Django 6.0 support, bump the server from v5.x.x to v6.0.0.
+Version-support updates (adding or dropping Python and Django versions) and development-tool pin updates are documented in [MAINTAINING.md](MAINTAINING.md).
 
 ## `Justfile`
 
