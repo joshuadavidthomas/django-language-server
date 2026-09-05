@@ -17,10 +17,6 @@ tag_rules:
         position: 0
     as_var: strip
 filter_arities:
-  "readthedocs.core.templatetags.privacy_tags::filter::is_admin":
-    expects_arg: true
-    arg_optional: false
-  "readthedocs.core.templatetags.privacy_tags::filter::is_member":
-    expects_arg: true
-    arg_optional: false
+  "readthedocs.core.templatetags.privacy_tags::filter::is_admin": required_argument
+  "readthedocs.core.templatetags.privacy_tags::filter::is_member": required_argument
 block_specs: {}

@@ -236,18 +236,10 @@ tag_rules:
         position: 0
     as_var: keep
 filter_arities:
-  "django.templatetags.i18n::filter::language_bidi":
-    expects_arg: false
-    arg_optional: false
-  "django.templatetags.i18n::filter::language_name":
-    expects_arg: false
-    arg_optional: false
-  "django.templatetags.i18n::filter::language_name_local":
-    expects_arg: false
-    arg_optional: false
-  "django.templatetags.i18n::filter::language_name_translated":
-    expects_arg: false
-    arg_optional: false
+  "django.templatetags.i18n::filter::language_bidi": no_argument
+  "django.templatetags.i18n::filter::language_name": no_argument
+  "django.templatetags.i18n::filter::language_name_local": no_argument
+  "django.templatetags.i18n::filter::language_name_translated": no_argument
 block_specs:
   "django.templatetags.i18n::tag::blocktrans":
     end_tag: endblocktrans

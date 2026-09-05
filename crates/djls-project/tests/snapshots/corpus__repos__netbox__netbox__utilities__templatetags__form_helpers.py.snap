@@ -81,10 +81,6 @@ tag_rules:
         position: 0
     as_var: keep
 filter_arities:
-  "netbox.utilities.templatetags.form_helpers::filter::getfield":
-    expects_arg: true
-    arg_optional: false
-  "netbox.utilities.templatetags.form_helpers::filter::widget_type":
-    expects_arg: false
-    arg_optional: false
+  "netbox.utilities.templatetags.form_helpers::filter::getfield": required_argument
+  "netbox.utilities.templatetags.form_helpers::filter::widget_type": no_argument
 block_specs: {}

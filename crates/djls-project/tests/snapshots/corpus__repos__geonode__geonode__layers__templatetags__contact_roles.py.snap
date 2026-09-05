@@ -21,13 +21,7 @@ tag_rules:
         position: 1
     as_var: strip
 filter_arities:
-  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_id":
-    expects_arg: true
-    arg_optional: false
-  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_label":
-    expects_arg: true
-    arg_optional: false
-  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_value":
-    expects_arg: true
-    arg_optional: false
+  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_id": required_argument
+  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_label": required_argument
+  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_value": required_argument
 block_specs: {}

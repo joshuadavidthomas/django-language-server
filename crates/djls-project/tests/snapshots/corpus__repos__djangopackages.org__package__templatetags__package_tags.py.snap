@@ -19,13 +19,7 @@ tag_rules:
         position: 1
     as_var: keep
 filter_arities:
-  "package.templatetags.package_tags::filter::emojify":
-    expects_arg: false
-    arg_optional: false
-  "package.templatetags.package_tags::filter::is_in":
-    expects_arg: true
-    arg_optional: false
-  "package.templatetags.package_tags::filter::package_dev_status_badge":
-    expects_arg: true
-    arg_optional: true
+  "package.templatetags.package_tags::filter::emojify": no_argument
+  "package.templatetags.package_tags::filter::is_in": required_argument
+  "package.templatetags.package_tags::filter::package_dev_status_badge": optional_argument
 block_specs: {}

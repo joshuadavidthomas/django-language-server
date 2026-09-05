@@ -101,16 +101,8 @@ tag_rules:
     extracted_args: []
     as_var: strip
 filter_arities:
-  "grappelli.templatetags.grp_tags::filter::classname":
-    expects_arg: true
-    arg_optional: true
-  "grappelli.templatetags.grp_tags::filter::classpath":
-    expects_arg: false
-    arg_optional: false
-  "grappelli.templatetags.grp_tags::filter::formsetsort":
-    expects_arg: true
-    arg_optional: false
-  "grappelli.templatetags.grp_tags::filter::prettylabel":
-    expects_arg: false
-    arg_optional: false
+  "grappelli.templatetags.grp_tags::filter::classname": optional_argument
+  "grappelli.templatetags.grp_tags::filter::classpath": no_argument
+  "grappelli.templatetags.grp_tags::filter::formsetsort": required_argument
+  "grappelli.templatetags.grp_tags::filter::prettylabel": no_argument
 block_specs: {}

@@ -143,7 +143,7 @@ impl<'db> TemplateValidator<'db> {
                 facts.unknown_load_can_shadow,
             );
             if !facts.unknown_load_can_shadow
-                && let Some(arity) = facts.arity.as_ref()
+                && let Some(arity) = facts.arity
             {
                 filters::check_filter_arity_rule(self.db, filter, arity);
             }

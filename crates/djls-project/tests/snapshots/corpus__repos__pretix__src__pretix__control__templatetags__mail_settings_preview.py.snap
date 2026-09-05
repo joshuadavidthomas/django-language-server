@@ -4,13 +4,7 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "src.pretix.control.templatetags.mail_settings_preview::filter::getattr":
-    expects_arg: true
-    arg_optional: false
-  "src.pretix.control.templatetags.mail_settings_preview::filter::hasattr":
-    expects_arg: true
-    arg_optional: false
-  "src.pretix.control.templatetags.mail_settings_preview::filter::split":
-    expects_arg: true
-    arg_optional: true
+  "src.pretix.control.templatetags.mail_settings_preview::filter::getattr": required_argument
+  "src.pretix.control.templatetags.mail_settings_preview::filter::hasattr": required_argument
+  "src.pretix.control.templatetags.mail_settings_preview::filter::split": optional_argument
 block_specs: {}

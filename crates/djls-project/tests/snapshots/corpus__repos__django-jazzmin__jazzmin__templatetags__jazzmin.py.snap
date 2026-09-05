@@ -229,31 +229,13 @@ tag_rules:
         position: 0
     as_var: strip
 filter_arities:
-  "jazzmin.templatetags.jazzmin::filter::app_is_installed":
-    expects_arg: false
-    arg_optional: false
-  "jazzmin.templatetags.jazzmin::filter::as_json":
-    expects_arg: false
-    arg_optional: false
-  "jazzmin.templatetags.jazzmin::filter::can_view_self":
-    expects_arg: false
-    arg_optional: false
-  "jazzmin.templatetags.jazzmin::filter::debug":
-    expects_arg: false
-    arg_optional: false
-  "jazzmin.templatetags.jazzmin::filter::has_fieldsets":
-    expects_arg: false
-    arg_optional: false
-  "jazzmin.templatetags.jazzmin::filter::has_jazzmin_setting":
-    expects_arg: true
-    arg_optional: false
-  "jazzmin.templatetags.jazzmin::filter::remove_lang":
-    expects_arg: true
-    arg_optional: false
-  "jazzmin.templatetags.jazzmin::filter::style_bold_first_word":
-    expects_arg: false
-    arg_optional: false
-  "jazzmin.templatetags.jazzmin::filter::unicode_slugify":
-    expects_arg: false
-    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::app_is_installed": no_argument
+  "jazzmin.templatetags.jazzmin::filter::as_json": no_argument
+  "jazzmin.templatetags.jazzmin::filter::can_view_self": no_argument
+  "jazzmin.templatetags.jazzmin::filter::debug": no_argument
+  "jazzmin.templatetags.jazzmin::filter::has_fieldsets": no_argument
+  "jazzmin.templatetags.jazzmin::filter::has_jazzmin_setting": required_argument
+  "jazzmin.templatetags.jazzmin::filter::remove_lang": required_argument
+  "jazzmin.templatetags.jazzmin::filter::style_bold_first_word": no_argument
+  "jazzmin.templatetags.jazzmin::filter::unicode_slugify": no_argument
 block_specs: {}

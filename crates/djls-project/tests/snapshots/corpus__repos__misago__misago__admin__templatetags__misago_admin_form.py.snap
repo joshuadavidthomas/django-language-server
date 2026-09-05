@@ -151,22 +151,10 @@ tag_rules:
         position: 0
     as_var: strip
 filter_arities:
-  "misago.admin.templatetags.misago_admin_form::filter::get_options":
-    expects_arg: false
-    arg_optional: false
-  "misago.admin.templatetags.misago_admin_form::filter::is_multiple_choice_field":
-    expects_arg: false
-    arg_optional: false
-  "misago.admin.templatetags.misago_admin_form::filter::is_radio_select_field":
-    expects_arg: false
-    arg_optional: false
-  "misago.admin.templatetags.misago_admin_form::filter::is_select_field":
-    expects_arg: false
-    arg_optional: false
-  "misago.admin.templatetags.misago_admin_form::filter::is_textarea_field":
-    expects_arg: false
-    arg_optional: false
-  "misago.admin.templatetags.misago_admin_form::filter::is_yesno_switch_field":
-    expects_arg: false
-    arg_optional: false
+  "misago.admin.templatetags.misago_admin_form::filter::get_options": no_argument
+  "misago.admin.templatetags.misago_admin_form::filter::is_multiple_choice_field": no_argument
+  "misago.admin.templatetags.misago_admin_form::filter::is_radio_select_field": no_argument
+  "misago.admin.templatetags.misago_admin_form::filter::is_select_field": no_argument
+  "misago.admin.templatetags.misago_admin_form::filter::is_textarea_field": no_argument
+  "misago.admin.templatetags.misago_admin_form::filter::is_yesno_switch_field": no_argument
 block_specs: {}

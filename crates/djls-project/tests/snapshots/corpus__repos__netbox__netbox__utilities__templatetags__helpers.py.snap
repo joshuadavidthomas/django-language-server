@@ -91,49 +91,19 @@ tag_rules:
         position: 2
     as_var: keep
 filter_arities:
-  "netbox.utilities.templatetags.helpers::filter::as_range":
-    expects_arg: false
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::divide":
-    expects_arg: true
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::get_item":
-    expects_arg: true
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::get_key":
-    expects_arg: true
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::humanize_disk_megabytes":
-    expects_arg: false
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::humanize_ram_megabytes":
-    expects_arg: false
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::humanize_speed":
-    expects_arg: false
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::icon_from_status":
-    expects_arg: false
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::kg_to_pounds":
-    expects_arg: false
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::meters_to_feet":
-    expects_arg: false
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::percentage":
-    expects_arg: true
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::startswith":
-    expects_arg: true
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::status_from_tag":
-    expects_arg: false
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::validated_viewname":
-    expects_arg: true
-    arg_optional: false
-  "netbox.utilities.templatetags.helpers::filter::viewname":
-    expects_arg: true
-    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::as_range": no_argument
+  "netbox.utilities.templatetags.helpers::filter::divide": required_argument
+  "netbox.utilities.templatetags.helpers::filter::get_item": required_argument
+  "netbox.utilities.templatetags.helpers::filter::get_key": required_argument
+  "netbox.utilities.templatetags.helpers::filter::humanize_disk_megabytes": no_argument
+  "netbox.utilities.templatetags.helpers::filter::humanize_ram_megabytes": no_argument
+  "netbox.utilities.templatetags.helpers::filter::humanize_speed": no_argument
+  "netbox.utilities.templatetags.helpers::filter::icon_from_status": no_argument
+  "netbox.utilities.templatetags.helpers::filter::kg_to_pounds": no_argument
+  "netbox.utilities.templatetags.helpers::filter::meters_to_feet": no_argument
+  "netbox.utilities.templatetags.helpers::filter::percentage": required_argument
+  "netbox.utilities.templatetags.helpers::filter::startswith": required_argument
+  "netbox.utilities.templatetags.helpers::filter::status_from_tag": no_argument
+  "netbox.utilities.templatetags.helpers::filter::validated_viewname": required_argument
+  "netbox.utilities.templatetags.helpers::filter::viewname": required_argument
 block_specs: {}

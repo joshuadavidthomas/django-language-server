@@ -4,9 +4,7 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "markdownify.templatetags.markdownify::filter::markdownify":
-    expects_arg: true
-    arg_optional: true
+  "markdownify.templatetags.markdownify::filter::markdownify": optional_argument
 block_specs:
   "markdownify.templatetags.markdownify::tag::markdownify":
     end_tag: endmarkdownify

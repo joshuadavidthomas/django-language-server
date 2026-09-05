@@ -4,10 +4,6 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "src.pretix.base.templatetags.rich_text::filter::rich_text":
-    expects_arg: false
-    arg_optional: false
-  "src.pretix.base.templatetags.rich_text::filter::rich_text_snippet":
-    expects_arg: false
-    arg_optional: false
+  "src.pretix.base.templatetags.rich_text::filter::rich_text": no_argument
+  "src.pretix.base.templatetags.rich_text::filter::rich_text_snippet": no_argument
 block_specs: {}

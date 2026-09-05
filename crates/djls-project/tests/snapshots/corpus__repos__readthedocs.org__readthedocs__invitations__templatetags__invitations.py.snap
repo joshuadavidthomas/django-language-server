@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "readthedocs.invitations.templatetags.invitations::filter::can_revoke_invitation":
-    expects_arg: true
-    arg_optional: false
+  "readthedocs.invitations.templatetags.invitations::filter::can_revoke_invitation": required_argument
 block_specs: {}

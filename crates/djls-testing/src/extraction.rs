@@ -67,7 +67,7 @@ pub fn sorted_snapshot(bundle: &ExtractionBundle) -> serde_json::Result<SortedEx
         filter_arities: bundle
             .filter_arities
             .iter()
-            .map(|(key, arity)| (key_str(key), arity.clone()))
+            .map(|(key, arity)| (key_str(key), *arity))
             .collect(),
         block_specs: serde_json::from_value(serde_json::to_value(&bundle.block_specs)?)?,
     })

@@ -43,7 +43,5 @@ tag_rules:
         position: 1
     as_var: keep
 filter_arities:
-  "fundraising.templatetags.fundraising_extras::filter::as_percentage":
-    expects_arg: true
-    arg_optional: false
+  "fundraising.templatetags.fundraising_extras::filter::as_percentage": required_argument
 block_specs: {}

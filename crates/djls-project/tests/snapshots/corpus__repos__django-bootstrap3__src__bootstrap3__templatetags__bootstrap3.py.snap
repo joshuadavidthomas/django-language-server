@@ -210,12 +210,8 @@ tag_rules:
         position: 2
     as_var: strip
 filter_arities:
-  "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes":
-    expects_arg: false
-    arg_optional: false
-  "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_setting":
-    expects_arg: false
-    arg_optional: false
+  "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes": no_argument
+  "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_setting": no_argument
 block_specs:
   "src.bootstrap3.templatetags.bootstrap3::tag::buttons":
     end_tag: endbuttons

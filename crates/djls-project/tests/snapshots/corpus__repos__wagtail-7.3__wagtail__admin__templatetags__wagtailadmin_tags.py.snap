@@ -746,39 +746,17 @@ tag_rules:
         position: 0
     as_var: strip
 filter_arities:
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::abs":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::admin_urlquote":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::cautious_slugify":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::ellipsistrim":
-    expects_arg: true
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::fieldtype":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::format_content_type":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::has_unrendered_errors":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::render_with_errors":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::timesince_simple":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::user_display_name":
-    expects_arg: false
-    arg_optional: false
-  "wagtail.admin.templatetags.wagtailadmin_tags::filter::widgettype":
-    expects_arg: false
-    arg_optional: false
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::abs": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::admin_urlquote": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::cautious_slugify": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::ellipsistrim": required_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::fieldtype": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::format_content_type": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::has_unrendered_errors": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::render_with_errors": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::timesince_simple": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::user_display_name": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::widgettype": no_argument
 block_specs:
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::fragment":
     end_tag: endfragment

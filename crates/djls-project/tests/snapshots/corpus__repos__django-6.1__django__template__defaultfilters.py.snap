@@ -4,175 +4,61 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules: {}
 filter_arities:
-  "django.template.defaultfilters::filter::add":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::addslashes":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::capfirst":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::center":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::cut":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::date":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::default":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::default_if_none":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::dictsort":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::dictsortreversed":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::divisibleby":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::escape":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::escapejs":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::escapeseq":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::filesizeformat":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::first":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::floatformat":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::force_escape":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::get_digit":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::iriencode":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::join":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::json_script":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::last":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::length":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::linebreaks":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::linebreaksbr":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::linenumbers":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::ljust":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::lower":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::make_list":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::phone2numeric":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::pluralize":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::pprint":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::random":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::rjust":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::safe":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::safeseq":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::slice":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::slugify":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::stringformat":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::striptags":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::time":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::timesince":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::timeuntil":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::title":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::truncatechars":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::truncatechars_html":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::truncatewords":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::truncatewords_html":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::unordered_list":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::upper":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::urlencode":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::urlize":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::urlizetrunc":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::wordcount":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::wordwrap":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::yesno":
-    expects_arg: true
-    arg_optional: true
+  "django.template.defaultfilters::filter::add": required_argument
+  "django.template.defaultfilters::filter::addslashes": no_argument
+  "django.template.defaultfilters::filter::capfirst": no_argument
+  "django.template.defaultfilters::filter::center": required_argument
+  "django.template.defaultfilters::filter::cut": required_argument
+  "django.template.defaultfilters::filter::date": optional_argument
+  "django.template.defaultfilters::filter::default": required_argument
+  "django.template.defaultfilters::filter::default_if_none": required_argument
+  "django.template.defaultfilters::filter::dictsort": required_argument
+  "django.template.defaultfilters::filter::dictsortreversed": required_argument
+  "django.template.defaultfilters::filter::divisibleby": required_argument
+  "django.template.defaultfilters::filter::escape": no_argument
+  "django.template.defaultfilters::filter::escapejs": no_argument
+  "django.template.defaultfilters::filter::escapeseq": no_argument
+  "django.template.defaultfilters::filter::filesizeformat": no_argument
+  "django.template.defaultfilters::filter::first": no_argument
+  "django.template.defaultfilters::filter::floatformat": optional_argument
+  "django.template.defaultfilters::filter::force_escape": no_argument
+  "django.template.defaultfilters::filter::get_digit": required_argument
+  "django.template.defaultfilters::filter::iriencode": no_argument
+  "django.template.defaultfilters::filter::join": required_argument
+  "django.template.defaultfilters::filter::json_script": optional_argument
+  "django.template.defaultfilters::filter::last": no_argument
+  "django.template.defaultfilters::filter::length": no_argument
+  "django.template.defaultfilters::filter::linebreaks": optional_argument
+  "django.template.defaultfilters::filter::linebreaksbr": optional_argument
+  "django.template.defaultfilters::filter::linenumbers": optional_argument
+  "django.template.defaultfilters::filter::ljust": required_argument
+  "django.template.defaultfilters::filter::lower": no_argument
+  "django.template.defaultfilters::filter::make_list": no_argument
+  "django.template.defaultfilters::filter::phone2numeric": no_argument
+  "django.template.defaultfilters::filter::pluralize": optional_argument
+  "django.template.defaultfilters::filter::pprint": no_argument
+  "django.template.defaultfilters::filter::random": no_argument
+  "django.template.defaultfilters::filter::rjust": required_argument
+  "django.template.defaultfilters::filter::safe": no_argument
+  "django.template.defaultfilters::filter::safeseq": no_argument
+  "django.template.defaultfilters::filter::slice": required_argument
+  "django.template.defaultfilters::filter::slugify": no_argument
+  "django.template.defaultfilters::filter::stringformat": required_argument
+  "django.template.defaultfilters::filter::striptags": no_argument
+  "django.template.defaultfilters::filter::time": optional_argument
+  "django.template.defaultfilters::filter::timesince": optional_argument
+  "django.template.defaultfilters::filter::timeuntil": optional_argument
+  "django.template.defaultfilters::filter::title": no_argument
+  "django.template.defaultfilters::filter::truncatechars": required_argument
+  "django.template.defaultfilters::filter::truncatechars_html": required_argument
+  "django.template.defaultfilters::filter::truncatewords": required_argument
+  "django.template.defaultfilters::filter::truncatewords_html": required_argument
+  "django.template.defaultfilters::filter::unordered_list": optional_argument
+  "django.template.defaultfilters::filter::upper": no_argument
+  "django.template.defaultfilters::filter::urlencode": optional_argument
+  "django.template.defaultfilters::filter::urlize": optional_argument
+  "django.template.defaultfilters::filter::urlizetrunc": required_argument
+  "django.template.defaultfilters::filter::wordcount": no_argument
+  "django.template.defaultfilters::filter::wordwrap": required_argument
+  "django.template.defaultfilters::filter::yesno": optional_argument
 block_specs: {}

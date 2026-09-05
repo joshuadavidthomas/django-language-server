@@ -69,18 +69,10 @@ tag_rules:
     extracted_args: []
     as_var: strip
 filter_arities:
-  "horizon.templatetags.horizon::filter::has_permissions":
-    expects_arg: true
-    arg_optional: false
-  "horizon.templatetags.horizon::filter::has_permissions_on_list":
-    expects_arg: true
-    arg_optional: false
-  "horizon.templatetags.horizon::filter::quota":
-    expects_arg: true
-    arg_optional: true
-  "horizon.templatetags.horizon::filter::quotainf":
-    expects_arg: true
-    arg_optional: true
+  "horizon.templatetags.horizon::filter::has_permissions": required_argument
+  "horizon.templatetags.horizon::filter::has_permissions_on_list": required_argument
+  "horizon.templatetags.horizon::filter::quota": optional_argument
+  "horizon.templatetags.horizon::filter::quotainf": optional_argument
 block_specs:
   "horizon.templatetags.horizon::tag::jstemplate":
     end_tag: endjstemplate

@@ -4,10 +4,6 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules: {}
 filter_arities:
-  "django.contrib.admin.templatetags.admin_filters::filter::to_object_display_value":
-    expects_arg: false
-    arg_optional: false
-  "django.contrib.admin.templatetags.admin_filters::filter::truncated_unordered_list":
-    expects_arg: true
-    arg_optional: false
+  "django.contrib.admin.templatetags.admin_filters::filter::to_object_display_value": no_argument
+  "django.contrib.admin.templatetags.admin_filters::filter::truncated_unordered_list": required_argument
 block_specs: {}

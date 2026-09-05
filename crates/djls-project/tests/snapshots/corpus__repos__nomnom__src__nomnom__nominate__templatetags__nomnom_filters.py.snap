@@ -4,16 +4,8 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "src.nomnom.nominate.templatetags.nomnom_filters::filter::get_item":
-    expects_arg: true
-    arg_optional: false
-  "src.nomnom.nominate.templatetags.nomnom_filters::filter::place":
-    expects_arg: false
-    arg_optional: false
-  "src.nomnom.nominate.templatetags.nomnom_filters::filter::strip_html_tags":
-    expects_arg: false
-    arg_optional: false
-  "src.nomnom.nominate.templatetags.nomnom_filters::filter::user_display_name":
-    expects_arg: false
-    arg_optional: false
+  "src.nomnom.nominate.templatetags.nomnom_filters::filter::get_item": required_argument
+  "src.nomnom.nominate.templatetags.nomnom_filters::filter::place": no_argument
+  "src.nomnom.nominate.templatetags.nomnom_filters::filter::strip_html_tags": no_argument
+  "src.nomnom.nominate.templatetags.nomnom_filters::filter::user_display_name": no_argument
 block_specs: {}

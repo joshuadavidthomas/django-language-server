@@ -122,10 +122,6 @@ tag_rules:
         position: 0
     as_var: keep
 filter_arities:
-  "geonode.base.templatetags.base_tags::filter::get_item":
-    expects_arg: true
-    arg_optional: false
-  "geonode.base.templatetags.base_tags::filter::template_trans":
-    expects_arg: false
-    arg_optional: false
+  "geonode.base.templatetags.base_tags::filter::get_item": required_argument
+  "geonode.base.templatetags.base_tags::filter::template_trans": no_argument
 block_specs: {}

@@ -229,13 +229,7 @@ tag_rules:
     extracted_args: []
     as_var: strip
 filter_arities:
-  "tests.template_tests.templatetags.custom::filter::make_data_div":
-    expects_arg: false
-    arg_optional: false
-  "tests.template_tests.templatetags.custom::filter::noop":
-    expects_arg: true
-    arg_optional: true
-  "tests.template_tests.templatetags.custom::filter::trim":
-    expects_arg: true
-    arg_optional: false
+  "tests.template_tests.templatetags.custom::filter::make_data_div": no_argument
+  "tests.template_tests.templatetags.custom::filter::noop": optional_argument
+  "tests.template_tests.templatetags.custom::filter::trim": required_argument
 block_specs: {}

@@ -29,34 +29,14 @@ tag_rules:
         position: 3
     as_var: strip
 filter_arities:
-  "crispy_forms.templatetags.crispy_forms_field::filter::classes":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::css_class":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::is_checkbox":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::is_checkboxselectmultiple":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::is_clearable_file":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::is_file":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::is_multivalue":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::is_password":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::is_radioselect":
-    expects_arg: false
-    arg_optional: false
-  "crispy_forms.templatetags.crispy_forms_field::filter::is_select":
-    expects_arg: false
-    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::filter::classes": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::css_class": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::is_checkbox": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::is_checkboxselectmultiple": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::is_clearable_file": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::is_file": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::is_multivalue": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::is_password": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::is_radioselect": no_argument
+  "crispy_forms.templatetags.crispy_forms_field::filter::is_select": no_argument
 block_specs: {}

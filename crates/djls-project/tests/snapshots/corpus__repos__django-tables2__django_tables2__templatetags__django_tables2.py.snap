@@ -33,7 +33,5 @@ tag_rules:
         position: 0
     as_var: strip
 filter_arities:
-  "django_tables2.templatetags.django_tables2::filter::table_page_range":
-    expects_arg: true
-    arg_optional: false
+  "django_tables2.templatetags.django_tables2::filter::table_page_range": required_argument
 block_specs: {}

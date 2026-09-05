@@ -212,6 +212,7 @@ mod invalidation_tests {
     use djls_conf::TagTypeDef;
     use djls_ide::prime_template_library_products;
     use djls_project::Db as ProjectDb;
+    use djls_project::FilterArity;
     use djls_project::LibraryName;
     use djls_project::LoadableLibraryLookup;
     use djls_project::Project;
@@ -2056,11 +2057,9 @@ env_file = ".env.local"
                 .len(),
             1
         );
-        assert!(
-            alpha_filters
-                .get("alpha_filter")
-                .expect("expected test fixture entry should exist")
-                .expects_arg
+        assert_eq!(
+            alpha_filters.get("alpha_filter"),
+            Some(&FilterArity::RequiredArgument)
         );
         for (file, module) in identities
             .iter()
@@ -2104,11 +2103,9 @@ env_file = ".env.local"
                 .len(),
             2
         );
-        assert!(
-            alpha_filters
-                .get("alpha_filter")
-                .expect("expected test fixture entry should exist")
-                .expects_arg
+        assert_eq!(
+            alpha_filters.get("alpha_filter"),
+            Some(&FilterArity::RequiredArgument)
         );
         for (file, module) in identities
             .iter()
@@ -2250,7 +2247,10 @@ def my_filter(value, arg):
             result.filter_arities().contains_key(&key),
             "should extract filter from file content"
         );
-        assert!(result.filter_arities()[&key].expects_arg);
+        assert_eq!(
+            result.filter_arities().get(&key),
+            Some(&FilterArity::RequiredArgument)
+        );
 
         let other_library = TemplateLibraryId::new(
             &db,
