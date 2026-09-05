@@ -22,7 +22,6 @@ EXPECTED_STARTUP_PROGRESS_TITLES = {
 COUNTED_PROGRESS_UNITS = [
     ("search path", "search paths"),
     ("settings file", "settings files"),
-    ("model module", "model modules"),
     ("template library source", "template library sources"),
     ("template tag candidate", "template tag candidates"),
     ("discovered file", "discovered files"),
@@ -255,16 +254,16 @@ async def test_supported_client_receives_startup_progress_begin_report_end(
         "Resolving environment",
         "Resolving Python search paths",
         "Reading settings sources",
-        "Discovering model modules",
         "Discovering template libraries",
         "Discovering template tag candidates",
-        "Building model graph",
         "Resolving template directories",
         "Indexing template libraries",
         "Indexing templates",
     ]:
         assert expected in report_messages
 
+    assert "Discovering model modules" not in report_messages
+    assert "Building model graph" not in report_messages
     assert any(event.percentage is not None for event in report_events)
     assert any(has_fraction(message) for message in report_messages)
     for units in COUNTED_PROGRESS_UNITS:
@@ -293,6 +292,8 @@ async def test_unsupported_client_receives_log_fallback(
         message.startswith("Warming Django caches: Indexing templates")
         for message in messages
     )
+    assert not any("Discovering model modules" in message for message in messages)
+    assert not any("Building model graph" in message for message in messages)
     assert any(has_fraction(message) for message in messages)
     for units in COUNTED_PROGRESS_UNITS:
         assert has_counted_unit(messages, units)

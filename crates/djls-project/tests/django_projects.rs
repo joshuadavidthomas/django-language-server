@@ -83,10 +83,10 @@ fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
 
     let discovery = compute_project_facts(&db, project);
     assert!(
-        discovery
+        !discovery
             .file_paths()
             .contains(&root.join("src/blog/models.py")),
-        "Django discovery should include the blog model source"
+        "routine discovery should defer model sources until a Model query needs them"
     );
 
     let dirs = template_dirs(&db, project);

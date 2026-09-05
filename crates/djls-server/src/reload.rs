@@ -1412,7 +1412,7 @@ mod tests {
         let successful = spawn_warm_cache_job(successful_phase, Session::default().snapshot());
 
         let batch = collect_warm_cache_jobs(vec![
-            (1, WarmCachePhase::BuildModelGraph, failed),
+            (1, WarmCachePhase::IndexTemplateLibraries, failed),
             (2, successful_phase, successful),
         ])
         .await;
@@ -1717,10 +1717,20 @@ mod tests {
         let root = base.join("project");
         let vendor = base.join("vendor");
         std::fs::create_dir_all(root.as_std_path()).expect("project root should be created");
-        std::fs::create_dir_all(vendor.join("blog").as_std_path())
-            .expect("vendor app directory should be created");
-        std::fs::write(vendor.join("blog/models.py").as_std_path(), "")
-            .expect("vendor model fixture should be written");
+        std::fs::create_dir_all(vendor.join("blog/templatetags").as_std_path())
+            .expect("vendor Template Library directory should be created");
+        std::fs::write(vendor.join("blog/__init__.py").as_std_path(), "")
+            .expect("vendor app package should be written");
+        std::fs::write(
+            vendor.join("blog/templatetags/__init__.py").as_std_path(),
+            "",
+        )
+        .expect("vendor Template Library package should be written");
+        std::fs::write(
+            vendor.join("blog/templatetags/blog_tags.py").as_std_path(),
+            "",
+        )
+        .expect("vendor Template Library fixture should be written");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             format!(
@@ -1774,7 +1784,11 @@ mod tests {
         let facts = ProjectFactsData::assemble(
             project_facts_phases().map(|phase| phase.run(&facts_db, project)),
         );
-        assert!(facts.file_paths().contains(&vendor.join("blog/models.py")));
+        assert!(
+            facts
+                .file_paths()
+                .contains(&vendor.join("blog/templatetags/blog_tags.py"))
+        );
     }
 
     #[tokio::test]
