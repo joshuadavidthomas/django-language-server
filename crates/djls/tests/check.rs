@@ -601,6 +601,110 @@ fn check_without_paths_scans_known_template_directories() {
 }
 
 #[test]
+fn check_without_paths_does_not_broaden_context_processor_only_branches() {
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
+
+    let configured = dir.path().join("configured");
+    fs::create_dir_all(&configured).expect("configured Template directory should be created");
+    fs::write(
+        configured.join("configured-broken.html"),
+        "{% block content %}\n",
+    )
+    .expect("configured Template fixture should be written");
+    fs::write(dir.path().join("root-broken.html"), "{% block content %}\n")
+        .expect("project-root Template fixture should be written");
+
+    let config = fs::read_to_string(dir.path().join("djls.toml"))
+        .expect("test project configuration should be readable");
+    fs::write(
+        dir.path().join("djls.toml"),
+        format!("django_settings_module = \"settings\"\n{config}"),
+    )
+    .expect("Django settings module should be configured");
+    fs::write(
+        dir.path().join("settings.py"),
+        format!(
+            "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}'], 'APP_DIRS': False, 'OPTIONS': {{'context_processors': ['project.context_processors.site']}}}}]\nelse:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}'], 'APP_DIRS': False, 'OPTIONS': {{'context_processors': ['project.context_processors.admin']}}}}]\n",
+            root = configured.display()
+        ),
+    )
+    .expect("branched Django Template settings should be written");
+
+    let output = Command::new(djls_binary())
+        .arg("check")
+        .current_dir(dir.path())
+        .output()
+        .expect("djls check process should run");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("configured-broken.html"), "{stdout}");
+    assert!(!stdout.contains("root-broken.html"), "{stdout}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "Found 1 error in 1 file.\n"
+    );
+}
+
+#[test]
+fn check_without_paths_keeps_fallback_for_different_backend_libraries() {
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
+
+    let configured = dir.path().join("configured");
+    fs::create_dir_all(&configured).expect("configured Template directory should be created");
+    fs::write(
+        configured.join("configured.html"),
+        "{% block content %}{% endblock %}\n",
+    )
+    .expect("configured Template fixture should be written");
+    fs::write(dir.path().join("root-broken.html"), "{% block content %}\n")
+        .expect("project-root Template fixture should be written");
+
+    let config = fs::read_to_string(dir.path().join("djls.toml"))
+        .expect("test project configuration should be readable");
+    fs::write(
+        dir.path().join("djls.toml"),
+        format!("django_settings_module = \"settings\"\n{config}"),
+    )
+    .expect("Django settings module should be configured");
+    fs::write(
+        dir.path().join("settings.py"),
+        format!(
+            "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'alpha_tags'}}}}}}]\nelse:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'beta_tags'}}}}}}]\n",
+            root = configured.display()
+        ),
+    )
+    .expect("branched Django Template settings should be written");
+
+    let output = Command::new(djls_binary())
+        .arg("check")
+        .current_dir(dir.path())
+        .output()
+        .expect("djls check process should run");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("root-broken.html"),
+        "different configured libraries must retain separate backend alternatives: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
 fn check_without_paths_falls_back_when_roots_may_be_omitted() {
     let dir = tempfile::tempdir().expect("temporary test directory should be created");
     setup_project(dir.path()).expect("test project fixture should be configured");

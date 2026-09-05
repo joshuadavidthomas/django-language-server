@@ -1862,16 +1862,20 @@ TEMPLATES[0]['DIRS'].remove('/proj/removed')",
 }
 
 #[test]
-fn template_dirs_merge_equivalent_explicit_backend_branches() {
+fn template_settings_projection_merges_branches_differing_only_in_context_processors() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
         "myproject.settings",
         &[
-            ("/proj/templates/index.html", "index"),
+            ("/proj/templates/index.html", "{% load shared %}"),
+            (
+                "/proj/custom_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
             (
                 "/proj/myproject/settings.py",
-                "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'context_processors': ['project.context_processors.site']}}]\n",
+                "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'custom_tags'}, 'context_processors': ['project.context_processors.site']}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'custom_tags'}, 'context_processors': ['project.context_processors.admin']}}]\n",
             ),
         ],
     ).expect("settings project fixture should build");
@@ -1883,21 +1887,37 @@ fn template_dirs_merge_equivalent_explicit_backend_branches() {
             .as_array()
             .expect("expected JSON field should be an array")
             .len(),
-        1
-    );
-    assert_eq!(
-        settings["templates"]["cases"][0]["known"]["backends"]
-            .as_array()
-            .expect("expected JSON field should be an array")
-            .len(),
-        1
+        2,
+        "source settings must retain context processor alternatives"
     );
 
+    assert_eq!(
+        complete_template_dirs(&db, project),
+        [Utf8PathBuf::from("/proj/templates")]
+    );
     let origins: Vec<_> = template_resolution(&db, project)
         .origins(&db)
         .map(|origin| origin.path_buf(&db).clone())
         .collect();
     assert_eq!(origins, [Utf8PathBuf::from("/proj/templates/index.html")]);
+
+    let file = db
+        .file(Utf8Path::new("/proj/templates/index.html"))
+        .expect("template fixture should exist in the test database");
+    let libraries = scoped_template_libraries(&db, project, file);
+    assert_eq!(
+        libraries.library_chains(&["shared"]).len(),
+        1,
+        "context processors must not duplicate the consumed library alternative"
+    );
+    assert_eq!(
+        libraries
+            .loadable_library_str("shared")
+            .found()
+            .expect("projected backend should provide the configured library")
+            .module_name_str(),
+        "custom_tags"
+    );
 }
 
 #[test]
