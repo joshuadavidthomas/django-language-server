@@ -240,10 +240,6 @@ impl SemanticDb for Db {
     fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
         &self.projectless_filter_arity_specs
     }
-
-    fn model_graph(&self) -> &djls_project::ModelGraph {
-        djls_project::ModelGraph::empty_ref()
-    }
 }
 
 #[cfg(test)]
