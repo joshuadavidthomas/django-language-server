@@ -473,50 +473,6 @@ impl Relation {
             RelationType::GenericForeignKey { .. } => None,
         }
     }
-
-    #[cfg(test)]
-    fn effective_related_name_matches(
-        &self,
-        source_model: &str,
-        module_name: &str,
-        field_name: &str,
-    ) -> bool {
-        match &self.relation_type {
-            RelationType::ForeignKey { related_name, .. }
-            | RelationType::ManyToMany { related_name, .. } => match related_name {
-                Some(RelatedName::Named(name)) => {
-                    template_related_name_matches(name, source_model, module_name, field_name)
-                }
-                Some(RelatedName::Suppressed) => false,
-                None => field_name
-                    .strip_suffix("_set")
-                    .is_some_and(|prefix| source_model.to_lowercase() == prefix),
-            },
-            RelationType::OneToOne { related_name, .. } => match related_name {
-                Some(RelatedName::Named(name)) => {
-                    template_related_name_matches(name, source_model, module_name, field_name)
-                }
-                Some(RelatedName::Suppressed) => false,
-                None => source_model.to_lowercase() == field_name,
-            },
-            RelationType::GenericForeignKey { .. } => false,
-        }
-    }
-}
-
-#[cfg(test)]
-fn template_related_name_matches(
-    template: &str,
-    source_model: &str,
-    module_name: &str,
-    field_name: &str,
-) -> bool {
-    if !template.contains("%(") {
-        return template == field_name;
-    }
-
-    let lower = source_model.to_lowercase();
-    substitute_related_name(template, &lower, module_name) == field_name
 }
 
 fn substitute_related_name(template: &str, lower_model: &str, module_name: &str) -> String {
@@ -1333,41 +1289,6 @@ impl ModelGraph {
         }
     }
 
-    /// Look up models that point at `scope` via a reverse relation.
-    ///
-    /// Returns `(source_model_id, effective_related_name)` pairs. Skips
-    /// `GenericForeignKey` relations.
-    #[cfg(test)]
-    fn resolve_reverse<'a>(
-        &'a self,
-        scope: &'a ModelId,
-    ) -> impl Iterator<Item = (&'a ModelId, String)> + 'a {
-        self.records.iter().flat_map(move |(source_id, record)| {
-            let model = &record.definition;
-            (model.kind == ModelKind::Concrete)
-                .then(|| {
-                    self.owned_relation_bindings(source_id).filter_map(
-                        move |(binding, relation)| {
-                            let (target_id, _target_model) =
-                                self.resolve_relation_target_entry(binding, relation)?;
-                            if target_id != scope {
-                                return None;
-                            }
-
-                            relation
-                                .effective_related_name(
-                                    model.name.value().as_str(),
-                                    model.module_name.as_str(),
-                                )
-                                .map(|name| (source_id, name))
-                        },
-                    )
-                })
-                .into_iter()
-                .flatten()
-        })
-    }
-
     /// Resolve a field access on a model — checks forward relations first,
     /// then reverse relations.
     #[must_use]
@@ -1751,17 +1672,6 @@ mod tests {
     }
 
     #[test]
-    fn reverse_lookup() {
-        let graph = user_order_graph();
-        let reverses: Vec<_> = graph
-            .resolve_reverse(model_id(&graph, "User"))
-            .map(|(src, name)| (src.name().to_string(), name))
-            .collect();
-        assert!(reverses.contains(&("Order".into(), "orders".into())));
-        assert!(reverses.contains(&("Profile".into(), "profile".into())));
-    }
-
-    #[test]
     fn resolve_relation_forward_and_reverse() {
         let graph = user_order_graph();
         assert_eq!(
@@ -1899,18 +1809,11 @@ mod tests {
                 relation.effective_related_name("Order", "shop.models"),
                 None
             );
-            for candidate in ["+", "order+", "foo+"] {
-                assert!(!relation.effective_related_name_matches(
-                    "Order",
-                    "shop.models",
-                    candidate
-                ));
-            }
         }
     }
 
     #[test]
-    fn named_related_name_still_matches_after_substitution() {
+    fn parsed_related_name_substitutes_the_model_name() {
         let relation_type = RelationType::from_field_class(
             "ForeignKey",
             Spanned::new(
@@ -1932,16 +1835,10 @@ mod tests {
         ));
         let relation = relation("user", relation_type);
 
-        assert!(relation.effective_related_name_matches(
-            "SpecialOrder",
-            "shop.models",
-            "specialorder_orders"
-        ));
-        assert!(!relation.effective_related_name_matches(
-            "SpecialOrder",
-            "shop.models",
-            "specialorder_set"
-        ));
+        assert_eq!(
+            relation.effective_related_name("SpecialOrder", "shop.models"),
+            Some("specialorder_orders".into())
+        );
     }
 
     #[test]
