@@ -22,7 +22,6 @@ tag_rules:
       - name: object
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::confirm_unlock_text":
     arg_constraints:
@@ -35,7 +34,6 @@ tag_rules:
       - name: object
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::get_child_count":
     arg_constraints:
@@ -72,7 +70,6 @@ tag_rules:
       - name: url
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::relative_url":
     arg_constraints:
@@ -85,11 +82,9 @@ tag_rules:
       - name: field_name
         required: true
         kind: Variable
-        position: 0
       - name: value
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::user_is_locked":
     arg_constraints:
@@ -102,7 +97,6 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::user_is_read_only":
     arg_constraints:
@@ -115,7 +109,6 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::version_string":
     arg_constraints:

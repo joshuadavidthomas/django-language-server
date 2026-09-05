@@ -14,7 +14,6 @@ tag_rules:
       - name: permission_bound_field
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "wagtail.users.templatetags.wagtailusers_tags::tag::user_listing_buttons":
     arg_constraints:
@@ -27,7 +26,6 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities: {}
 block_specs: {}

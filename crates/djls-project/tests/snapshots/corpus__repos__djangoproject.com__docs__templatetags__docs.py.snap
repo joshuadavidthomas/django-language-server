@@ -14,11 +14,9 @@ tag_rules:
       - name: searched_python_objects
         required: true
         kind: Variable
-        position: 0
       - name: python_objects
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "docs.templatetags.docs::tag::get_all_doc_versions":
     arg_constraints:
@@ -30,7 +28,6 @@ tag_rules:
       - name: url
         required: false
         kind: Variable
-        position: 0
     as_var: strip
   "docs.templatetags.docs::tag::search_form":
     arg_constraints:

@@ -13,15 +13,12 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
       - name: width
         required: false
         kind: Variable
-        position: 1
       - name: height
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "avatar.templatetags.avatar_tags::tag::avatar_url":
     arg_constraints:
@@ -34,15 +31,12 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
       - name: width
         required: false
         kind: Variable
-        position: 1
       - name: height
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "avatar.templatetags.avatar_tags::tag::primary_avatar":
     arg_constraints:
@@ -55,15 +49,12 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
       - name: width
         required: false
         kind: Variable
-        position: 1
       - name: height
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "avatar.templatetags.avatar_tags::tag::render_avatar":
     arg_constraints:
@@ -76,15 +67,12 @@ tag_rules:
       - name: avatar
         required: true
         kind: Variable
-        position: 0
       - name: width
         required: false
         kind: Variable
-        position: 1
       - name: height
         required: false
         kind: Variable
-        position: 2
     as_var: strip
 filter_arities:
   "avatar.templatetags.avatar_tags::filter::has_avatar": no_argument

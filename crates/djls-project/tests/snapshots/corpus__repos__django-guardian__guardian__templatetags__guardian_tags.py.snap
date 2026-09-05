@@ -57,29 +57,23 @@ tag_rules:
       - name: for_whom
         required: true
         kind: Variable
-        position: 0
       - name: for
         required: true
         kind:
           Literal: for
-        position: 1
       - name: obj
         required: true
         kind: Variable
-        position: 2
       - name: as
         required: true
         kind:
           Literal: as
-        position: 3
       - name: arg5
         required: true
         kind: Variable
-        position: 4
       - name: arg6
         required: true
         kind: Variable
-        position: 5
     as_var: keep
 filter_arities: {}
 block_specs: {}

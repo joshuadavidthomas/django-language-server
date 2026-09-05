@@ -12,7 +12,6 @@ tag_rules:
       - name: name
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "pipeline.templatetags.pipeline::tag::stylesheet":
     arg_constraints: []
@@ -23,7 +22,6 @@ tag_rules:
       - name: name
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities: {}
 block_specs: {}

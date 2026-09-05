@@ -22,7 +22,6 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "allauth.socialaccount.templatetags.socialaccount::tag::provider_login_url":
     arg_constraints:
@@ -34,7 +33,6 @@ tag_rules:
       - name: provider
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "allauth.socialaccount.templatetags.socialaccount::tag::providers_media_js":
     arg_constraints:

@@ -13,7 +13,6 @@ tag_rules:
       - name: position
         required: false
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities: {}
 block_specs: {}

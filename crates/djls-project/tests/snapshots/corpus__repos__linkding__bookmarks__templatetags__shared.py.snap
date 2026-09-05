@@ -13,7 +13,6 @@ tag_rules:
       - name: field
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "bookmarks.templatetags.shared::tag::formhelp":
     arg_constraints: []
@@ -24,7 +23,6 @@ tag_rules:
       - name: field_var
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "bookmarks.templatetags.shared::tag::formlabel":
     arg_constraints:
@@ -37,11 +35,9 @@ tag_rules:
       - name: field
         required: true
         kind: Variable
-        position: 0
       - name: label_text
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "bookmarks.templatetags.shared::tag::markdown":
     arg_constraints:
@@ -54,7 +50,6 @@ tag_rules:
       - name: markdown_text
         required: true
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities:
   "bookmarks.templatetags.shared::filter::first_char": no_argument

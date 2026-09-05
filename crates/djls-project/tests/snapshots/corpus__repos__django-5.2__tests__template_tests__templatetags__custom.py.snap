@@ -54,7 +54,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::minustwo":
     arg_constraints:
@@ -67,7 +66,6 @@ tag_rules:
       - name: value
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::no_params":
     arg_constraints:
@@ -96,7 +94,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::params_and_context":
     arg_constraints:
@@ -109,7 +106,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_keyword_only_default":
     arg_constraints:
@@ -121,7 +117,6 @@ tag_rules:
       - name: kwarg
         required: false
         kind: Keyword
-        position: 0
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_keyword_only_param":
     arg_constraints:
@@ -133,7 +128,6 @@ tag_rules:
       - name: kwarg
         required: true
         kind: Keyword
-        position: 0
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_one_default":
     arg_constraints:
@@ -146,11 +140,9 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_only_unlimited_args":
     arg_constraints: []
@@ -161,7 +153,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_tag_takes_context_without_params":
     arg_constraints:
@@ -190,11 +181,9 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_unlimited_args":
     arg_constraints:
@@ -206,15 +195,12 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
       - name: args
         required: false
         kind: VarArgs
-        position: 2
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_unlimited_args_kwargs":
     arg_constraints:
@@ -226,15 +212,12 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
       - name: args
         required: false
         kind: VarArgs
-        position: 2
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::use_l10n":
     arg_constraints:

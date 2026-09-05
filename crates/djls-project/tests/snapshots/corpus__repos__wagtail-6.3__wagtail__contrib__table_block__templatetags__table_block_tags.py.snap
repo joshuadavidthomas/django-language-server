@@ -14,15 +14,12 @@ tag_rules:
       - name: row_index
         required: true
         kind: Variable
-        position: 0
       - name: col_index
         required: true
         kind: Variable
-        position: 1
       - name: table_header
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_hidden":
     arg_constraints:
@@ -35,15 +32,12 @@ tag_rules:
       - name: row_index
         required: true
         kind: Variable
-        position: 0
       - name: col_index
         required: true
         kind: Variable
-        position: 1
       - name: table_header
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_span":
     arg_constraints:
@@ -56,15 +50,12 @@ tag_rules:
       - name: row_index
         required: true
         kind: Variable
-        position: 0
       - name: col_index
         required: true
         kind: Variable
-        position: 1
       - name: table_header
         required: false
         kind: Variable
-        position: 2
     as_var: strip
 filter_arities: {}
 block_specs: {}

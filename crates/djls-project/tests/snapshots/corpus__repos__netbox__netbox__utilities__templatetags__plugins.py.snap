@@ -14,7 +14,6 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_buttons":
     arg_constraints:
@@ -27,7 +26,6 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_full_width_page":
     arg_constraints:
@@ -40,7 +38,6 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_head":
     arg_constraints:
@@ -61,7 +58,6 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_list_buttons":
     arg_constraints:
@@ -74,7 +70,6 @@ tag_rules:
       - name: model
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_navbar":
     arg_constraints:
@@ -95,7 +90,6 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities: {}
 block_specs: {}

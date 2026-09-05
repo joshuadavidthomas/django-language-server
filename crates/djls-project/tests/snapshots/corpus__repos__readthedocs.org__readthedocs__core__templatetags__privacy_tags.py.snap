@@ -14,7 +14,6 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities:
   "readthedocs.core.templatetags.privacy_tags::filter::is_admin": required_argument

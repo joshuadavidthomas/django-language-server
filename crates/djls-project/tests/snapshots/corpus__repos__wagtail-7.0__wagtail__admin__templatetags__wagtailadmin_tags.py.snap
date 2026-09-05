@@ -14,11 +14,9 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
       - name: user
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::admin_theme_classname":
     arg_constraints:
@@ -47,11 +45,9 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
       - name: action
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::allow_unicode_slugs":
     arg_constraints:
@@ -71,27 +67,21 @@ tag_rules:
       - name: user
         required: false
         kind: Variable
-        position: 0
       - name: classname
         required: false
         kind: Variable
-        position: 1
       - name: size
         required: false
         kind: Variable
-        position: 2
       - name: tooltip
         required: false
         kind: Variable
-        position: 3
       - name: tooltip_html
         required: false
         kind: Variable
-        position: 4
       - name: edit_link
         required: false
         kind: Variable
-        position: 5
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::avatar_url":
     arg_constraints:
@@ -104,15 +94,12 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
       - name: size
         required: false
         kind: Variable
-        position: 1
       - name: gravatar_only
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::base_url_setting":
     arg_constraints:
@@ -124,7 +111,6 @@ tag_rules:
       - name: default
         required: false
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::breadcrumbs":
     arg_constraints:
@@ -137,19 +123,15 @@ tag_rules:
       - name: items
         required: true
         kind: Variable
-        position: 0
       - name: is_expanded
         required: false
         kind: Variable
-        position: 1
       - name: classname
         required: false
         kind: Variable
-        position: 2
       - name: icon_name
         required: false
         kind: Variable
-        position: 3
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::bulk_action_choices":
     arg_constraints:
@@ -162,11 +144,9 @@ tag_rules:
       - name: app_label
         required: true
         kind: Variable
-        position: 0
       - name: model_name
         required: true
         kind: Variable
-        position: 1
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::classnames":
     arg_constraints: []
@@ -177,7 +157,6 @@ tag_rules:
       - name: classes
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::dialog_toggle":
     arg_constraints:
@@ -190,15 +169,12 @@ tag_rules:
       - name: dialog_id
         required: true
         kind: Variable
-        position: 0
       - name: classname
         required: false
         kind: Variable
-        position: 1
       - name: text
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::formattedfield":
     arg_constraints:
@@ -210,51 +186,39 @@ tag_rules:
       - name: field
         required: false
         kind: Variable
-        position: 0
       - name: rendered_field
         required: false
         kind: Variable
-        position: 1
       - name: classname
         required: false
         kind: Variable
-        position: 2
       - name: show_label
         required: false
         kind: Variable
-        position: 3
       - name: id_for_label
         required: false
         kind: Variable
-        position: 4
       - name: sr_only_label
         required: false
         kind: Variable
-        position: 5
       - name: icon
         required: false
         kind: Variable
-        position: 6
       - name: help_text
         required: false
         kind: Variable
-        position: 7
       - name: help_text_id
         required: false
         kind: Variable
-        position: 8
       - name: show_add_comment_button
         required: false
         kind: Variable
-        position: 9
       - name: label_text
         required: false
         kind: Variable
-        position: 10
       - name: error_message_id
         required: false
         kind: Variable
-        position: 11
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::formattedfieldfromcontext":
     arg_constraints:
@@ -283,7 +247,6 @@ tag_rules:
       - name: hook_name
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::human_readable_date":
     arg_constraints:
@@ -296,15 +259,12 @@ tag_rules:
       - name: date
         required: true
         kind: Variable
-        position: 0
       - name: description
         required: false
         kind: Variable
-        position: 1
       - name: placement
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::i18n_enabled":
     arg_constraints:
@@ -324,19 +284,15 @@ tag_rules:
       - name: name
         required: false
         kind: Variable
-        position: 0
       - name: classname
         required: false
         kind: Variable
-        position: 1
       - name: title
         required: false
         kind: Variable
-        position: 2
       - name: wrapped
         required: false
         kind: Variable
-        position: 3
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::is_page":
     arg_constraints:
@@ -349,7 +305,6 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::keyboard_shortcuts_dialog":
     arg_constraints:
@@ -370,7 +325,6 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::locale_label_from_id":
     arg_constraints:
@@ -383,7 +337,6 @@ tag_rules:
       - name: locale_id
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::message_level_tag":
     arg_constraints:
@@ -396,7 +349,6 @@ tag_rules:
       - name: message
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::message_tags":
     arg_constraints:
@@ -409,7 +361,6 @@ tag_rules:
       - name: message
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::notification_static":
     arg_constraints:
@@ -422,7 +373,6 @@ tag_rules:
       - name: path
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_breadcrumbs":
     arg_constraints:
@@ -435,39 +385,30 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
       - name: url_name
         required: true
         kind: Variable
-        position: 1
       - name: url_root_name
         required: false
         kind: Variable
-        position: 2
       - name: include_self
         required: false
         kind: Variable
-        position: 3
       - name: is_expanded
         required: false
         kind: Variable
-        position: 4
       - name: querystring_value
         required: false
         kind: Variable
-        position: 5
       - name: trailing_breadcrumb_title
         required: false
         kind: Variable
-        position: 6
       - name: classname
         required: false
         kind: Variable
-        position: 7
       - name: icon_name
         required: false
         kind: Variable
-        position: 8
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_header_buttons":
     arg_constraints:
@@ -480,15 +421,12 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
       - name: user
         required: true
         kind: Variable
-        position: 1
       - name: view_name
         required: true
         kind: Variable
-        position: 2
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_listing_buttons":
     arg_constraints:
@@ -501,15 +439,12 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
       - name: user
         required: true
         kind: Variable
-        position: 1
       - name: next_url
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_permissions":
     arg_constraints:
@@ -522,7 +457,6 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::paginate":
     arg_constraints:
@@ -535,19 +469,15 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
       - name: base_url
         required: false
         kind: Variable
-        position: 1
       - name: page_key
         required: false
         kind: Variable
-        position: 2
       - name: classname
         required: false
         kind: Variable
-        position: 3
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::pagination_querystring":
     arg_constraints:
@@ -560,11 +490,9 @@ tag_rules:
       - name: page_number
         required: true
         kind: Variable
-        position: 0
       - name: page_key
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::resolve_url":
     arg_constraints:
@@ -577,7 +505,6 @@ tag_rules:
       - name: url
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::search_other":
     arg_constraints:
@@ -589,7 +516,6 @@ tag_rules:
       - name: current
         required: false
         kind: Variable
-        position: 0
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::sidebar_collapsed":
     arg_constraints:
@@ -617,27 +543,21 @@ tag_rules:
       - name: label
         required: false
         kind: Variable
-        position: 0
       - name: classname
         required: false
         kind: Variable
-        position: 1
       - name: url
         required: false
         kind: Variable
-        position: 2
       - name: title
         required: false
         kind: Variable
-        position: 3
       - name: hidden_label
         required: false
         kind: Variable
-        position: 4
       - name: attrs
         required: false
         kind: Variable
-        position: 5
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::test_collection_is_public":
     arg_constraints:
@@ -650,7 +570,6 @@ tag_rules:
       - name: collection
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::test_page_is_public":
     arg_constraints:
@@ -663,7 +582,6 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::timesince_last_update":
     arg_constraints:
@@ -676,19 +594,15 @@ tag_rules:
       - name: last_update
         required: true
         kind: Variable
-        position: 0
       - name: show_time_prefix
         required: false
         kind: Variable
-        position: 1
       - name: user_display_name
         required: false
         kind: Variable
-        position: 2
       - name: use_shorthand
         required: false
         kind: Variable
-        position: 3
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::versioned_static":
     arg_constraints:
@@ -701,7 +615,6 @@ tag_rules:
       - name: path
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::wagtail_config":
     arg_constraints:
@@ -722,7 +635,6 @@ tag_rules:
       - name: workflow_state
         required: true
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities:
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::abs": no_argument

@@ -13,19 +13,15 @@ tag_rules:
       - name: page_title
         required: false
         kind: Variable
-        position: 0
       - name: page_description
         required: false
         kind: Variable
-        position: 1
       - name: page_keywords
         required: false
         kind: Variable
-        position: 2
       - name: og_image_url
         required: false
         kind: Variable
-        position: 3
     as_var: keep
 filter_arities: {}
 block_specs: {}

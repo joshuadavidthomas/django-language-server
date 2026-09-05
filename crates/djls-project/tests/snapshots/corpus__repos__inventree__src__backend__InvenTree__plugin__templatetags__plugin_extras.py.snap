@@ -12,7 +12,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::mixin_available":
     arg_constraints:
@@ -24,11 +23,9 @@ tag_rules:
       - name: mixin
         required: true
         kind: Variable
-        position: 0
       - name: args
         required: false
         kind: VarArgs
-        position: 1
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::mixin_enabled":
     arg_constraints:
@@ -40,15 +37,12 @@ tag_rules:
       - name: plugin
         required: true
         kind: Variable
-        position: 0
       - name: key
         required: true
         kind: Variable
-        position: 1
       - name: args
         required: false
         kind: VarArgs
-        position: 2
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::plugin_list":
     arg_constraints: []
@@ -59,7 +53,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::plugin_settings":
     arg_constraints:
@@ -71,11 +64,9 @@ tag_rules:
       - name: plugin
         required: true
         kind: Variable
-        position: 0
       - name: args
         required: false
         kind: VarArgs
-        position: 1
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::safe_url":
     arg_constraints:
@@ -87,11 +78,9 @@ tag_rules:
       - name: view_name
         required: true
         kind: Variable
-        position: 0
       - name: args
         required: false
         kind: VarArgs
-        position: 1
     as_var: strip
 filter_arities: {}
 block_specs: {}

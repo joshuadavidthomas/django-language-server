@@ -22,7 +22,6 @@ tag_rules:
       - name: asset
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "openstack_dashboard.templatetags.themes::tag::theme_cookie":
     arg_constraints:

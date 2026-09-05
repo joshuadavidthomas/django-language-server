@@ -14,15 +14,12 @@ tag_rules:
       - name: resource
         required: true
         kind: Variable
-        position: 0
       - name: user
         required: true
         kind: Variable
-        position: 1
       - name: perms
         required: true
         kind: Variable
-        position: 2
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::display_edit_request_button":
     arg_constraints:
@@ -35,15 +32,12 @@ tag_rules:
       - name: resource
         required: true
         kind: Variable
-        position: 0
       - name: user
         required: true
         kind: Variable
-        position: 1
       - name: perms
         required: true
         kind: Variable
-        position: 2
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::facets":
     arg_constraints:
@@ -64,7 +58,6 @@ tag_rules:
       - name: url
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::get_context_resourcetype":
     arg_constraints:
@@ -93,7 +86,6 @@ tag_rules:
       - name: placeholder_name
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::get_visibile_resources":
     arg_constraints:
@@ -106,7 +98,6 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "geonode.base.templatetags.base_tags::tag::render_nav_menu":
     arg_constraints:
@@ -119,7 +110,6 @@ tag_rules:
       - name: placeholder_name
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities:
   "geonode.base.templatetags.base_tags::filter::get_item": required_argument

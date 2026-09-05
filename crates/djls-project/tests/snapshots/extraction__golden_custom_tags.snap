@@ -30,7 +30,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_one_default":
     arg_constraints:
@@ -43,11 +42,9 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_two_params":
     arg_constraints:
@@ -60,11 +57,9 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: true
         kind: Variable
-        position: 1
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -14,15 +14,12 @@ tag_rules:
       - name: url
         required: true
         kind: Variable
-        position: 0
       - name: popup
         required: false
         kind: Variable
-        position: 1
       - name: to_field
         required: false
         kind: Variable
-        position: 2
     as_var: strip
 filter_arities:
   "django.contrib.admin.templatetags.admin_urls::filter::admin_urlname": required_argument

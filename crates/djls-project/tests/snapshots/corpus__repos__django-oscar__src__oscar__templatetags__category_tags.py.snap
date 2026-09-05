@@ -13,11 +13,9 @@ tag_rules:
       - name: depth
         required: false
         kind: Variable
-        position: 0
       - name: parent
         required: false
         kind: Variable
-        position: 1
     as_var: strip
 filter_arities: {}
 block_specs: {}

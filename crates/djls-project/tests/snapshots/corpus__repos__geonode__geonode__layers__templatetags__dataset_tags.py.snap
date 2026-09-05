@@ -14,7 +14,6 @@ tag_rules:
       - name: resource
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "geonode.layers.templatetags.dataset_tags::tag::get_sld_name_from_url":
     arg_constraints:
@@ -27,7 +26,6 @@ tag_rules:
       - name: sld_url
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "geonode.layers.templatetags.dataset_tags::tag::get_style_name_from_legend_url":
     arg_constraints:
@@ -40,7 +38,6 @@ tag_rules:
       - name: legend_url
         required: true
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities:
   "geonode.layers.templatetags.dataset_tags::filter::camelize": no_argument
