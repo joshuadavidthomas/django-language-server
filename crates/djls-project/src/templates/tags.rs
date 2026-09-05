@@ -32,6 +32,7 @@ pub use crate::templates::tags::types::ExtractedDiagnosticMessage;
 pub use crate::templates::tags::types::ExtractedMessageArg;
 pub use crate::templates::tags::types::ExtractedMessageTemplate;
 pub use crate::templates::tags::types::KnownOptions;
+pub use crate::templates::tags::types::OptionRejection;
 pub use crate::templates::tags::types::RequiredKeyword;
 pub use crate::templates::tags::types::SplitPosition;
 pub use crate::templates::tags::types::TagArgument;

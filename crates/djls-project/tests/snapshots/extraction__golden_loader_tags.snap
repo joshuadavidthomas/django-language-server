@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"loader-tags extraction snapshot should serialize\")"
 ---
 tag_rules:
   "django.template.loader_tags::tag::block":
@@ -33,7 +33,8 @@ tag_rules:
       values:
         - with
         - only
-      allow_duplicates: false
+      duplicate_rejection: detected
+      unknown_rejection: detected
     diagnostic_messages:
       - constraint:
           ArgumentCount:

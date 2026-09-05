@@ -59,6 +59,7 @@ pub use templates::KnownOptions;
 pub use templates::LibraryName;
 pub use templates::LoadableLibraryLookup;
 pub use templates::MissingTemplateLibraryLookup;
+pub use templates::OptionRejection;
 pub use templates::RequiredKeyword;
 pub use templates::ScopedTemplateLibraries;
 pub use templates::ScopedTemplateReferenceResolution;

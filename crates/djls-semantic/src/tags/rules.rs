@@ -7,6 +7,7 @@ use djls_project::ExtractedDiagnosticMessage;
 use djls_project::ExtractedMessageArg;
 use djls_project::ExtractedMessageTemplate;
 use djls_project::KnownOptions;
+use djls_project::OptionRejection;
 use djls_project::RequiredKeyword;
 use djls_project::SplitPosition;
 use djls_project::TagRule;
@@ -395,15 +396,20 @@ fn python_repr(value: &str) -> String {
 
 /// Evaluate known options constraints.
 ///
-/// Scans `bits` for known option-style arguments and reports duplicates when
-/// the extracted rule disallows them. Unknown bits may be positional values,
-/// so they cannot be rejected without tag-specific parsing context.
+/// Scans `bits` for duplicates when extraction detected a rejection guard.
+/// Unknown-option rejection remains a source fact: unknown bits may be
+/// positional values, so validation needs tag-specific parsing context to use it.
 fn evaluate_known_options(
     tag_name: &str,
     bits: &[String],
     options: &KnownOptions,
     span: Span,
 ) -> Vec<ValidationError> {
+    match options.duplicate_rejection {
+        OptionRejection::NotDetected => return Vec::new(),
+        OptionRejection::Detected => {}
+    }
+
     let mut errors = Vec::new();
     let mut seen = Vec::new();
 
@@ -411,7 +417,7 @@ fn evaluate_known_options(
         let is_known = options.values.iter().any(|v| v == bit);
 
         if is_known {
-            if !options.allow_duplicates && seen.contains(bit) {
+            if seen.contains(bit) {
                 errors.push(ValidationError::ExtractedRuleViolation {
                     tag: tag_name.to_string(),
                     message: format!("Tag '{tag_name}' received duplicate option '{bit}'"),
@@ -697,7 +703,8 @@ mod tests {
         let rule = TagRule {
             known_options: Some(KnownOptions {
                 values: vec!["only".to_string(), "with".to_string()],
-                allow_duplicates: false,
+                duplicate_rejection: OptionRejection::Detected,
+                unknown_rejection: OptionRejection::Detected,
             }),
             ..TagRule::default()
         };
@@ -712,11 +719,12 @@ mod tests {
     }
 
     #[test]
-    fn known_options_duplicates_allowed() {
+    fn known_options_without_duplicate_rejection_produce_no_error() {
         let rule = TagRule {
             known_options: Some(KnownOptions {
                 values: vec!["only".to_string(), "with".to_string()],
-                allow_duplicates: true,
+                duplicate_rejection: OptionRejection::NotDetected,
+                unknown_rejection: OptionRejection::Detected,
             }),
             ..TagRule::default()
         };
