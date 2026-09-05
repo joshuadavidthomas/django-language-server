@@ -30,19 +30,15 @@ tag_rules:
       - name: organization
         required: true
         kind: Variable
-        position: 0
       - name: path
         required: true
         kind: Variable
-        position: 1
       - name: query
         required: false
         kind: Variable
-        position: 2
       - name: fragment
         required: false
         kind: Variable
-        position: 3
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::percent":
     arg_constraints:
@@ -55,15 +51,12 @@ tag_rules:
       - name: value
         required: true
         kind: Variable
-        position: 0
       - name: total
         required: true
         kind: Variable
-        position: 1
       - name: format
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::random_int":
     arg_constraints:
@@ -76,11 +69,9 @@ tag_rules:
       - name: a
         required: true
         kind: Variable
-        position: 0
       - name: b
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::security_contact":
     arg_constraints:
@@ -101,7 +92,6 @@ tag_rules:
       - name: value
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::system_origin":
     arg_constraints:

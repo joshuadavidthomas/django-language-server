@@ -1151,7 +1151,6 @@ mod tests {
                         "sidebar".to_string(),
                         "site_header".to_string(),
                     ]),
-                    position: 0,
                 }]),
         );
         specs
@@ -1171,7 +1170,6 @@ mod tests {
             name: "name".to_string(),
             required: true,
             kind: TagArgumentKind::Variable,
-            position: 0,
         }])
     }
 

@@ -360,8 +360,7 @@ fn extract_arg_names(
     }
 
     let mut args = Vec::new();
-    for arg_index in 0..max_pos {
-        let pos = arg_index + 1;
+    for pos in 1..=max_pos {
         let pos_split = SplitPosition::Forward(pos);
 
         // Check if there's a required keyword at this position
@@ -370,7 +369,6 @@ fn extract_arg_names(
                 name: rk.value.clone(),
                 required: true,
                 kind: TagArgumentKind::Literal(rk.value.clone()),
-                position: arg_index,
             });
             continue;
         }
@@ -381,7 +379,6 @@ fn extract_arg_names(
                 name: name.clone(),
                 required: true,
                 kind: TagArgumentKind::Variable,
-                position: arg_index,
             });
             continue;
         }
@@ -391,7 +388,6 @@ fn extract_arg_names(
             name: format!("arg{pos}"),
             required: true,
             kind: TagArgumentKind::Variable,
-            position: arg_index,
         });
     }
 
@@ -476,11 +472,8 @@ def do_tag(parser, token):
         );
         assert_eq!(rule.extracted_args.len(), 3);
         assert_eq!(rule.extracted_args[0].name, "item");
-        assert_eq!(rule.extracted_args[0].position, 0);
         assert_eq!(rule.extracted_args[1].name, "connector");
-        assert_eq!(rule.extracted_args[1].position, 1);
         assert_eq!(rule.extracted_args[2].name, "varname");
-        assert_eq!(rule.extracted_args[2].position, 2);
     }
 
     #[test]
@@ -497,12 +490,9 @@ def do_tag(parser, token):
         );
         assert_eq!(rule.extracted_args.len(), 3);
         assert_eq!(rule.extracted_args[0].name, "format_string");
-        assert_eq!(rule.extracted_args[0].position, 0);
         // Position 2 (split index 2) has no named var — should get generic name
         assert_eq!(rule.extracted_args[1].name, "arg2");
-        assert_eq!(rule.extracted_args[1].position, 1);
         assert_eq!(rule.extracted_args[2].name, "target");
-        assert_eq!(rule.extracted_args[2].position, 2);
     }
 
     #[test]

@@ -14,11 +14,9 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
       - name: fallback
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::include_block":
     arg_constraints: []
@@ -29,7 +27,6 @@ tag_rules:
       - name: block_var_token
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "wagtail.templatetags.wagtailcore_tags::tag::pageurl":
     arg_constraints:
@@ -42,11 +39,9 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
       - name: fallback
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::slugurl":
     arg_constraints:
@@ -59,7 +54,6 @@ tag_rules:
       - name: slug
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_documentation_path":
     arg_constraints:

@@ -14,11 +14,9 @@ tag_rules:
       - name: url
         required: true
         kind: Variable
-        position: 0
       - name: max_width
         required: false
         kind: Variable
-        position: 1
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -14,7 +14,6 @@ tag_rules:
       - name: date
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "blog.templatetags.blog_calendar::tag::render_calendar_month_only":
     arg_constraints:
@@ -27,7 +26,6 @@ tag_rules:
       - name: date
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities: {}
 block_specs: {}

@@ -30,7 +30,6 @@ tag_rules:
       - name: key
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "baton.templatetags.baton_tags::tag::baton_theme":
     arg_constraints:

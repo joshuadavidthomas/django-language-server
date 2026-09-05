@@ -14,7 +14,6 @@ tag_rules:
       - name: form
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_errors":
     arg_constraints:
@@ -27,7 +26,6 @@ tag_rules:
       - name: form
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_field":
     arg_constraints:
@@ -40,15 +38,12 @@ tag_rules:
       - name: field
         required: true
         kind: Variable
-        position: 0
       - name: bulk_nullable
         required: false
         kind: Variable
-        position: 1
       - name: label
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_fieldset":
     arg_constraints:
@@ -61,11 +56,9 @@ tag_rules:
       - name: form
         required: true
         kind: Variable
-        position: 0
       - name: fieldset
         required: true
         kind: Variable
-        position: 1
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_form":
     arg_constraints:
@@ -78,7 +71,6 @@ tag_rules:
       - name: form
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities:
   "netbox.utilities.templatetags.form_helpers::filter::getfield": required_argument

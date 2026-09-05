@@ -14,11 +14,9 @@ tag_rules:
       - name: renderer
         required: true
         kind: Variable
-        position: 0
       - name: obj
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "cms.templatetags.cms_js_tags::tag::render_plugin_init_js":
     arg_constraints:
@@ -31,7 +29,6 @@ tag_rules:
       - name: plugin
         required: true
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities:
   "cms.templatetags.cms_js_tags::filter::bool": no_argument

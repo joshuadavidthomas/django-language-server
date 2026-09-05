@@ -59,7 +59,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "django.templatetags.i18n::tag::translate":
     arg_constraints:
@@ -87,7 +86,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities: {}
 block_specs:
