@@ -1,5 +1,4 @@
 use camino::Utf8Path;
-use djls_conf::FormatBackend;
 use djls_ide::format_document;
 use djls_source::PositionEncoding;
 use djls_testing::TestDatabase;
@@ -24,13 +23,7 @@ fn format_document_returns_full_document_edit() {
         .expect("template fixture file should exist");
     let options = formatting_options();
 
-    let edits = format_document(
-        &db,
-        file,
-        PositionEncoding::Utf16,
-        FormatBackend::Djangofmt,
-        &options,
-    );
+    let edits = format_document(&db, file, PositionEncoding::Utf16, &options);
 
     assert_eq!(edits.len(), 1);
     assert_eq!(

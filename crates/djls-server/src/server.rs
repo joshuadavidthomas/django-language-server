@@ -678,9 +678,8 @@ impl LanguageServer for DjangoLanguageServer {
                     return Vec::new();
                 };
                 let db = snapshot.db();
-                let format_config = db.settings().format().clone();
 
-                if !format_config.enabled() {
+                if !db.settings().format().enabled() {
                     return Vec::new();
                 }
 
@@ -695,7 +694,6 @@ impl LanguageServer for DjangoLanguageServer {
                     db,
                     file,
                     snapshot.client_info().position_encoding(),
-                    format_config.backend(),
                     &params.options,
                 )
             })

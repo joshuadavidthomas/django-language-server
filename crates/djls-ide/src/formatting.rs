@@ -1,4 +1,3 @@
-use djls_conf::FormatBackend;
 use djls_format::FormatOptions;
 use djls_format::FormatOutcome;
 use djls_format::IndentStyle;
@@ -13,7 +12,6 @@ pub fn format_document(
     db: &dyn Db,
     file: File,
     encoding: PositionEncoding,
-    backend: FormatBackend,
     formatting_options: &ls_types::FormattingOptions,
 ) -> Vec<ls_types::TextEdit> {
     let Ok(source) = file.try_source(db) else {
@@ -34,15 +32,14 @@ pub fn format_document(
         .insert_final_newline(formatting_options.insert_final_newline.unwrap_or(false))
         .trim_final_newlines(formatting_options.trim_final_newlines.unwrap_or(false));
 
-    let formatted =
-        match djls_format::format_template(source.as_str(), path, backend, format_options) {
-            Ok(FormatOutcome::Changed(formatted)) => formatted,
-            Ok(FormatOutcome::Unchanged | FormatOutcome::Ignored) => return Vec::new(),
-            Err(error) => {
-                tracing::debug!("Formatting failed for {path}: {error}");
-                return Vec::new();
-            }
-        };
+    let formatted = match djls_format::format_template(source.as_str(), path, format_options) {
+        Ok(FormatOutcome::Changed(formatted)) => formatted,
+        Ok(FormatOutcome::Unchanged | FormatOutcome::Ignored) => return Vec::new(),
+        Err(error) => {
+            tracing::debug!("Formatting failed for {path}: {error}");
+            return Vec::new();
+        }
+    };
 
     let (line, character) = file.end_line_col(db, encoding).into();
     vec![ls_types::TextEdit::new(
