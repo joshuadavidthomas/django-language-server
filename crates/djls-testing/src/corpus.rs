@@ -57,6 +57,7 @@ const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml"
 /// directory exists. Once constructed, the root path is trusted for
 /// the lifetime of the value.
 pub struct Corpus {
+    root: Utf8PathBuf,
     lockfile: lock::Lockfile,
 }
 
@@ -94,7 +95,10 @@ impl Corpus {
         let lockfile = lock::Lockfile::load(Utf8Path::new(LOCKFILE_PATH)).map_err(|error| {
             anyhow::anyhow!("Corpus lockfile missing or invalid. Run: just corpus lock: {error}")
         })?;
-        let corpus = Self { lockfile };
+        let corpus = Self {
+            root: Utf8PathBuf::from(CORPUS_DIR),
+            lockfile,
+        };
         sync::validate_synced_corpus(&corpus.lockfile, corpus.root())?;
         Ok(corpus)
     }
@@ -102,7 +106,14 @@ impl Corpus {
     /// The corpus root directory.
     #[must_use]
     pub fn root(&self) -> &Utf8Path {
-        Utf8Path::new(CORPUS_DIR)
+        &self.root
+    }
+
+    fn locked_repo_dirs(&self) -> impl Iterator<Item = Utf8PathBuf> + '_ {
+        self.lockfile
+            .repos
+            .iter()
+            .map(|repo| self.root.join("repos").join(&repo.name))
     }
 
     pub fn repo_settings_projects(&self) -> anyhow::Result<Vec<CorpusSettingsProject>> {
@@ -283,7 +294,12 @@ impl Corpus {
     /// All extraction target files in the entire corpus.
     #[must_use]
     pub fn extraction_targets(&self) -> Vec<Utf8PathBuf> {
-        Self::extraction_targets_in(self.root())
+        let mut files = self
+            .locked_repo_dirs()
+            .flat_map(|dir| Self::extraction_targets_in(&dir))
+            .collect::<Vec<_>>();
+        files.sort();
+        files
     }
 
     /// Extraction target files under a specific directory.
@@ -331,7 +347,12 @@ impl Corpus {
     /// All model files in the entire corpus.
     #[must_use]
     pub fn model_files(&self) -> Vec<Utf8PathBuf> {
-        self.model_files_in(self.root())
+        let mut files = self
+            .locked_repo_dirs()
+            .flat_map(|dir| self.model_files_in(&dir))
+            .collect::<Vec<_>>();
+        files.sort();
+        files
     }
 
     /// Model files under a specific directory.
@@ -469,9 +490,12 @@ pub fn module_name_from_file(file: &Utf8Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8PathBuf;
+
     use super::Corpus;
     use super::lock_entry_matches_declaration;
     use crate::corpus::lock::LockedRepo;
+    use crate::corpus::lock::Lockfile;
     use crate::corpus::manifest::RepoSettingsProject;
 
     #[test]
@@ -496,6 +520,49 @@ mod tests {
 
         assert!(lock_entry_matches_declaration(&locked_repo, &matching));
         assert!(!lock_entry_matches_declaration(&locked_repo, &stale));
+    }
+
+    #[test]
+    fn whole_corpus_inventories_only_include_locked_repos() {
+        let tempdir = tempfile::tempdir().expect("temporary corpus root should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary corpus path should be UTF-8");
+        let registered = root.join("repos/djangopackages.org");
+        let backup = root.join("repos/djangopackages.org.bak");
+
+        let registered_tags = registered.join("package/templatetags/package_tags.py");
+        let registered_models = registered.join("package/models.py");
+        let backup_tags = backup.join("package/templatetags/package_tags.py");
+        let backup_models = backup.join("package/models.py");
+        for file in [
+            &registered_tags,
+            &registered_models,
+            &backup_tags,
+            &backup_models,
+        ] {
+            std::fs::create_dir_all(
+                file.parent()
+                    .expect("corpus source file should have a parent")
+                    .as_std_path(),
+            )
+            .expect("corpus source directory should be created");
+            std::fs::write(file.as_std_path(), "").expect("corpus source file should be created");
+        }
+
+        let corpus = Corpus {
+            root,
+            lockfile: Lockfile {
+                repos: vec![LockedRepo {
+                    name: "djangopackages.org".to_string(),
+                    url: "https://example.com/djangopackages.org.git".to_string(),
+                    tag: "main".to_string(),
+                    git_ref: "0123456789abcdef".to_string(),
+                }],
+            },
+        };
+
+        assert_eq!(corpus.extraction_targets(), vec![registered_tags]);
+        assert_eq!(corpus.model_files(), vec![registered_models]);
     }
 
     #[test]
