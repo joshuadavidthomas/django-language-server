@@ -22,7 +22,6 @@ use thiserror::Error;
 pub use crate::diagnostics::DiagnosticSeverity;
 pub use crate::diagnostics::DiagnosticsConfig;
 pub use crate::django_environments::DjangoEnvironmentConfig;
-pub use crate::format::FormatBackend;
 pub use crate::format::FormatConfig;
 pub use crate::tagspecs::ArgKindDef;
 pub use crate::tagspecs::ArgTypeDef;
@@ -410,11 +409,10 @@ django_settings_module = "override.settings"
             let dir = tempdir().expect("test should create temporary project directory");
             fs::write(
                 dir.path().join("djls.toml"),
-                r#"
+                r"
 [format]
 enabled = true
-backend = "djangofmt"
-"#,
+",
             )
             .expect("test should write format djls.toml fixture");
             let project_root = Utf8Path::from_path(dir.path())
@@ -423,7 +421,6 @@ backend = "djangofmt"
                 .expect("format djls.toml fixture should load settings");
 
             assert!(settings.format().enabled());
-            assert_eq!(settings.format().backend(), FormatBackend::Djangofmt);
         }
 
         #[test]

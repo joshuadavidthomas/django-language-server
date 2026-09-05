@@ -95,13 +95,11 @@ Configure Django template formatting. Formatting is disabled by default and must
 ```toml
 [format]
 enabled = true
-backend = "djangofmt"
 ```
 
 **Options:**
 
 - `enabled` — Enable LSP whole-document formatting for Django templates. Default: `false`.
-- `backend` — Formatter backend. Currently supported: `"djangofmt"`. Default: `"djangofmt"`.
 
 When enabled, editor "format document" requests are handled by `djangofmt`. DJLS passes through standard editor formatting options when the client provides them, including tab width, spaces vs tabs, trailing whitespace trimming, final newline insertion, and final newline trimming.
 
@@ -287,8 +285,7 @@ Pass configuration through your editor's LSP client using `initializationOptions
   "pythonpath": ["/path/to/shared/libs"],
   "env_file": ".env",
   "format": {
-    "enabled": true,
-    "backend": "djangofmt"
+    "enabled": true
   },
   "diagnostics": {
     "severity": {
@@ -318,7 +315,6 @@ env_file = ".env"  # Optional: path to env file (auto-detects .env by default)
 
 [tool.djls.format]
 enabled = true
-backend = "djangofmt"
 
 [tool.djls.diagnostics.severity]
 S100 = "off"

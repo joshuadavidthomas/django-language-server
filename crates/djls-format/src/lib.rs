@@ -3,7 +3,6 @@ mod djangofmt;
 use std::num::NonZeroU8;
 
 use camino::Utf8Path;
-use djls_conf::FormatBackend;
 use djls_source::LineEnding;
 use thiserror::Error;
 
@@ -170,12 +169,9 @@ pub enum FormatError {
 pub fn format_template(
     source: &str,
     path: &Utf8Path,
-    backend: FormatBackend,
     format_options: FormatOptions,
 ) -> Result<FormatOutcome, FormatError> {
-    let formatted = match backend {
-        FormatBackend::Djangofmt => djangofmt::format(source, path, format_options),
-    }?;
+    let formatted = djangofmt::format(source, path, format_options)?;
     let Some(formatted) = formatted else {
         return Ok(FormatOutcome::Ignored);
     };
@@ -288,7 +284,6 @@ mod tests {
             format_template(
                 source,
                 Utf8Path::new("template.html"),
-                FormatBackend::Djangofmt,
                 FormatOptions::default(),
             )
             .expect("valid template should format successfully"),
@@ -307,7 +302,6 @@ mod tests {
             format_template(
                 source,
                 Utf8Path::new("template.html"),
-                FormatBackend::Djangofmt,
                 FormatOptions::default(),
             )
             .expect("already formatted template should be accepted"),
@@ -323,7 +317,6 @@ mod tests {
             format_template(
                 source,
                 Utf8Path::new("template.html"),
-                FormatBackend::Djangofmt,
                 FormatOptions::default(),
             )
             .expect("ignored template should be recognized"),

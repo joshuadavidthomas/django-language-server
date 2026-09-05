@@ -29,6 +29,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Removed
 
+- Removed the `format.backend` configuration option; `djangofmt` remains the formatter.
 - Removed the unused `debug` configuration option.
 
 ### Fixed
