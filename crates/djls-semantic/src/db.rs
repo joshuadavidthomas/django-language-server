@@ -1,6 +1,5 @@
 use djls_conf::DiagnosticsConfig;
 use djls_project::Db as ProjectDb;
-use djls_project::ModelGraph;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::TemplateLibraryCatalog;
 use djls_project::scoped_template_libraries;
@@ -22,13 +21,6 @@ pub trait Db: ProjectDb {
 
     /// Explicit fixture seam for Filter validation without a Project.
     fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs;
-
-    /// Get the merged model graph for the current project.
-    ///
-    /// Combines models from both workspace `models.py` files and installed
-    /// packages (site-packages). Returns an empty graph when no project is
-    /// configured.
-    fn model_graph(&self) -> &ModelGraph;
 }
 
 pub fn scoped_template_libraries_for_file(
