@@ -1,10 +1,8 @@
 use djls_source::Span;
-use djls_templates::Filter;
+use djls_templates::Node;
 use djls_templates::NodeList;
-use djls_templates::ParseError;
 use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
-use djls_templates::Visitor;
 
 use crate::db::Db;
 use crate::errors::ValidationError;
@@ -59,7 +57,7 @@ pub(crate) struct TemplateTreeBuilder<'grammar> {
 }
 
 impl<'grammar> TemplateTreeBuilder<'grammar> {
-    pub(crate) fn new(_db: &dyn Db, grammar: &'grammar SparseTagGrammar) -> Self {
+    pub(crate) fn new(grammar: &'grammar SparseTagGrammar) -> Self {
         Self {
             grammar,
             root: RegionId::new(0),
@@ -72,10 +70,51 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
 
     pub(crate) fn model_data(mut self, db: &dyn Db, nodelist: NodeList<'_>) -> TemplateTreeData {
         for node in nodelist.nodelist(db) {
-            self.visit_node(node);
+            self.handle_node(node);
         }
         self.finish();
         self.apply_operations()
+    }
+
+    fn handle_node(&mut self, node: &Node) {
+        // Tags still need dispatch so they can close the opaque region.
+        if self.in_opaque_content() && !matches!(node, Node::Tag { .. }) {
+            return;
+        }
+        let node = match node {
+            Node::Tag {
+                name,
+                name_span,
+                bits,
+                span,
+            } => {
+                self.handle_tag(name, *name_span, bits, *span);
+                return;
+            }
+            Node::Comment { span, .. } => TemplateNode::Comment { span: *span },
+            Node::Text { span } => TemplateNode::Text { span: *span },
+            Node::Variable {
+                var,
+                var_span,
+                filters,
+                span,
+            } => TemplateNode::Variable {
+                var: var.clone(),
+                var_span: *var_span,
+                filters: filters.clone(),
+                span: *span,
+            },
+            Node::Error {
+                span, full_span, ..
+            } => TemplateNode::Error {
+                span: *span,
+                full_span: *full_span,
+            },
+        };
+        self.ops.push(TreeOp::AddNode {
+            target: self.active_region(),
+            node,
+        });
     }
 
     fn alloc_region(&mut self, span: Span, parent: RegionId) -> RegionId {
@@ -578,59 +617,4 @@ struct OpaqueFrame {
     opener_span: Span,
     parent_region: RegionId,
     body_start: u32,
-}
-
-impl Visitor for TemplateTreeBuilder<'_> {
-    fn visit_tag(&mut self, name: &str, name_span: Span, bits: &[TagBit], span: Span) {
-        self.handle_tag(name, name_span, bits, span);
-    }
-
-    fn visit_comment(&mut self, _content: &str, span: Span) {
-        if self.in_opaque_content() {
-            return;
-        }
-
-        self.ops.push(TreeOp::AddNode {
-            target: self.active_region(),
-            node: TemplateNode::Comment { span },
-        });
-    }
-
-    fn visit_variable(&mut self, var: &str, var_span: Span, filters: &[Filter], span: Span) {
-        if self.in_opaque_content() {
-            return;
-        }
-
-        self.ops.push(TreeOp::AddNode {
-            target: self.active_region(),
-            node: TemplateNode::Variable {
-                var: var.to_string(),
-                var_span,
-                filters: filters.to_vec(),
-                span,
-            },
-        });
-    }
-
-    fn visit_error(&mut self, span: Span, full_span: Span, _error: &ParseError) {
-        if self.in_opaque_content() {
-            return;
-        }
-
-        self.ops.push(TreeOp::AddNode {
-            target: self.active_region(),
-            node: TemplateNode::Error { span, full_span },
-        });
-    }
-
-    fn visit_text(&mut self, span: Span) {
-        if self.in_opaque_content() {
-            return;
-        }
-
-        self.ops.push(TreeOp::AddNode {
-            target: self.active_region(),
-            node: TemplateNode::Text { span },
-        });
-    }
 }

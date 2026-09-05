@@ -8,7 +8,7 @@ use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_source::Span;
-use djls_templates::TemplateError;
+use djls_templates::ParseError;
 use tower_lsp_server::ls_types;
 
 use crate::completions::CompletionCandidate;
@@ -390,15 +390,13 @@ pub(crate) trait DiagnosticExt: std::fmt::Display {
     }
 }
 
-impl DiagnosticExt for TemplateError {
+impl DiagnosticExt for ParseError {
     fn diagnostic_span(&self) -> Option<(u32, u32)> {
         self.primary_span()
     }
 
     fn diagnostic_code(&self) -> &'static str {
-        // Calls the inherent method on TemplateError (not recursive —
-        // inherent methods take priority over trait methods in resolution).
-        TemplateError::diagnostic_code(self)
+        ParseError::diagnostic_code(self)
     }
 }
 

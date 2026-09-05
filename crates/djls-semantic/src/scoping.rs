@@ -204,7 +204,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         );
         // Fixed-point passes are plain temporary values. No tracked Tree identity
         // or structural diagnostic is produced until this pass converges.
-        let tree_data = TemplateTreeBuilder::new(db, &grammar).model_data(db, nodelist);
+        let tree_data = TemplateTreeBuilder::new(&grammar).model_data(db, nodelist);
         let mut active_nodes = active_template_nodes(&tree_data.regions, tree_data.root);
         active_nodes.extend(
             tree_data
