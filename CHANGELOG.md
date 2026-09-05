@@ -37,6 +37,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed explicit `false` and empty LSP initialization options failing to override project configuration.
 - Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
 - Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
+- **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
 
 ## [6.1.0]
 
