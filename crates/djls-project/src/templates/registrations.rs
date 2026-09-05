@@ -575,15 +575,6 @@ fn analyze_registrations_from_body(body: &[Stmt]) -> RegistrationSourceAnalysis 
     analyze_registrations_from_body_in_module(body, "", None)
 }
 
-/// Collect registrations from a pre-parsed module body.
-///
-/// This avoids re-parsing the source when the caller already has the AST.
-#[cfg(test)]
-#[must_use]
-pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
-    analyze_registrations_from_body(body).registrations
-}
-
 fn for_each_registration<'db>(
     db: &'db dyn ProjectDb,
     analysis: &RegistrationSourceAnalysis,

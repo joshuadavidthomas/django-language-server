@@ -85,35 +85,6 @@ mod tests {
     use crate::templates::tags::testing::django_function;
     use crate::templates::tags::testing::find_function_in_source;
 
-    #[test]
-    fn filter_arity_no_arg() {
-        let arity = FilterArity {
-            expects_arg: false,
-            arg_optional: false,
-        };
-        assert!(!arity.expects_arg);
-    }
-
-    #[test]
-    fn filter_arity_required_arg() {
-        let arity = FilterArity {
-            expects_arg: true,
-            arg_optional: false,
-        };
-        assert!(arity.expects_arg);
-        assert!(!arity.arg_optional);
-    }
-
-    #[test]
-    fn filter_arity_optional_arg() {
-        let arity = FilterArity {
-            expects_arg: true,
-            arg_optional: true,
-        };
-        assert!(arity.expects_arg);
-        assert!(arity.arg_optional);
-    }
-
     // No-arg filters (value only)
 
     // Corpus: `title` in defaultfilters.py — `def title(value):`

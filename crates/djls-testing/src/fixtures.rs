@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
@@ -7,23 +6,13 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
-use djls_project::ArgumentCountConstraint;
-use djls_project::ChoiceAt;
 use djls_project::Db as ProjectDb;
-use djls_project::ExtractedDiagnosticConstraint;
-use djls_project::ExtractedDiagnosticMessage;
-use djls_project::ExtractedMessageTemplate;
-use djls_project::FilterArity;
 use djls_project::Interpreter;
 use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::PythonModuleName;
-use djls_project::RequiredKeyword;
 use djls_project::SearchPaths;
-use djls_project::SplitPosition;
 use djls_project::SymbolDefinition;
-use djls_project::SymbolKey;
-use djls_project::TagRule;
 use djls_project::TemplateLibraryCatalog;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
@@ -31,7 +20,6 @@ use djls_project::TemplateSymbolName;
 use djls_project::testing;
 use djls_project::testing::TemplateLibraryInput;
 use djls_semantic::FilterAritySpecs;
-use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
@@ -579,18 +567,7 @@ pub fn partial_validation_db() -> anyhow::Result<TestDatabase> {
 
 #[allow(clippy::too_many_lines)]
 fn validation_db(partial: bool) -> anyhow::Result<TestDatabase> {
-    let specs = standard_tag_specs();
-    let configured_tags = specs
-        .keys()
-        .map(|name| json!({"name": name, "type": "standalone"}))
-        .collect::<Vec<_>>();
-    let configured_fallback = from_value(json!({
-        "libraries": [{"module": "djls.testing.fallback", "tags": configured_tags}]
-    }))
-    .context("failed to deserialize validation fallback tag specs")?;
-    let mut db = TestDatabase::new()
-        .with_projectless_tag_specs(specs)
-        .with_projectless_filter_arity_specs(standard_filter_arities());
+    let mut db = TestDatabase::new();
     let open_key = if partial {
         ", UNKNOWN: 'maybe'"
     } else {
@@ -691,7 +668,6 @@ def widthratio(parser, token):
 
     ProjectFixture::new("/")
         .django_settings_module("project.settings")
-        .tag_specs(configured_fallback)
         .file("/project/settings.py", settings)
         .file("/project/__init__.py", "")
         .file("/django/__init__.py", "")
@@ -766,249 +742,6 @@ def widthratio(parser, token):
         )
         .install(&mut db)?;
     Ok(db)
-}
-
-fn standard_tag_specs() -> TagSpecs {
-    let mut specs = builtin_tag_specs();
-
-    set_tag_rule(&mut specs, "autoescape", autoescape_rule());
-    set_tag_rule(&mut specs, "cycle", cycle_rule());
-    set_tag_rule(&mut specs, "lorem", lorem_rule());
-    set_tag_rule(&mut specs, "now", now_rule());
-    set_tag_rule(&mut specs, "regroup", regroup_rule());
-    set_tag_rule(&mut specs, "url", url_rule());
-    set_tag_rule(&mut specs, "widthratio", widthratio_rule());
-
-    specs.insert(
-        "one_arg_tag".to_string(),
-        TagSpec::new(
-            "example.templatetags.custom".into(),
-            None,
-            Cow::Borrowed(&[]),
-            false,
-        )
-        .with_extracted_rules(
-            TagRule {
-                arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-                ..TagRule::default()
-            }
-            .into(),
-        ),
-    );
-    specs
-}
-
-fn autoescape_rule() -> TagRule {
-    TagRule {
-        arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-        choice_at_constraints: vec![ChoiceAt {
-            position: SplitPosition::Forward(1),
-            values: vec!["on".to_string(), "off".to_string()],
-        }],
-        diagnostic_messages: Some(vec![
-            count_message(
-                ArgumentCountConstraint::Exact(2),
-                "'autoescape' tag requires exactly one argument.",
-            ),
-            choice_message(
-                SplitPosition::Forward(1),
-                &["on", "off"],
-                "'autoescape' argument should be 'on' or 'off'",
-            ),
-        ]),
-        ..TagRule::default()
-    }
-}
-
-fn cycle_rule() -> TagRule {
-    TagRule {
-        arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-        diagnostic_messages: Some(vec![count_message(
-            ArgumentCountConstraint::Min(2),
-            "'cycle' tag requires at least two arguments",
-        )]),
-        ..TagRule::default()
-    }
-}
-
-fn lorem_rule() -> TagRule {
-    TagRule {
-        arg_constraints: vec![ArgumentCountConstraint::Exact(4)],
-        diagnostic_messages: Some(vec![count_message(
-            ArgumentCountConstraint::Exact(4),
-            "Incorrect format for 'lorem' tag",
-        )]),
-        ..TagRule::default()
-    }
-}
-
-fn now_rule() -> TagRule {
-    TagRule {
-        arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-        diagnostic_messages: Some(vec![count_message(
-            ArgumentCountConstraint::Exact(2),
-            "'now' statement takes one argument",
-        )]),
-        ..TagRule::default()
-    }
-}
-
-fn regroup_rule() -> TagRule {
-    TagRule {
-        arg_constraints: vec![ArgumentCountConstraint::Exact(6)],
-        required_keywords: vec![
-            RequiredKeyword {
-                position: SplitPosition::Forward(2),
-                value: "by".to_string(),
-            },
-            RequiredKeyword {
-                position: SplitPosition::Forward(4),
-                value: "as".to_string(),
-            },
-        ],
-        diagnostic_messages: Some(vec![
-            count_message(
-                ArgumentCountConstraint::Exact(6),
-                "'regroup' tag takes five arguments",
-            ),
-            keyword_message(
-                SplitPosition::Forward(2),
-                "by",
-                "second argument to 'regroup' tag must be 'by'",
-            ),
-            keyword_message(
-                SplitPosition::Forward(4),
-                "as",
-                "next-to-last argument to 'regroup' tag must be 'as'",
-            ),
-        ]),
-        ..TagRule::default()
-    }
-}
-
-fn url_rule() -> TagRule {
-    TagRule {
-        arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-        diagnostic_messages: Some(vec![count_message(
-            ArgumentCountConstraint::Min(2),
-            "'url' takes at least one argument, a URL pattern name.",
-        )]),
-        ..TagRule::default()
-    }
-}
-
-fn widthratio_rule() -> TagRule {
-    TagRule {
-        arg_constraints: vec![ArgumentCountConstraint::OneOf(vec![4, 6])],
-        required_keywords: vec![RequiredKeyword {
-            position: SplitPosition::Forward(4),
-            value: "as".to_string(),
-        }],
-        diagnostic_messages: Some(vec![
-            count_message(
-                ArgumentCountConstraint::OneOf(vec![4, 6]),
-                "widthratio takes at least three arguments",
-            ),
-            keyword_message(
-                SplitPosition::Forward(4),
-                "as",
-                "Invalid syntax in widthratio tag. Expecting 'as' keyword",
-            ),
-        ]),
-        ..TagRule::default()
-    }
-}
-
-fn set_tag_rule(specs: &mut TagSpecs, name: &str, rule: TagRule) {
-    if let Some(spec) = specs.get_mut(name) {
-        spec.set_extracted_rules(rule.into());
-    }
-}
-
-fn count_message(constraint: ArgumentCountConstraint, message: &str) -> ExtractedDiagnosticMessage {
-    ExtractedDiagnosticMessage {
-        constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
-        message: ExtractedMessageTemplate::Static(message.to_string()),
-    }
-}
-
-fn keyword_message(
-    position: SplitPosition,
-    value: &str,
-    message: &str,
-) -> ExtractedDiagnosticMessage {
-    ExtractedDiagnosticMessage {
-        constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
-            position,
-            value: value.to_string(),
-        },
-        message: ExtractedMessageTemplate::Static(message.to_string()),
-    }
-}
-
-fn choice_message(
-    position: SplitPosition,
-    values: &[&str],
-    message: &str,
-) -> ExtractedDiagnosticMessage {
-    ExtractedDiagnosticMessage {
-        constraint: ExtractedDiagnosticConstraint::ChoiceAt {
-            position,
-            values: values.iter().map(|value| (*value).to_string()).collect(),
-        },
-        message: ExtractedMessageTemplate::Static(message.to_string()),
-    }
-}
-
-fn standard_filter_arities() -> FilterAritySpecs {
-    let mut specs = FilterAritySpecs::new();
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "title"),
-        FilterArity {
-            expects_arg: false,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "lower"),
-        FilterArity {
-            expects_arg: false,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "upper"),
-        FilterArity {
-            expects_arg: false,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "default"),
-        FilterArity {
-            expects_arg: true,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "truncatewords"),
-        FilterArity {
-            expects_arg: true,
-            arg_optional: false,
-        },
-    );
-    specs.insert(
-        SymbolKey::filter(default_filters_module(), "date"),
-        FilterArity {
-            expects_arg: true,
-            arg_optional: true,
-        },
-    );
-    specs
-}
-
-fn default_filters_module() -> &'static str {
-    "django.template.defaultfilters"
 }
 
 pub fn render_validate_snapshot(

@@ -314,26 +314,4 @@ mod tests {
         assert_eq!(key.name, "title");
         assert_eq!(key.kind, TemplateSymbolKind::Filter);
     }
-
-    #[test]
-    fn block_tag_spec_opaque() {
-        let spec = BlockSpec {
-            end_tag: Some("endverbatim".to_string()),
-            intermediates: vec![],
-            opaque: true,
-        };
-        assert!(spec.opaque);
-        assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
-    }
-
-    #[test]
-    fn block_tag_spec_with_intermediates() {
-        let spec = BlockSpec {
-            end_tag: Some("endif".to_string()),
-            intermediates: vec!["elif".to_string(), "else".to_string()],
-            opaque: false,
-        };
-        assert!(!spec.opaque);
-        assert_eq!(spec.intermediates.len(), 2);
-    }
 }
