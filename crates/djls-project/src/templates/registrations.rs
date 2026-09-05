@@ -779,57 +779,116 @@ fn registration_decorator_has_dynamic_name(expr: &Expr) -> bool {
     })
 }
 
-fn registration_call_has_conflicting_arguments(helper: &str, call: &ExprCall) -> bool {
-    let has_keyword = |names: &[&str]| {
-        call.arguments.keywords.iter().any(|keyword| {
-            keyword
-                .arg
-                .as_ref()
-                .is_some_and(|name| names.contains(&name.as_str()))
+#[derive(Clone, Copy, Debug)]
+struct LoweredRegistrationCall<'a> {
+    kind: RegistrationKind,
+    name: Option<&'a Expr>,
+    callable: Option<&'a Expr>,
+}
+
+fn lower_registration_call(call: &ExprCall) -> Option<LoweredRegistrationCall<'_>> {
+    let helper = direct_register_helper(&call.func)?;
+    let args = &call.arguments.args;
+    let keywords = &call.arguments.keywords;
+    let has_starred = args
+        .iter()
+        .any(|argument| matches!(argument, Expr::Starred(_)));
+    if has_starred || keywords.iter().any(|keyword| keyword.arg.is_none()) {
+        return None;
+    }
+
+    let keyword = |names: &[&str]| {
+        keywords.iter().find_map(|keyword| {
+            let name = keyword.arg.as_ref()?;
+            names.contains(&name.as_str()).then_some(&keyword.value)
         })
     };
-    let positional_callable = match helper {
-        "tag" | "filter" | "inclusion_tag" => call.arguments.args.len() >= 2,
-        "simple_tag" | "simple_block_tag" => !call.arguments.args.is_empty(),
-        _ => false,
+    let keywords_are_supported = |supported: &[&str]| {
+        keywords.iter().all(|keyword| {
+            let Some(name) = keyword.arg.as_ref() else {
+                return false;
+            };
+            supported.contains(&name.as_str())
+        })
     };
-    let callable_keywords = match helper {
-        "tag" => &["compile_function", "func"][..],
-        "filter" => &["filter_func", "func"][..],
-        "simple_tag" | "simple_block_tag" | "inclusion_tag" => &["func"][..],
-        _ => &[][..],
+
+    let (kind, name, callable) = match helper {
+        "tag" if keywords_are_supported(&["name", "compile_function", "func"]) => {
+            let name_keyword = keyword(&["name"]);
+            let callable_keyword = keyword(&["compile_function", "func"]);
+            match &args[..] {
+                [name, callable] if name_keyword.is_none() && callable_keyword.is_none() => {
+                    (RegistrationKind::Tag, Some(name), Some(callable))
+                }
+                [name] if name.string_literal().is_some() && name_keyword.is_none() => {
+                    (RegistrationKind::Tag, Some(name), callable_keyword)
+                }
+                [callable] if name_keyword.is_none() => {
+                    (RegistrationKind::Tag, None, Some(callable))
+                }
+                [] => (RegistrationKind::Tag, name_keyword, callable_keyword),
+                _ => return None,
+            }
+        }
+        "simple_tag" if keywords_are_supported(&["func", "takes_context", "name"]) => {
+            let callable_keyword = keyword(&["func"]);
+            let callable = match &args[..] {
+                [callable] if callable_keyword.is_none() => Some(callable),
+                [] => callable_keyword,
+                _ => return None,
+            };
+            (RegistrationKind::SimpleTag, keyword(&["name"]), callable)
+        }
+        "inclusion_tag"
+            if keywords_are_supported(&["filename", "func", "takes_context", "name"]) =>
+        {
+            let callable_keyword = keyword(&["func"]);
+            let callable = match &args[..] {
+                [_template, callable] if callable_keyword.is_none() => Some(callable),
+                [_] | [] => callable_keyword,
+                _ => return None,
+            };
+            (RegistrationKind::InclusionTag, keyword(&["name"]), callable)
+        }
+        "simple_block_tag"
+            if keywords_are_supported(&["func", "takes_context", "name", "end_name"]) =>
+        {
+            let callable_keyword = keyword(&["func"]);
+            let callable = match &args[..] {
+                [callable] if callable_keyword.is_none() => Some(callable),
+                [] => callable_keyword,
+                _ => return None,
+            };
+            (
+                RegistrationKind::SimpleBlockTag,
+                keyword(&["name"]),
+                callable,
+            )
+        }
+        "filter" => {
+            let name_keyword = keyword(&["name"]);
+            let callable_keyword = keyword(&["filter_func", "func"]);
+            match &args[..] {
+                [name, callable] if name_keyword.is_none() && callable_keyword.is_none() => {
+                    (RegistrationKind::Filter, Some(name), Some(callable))
+                }
+                [name] if name.string_literal().is_some() && name_keyword.is_none() => {
+                    (RegistrationKind::Filter, Some(name), callable_keyword)
+                }
+                [callable] if name_keyword.is_none() => {
+                    (RegistrationKind::Filter, None, Some(callable))
+                }
+                [] => (RegistrationKind::Filter, name_keyword, callable_keyword),
+                _ => return None,
+            }
+        }
+        _ => return None,
     };
-    (matches!(helper, "tag" | "filter") && call.arguments.args.len() >= 2 && has_keyword(&["name"]))
-        || (positional_callable && has_keyword(callable_keywords))
-}
 
-fn registration_name_requires_callable(helper: &str, call: &ExprCall) -> bool {
-    let has_name = call.arguments.keywords.iter().any(|keyword| {
-        keyword
-            .arg
-            .as_ref()
-            .is_some_and(|name| name.as_str() == "name")
-    });
-    match helper {
-        "tag" | "filter" => match &call.arguments.args[..] {
-            [argument] => !has_name && argument.string_literal().is_none(),
-            [] => !has_name,
-            [_, _] | [_, _, ..] => false,
-        },
-        "simple_tag" | "simple_block_tag" | "inclusion_tag" => !has_name,
-        _ => false,
-    }
-}
-
-fn registration_call_has_dynamic_name(call: &ExprCall) -> bool {
-    if has_dynamic_name_keyword(&call.arguments.keywords) {
-        return true;
-    }
-    direct_register_helper(&call.func).is_some_and(|helper| {
-        registration_arguments_are_unsupported(helper, call)
-            || (matches!(helper, "tag" | "filter")
-                && call.arguments.args.len() >= 2
-                && call.arguments.args[0].string_literal().is_none())
+    Some(LoweredRegistrationCall {
+        kind,
+        name,
+        callable,
     })
 }
 
@@ -920,263 +979,70 @@ fn collect_from_call_statement(
     }
     analysis.observe_register_use();
 
-    let Some(helper) = direct_register_helper(&call.func) else {
+    let Some(call) = lower_registration_call(call) else {
         analysis.open_inventory();
         return;
     };
-    if tag_decorator_kind(helper).is_none() && !FILTER_DECORATORS.contains(&helper) {
-        analysis.open_inventory();
-        return;
-    }
-    if registration_arguments_are_unsupported(helper, call)
-        || registration_call_has_conflicting_arguments(helper, call)
-    {
-        analysis.open_inventory();
-        return;
-    }
     if let Some(python_facts) = python_facts
-        && let Some(registration) = resolved_python_registration(call, helper, python_facts)
+        && let Some(registration) = resolved_python_registration(call, python_facts)
     {
         analysis.registrations.push(registration);
         return;
     }
-    if registration_call_has_dynamic_name(call) {
+
+    let Some(registration) = unresolved_registration(call, transparent_decorated_functions) else {
         analysis.open_inventory();
         return;
-    }
-    let needs_callable_name = registration_name_requires_callable(helper, call);
-
-    if let Some((name, kind, func_name)) = tag_registration_from_call(call) {
-        let local_source = func_name
-            .as_deref()
-            .and_then(|name| transparent_decorated_functions.get(name))
-            .copied();
-        if needs_callable_name && local_source.is_none() {
-            analysis.open_inventory();
-            return;
-        }
-        analysis.registrations.push(RegistrationInfo {
-            name,
-            kind,
-            callable: func_name.map_or(RegistrationCallable::Unresolved(None), |function_name| {
-                if let Some(navigation) = local_source {
-                    RegistrationCallable::DecoratedLocal {
-                        function_name,
-                        navigation: Some(navigation),
-                    }
-                } else {
-                    RegistrationCallable::Unresolved(Some(function_name))
-                }
-            }),
-        });
-        return;
-    }
-
-    if let Some((name, func_name)) = filter_registration_from_call(call) {
-        let local_source = func_name
-            .as_deref()
-            .and_then(|name| transparent_decorated_functions.get(name))
-            .copied();
-        if needs_callable_name && local_source.is_none() {
-            analysis.open_inventory();
-            return;
-        }
-        analysis.registrations.push(RegistrationInfo {
-            name,
-            kind: RegistrationKind::Filter,
-            callable: func_name.map_or(RegistrationCallable::Unresolved(None), |function_name| {
-                if let Some(navigation) = local_source {
-                    RegistrationCallable::DecoratedLocal {
-                        function_name,
-                        navigation: Some(navigation),
-                    }
-                } else {
-                    RegistrationCallable::Unresolved(Some(function_name))
-                }
-            }),
-        });
-    } else {
-        analysis.open_inventory();
-    }
+    };
+    analysis.registrations.push(registration);
 }
 
 fn resolved_python_registration(
-    call: &ExprCall,
-    helper: &str,
+    call: LoweredRegistrationCall<'_>,
     python_facts: &mut PythonSourceLookup<'_>,
 ) -> Option<RegistrationInfo> {
-    let args = &call.arguments.args;
-    let keyword = |names: &[&str]| {
-        call.arguments.keywords.iter().find_map(|keyword| {
-            keyword
-                .arg
-                .as_ref()
-                .is_some_and(|name| names.contains(&name.as_str()))
-                .then_some(&keyword.value)
-        })
-    };
-
-    let (kind, name_expression, callable_expression) = match helper {
-        "tag" => match &args[..] {
-            [name, callable] => (RegistrationKind::Tag, Some(name), Some(callable)),
-            [name] if name.string_literal().is_some() => (
-                RegistrationKind::Tag,
-                Some(name),
-                keyword(&["compile_function", "func"]),
-            ),
-            [callable] if keyword(&["name"]).is_none() => {
-                (RegistrationKind::Tag, None, Some(callable))
-            }
-            [] => (
-                RegistrationKind::Tag,
-                keyword(&["name"]),
-                keyword(&["compile_function", "func"]),
-            ),
-            _ => return None,
-        },
-        "simple_tag" | "simple_block_tag" => {
-            let kind = if helper == "simple_tag" {
-                RegistrationKind::SimpleTag
-            } else {
-                RegistrationKind::SimpleBlockTag
-            };
-            let callable = match &args[..] {
-                [callable] => Some(callable),
-                [] => keyword(&["func"]),
-                _ => return None,
-            };
-            (kind, keyword(&["name"]), callable)
-        }
-        "inclusion_tag" => {
-            let callable = match &args[..] {
-                [_template, callable] => Some(callable),
-                [_] | [] => keyword(&["func"]),
-                _ => return None,
-            };
-            (RegistrationKind::InclusionTag, keyword(&["name"]), callable)
-        }
-        "filter" => match &args[..] {
-            [name, callable] => (RegistrationKind::Filter, Some(name), Some(callable)),
-            [name] if name.string_literal().is_some() => (
-                RegistrationKind::Filter,
-                Some(name),
-                keyword(&["filter_func", "func"]),
-            ),
-            [callable] if keyword(&["name"]).is_none() => {
-                (RegistrationKind::Filter, None, Some(callable))
-            }
-            [] => (
-                RegistrationKind::Filter,
-                keyword(&["name"]),
-                keyword(&["filter_func", "func"]),
-            ),
-            _ => return None,
-        },
-        _ => return None,
-    };
-
-    let function = python_facts.function(callable_expression?)?;
-    let name = name_expression.map_or_else(
+    let function = python_facts.function(call.callable?)?;
+    let name = call.name.map_or_else(
         || Some(function.name().to_string()),
         |expression| python_facts.exact_string(expression),
     )?;
     Some(RegistrationInfo {
         name,
-        kind,
+        kind: call.kind,
         callable: RegistrationCallable::ResolvedFunction(function),
     })
 }
 
-/// Extract tag registration info from a call expression.
-///
-/// Returns `Some((name, kind, func_name))` for patterns like:
-/// - `register.tag("name", func)`
-/// - `register.simple_tag(func, name="alias")`
-fn tag_registration_from_call(
-    call: &ExprCall,
-) -> Option<(String, RegistrationKind, Option<String>)> {
-    let helper = direct_register_helper(&call.func)?;
-    let kind = tag_decorator_kind(helper)?;
-    let name_override = kw_name_from(&call.arguments.keywords);
-    let keyword_func = kw_callable_name(&call.arguments.keywords, &["compile_function", "func"]);
-    let args = &call.arguments.args;
-
-    match helper {
-        "tag" => match &args[..] {
-            [name, callable] => {
-                let name = name.string_literal()?.to_string();
-                let func_name = callable_name(callable).or(keyword_func);
-                Some((name, kind, func_name))
+fn unresolved_registration(
+    call: LoweredRegistrationCall<'_>,
+    transparent_decorated_functions: &BTreeMap<String, LocalFunctionSource>,
+) -> Option<RegistrationInfo> {
+    let function_name = call.callable.and_then(callable_name);
+    let local_source = function_name
+        .as_deref()
+        .and_then(|name| transparent_decorated_functions.get(name))
+        .copied();
+    let name = if let Some(name) = call.name {
+        name.string_literal()?.to_string()
+    } else {
+        local_source?;
+        function_name.clone()?
+    };
+    let callable = function_name.map_or(RegistrationCallable::Unresolved(None), |function_name| {
+        if let Some(navigation) = local_source {
+            RegistrationCallable::DecoratedLocal {
+                function_name,
+                navigation: Some(navigation),
             }
-            [name] if name.string_literal().is_some() => {
-                Some((name.string_literal()?.to_string(), kind, keyword_func))
-            }
-            [callable] if name_override.is_none() => {
-                let func_name = callable_name(callable)?;
-                Some((func_name.clone(), kind, Some(func_name)))
-            }
-            [] => {
-                let name = name_override.or_else(|| keyword_func.clone())?;
-                Some((name, kind, keyword_func))
-            }
-            _ => None,
-        },
-        "simple_tag" | "simple_block_tag" => match &args[..] {
-            [callable] => {
-                let func_name = callable_name(callable).or(keyword_func);
-                let name = name_override.or_else(|| func_name.clone())?;
-                Some((name, kind, func_name))
-            }
-            [] => {
-                let name = name_override.or_else(|| keyword_func.clone())?;
-                Some((name, kind, keyword_func))
-            }
-            _ => None,
-        },
-        "inclusion_tag" => {
-            let func_name = match &args[..] {
-                [_template, callable] => callable_name(callable).or(keyword_func),
-                [_] | [] => keyword_func,
-                _ => None,
-            };
-            let name = name_override.or_else(|| func_name.clone())?;
-            Some((name, kind, func_name))
+        } else {
+            RegistrationCallable::Unresolved(Some(function_name))
         }
-        _ => None,
-    }
-}
-
-/// Extract filter registration info from a call expression.
-///
-/// Returns `Some((name, func_name))` for patterns like:
-/// - `register.filter("name", func)`
-/// - `register.filter(func, name="alias")`
-fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<String>)> {
-    let helper = direct_register_helper(&call.func)?;
-    if !FILTER_DECORATORS.contains(&helper) {
-        return None;
-    }
-
-    let name_override = kw_name_from(&call.arguments.keywords);
-    let keyword_func = kw_callable_name(&call.arguments.keywords, &["filter_func", "func"]);
-    match &call.arguments.args[..] {
-        [name, callable] => {
-            let name = name.string_literal()?.to_string();
-            Some((name, callable_name(callable).or(keyword_func)))
-        }
-        [name] if name.string_literal().is_some() => {
-            Some((name.string_literal()?.to_string(), keyword_func))
-        }
-        [callable] if name_override.is_none() => {
-            let func_name = callable_name(callable)?;
-            Some((func_name.clone(), Some(func_name)))
-        }
-        [] => {
-            let name = name_override.or_else(|| keyword_func.clone())?;
-            Some((name, keyword_func))
-        }
-        _ => None,
-    }
+    });
+    Some(RegistrationInfo {
+        name,
+        kind: call.kind,
+        callable,
+    })
 }
 
 /// Map decorator attr name to `RegistrationKind`.
@@ -1204,19 +1070,6 @@ fn kw_constant_str(keywords: &[Keyword], name: &str) -> Option<String> {
         }
         if let Some(s) = kw.value.string_literal() {
             return Some(s.to_string());
-        }
-    }
-    None
-}
-
-/// Extract a callable name from keyword arguments by checking the given keyword names.
-fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String> {
-    for kw in keywords {
-        let Some(arg) = &kw.arg else { continue };
-        if kwarg_names.contains(&arg.as_str())
-            && let Some(name) = kw.value.name_target()
-        {
-            return Some(name.to_string());
         }
     }
     None
@@ -2189,6 +2042,11 @@ def my_tag(parser, token):
             "register.tags['dynamic'] = func",
             "del register.filters['dynamic']",
             "register.tag()",
+            "register.tag('invented', name=dynamic_name)",
+            "register.filter('invented', name=dynamic_name)",
+            "register.tag('invented', name='duplicate', compile_function=func)",
+            "register.filter('invented', name='duplicate', filter_func=func)",
+            "register.inclusion_tag('partial.html', func, extra, name='invented')",
             "configure(register)",
         ] {
             let source = format!(
@@ -2199,11 +2057,14 @@ def my_tag(parser, token):
                 analysis.inventory_is_open(),
                 "operation should open inventory: {operation}"
             );
-            assert!(
+            assert_eq!(
                 analysis
                     .registrations
                     .iter()
-                    .any(|registration| registration.name == "known")
+                    .map(|registration| registration.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["known"],
+                "uncertain operation must not invent symbols: {operation}",
             );
         }
     }

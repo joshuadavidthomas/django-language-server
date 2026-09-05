@@ -30,6 +30,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Fixed
 
 - Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
+- Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
 
 ## [6.1.0]
 
