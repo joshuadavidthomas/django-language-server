@@ -93,7 +93,6 @@ tag_rules:
         - with
         - include_context
       allow_duplicates: false
-      rejects_unknown: true
     extracted_args:
       - name: arg1
         required: true

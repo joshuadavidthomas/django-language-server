@@ -890,10 +890,8 @@ def do_tag(parser, token):
         crate::templates::tags::analysis::analyze_compile_function(func)
     }
 
-    // Fabricated: simple option loop without duplicate check. No corpus
-    // function has an option loop that allows duplicates — real Django tags
-    // always check for duplicates via `if option in options:` or `if option
-    // in seen:`. Keep as unit test for the simpler code path. (b)
+    // Fabricated: simple option loop without duplicate checking. No corpus
+    // function covers this simpler extraction path. (b)
     #[test]
     fn option_loop_basic() {
         let rule = analyze(
@@ -913,12 +911,11 @@ def do_tag(parser, token):
         );
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
-        assert!(opts.rejects_unknown);
         assert!(opts.allow_duplicates);
     }
 
     // Corpus: do_translate in i18n.py — option loop with `seen = set()`
-    // duplicate check. Options: "noop", "context", "as". Rejects unknown.
+    // duplicate check. Options: "noop", "context", "as".
     #[test]
     fn option_loop_with_duplicate_check() {
         let func = django_function("django/templatetags/i18n.py", "do_translate")
@@ -929,40 +926,11 @@ def do_tag(parser, token):
             opts.values,
             vec!["noop".to_string(), "context".to_string(), "as".to_string()]
         );
-        assert!(opts.rejects_unknown);
         assert!(!opts.allow_duplicates);
-    }
-
-    // Fabricated: option loop without else/raise — allows unknown options.
-    // No corpus function has this pattern (real Django tags always reject
-    // unknown options). Keep as unit test for permissive code path. (b)
-    #[test]
-    fn option_loop_allows_unknown() {
-        let rule = analyze(
-            r#"
-def do_tag(parser, token):
-    bits = token.split_contents()
-    remaining = bits[1:]
-    while remaining:
-        option = remaining.pop(0)
-        if option == "noescape":
-            pass
-        elif option == "trimmed":
-            pass
-"#,
-        );
-        let opts = rule.known_options.expect("should have known_options");
-        assert_eq!(
-            opts.values,
-            vec!["noescape".to_string(), "trimmed".to_string()]
-        );
-        assert!(!opts.rejects_unknown);
-        assert!(opts.allow_duplicates);
     }
 
     // Corpus: do_include in loader_tags.py — option loop with dict-based
     // duplicate check (`if option in options:`). Options: "with", "only".
-    // Rejects unknown, rejects duplicates.
     #[test]
     fn option_loop_include_pattern() {
         let func = django_function("django/template/loader_tags.py", "do_include")
@@ -970,7 +938,6 @@ def do_tag(parser, token):
         let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
-        assert!(opts.rejects_unknown);
         assert!(!opts.allow_duplicates);
     }
 

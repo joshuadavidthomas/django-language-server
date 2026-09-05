@@ -24,18 +24,6 @@ trait Constraint {
     ) -> Option<ValidationError>;
 }
 
-/// Resolve a `SplitPosition` to a `bits` index.
-///
-/// Delegates to `SplitPosition::to_bits_index`, which handles the offset
-/// between `split_contents()` coordinates (tag name at index 0) and `bits`
-/// coordinates (arguments only, tag name excluded).
-///
-/// Returns `None` if the position is out of bounds or refers to the tag name
-/// — the argument count constraint should catch those cases.
-fn resolve_position_index(position: &SplitPosition, bits_len: usize) -> Option<usize> {
-    position.to_bits_index(bits_len)
-}
-
 /// Constraints express the conditions from Django source that raise exceptions
 /// in guard patterns. The extraction captures what makes the tag **valid**:
 /// - `Exact(N)`: valid when `split_len == N`
@@ -115,7 +103,7 @@ impl Constraint for RequiredKeyword {
         span: Span,
         message: Option<String>,
     ) -> Option<ValidationError> {
-        let bits_index = resolve_position_index(&self.position, bits.len())?;
+        let bits_index = self.position.to_bits_index(bits.len())?;
         let bit = bits.get(bits_index)?;
 
         if bit == &self.value {
@@ -144,7 +132,7 @@ impl Constraint for ChoiceAt {
         span: Span,
         message: Option<String>,
     ) -> Option<ValidationError> {
-        let bits_index = resolve_position_index(&self.position, bits.len())?;
+        let bits_index = self.position.to_bits_index(bits.len())?;
         let bit = bits.get(bits_index)?;
 
         if self.values.iter().any(|value| value == bit) {
@@ -235,8 +223,7 @@ pub(crate) fn evaluate_tag_rules(
                     // Pick the first as representative error, but phrase it
                     // as a choice to be clearer.
                     let values: Vec<&str> = keywords.iter().map(|kw| kw.value.as_str()).collect();
-                    let bits_index =
-                        resolve_position_index(&keywords[0].position, effective_bits.len());
+                    let bits_index = keywords[0].position.to_bits_index(effective_bits.len());
                     if bits_index.is_some() {
                         let choices = values.join("' or '");
                         errors.push(ValidationError::ExtractedRuleViolation {
@@ -408,9 +395,9 @@ fn python_repr(value: &str) -> String {
 
 /// Evaluate known options constraints.
 ///
-/// Scans `bits` for option-style arguments and validates them against the
-/// known set. Returns errors for unknown options (when `rejects_unknown`)
-/// and duplicate options (when `!allow_duplicates`).
+/// Scans `bits` for known option-style arguments and reports duplicates when
+/// the extracted rule disallows them. Unknown bits may be positional values,
+/// so they cannot be rejected without tag-specific parsing context.
 fn evaluate_known_options(
     tag_name: &str,
     bits: &[String],
@@ -433,9 +420,6 @@ fn evaluate_known_options(
             }
             seen.push(bit.clone());
         }
-        // NOTE: `rejects_unknown` is not enforced — distinguishing unknown
-        // options from positional values (e.g. `with key=val`) is unreliable
-        // without full tag-specific parsing context.
     }
 
     errors
@@ -448,16 +432,8 @@ mod tests {
 
     use super::*;
 
-    fn make_span() -> Span {
-        Span::new(0, 10)
-    }
-
     fn make_bits(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| (*s).to_string()).collect()
-    }
-
-    fn empty_rule() -> TagRule {
-        TagRule::default()
     }
 
     // --- ArgumentCountConstraint tests ---
@@ -466,11 +442,11 @@ mod tests {
     fn exact_constraint_passes_when_matched() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Exact(4)],
-            ..empty_rule()
+            ..TagRule::default()
         };
         // 3 bits + tag name = split_len 4
         let bits = make_bits(&["item", "in", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -478,11 +454,11 @@ mod tests {
     fn exact_constraint_fails_when_wrong_count() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Exact(4)],
-            ..empty_rule()
+            ..TagRule::default()
         };
         // 2 bits + tag name = split_len 3, expected 4
         let bits = make_bits(&["item", "in"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -503,9 +479,9 @@ mod tests {
                     "'custom' tag takes one argument".to_string(),
                 ),
             }]),
-            ..empty_rule()
+            ..TagRule::default()
         };
-        let errors = evaluate_tag_rules("custom", &[], &rule, make_span());
+        let errors = evaluate_tag_rules("custom", &[], &rule, Span::new(0, 10));
         assert!(matches!(
             &errors[0],
             ValidationError::ExtractedRuleViolation { message, .. }
@@ -526,9 +502,9 @@ mod tests {
                     args: vec![ExtractedMessageArg::SplitElement(SplitPosition::Forward(0))],
                 },
             }]),
-            ..empty_rule()
+            ..TagRule::default()
         };
-        let errors = evaluate_tag_rules("custom", &[], &rule, make_span());
+        let errors = evaluate_tag_rules("custom", &[], &rule, Span::new(0, 10));
         assert!(matches!(
             &errors[0],
             ValidationError::ExtractedRuleViolation { message, .. }
@@ -540,10 +516,10 @@ mod tests {
     fn min_constraint_passes_when_sufficient() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["arg1", "arg2"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -551,10 +527,10 @@ mod tests {
     fn min_constraint_fails_when_too_few() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Min(4)],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["arg1"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -567,10 +543,10 @@ mod tests {
     fn max_constraint_passes_when_under() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Max(5)],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["a", "b", "c"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -578,11 +554,11 @@ mod tests {
     fn max_constraint_fails_when_over() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Max(3)],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["a", "b", "c"]);
         // split_len = 4, max = 3
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -595,11 +571,11 @@ mod tests {
     fn one_of_constraint_passes_when_in_set() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::OneOf(vec![2, 4, 6])],
-            ..empty_rule()
+            ..TagRule::default()
         };
         // split_len = 4 (3 bits + tag name)
         let bits = make_bits(&["a", "b", "c"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -607,11 +583,11 @@ mod tests {
     fn one_of_constraint_fails_when_not_in_set() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::OneOf(vec![2, 4])],
-            ..empty_rule()
+            ..TagRule::default()
         };
         // split_len = 3 (2 bits + tag name), not in {2, 4}
         let bits = make_bits(&["a", "b"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -629,11 +605,11 @@ mod tests {
                 position: SplitPosition::Forward(2),
                 value: "in".to_string(),
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         // bits[1] (position 2 in split_contents - 1) = "in"
         let bits = make_bits(&["item", "in", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -644,10 +620,10 @@ mod tests {
                 position: SplitPosition::Forward(2),
                 value: "in".to_string(),
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["item", "from", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -663,12 +639,12 @@ mod tests {
                 position: SplitPosition::Backward(2),
                 value: "as".to_string(),
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         // bits = ["'view_name'", "arg1", "as", "varname"]
         // bits[-2] = "as"
         let bits = make_bits(&["'view_name'", "arg1", "as", "varname"]);
-        let errors = evaluate_tag_rules("url", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("url", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -679,10 +655,10 @@ mod tests {
                 position: SplitPosition::Backward(2),
                 value: "as".to_string(),
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["'view_name'", "arg1", "with", "varname"]);
-        let errors = evaluate_tag_rules("url", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("url", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1);
     }
 
@@ -693,10 +669,10 @@ mod tests {
                 position: SplitPosition::Forward(5),
                 value: "in".to_string(),
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["item"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty(), "Out-of-bounds keyword should be skipped");
     }
 
@@ -707,10 +683,10 @@ mod tests {
                 position: SplitPosition::Forward(0),
                 value: "for".to_string(),
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["item", "in", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty(), "Position 0 (tag name) should be skipped");
     }
 
@@ -722,12 +698,11 @@ mod tests {
             known_options: Some(KnownOptions {
                 values: vec!["only".to_string(), "with".to_string()],
                 allow_duplicates: false,
-                rejects_unknown: false,
             }),
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["'template.html'", "with", "x=1", "with", "y=2"]);
-        let errors = evaluate_tag_rules("include", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("include", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -742,12 +717,11 @@ mod tests {
             known_options: Some(KnownOptions {
                 values: vec!["only".to_string(), "with".to_string()],
                 allow_duplicates: true,
-                rejects_unknown: false,
             }),
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["'template.html'", "with", "x=1", "with", "y=2"]);
-        let errors = evaluate_tag_rules("include", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("include", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -755,9 +729,9 @@ mod tests {
 
     #[test]
     fn empty_rules_no_errors() {
-        let rule = empty_rule();
+        let rule = TagRule::default();
         let bits = make_bits(&["anything", "goes", "here"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -777,7 +751,7 @@ mod tests {
         // split_len = 5 (4 bits + tag name), satisfies Min(4) and Max(6)
         // bits[1] = "in", satisfies keyword
         let bits = make_bits(&["item", "in", "items", "reversed"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -793,7 +767,7 @@ mod tests {
         };
         // split_len = 3, fails Min(4); bits[1] = "from", fails keyword
         let bits = make_bits(&["item", "from"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 2);
     }
 
@@ -805,14 +779,14 @@ mod tests {
                 position: SplitPosition::Forward(2),
                 value: "in".to_string(),
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
 
         // {% for item in items %} → bits = ["item", "in", "items"]
         // split_contents = ["for", "item", "in", "items"]
         // position 2 in split_contents = "in" = bits[1] ✓
         let bits = make_bits(&["item", "in", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
         assert!(
             errors.is_empty(),
             "Position 2 in split_contents should map to bits[1]"
@@ -834,7 +808,7 @@ mod tests {
         };
         // {% user_display user as foo %} → bits = ["user", "as", "foo"]
         let bits = make_bits(&["user", "as", "foo"]);
-        let errors = evaluate_tag_rules("user_display", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("user_display", &bits, &rule, Span::new(0, 10));
         assert!(
             errors.is_empty(),
             "simple_tag with `as varname` should pass: {errors:?}"
@@ -851,7 +825,7 @@ mod tests {
         };
         // {% get_providers as providers %} → bits = ["as", "providers"]
         let bits = make_bits(&["as", "providers"]);
-        let errors = evaluate_tag_rules("get_providers", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("get_providers", &bits, &rule, Span::new(0, 10));
         assert!(
             errors.is_empty(),
             "simple_tag with 0 params + `as varname` should pass: {errors:?}"
@@ -868,7 +842,7 @@ mod tests {
         };
         // {% user_display user %} → bits = ["user"]
         let bits = make_bits(&["user"]);
-        let errors = evaluate_tag_rules("user_display", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("user_display", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty(), "Normal usage should pass: {errors:?}");
     }
 
@@ -882,7 +856,7 @@ mod tests {
         };
         // {% user_display user extra %} → bits = ["user", "extra"]
         let bits = make_bits(&["user", "extra"]);
-        let errors = evaluate_tag_rules("user_display", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("user_display", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1, "Extra args without `as` should still fail");
     }
 
@@ -896,7 +870,7 @@ mod tests {
         };
         // bits = ["user", "as", "foo"] → split_len=4, Max(2) fails
         let bits = make_bits(&["user", "as", "foo"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert_eq!(
             errors.len(),
             1,
@@ -913,10 +887,10 @@ mod tests {
                 position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()],
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["on"]);
-        let errors = evaluate_tag_rules("autoescape", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -927,10 +901,10 @@ mod tests {
                 position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()],
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["unknown"]);
-        let errors = evaluate_tag_rules("autoescape", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -946,11 +920,11 @@ mod tests {
                 position: SplitPosition::Backward(1),
                 values: vec!["yes".to_string(), "no".to_string()],
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         // bits[-1] = "yes"
         let bits = make_bits(&["something", "yes"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -961,10 +935,10 @@ mod tests {
                 position: SplitPosition::Forward(5),
                 values: vec!["a".to_string()],
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         let bits = make_bits(&["x"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -976,11 +950,11 @@ mod tests {
                 position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()],
             }],
-            ..empty_rule()
+            ..TagRule::default()
         };
         // Correct count, wrong value
         let bits = make_bits(&["bad"]);
-        let errors = evaluate_tag_rules("autoescape", &bits, &rule, make_span());
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, Span::new(0, 10));
         assert_eq!(errors.len(), 1); // Only choice violation, count is correct
         assert!(matches!(
             &errors[0],

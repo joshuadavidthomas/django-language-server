@@ -12,7 +12,6 @@ use ruff_python_ast::StmtWhile;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::templates::tags::analysis::exceptions::direct_raise_exception;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::types::KnownOptions;
@@ -92,18 +91,11 @@ pub(super) fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Opti
 
     // Scan if/elif/else chains for option value checks
     let mut values = Vec::new();
-    let mut rejects_unknown = false;
     let mut allow_duplicates = true;
 
     for stmt in &while_stmt.body {
         if let Stmt::If(if_stmt) = stmt {
-            extract_option_checks(
-                if_stmt,
-                &option_var,
-                &mut values,
-                &mut rejects_unknown,
-                &mut allow_duplicates,
-            );
+            extract_option_checks(if_stmt, &option_var, &mut values, &mut allow_duplicates);
         }
     }
 
@@ -114,7 +106,6 @@ pub(super) fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Opti
     Some(KnownOptions {
         values,
         allow_duplicates,
-        rejects_unknown,
     })
 }
 
@@ -143,60 +134,22 @@ fn extract_option_checks(
     if_stmt: &StmtIf,
     option_var: &str,
     values: &mut Vec<String>,
-    rejects_unknown: &mut bool,
     allow_duplicates: &mut bool,
 ) {
-    let mut visitor =
-        OptionCheckVisitor::new(option_var, values, rejects_unknown, allow_duplicates);
-    visitor.visit_if(if_stmt);
-}
+    let tests = std::iter::once(if_stmt.test.as_ref()).chain(
+        if_stmt
+            .elif_else_clauses
+            .iter()
+            .filter_map(|clause| clause.test.as_ref()),
+    );
 
-struct OptionCheckVisitor<'a> {
-    option_var: &'a str,
-    values: &'a mut Vec<String>,
-    rejects_unknown: &'a mut bool,
-    allow_duplicates: &'a mut bool,
-}
-
-impl<'a> OptionCheckVisitor<'a> {
-    fn new(
-        option_var: &'a str,
-        values: &'a mut Vec<String>,
-        rejects_unknown: &'a mut bool,
-        allow_duplicates: &'a mut bool,
-    ) -> Self {
-        Self {
-            option_var,
-            values,
-            rejects_unknown,
-            allow_duplicates,
-        }
-    }
-
-    fn visit_if(&mut self, if_stmt: &StmtIf) {
-        if is_duplicate_check(&if_stmt.test, self.option_var) {
-            *self.allow_duplicates = false;
-        } else if let Some(opt_name) = extract_option_equality(&if_stmt.test, self.option_var)
-            && !self.values.contains(&opt_name)
+    for test in tests {
+        if is_duplicate_check(test, option_var) {
+            *allow_duplicates = false;
+        } else if let Some(opt_name) = extract_option_equality(test, option_var)
+            && !values.contains(&opt_name)
         {
-            self.values.push(opt_name);
-        }
-
-        for clause in &if_stmt.elif_else_clauses {
-            if let Some(test) = &clause.test {
-                if is_duplicate_check(test, self.option_var) {
-                    *self.allow_duplicates = false;
-                } else if let Some(opt_name) = extract_option_equality(test, self.option_var)
-                    && !self.values.contains(&opt_name)
-                {
-                    self.values.push(opt_name);
-                }
-            } else {
-                // else branch — if it raises, unknown options are rejected
-                if direct_raise_exception(&clause.body).is_some() {
-                    *self.rejects_unknown = true;
-                }
-            }
+            values.push(opt_name);
         }
     }
 }
