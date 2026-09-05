@@ -133,7 +133,29 @@ impl TemplateSettingsCases {
                     .collect(),
                 SettingCase::Unset => Vec::new(),
             };
-            result.push_settings_case(installed_apps, slots);
+            // Source settings retain fields such as context processors that this projection
+            // does not consume. Collapse identical projections before assigning their IDs.
+            let already_present = result.settings_cases.iter().any(|existing| {
+                existing.installed_apps == installed_apps
+                    && existing.slots.len() == slots.len()
+                    && existing
+                        .slots
+                        .iter()
+                        .zip(&slots)
+                        .all(|(existing_slot, backend_settings)| {
+                            match (existing_slot, backend_settings) {
+                                (TemplateBackendSlot::Backend(existing), Some(settings)) => {
+                                    &existing.data == settings
+                                }
+                                (TemplateBackendSlot::Remainder, None) => true,
+                                (TemplateBackendSlot::Backend(_), None)
+                                | (TemplateBackendSlot::Remainder, Some(_)) => false,
+                            }
+                        })
+            });
+            if !already_present {
+                result.push_settings_case(installed_apps, slots);
+            }
         }
         result
     }
