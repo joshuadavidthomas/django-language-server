@@ -173,7 +173,7 @@ valgrind --version  # should contain "codspeed"
 
 #### Usage
 
-The `just dev profile` command runs benchmarks under [valgrind-codspeed](https://github.com/CodSpeedHQ/valgrind-codspeed), the same callgrind fork used in CI. It produces deterministic per-function instruction counts with call trees, and automatically strips harness overhead.
+The `just dev profile` command runs benchmarks under [valgrind-codspeed](https://github.com/CodSpeedHQ/valgrind-codspeed), the same callgrind fork used in CI. It records per-function instruction counts with call trees, and automatically strips harness overhead.
 
 ```bash
 just dev profile <bench> [filter]
