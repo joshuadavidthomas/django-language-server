@@ -27,8 +27,13 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
 
+### Removed
+
+- Removed the unused `debug` configuration option.
+
 ### Fixed
 
+- Fixed explicit `false` and empty LSP initialization options failing to override project configuration.
 - Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
 - Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
 

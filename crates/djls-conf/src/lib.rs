@@ -69,8 +69,6 @@ pub enum ConfigError {
 
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
 pub struct Settings {
-    #[serde(default)]
-    debug: bool,
     venv_path: Option<Utf8PathBuf>,
     django_settings_module: Option<String>,
     #[serde(default)]
@@ -86,41 +84,74 @@ pub struct Settings {
     format: FormatConfig,
 }
 
+/// Settings supplied by a caller on top of configuration loaded from disk.
+///
+/// Each field retains whether the caller supplied it, including values such as
+/// `false` and empty lists that differ from an omitted field.
+#[derive(Debug, Deserialize, Default, PartialEq, Clone)]
+pub struct SettingsOverrides {
+    venv_path: Option<Utf8PathBuf>,
+    django_settings_module: Option<String>,
+    django_environments: Option<Vec<DjangoEnvironmentConfig>>,
+    pythonpath: Option<Vec<Utf8PathBuf>>,
+    env_file: Option<String>,
+    tagspecs: Option<TagSpecDef>,
+    diagnostics: Option<DiagnosticsConfig>,
+    format: Option<FormatConfig>,
+}
+
+impl SettingsOverrides {
+    /// Resolve these overrides against default settings without reading config files.
+    #[must_use]
+    pub fn resolve(self) -> Settings {
+        let mut settings = Settings::default();
+        settings.apply_overrides(self);
+        settings
+    }
+}
+
 impl Settings {
-    pub fn new(project_root: &Utf8Path, overrides: Option<Settings>) -> Result<Self, ConfigError> {
+    pub fn new(
+        project_root: &Utf8Path,
+        overrides: Option<SettingsOverrides>,
+    ) -> Result<Self, ConfigError> {
         let user_config_file =
             project_dirs().map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"));
 
         let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
 
         if let Some(overrides) = overrides {
-            let has_django_environments = !overrides.django_environments.is_empty();
-
-            settings.debug = overrides.debug || settings.debug;
-            settings.venv_path = overrides.venv_path.or(settings.venv_path);
-            settings.django_settings_module = overrides
-                .django_settings_module
-                .or(settings.django_settings_module);
-            if has_django_environments {
-                settings.django_environments = overrides.django_environments;
-            }
-            if !overrides.pythonpath.is_empty() {
-                settings.pythonpath = overrides.pythonpath;
-            }
-            settings.env_file = overrides.env_file.or(settings.env_file);
-            if !overrides.tagspecs.libraries.is_empty() {
-                settings.tagspecs = overrides.tagspecs;
-            }
-            // For diagnostics, override if the config is non-default
-            if overrides.diagnostics != DiagnosticsConfig::default() {
-                settings.diagnostics = overrides.diagnostics;
-            }
-            if overrides.format != FormatConfig::default() {
-                settings.format = overrides.format;
-            }
+            settings.apply_overrides(overrides);
         }
 
         Ok(settings)
+    }
+
+    fn apply_overrides(&mut self, overrides: SettingsOverrides) {
+        if let Some(venv_path) = overrides.venv_path {
+            self.venv_path = Some(venv_path);
+        }
+        if let Some(django_settings_module) = overrides.django_settings_module {
+            self.django_settings_module = Some(django_settings_module);
+        }
+        if let Some(django_environments) = overrides.django_environments {
+            self.django_environments = django_environments;
+        }
+        if let Some(pythonpath) = overrides.pythonpath {
+            self.pythonpath = pythonpath;
+        }
+        if let Some(env_file) = overrides.env_file {
+            self.env_file = Some(env_file);
+        }
+        if let Some(tagspecs) = overrides.tagspecs {
+            self.tagspecs = tagspecs;
+        }
+        if let Some(diagnostics) = overrides.diagnostics {
+            self.diagnostics = diagnostics;
+        }
+        if let Some(format) = overrides.format {
+            self.format = format;
+        }
     }
 
     fn load_from_paths(
@@ -229,7 +260,6 @@ mod tests {
             assert_eq!(
                 settings,
                 Settings {
-                    debug: false,
                     venv_path: None,
                     django_settings_module: None,
                     django_environments: vec![],
@@ -249,19 +279,16 @@ mod tests {
         #[test]
         fn test_load_djls_toml_only() {
             let dir = tempdir().expect("test should create temporary project directory");
-            fs::write(dir.path().join("djls.toml"), "debug = true")
-                .expect("test should write djls.toml fixture");
+            fs::write(
+                dir.path().join("djls.toml"),
+                "django_settings_module = 'project.settings'",
+            )
+            .expect("test should write djls.toml fixture");
             let project_root = Utf8Path::from_path(dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::new(project_root, None)
                 .expect("valid djls.toml fixture should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("project.settings"));
         }
 
         #[test]
@@ -309,38 +336,29 @@ mod tests {
         #[test]
         fn test_load_dot_djls_toml_only() {
             let dir = tempdir().expect("test should create temporary project directory");
-            fs::write(dir.path().join(".djls.toml"), "debug = true")
-                .expect("test should write .djls.toml fixture");
+            fs::write(
+                dir.path().join(".djls.toml"),
+                "django_settings_module = 'project.settings'",
+            )
+            .expect("test should write .djls.toml fixture");
             let project_root = Utf8Path::from_path(dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::new(project_root, None)
                 .expect("valid .djls.toml fixture should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("project.settings"));
         }
 
         #[test]
         fn test_load_pyproject_toml_only() {
             let dir = tempdir().expect("test should create temporary project directory");
-            let content = "[tool.djls]\ndebug = true\n";
+            let content = "[tool.djls]\ndjango_settings_module = 'project.settings'\n";
             fs::write(dir.path().join("pyproject.toml"), content)
                 .expect("test should write pyproject.toml fixture");
             let project_root = Utf8Path::from_path(dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::new(project_root, None)
                 .expect("valid pyproject.toml fixture should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("project.settings"));
         }
 
         #[test]
@@ -410,7 +428,7 @@ django_settings_module = "project.settings"
             )
             .expect("test should write base Django environment djls.toml fixture");
 
-            let override_settings: Settings = toml::from_str(
+            let override_settings: SettingsOverrides = toml::from_str(
                 r#"
 [[django_environments]]
 root = "override"
@@ -495,65 +513,62 @@ T100 = "hint"
         #[test]
         fn test_project_priority_djls_overrides_dot_djls() {
             let dir = tempdir().expect("test should create temporary project directory");
-            fs::write(dir.path().join(".djls.toml"), "debug = false")
-                .expect("test should write lower-priority .djls.toml fixture");
-            fs::write(dir.path().join("djls.toml"), "debug = true")
-                .expect("test should write higher-priority djls.toml fixture");
+            fs::write(
+                dir.path().join(".djls.toml"),
+                "django_settings_module = 'dot.settings'",
+            )
+            .expect("test should write lower-priority .djls.toml fixture");
+            fs::write(
+                dir.path().join("djls.toml"),
+                "django_settings_module = 'active.settings'",
+            )
+            .expect("test should write higher-priority djls.toml fixture");
             let project_root = Utf8Path::from_path(dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::new(project_root, None)
                 .expect("project configuration priority fixtures should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("active.settings"));
         }
 
         #[test]
         fn test_project_priority_dot_djls_overrides_pyproject() {
             let dir = tempdir().expect("test should create temporary project directory");
-            let pyproject_content = "[tool.djls]\ndebug = false\n";
+            let pyproject_content = "[tool.djls]\ndjango_settings_module = 'pyproject.settings'\n";
             fs::write(dir.path().join("pyproject.toml"), pyproject_content)
                 .expect("test should write lower-priority pyproject.toml fixture");
-            fs::write(dir.path().join(".djls.toml"), "debug = true")
-                .expect("test should write higher-priority .djls.toml fixture");
+            fs::write(
+                dir.path().join(".djls.toml"),
+                "django_settings_module = 'active.settings'",
+            )
+            .expect("test should write higher-priority .djls.toml fixture");
             let project_root = Utf8Path::from_path(dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::new(project_root, None)
                 .expect("project configuration priority fixtures should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("active.settings"));
         }
 
         #[test]
         fn test_project_priority_all_files_djls_wins() {
             let dir = tempdir().expect("test should create temporary project directory");
-            let pyproject_content = "[tool.djls]\ndebug = false\n";
+            let pyproject_content = "[tool.djls]\ndjango_settings_module = 'pyproject.settings'\n";
             fs::write(dir.path().join("pyproject.toml"), pyproject_content)
                 .expect("test should write lowest-priority pyproject.toml fixture");
-            fs::write(dir.path().join(".djls.toml"), "debug = false")
-                .expect("test should write middle-priority .djls.toml fixture");
-            fs::write(dir.path().join("djls.toml"), "debug = true")
-                .expect("test should write highest-priority djls.toml fixture");
+            fs::write(
+                dir.path().join(".djls.toml"),
+                "django_settings_module = 'dot.settings'",
+            )
+            .expect("test should write middle-priority .djls.toml fixture");
+            fs::write(
+                dir.path().join("djls.toml"),
+                "django_settings_module = 'active.settings'",
+            )
+            .expect("test should write highest-priority djls.toml fixture");
             let project_root = Utf8Path::from_path(dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::new(project_root, None)
                 .expect("all project configuration priority fixtures should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("active.settings"));
         }
 
         #[test]
@@ -562,9 +577,9 @@ T100 = "hint"
                 tempdir().expect("test should create temporary user configuration directory");
             let project_dir = tempdir().expect("test should create temporary project directory");
             let user_conf_path = user_dir.path().join("config.toml");
-            fs::write(&user_conf_path, "debug = true")
+            fs::write(&user_conf_path, "django_settings_module = 'user.settings'")
                 .expect("test should write lower-priority user configuration fixture");
-            let pyproject_content = "[tool.djls]\ndebug = false\n";
+            let pyproject_content = "[tool.djls]\ndjango_settings_module = 'active.settings'\n";
             fs::write(project_dir.path().join("pyproject.toml"), pyproject_content)
                 .expect("test should write higher-priority pyproject.toml fixture");
 
@@ -572,13 +587,7 @@ T100 = "hint"
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::load_from_paths(project_root, Some(&user_conf_path))
                 .expect("user and project configuration priority fixtures should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: false,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("active.settings"));
         }
 
         #[test]
@@ -587,21 +596,122 @@ T100 = "hint"
                 tempdir().expect("test should create temporary user configuration directory");
             let project_dir = tempdir().expect("test should create temporary project directory");
             let user_conf_path = user_dir.path().join("config.toml");
-            fs::write(&user_conf_path, "debug = true")
+            fs::write(&user_conf_path, "django_settings_module = 'user.settings'")
                 .expect("test should write lower-priority user configuration fixture");
-            fs::write(project_dir.path().join("djls.toml"), "debug = false")
-                .expect("test should write higher-priority djls.toml fixture");
+            fs::write(
+                project_dir.path().join("djls.toml"),
+                "django_settings_module = 'active.settings'",
+            )
+            .expect("test should write higher-priority djls.toml fixture");
 
             let project_root = Utf8Path::from_path(project_dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::load_from_paths(project_root, Some(&user_conf_path))
                 .expect("user and djls.toml priority fixtures should load settings");
+            assert_eq!(settings.django_settings_module(), Some("active.settings"));
+        }
+    }
+
+    mod overrides {
+        use super::*;
+
+        #[test]
+        fn test_explicit_false_and_empty_values_override_project_settings() {
+            let dir = tempdir().expect("test should create temporary project directory");
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+django_settings_module = "project.settings"
+pythonpath = ["inherited"]
+
+[format]
+enabled = true
+
+[diagnostics.severity]
+S100 = "off"
+"#,
+            )
+            .expect("test should write project settings fixture");
+            let overrides: SettingsOverrides = serde_json::from_value(serde_json::json!({
+                "django_settings_module": "client.settings",
+                "pythonpath": [],
+                "format": { "enabled": false },
+                "diagnostics": {},
+            }))
+            .expect("client settings overrides should deserialize");
+            let project_root = Utf8Path::from_path(dir.path())
+                .expect("temporary project directory path should be valid UTF-8");
+
+            let settings = Settings::new(project_root, Some(overrides))
+                .expect("project settings and explicit client overrides should load");
+
+            assert_eq!(settings.django_settings_module(), Some("client.settings"));
+            assert!(settings.pythonpath().is_empty());
+            assert!(!settings.format().enabled());
             assert_eq!(
-                settings,
-                Settings {
-                    debug: false,
-                    ..Default::default()
+                settings.diagnostics().get_severity("S100"),
+                DiagnosticSeverity::Error
+            );
+        }
+
+        #[test]
+        fn test_active_diagnostics_override_project_diagnostics() {
+            let dir = tempdir().expect("test should create temporary project directory");
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[diagnostics.severity]
+S100 = "off"
+"#,
+            )
+            .expect("test should write project settings fixture");
+            let overrides: SettingsOverrides = serde_json::from_value(serde_json::json!({
+                "diagnostics": {
+                    "severity": { "S100": "warning" }
                 }
+            }))
+            .expect("active diagnostics override should deserialize");
+            let project_root = Utf8Path::from_path(dir.path())
+                .expect("temporary project directory path should be valid UTF-8");
+
+            let settings = Settings::new(project_root, Some(overrides))
+                .expect("active client diagnostics should override project diagnostics");
+
+            assert_eq!(
+                settings.diagnostics().get_severity("S100"),
+                DiagnosticSeverity::Warning
+            );
+        }
+
+        #[test]
+        fn test_omitted_values_preserve_project_settings() {
+            let dir = tempdir().expect("test should create temporary project directory");
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+pythonpath = ["inherited"]
+
+[format]
+enabled = true
+
+[diagnostics.severity]
+S100 = "off"
+"#,
+            )
+            .expect("test should write project settings fixture");
+            let overrides: SettingsOverrides = serde_json::from_value(serde_json::json!({}))
+                .expect("empty client settings overrides should deserialize");
+            let project_root = Utf8Path::from_path(dir.path())
+                .expect("temporary project directory path should be valid UTF-8");
+
+            let settings = Settings::new(project_root, Some(overrides))
+                .expect("omitted client settings should preserve project settings");
+
+            assert_eq!(settings.pythonpath(), &[Utf8PathBuf::from("inherited")]);
+            assert!(settings.format().enabled());
+            assert_eq!(
+                settings.diagnostics().get_severity("S100"),
+                DiagnosticSeverity::Off
             );
         }
     }
@@ -615,20 +725,14 @@ T100 = "hint"
                 tempdir().expect("test should create temporary user configuration directory");
             let project_dir = tempdir().expect("test should create temporary project directory");
             let user_conf_path = user_dir.path().join("config.toml");
-            fs::write(&user_conf_path, "debug = true")
+            fs::write(&user_conf_path, "django_settings_module = 'user.settings'")
                 .expect("test should write user configuration fixture");
 
             let project_root = Utf8Path::from_path(project_dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::load_from_paths(project_root, Some(&user_conf_path))
                 .expect("valid user configuration fixture should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("user.settings"));
         }
 
         #[test]
@@ -637,7 +741,7 @@ T100 = "hint"
                 tempdir().expect("test should create temporary user configuration directory");
             let project_dir = tempdir().expect("test should create temporary project directory");
             let user_conf_path = user_dir.path().join("config.toml");
-            let pyproject_content = "[tool.djls]\ndebug = true\n";
+            let pyproject_content = "[tool.djls]\ndjango_settings_module = 'project.settings'\n";
             fs::write(project_dir.path().join("pyproject.toml"), pyproject_content)
                 .expect("test should write pyproject.toml fixture");
 
@@ -645,32 +749,23 @@ T100 = "hint"
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::load_from_paths(project_root, Some(&user_conf_path))
                 .expect("missing optional user configuration should not prevent loading settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("project.settings"));
         }
 
         #[test]
         fn test_user_config_path_not_provided() {
             let project_dir = tempdir().expect("test should create temporary project directory");
-            fs::write(project_dir.path().join("djls.toml"), "debug = true")
-                .expect("test should write djls.toml fixture");
+            fs::write(
+                project_dir.path().join("djls.toml"),
+                "django_settings_module = 'project.settings'",
+            )
+            .expect("test should write djls.toml fixture");
 
             let project_root = Utf8Path::from_path(project_dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::load_from_paths(project_root, None)
                 .expect("settings should load without a user configuration path");
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.django_settings_module(), Some("project.settings"));
         }
     }
 
@@ -750,12 +845,12 @@ end_tag = { name = "endblock", optional = false }
         #[test]
         fn test_invalid_toml_content() {
             let dir = tempdir().expect("test should create temporary project directory");
-            fs::write(dir.path().join("djls.toml"), "debug = not_a_boolean")
+            fs::write(dir.path().join("djls.toml"), "pythonpath = 'not an array'")
                 .expect("test should write invalid djls.toml fixture");
             let project_root = Utf8Path::from_path(dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
             let error = Settings::new(project_root, None)
-                .expect_err("invalid debug value should be rejected");
+                .expect_err("invalid Python path value should be rejected");
             assert!(matches!(error, ConfigError::Config(_)));
         }
 

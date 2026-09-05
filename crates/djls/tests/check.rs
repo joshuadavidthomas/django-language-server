@@ -550,8 +550,11 @@ fn check_rejects_mixed_stdin_and_paths() {
 #[test]
 fn check_invalid_settings_error_precedes_mixed_stdin_and_paths_error() {
     let dir = tempdir().expect("temporary test directory should be created");
-    fs::write(dir.path().join("djls.toml"), "debug = not_a_boolean\n")
-        .expect("invalid test configuration should be written");
+    fs::write(
+        dir.path().join("djls.toml"),
+        "pythonpath = 'not an array'\n",
+    )
+    .expect("invalid test configuration should be written");
 
     let output = Command::new(djls_binary())
         .args(["check", "-", "template.html"])

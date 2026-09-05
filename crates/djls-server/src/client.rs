@@ -1,4 +1,4 @@
-use djls_conf::Settings;
+use djls_conf::SettingsOverrides;
 use djls_source::PositionEncoding;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
@@ -60,8 +60,8 @@ impl ClientInfo {
     }
 
     #[must_use]
-    pub(crate) fn config_overrides(&self) -> &Settings {
-        &self.options.settings
+    pub(crate) fn config_overrides(&self) -> &SettingsOverrides {
+        &self.options.overrides
     }
 
     #[must_use]
@@ -170,7 +170,7 @@ impl ClientCapabilities {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub(crate) struct ClientOptions {
     #[serde(flatten)]
-    pub settings: Settings,
+    pub overrides: SettingsOverrides,
 
     #[serde(flatten)]
     pub unknown: FxHashMap<String, Value>,
