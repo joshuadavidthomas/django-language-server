@@ -1080,43 +1080,62 @@ fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() 
 }
 
 #[test]
-fn literal_name_with_unresolved_imported_callable_keeps_only_the_name_fact() {
+fn literal_names_survive_unresolved_callables_across_call_shapes() {
     let (db, file, module) = imported_registration_fixture(
         "",
-        "from django import template\nfrom missing import implementation\nregister = template.Library()\nregister.tag('literal', implementation.compile_tag)\n",
+        "from django import template\nfrom missing import implementation\nregister = template.Library()\nregister.tag('literal_tag', implementation.compile_tag)\nregister.filter('literal_filter', implementation.filter)\nregister.simple_tag(implementation.simple, name='literal_simple')\nregister.inclusion_tag('partial.html', func=implementation.inclusion, name='literal_inclusion')\nregister.simple_block_tag(name='literal_block', func=implementation.block)\n",
         "",
     )
     .expect("unresolved-callable fixture should install");
     let key = TemplateLibraryId::new(&db, Some(file), module);
     let facts = template_library_definition_facts(&db, key);
-    let symbol = facts
-        .symbol(TemplateSymbolKind::Tag, "literal")
-        .expect("existing literal-name behavior should remain");
-    assert_eq!(template_symbol_source(&db, symbol), None);
+
+    for name in [
+        "literal_tag",
+        "literal_simple",
+        "literal_inclusion",
+        "literal_block",
+    ] {
+        let symbol = facts
+            .symbol(TemplateSymbolKind::Tag, name)
+            .unwrap_or_else(|| panic!("known Tag name `{name}` should survive"));
+        assert_eq!(template_symbol_source(&db, symbol), None);
+    }
+    let filter = facts
+        .symbol(TemplateSymbolKind::Filter, "literal_filter")
+        .expect("known Filter name should survive");
+    assert_eq!(template_symbol_source(&db, filter), None);
     assert!(template_library_tag_facts(&db, key).tag_rules().is_empty());
+    assert!(
+        template_library_filter_facts(&db, key)
+            .filter_arities()
+            .is_empty()
+    );
 }
 
 #[test]
-fn imported_callable_only_registration_uses_the_function_name() {
+fn imported_callable_only_registrations_use_resolved_function_names() {
     let (db, file, module) = imported_registration_fixture(
         "",
-        "from django import template\nfrom .implementation import compile_tag as tag_callable, imported_filter as filter_callable\nregister = template.Library()\nregister.tag(tag_callable)\nregister.filter(filter_callable)\n",
-        "def compile_tag(parser, token): pass\ndef imported_filter(value): return value\n",
+        "from django import template\nfrom .implementation import compile_tag as tag_callable, imported_filter as filter_callable, keyword_tag, keyword_filter, simple, inclusion, block\nregister = template.Library()\nregister.tag(tag_callable)\nregister.filter(filter_callable)\nregister.tag(compile_function=keyword_tag)\nregister.filter(filter_func=keyword_filter)\nregister.simple_tag(func=simple)\nregister.inclusion_tag('partial.html', func=inclusion)\nregister.simple_block_tag(func=block)\n",
+        "def compile_tag(parser, token): pass\ndef imported_filter(value): return value\ndef keyword_tag(parser, token): pass\ndef keyword_filter(value): return value\ndef simple(): pass\ndef inclusion(): pass\ndef block(): pass\n",
     )
     .expect("callable-only fixture should install");
     let key = TemplateLibraryId::new(&db, Some(file), module);
-
     let facts = template_library_definition_facts(&db, key);
-    assert!(
-        facts
-            .symbol(TemplateSymbolKind::Tag, "compile_tag")
-            .is_some()
-    );
-    assert!(
-        facts
-            .symbol(TemplateSymbolKind::Filter, "imported_filter")
-            .is_some()
-    );
+
+    for name in ["compile_tag", "keyword_tag", "simple", "inclusion", "block"] {
+        assert!(
+            facts.symbol(TemplateSymbolKind::Tag, name).is_some(),
+            "resolved callable-only Tag `{name}` should use its function name"
+        );
+    }
+    for name in ["imported_filter", "keyword_filter"] {
+        assert!(
+            facts.symbol(TemplateSymbolKind::Filter, name).is_some(),
+            "resolved callable-only Filter `{name}` should use its function name"
+        );
+    }
 }
 
 // The fixture deliberately keeps all released django-bird registration shapes together so the
