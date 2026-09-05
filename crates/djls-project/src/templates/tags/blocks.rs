@@ -10,6 +10,7 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::AbstractValue;
+use crate::templates::tags::types::BodyAnalysisEvidence;
 use crate::templates::tags::types::SplitPosition;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +34,7 @@ impl EndTagEvidence {
 pub(crate) struct ExtractedBlockSpec {
     pub(crate) end_tag: EndTagEvidence,
     pub(crate) intermediates: Vec<String>,
-    pub(crate) opaque: bool,
+    pub(crate) body_analysis_evidence: BodyAnalysisEvidence,
 }
 
 pub(super) fn is_tag_name_value(value: &AbstractValue) -> bool {
@@ -52,9 +53,9 @@ pub(super) fn is_tag_name_value(value: &AbstractValue) -> bool {
 /// - If a stop-token leads to another `parser.parse()` call → intermediate
 /// - If a stop-token leads to return/node construction → terminal (end-tag)
 ///
-/// Also detects opaque blocks via `parser.skip_past(...)` patterns.
+/// Also records body-consumption evidence from `parser.skip_past(...)` patterns.
 ///
-/// Returns `None` when no block structure is detected or inference is ambiguous.
+/// Returns `None` when no block structure or body-consumption evidence is detected.
 #[must_use]
 pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBlockSpec> {
     let parser_var = func
@@ -69,23 +70,50 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBloc
         .get(1)
         .map(|p| p.parameter.name.to_string())?;
 
-    // Check for opaque block patterns first: parser.skip_past("endtag")
-    if let Some(spec) = opaque::detect(&func.body, &parser_var) {
-        return Some(spec);
-    }
+    let skip_past = opaque::detect(&func.body, &parser_var);
+    let parse_detected = parse_calls::is_detected(&func.body, &parser_var);
+    let parse_spec = parse_calls::detect(&func.body, &parser_var, &token_var)
+        .or_else(|| dynamic_end::detect(&func.body, &parser_var, &token_var));
+    let body_analysis_evidence = match (skip_past.is_some(), parse_detected) {
+        (false, _) => BodyAnalysisEvidence::NotDetected,
+        (true, false) => BodyAnalysisEvidence::SkipPast,
+        (true, true) => BodyAnalysisEvidence::Mixed,
+    };
 
-    // Try parser.parse((...)) calls with control flow classification
-    if let Some(spec) = parse_calls::detect(&func.body, &parser_var, &token_var) {
-        return Some(spec);
-    }
+    let mut spec = match (skip_past, parse_detected) {
+        (Some(skip_spec), true) => combine_mixed_structure(&skip_spec, parse_spec),
+        (Some(skip_spec), false) => skip_spec,
+        (None, _) => {
+            parse_spec.or_else(|| next_token::detect(&func.body, &parser_var, &token_var))?
+        }
+    };
+    spec.body_analysis_evidence = body_analysis_evidence;
+    Some(spec)
+}
 
-    // Try dynamic end-tag patterns: parser.parse((f"end{tag_name}",))
-    if let Some(spec) = dynamic_end::detect(&func.body, &parser_var, &token_var) {
-        return Some(spec);
-    }
+fn combine_mixed_structure(
+    skip_spec: &ExtractedBlockSpec,
+    parse_spec: Option<ExtractedBlockSpec>,
+) -> ExtractedBlockSpec {
+    let Some(parse_spec) = parse_spec else {
+        return ExtractedBlockSpec {
+            end_tag: EndTagEvidence::Unknown,
+            intermediates: Vec::new(),
+            body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+        };
+    };
 
-    // Try parser.next_token() loop patterns (e.g., blocktrans/blocktranslate)
-    next_token::detect(&func.body, &parser_var, &token_var)
+    let end_tag = match (&skip_spec.end_tag, &parse_spec.end_tag) {
+        (EndTagEvidence::Literal(skip), EndTagEvidence::Literal(parse)) if skip == parse => {
+            EndTagEvidence::Literal(skip.clone())
+        }
+        _ => EndTagEvidence::Unknown,
+    };
+    ExtractedBlockSpec {
+        end_tag,
+        intermediates: parse_spec.intermediates,
+        body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+    }
 }
 
 /// Check if an expression is the parser variable (or `self.parser`).
@@ -244,7 +272,10 @@ mod tests {
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endverbatim"));
         assert!(spec.intermediates.is_empty());
-        assert!(!spec.opaque);
+        assert_eq!(
+            spec.body_analysis_evidence,
+            BodyAnalysisEvidence::NotDetected
+        );
     }
 
     // Corpus: do_if in defaulttags.py — parse(("elif", "else", "endif")) with while/if branches
@@ -256,7 +287,10 @@ mod tests {
         assert_eq!(spec.end_tag.as_literal(), Some("endif"));
         assert!(spec.intermediates.contains(&"elif".to_string()));
         assert!(spec.intermediates.contains(&"else".to_string()));
-        assert!(!spec.opaque);
+        assert_eq!(
+            spec.body_analysis_evidence,
+            BodyAnalysisEvidence::NotDetected
+        );
     }
 
     // Corpus: comment in defaulttags.py — skip_past("endcomment")
@@ -267,7 +301,151 @@ mod tests {
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endcomment"));
         assert!(spec.intermediates.is_empty());
-        assert!(spec.opaque);
+        assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::SkipPast);
+    }
+
+    #[test]
+    fn mixed_parse_and_skip_past_keeps_mixed_body_evidence() {
+        let source = r#"
+def mixed(parser, token):
+    if token.contents:
+        parser.skip_past("endmixed")
+    else:
+        parser.parse(("endmixed",))
+    return MixedNode()
+"#;
+        let func = parse_function(source);
+        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+
+        assert_eq!(spec.end_tag.as_literal(), Some("endmixed"));
+        assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
+    }
+
+    #[test]
+    fn mixed_parse_and_skip_past_with_conflicting_closers_is_unknown() {
+        let source = r#"
+def mixed(parser, token):
+    if token.contents:
+        parser.skip_past("endskipped")
+    else:
+        parser.parse(("endparsed",))
+    return MixedNode()
+"#;
+        let func = parse_function(source);
+        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+
+        assert_eq!(spec.end_tag, EndTagEvidence::Unknown);
+        assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
+    }
+
+    #[test]
+    fn mixed_parse_and_skip_past_with_unknown_closer_is_unknown() {
+        let source = r#"
+def mixed(parser, token):
+    if token.contents:
+        parser.skip_past(token.contents)
+    else:
+        parser.parse(("endmixed",))
+    return MixedNode()
+"#;
+        let func = parse_function(source);
+        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+
+        assert_eq!(spec.end_tag, EndTagEvidence::Unknown);
+        assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
+    }
+
+    #[test]
+    fn mixed_parse_and_skip_past_preserves_parse_intermediates() {
+        let source = r#"
+def mixed(parser, token):
+    if token.contents:
+        parser.skip_past("endmixed")
+    else:
+        body = parser.parse(("otherwise", "endmixed"))
+        if parser.next_token().contents == "otherwise":
+            alternate = parser.parse(("endmixed",))
+    return MixedNode(body, alternate)
+"#;
+        let func = parse_function(source);
+        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+
+        assert_eq!(spec.end_tag.as_literal(), Some("endmixed"));
+        assert_eq!(spec.intermediates, vec!["otherwise".to_string()]);
+        assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
+    }
+
+    #[test]
+    fn nested_and_annotated_parse_calls_are_mixed_evidence() {
+        for parse_statement in [
+            "body: NodeList = parser.parse((\"endmixed\",))",
+            "return MixedNode(parser.parse((\"endmixed\",)))",
+        ] {
+            let source = format!(
+                "def mixed(parser, token):\n    parser.skip_past(\"endmixed\")\n    {parse_statement}\n"
+            );
+            let func = parse_function(&source);
+            let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+
+            assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
+        }
+    }
+
+    #[test]
+    fn parser_parse_default_arguments_are_mixed_evidence() {
+        let source = r#"
+def mixed(parser, token):
+    parser.skip_past("endmixed")
+    parser.parse()
+    return MixedNode()
+"#;
+        let func = parse_function(source);
+        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+
+        assert_eq!(spec.end_tag, EndTagEvidence::Unknown);
+        assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
+    }
+
+    #[test]
+    fn parse_call_in_nested_function_is_not_mixed_evidence() {
+        let source = r#"
+def skipped(parser, token):
+    parser.skip_past("endskipped")
+    def helper():
+        parser.parse(("endskipped",))
+    return SkippedNode()
+"#;
+        let func = parse_function(source);
+        let spec = extract_block_spec(&func).expect("should retain skip evidence");
+
+        assert_eq!(spec.end_tag.as_literal(), Some("endskipped"));
+        assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::SkipPast);
+    }
+
+    #[test]
+    fn skip_past_without_arguments_is_not_evidence() {
+        let source = r"
+def invalid(parser, token):
+    parser.skip_past()
+    return InvalidNode()
+";
+        let func = parse_function(source);
+
+        assert!(extract_block_spec(&func).is_none());
+    }
+
+    #[test]
+    fn skip_past_with_unknown_closer_keeps_positive_body_evidence() {
+        let source = r"
+def raw(parser, token):
+    parser.skip_past(token.contents)
+    return RawNode()
+";
+        let func = parse_function(source);
+        let spec = extract_block_spec(&func).expect("should retain skip evidence");
+
+        assert_eq!(spec.end_tag, EndTagEvidence::Unknown);
+        assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::SkipPast);
     }
 
     // Fabricated: tests non-conventional closer ("done" instead of "end*").
@@ -318,7 +496,10 @@ def do_block(parser, token):
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag, EndTagEvidence::SelfNamed);
         assert!(spec.intermediates.is_empty());
-        assert!(!spec.opaque);
+        assert_eq!(
+            spec.body_analysis_evidence,
+            BodyAnalysisEvidence::NotDetected
+        );
     }
 
     // Corpus: do_for in defaulttags.py — parse(("empty", "endfor")) then
@@ -330,7 +511,10 @@ def do_block(parser, token):
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endfor"));
         assert_eq!(spec.intermediates, vec!["empty".to_string()]);
-        assert!(!spec.opaque);
+        assert_eq!(
+            spec.body_analysis_evidence,
+            BodyAnalysisEvidence::NotDetected
+        );
     }
 
     // Corpus: now in defaulttags.py — no parser.parse() or skip_past calls
@@ -380,7 +564,10 @@ def do_if(parser, token):
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
         assert!(spec.intermediates.is_empty());
-        assert!(!spec.opaque);
+        assert_eq!(
+            spec.body_analysis_evidence,
+            BodyAnalysisEvidence::NotDetected
+        );
     }
 
     // Corpus: spaceless in defaulttags.py — parse(("endspaceless",)) +
@@ -403,7 +590,10 @@ def do_if(parser, token):
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag, EndTagEvidence::SelfNamed);
         assert_eq!(spec.intermediates, vec!["plural".to_string()]);
-        assert!(!spec.opaque);
+        assert_eq!(
+            spec.body_analysis_evidence,
+            BodyAnalysisEvidence::NotDetected
+        );
     }
 
     // Fabricated: next_token loop with a static end-tag comparison.
@@ -428,7 +618,10 @@ def do_custom_block(parser, token):
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endcustom"));
         assert!(spec.intermediates.is_empty());
-        assert!(!spec.opaque);
+        assert_eq!(
+            spec.body_analysis_evidence,
+            BodyAnalysisEvidence::NotDetected
+        );
     }
 
     // Fabricated: next_token loop with both an intermediate and a static end-tag.

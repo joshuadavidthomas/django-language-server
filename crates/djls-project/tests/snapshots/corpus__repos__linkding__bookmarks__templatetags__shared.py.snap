@@ -59,10 +59,10 @@ filter_arities:
   "bookmarks.templatetags.shared::filter::remaining_chars": required_argument
 block_specs:
   "bookmarks.templatetags.shared::tag::formhelp":
+    body_analysis_evidence: not_detected
     end_tag: endformhelp
     intermediates: []
-    opaque: false
   "bookmarks.templatetags.shared::tag::htmlmin":
+    body_analysis_evidence: not_detected
     end_tag: endhtmlmin
     intermediates: []
-    opaque: false

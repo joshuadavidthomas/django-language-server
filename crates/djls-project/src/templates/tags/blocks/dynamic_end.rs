@@ -23,6 +23,7 @@ use crate::templates::tags::blocks::EndTagEvidence;
 use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::blocks::is_tag_name_value;
+use crate::templates::tags::types::BodyAnalysisEvidence;
 
 /// Detect dynamic end-tag patterns: `parser.parse((f"end{tag_name}",))`.
 ///
@@ -40,7 +41,7 @@ pub(super) fn detect(
     Some(ExtractedBlockSpec {
         end_tag,
         intermediates: Vec::new(),
-        opaque: false,
+        body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
     })
 }
 

@@ -74,6 +74,6 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "django.template.loader_tags::tag::block":
+    body_analysis_evidence: not_detected
     end_tag: endblock
     intermediates: []
-    opaque: false

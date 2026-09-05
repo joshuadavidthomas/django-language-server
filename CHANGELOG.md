@@ -38,6 +38,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
 - Fixed false duplicate-option diagnostics for tag parsers that check membership without raising an error.
 - Fixed tag-rule extraction using incorrect argument positions after unsupported `pop()` calls.
+- Fixed custom tags with mixed body-parser paths suppressing diagnostics and references for bodies Django still parses.
 - **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
 
 ## [6.1.0]

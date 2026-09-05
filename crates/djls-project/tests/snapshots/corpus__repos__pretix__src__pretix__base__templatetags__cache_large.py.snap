@@ -30,6 +30,6 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "src.pretix.base.templatetags.cache_large::tag::cache_large":
+    body_analysis_evidence: not_detected
     end_tag: endcache_large
     intermediates: []
-    opaque: false

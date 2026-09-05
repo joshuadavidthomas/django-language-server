@@ -255,11 +255,27 @@ pub enum OptionRejection {
     Detected,
 }
 
-/// Block structure extracted from `parser.parse((...))` control flow patterns.
+/// Evidence about how a tag's compile function consumes its body.
 ///
-/// Describes the end-tag and intermediate tags for a block tag, inferred
-/// exclusively from `parser.parse()` call patterns and control flow — never
-/// from string prefix heuristics.
+/// This records source observations only. Template semantics decide whether the
+/// body should be analyzed after combining this evidence with builtin and
+/// configured fallback meaning.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyAnalysisEvidence {
+    /// No `parser.skip_past(...)` call was found.
+    #[default]
+    NotDetected,
+    /// `parser.skip_past(...)` was found without a `parser.parse(...)` call.
+    SkipPast,
+    /// Both `parser.skip_past(...)` and `parser.parse(...)` were found.
+    Mixed,
+}
+
+/// Block structure extracted from template parser calls.
+///
+/// Describes the end-tag and intermediate tags inferred from parser call
+/// patterns without deriving semantic body policy from absence of evidence.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockSpec {
     /// The closing tag name (e.g., `"endfor"`), or `None` if inference was
@@ -268,9 +284,8 @@ pub struct BlockSpec {
     /// Intermediate tags that cause `parser.parse()` to stop and resume
     /// (e.g., `"else"`, `"elif"` for `{% if %}`).
     pub intermediates: Vec<String>,
-    /// Whether the block is opaque (content should not be parsed).
-    /// Detected from `parser.skip_past(...)` patterns.
-    pub opaque: bool,
+    /// Source evidence about whether the compile function skips or parses its body.
+    pub body_analysis_evidence: BodyAnalysisEvidence,
 }
 
 /// Argument structure extracted from a tag's registration.

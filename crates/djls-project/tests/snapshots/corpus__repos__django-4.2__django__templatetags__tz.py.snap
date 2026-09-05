@@ -91,10 +91,10 @@ filter_arities:
   "django.templatetags.tz::filter::utc": no_argument
 block_specs:
   "django.templatetags.tz::tag::localtime":
+    body_analysis_evidence: not_detected
     end_tag: endlocaltime
     intermediates: []
-    opaque: false
   "django.templatetags.tz::tag::timezone":
+    body_analysis_evidence: not_detected
     end_tag: endtimezone
     intermediates: []
-    opaque: false

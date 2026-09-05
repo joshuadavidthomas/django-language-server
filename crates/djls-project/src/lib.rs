@@ -45,6 +45,7 @@ pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
 pub use templates::BlockSpec;
 pub use templates::BlockSpecs;
+pub use templates::BodyAnalysisEvidence;
 pub use templates::ChoiceAt;
 pub use templates::EffectiveDefinitionLibrary;
 pub use templates::ExtractedDiagnosticConstraint;

@@ -182,7 +182,7 @@ mod tests {
                 required: true,
             }),
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_arguments(vec![make_var("name", true)]);
 
@@ -201,7 +201,7 @@ mod tests {
                 required: true,
             }),
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_arguments(vec![make_choice("mode", true, vec!["on", "off"])]);
 

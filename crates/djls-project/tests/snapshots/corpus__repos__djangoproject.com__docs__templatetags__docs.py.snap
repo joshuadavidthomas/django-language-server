@@ -41,6 +41,6 @@ filter_arities:
   "docs.templatetags.docs::filter::fragment": no_argument
 block_specs:
   "docs.templatetags.docs::tag::pygment":
+    body_analysis_evidence: not_detected
     end_tag: endpygment
     intermediates: []
-    opaque: false

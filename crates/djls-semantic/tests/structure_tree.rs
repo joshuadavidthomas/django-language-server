@@ -555,7 +555,7 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
             Cow::Owned(vec![IntermediateTag {
                 name: Cow::Borrowed("else"),
             }]),
-            true,
+            djls_semantic::BodyAnalysis::Opaque,
         ),
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
@@ -608,7 +608,7 @@ fn opaque_closer_name_can_also_be_structured_opener() {
                     required: true,
                 }),
                 Cow::Borrowed(&[]),
-                true,
+                djls_semantic::BodyAnalysis::Opaque,
             ),
         ),
         (
@@ -620,7 +620,7 @@ fn opaque_closer_name_can_also_be_structured_opener() {
                     required: true,
                 }),
                 Cow::Borrowed(&[]),
-                false,
+                djls_semantic::BodyAnalysis::Analyze,
             ),
         ),
     ])));
@@ -685,7 +685,12 @@ fn specs_with_standalone_structural_spellings() -> TagSpecs {
         ["endif", "else", "empty"].map(|name| {
             (
                 name.to_string(),
-                TagSpec::new(Cow::Borrowed("test"), None, Cow::Borrowed(&[]), false),
+                TagSpec::new(
+                    Cow::Borrowed("test"),
+                    None,
+                    Cow::Borrowed(&[]),
+                    djls_semantic::BodyAnalysis::Analyze,
+                ),
             )
         }),
     )));
@@ -787,7 +792,7 @@ fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
                 required: false,
             }),
             Cow::Borrowed(&[]),
-            true,
+            djls_semantic::BodyAnalysis::Opaque,
         ),
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
@@ -1073,7 +1078,7 @@ fn custom_block_tags_from_specs_are_blocks() {
                 required: true,
             }),
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         ),
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);

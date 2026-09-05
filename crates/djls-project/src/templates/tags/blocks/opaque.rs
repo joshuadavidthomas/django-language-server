@@ -12,22 +12,41 @@ use crate::ast::walk_stmts;
 use crate::templates::tags::blocks::EndTagEvidence;
 use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::is_parser_receiver;
+use crate::templates::tags::types::BodyAnalysisEvidence;
 
-/// Detect opaque block patterns: `parser.skip_past("endtag")`.
+#[derive(Debug)]
+enum SkipPastCall {
+    Literal(String),
+    Unknown,
+}
+
+/// Detect `parser.skip_past(...)` calls and any literal closer they establish.
 pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<ExtractedBlockSpec> {
     let skip_past_tokens = collect_skip_past_tokens(body, parser_var);
     if skip_past_tokens.is_empty() {
         return None;
     }
-    let end_tag = if skip_past_tokens.len() == 1 {
-        EndTagEvidence::Literal(skip_past_tokens[0].clone())
-    } else {
-        EndTagEvidence::Unknown
+
+    let mut literal_tokens = Vec::new();
+    let mut has_unknown = false;
+    for token in skip_past_tokens {
+        match token {
+            SkipPastCall::Literal(token) => {
+                if !literal_tokens.contains(&token) {
+                    literal_tokens.push(token);
+                }
+            }
+            SkipPastCall::Unknown => has_unknown = true,
+        }
+    }
+    let end_tag = match literal_tokens.as_slice() {
+        [token] if !has_unknown => EndTagEvidence::Literal(token.clone()),
+        _ => EndTagEvidence::Unknown,
     };
     Some(ExtractedBlockSpec {
         end_tag,
         intermediates: Vec::new(),
-        opaque: true,
+        body_analysis_evidence: BodyAnalysisEvidence::SkipPast,
     })
 }
 
@@ -35,7 +54,7 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<ExtractedBlockSp
 ///
 /// Uses Ruff's statement visitor to avoid hand-written recursion across
 /// statement variants.
-fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
+fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<SkipPastCall> {
     let mut tokens = Vec::new();
     walk_stmts(body, Recurse::WithinScope, |stmt| {
         let token = match stmt {
@@ -65,9 +84,7 @@ fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
             | Stmt::Continue(_)
             | Stmt::IpyEscapeCommand(_) => None,
         };
-        if let Some(token) = token
-            && !tokens.contains(&token)
-        {
+        if let Some(token) = token {
             tokens.push(token);
         }
         ControlFlow::Continue(())
@@ -76,7 +93,7 @@ fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
 }
 
 /// Check if an expression is `parser.skip_past("token")` and extract the token.
-fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
+fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<SkipPastCall> {
     let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
@@ -95,8 +112,14 @@ fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
     if !is_parser_receiver(obj, parser_var) {
         return None;
     }
-    if arguments.args.is_empty() {
-        return None;
-    }
-    arguments.args[0].string_literal().map(str::to_string)
+    let argument = arguments
+        .args
+        .first()
+        .or_else(|| arguments.keywords.first().map(|keyword| &keyword.value))?;
+    Some(
+        argument
+            .string_literal()
+            .map(str::to_string)
+            .map_or(SkipPastCall::Unknown, SkipPastCall::Literal),
+    )
 }

@@ -14,6 +14,7 @@ use djls_source::File;
 use djls_source::Offset;
 use djls_templates::NodeList;
 pub(crate) use rules::evaluate_tag_rules;
+pub use specs::BodyAnalysis;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
 pub use specs::TagSpec;

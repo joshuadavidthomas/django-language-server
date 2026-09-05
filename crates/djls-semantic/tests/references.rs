@@ -221,6 +221,47 @@ fn template_references_ignore_include_inside_verbatim() {
 }
 
 #[test]
+fn extracted_verbatim_suppresses_references_while_custom_mixed_body_stays_active() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/django/template/defaulttags.py",
+            include_str!(
+                "../../djls-project/src/templates/tags/testdata/django_defaulttags.py"
+            ),
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef panel(parser, token):\n    if token.contents:\n        body = parser.parse(('endpanel',))\n    else:\n        parser.skip_past('endpanel')\n    return Node(body)\n",
+        )
+        .file(
+            "/test/project/templates/child.html",
+            "{% verbatim %}{% include 'partial.html' %}{% endverbatim %}{% load custom %}{% panel %}{% include 'partial.html' %}{% endpanel %}",
+        )
+        .file("/test/project/templates/partial.html", "partial")
+        .install(&mut db)
+        .expect("body-analysis fixture should install into the test database");
+    let partial = TemplateName::new(&db, "partial.html".to_string());
+
+    let references = references_to_template_name(&db, project, partial);
+
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].kind(&db), TemplateReferenceKind::Include);
+    assert_eq!(
+        references[0].span(&db).start_usize(),
+        "{% verbatim %}{% include 'partial.html' %}{% endverbatim %}{% load custom %}{% panel %}{% include 'partial.html' %}{% endpanel %}"
+            .rfind("'partial.html'")
+            .expect("active reference should exist")
+            + 1
+    );
+}
+
+#[test]
 fn template_references_ignore_extends_inside_comment() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(
@@ -418,7 +459,7 @@ fn captured_else_does_not_retain_a_colliding_loader_role() {
             Cow::Borrowed("test.loader"),
             None,
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_role(TagRole::TemplateLibraryLoader),
     )])));

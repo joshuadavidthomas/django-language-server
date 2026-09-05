@@ -1399,7 +1399,7 @@ fn template_library_source_analysis<'db>(
                     BlockSpec {
                         end_tag,
                         intermediates: block_spec.intermediates,
-                        opaque: block_spec.opaque,
+                        body_analysis_evidence: block_spec.body_analysis_evidence,
                     },
                 );
             }

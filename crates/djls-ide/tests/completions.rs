@@ -117,13 +117,17 @@ fn captured_closer_does_not_offer_colliding_standalone_arguments() {
     let mut specs = builtin_tag_specs();
     specs.insert(
         "endif".to_string(),
-        TagSpec::new("test.tags".into(), None, Cow::Borrowed(&[]), false).with_arguments(vec![
-            TagArgument {
-                name: "collision".to_string(),
-                kind: TagArgumentKind::Choice(vec!["standalone-choice".to_string()]),
-                required: true,
-            },
-        ]),
+        TagSpec::new(
+            "test.tags".into(),
+            None,
+            Cow::Borrowed(&[]),
+            djls_semantic::BodyAnalysis::Analyze,
+        )
+        .with_arguments(vec![TagArgument {
+            name: "collision".to_string(),
+            kind: TagArgumentKind::Choice(vec!["standalone-choice".to_string()]),
+            required: true,
+        }]),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 

@@ -1143,15 +1143,20 @@ mod tests {
         let mut specs = TagSpecs::default();
         specs.insert(
             "cache".to_string(),
-            TagSpec::new(Cow::Borrowed("test.tags"), None, Cow::Borrowed(&[]), false)
-                .with_arguments(vec![TagArgument {
-                    name: "fragment_name".to_string(),
-                    required: true,
-                    kind: TagArgumentKind::Choice(vec![
-                        "sidebar".to_string(),
-                        "site_header".to_string(),
-                    ]),
-                }]),
+            TagSpec::new(
+                Cow::Borrowed("test.tags"),
+                None,
+                Cow::Borrowed(&[]),
+                djls_semantic::BodyAnalysis::Analyze,
+            )
+            .with_arguments(vec![TagArgument {
+                name: "fragment_name".to_string(),
+                required: true,
+                kind: TagArgumentKind::Choice(vec![
+                    "sidebar".to_string(),
+                    "site_header".to_string(),
+                ]),
+            }]),
         );
         specs
     }
@@ -1164,7 +1169,7 @@ mod tests {
                 required: true,
             }),
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_arguments(vec![TagArgument {
             name: "name".to_string(),
@@ -1491,7 +1496,7 @@ mod tests {
                 Cow::Borrowed("django.templatetags.static"),
                 None,
                 Cow::Borrowed(&[]),
-                false,
+                djls_semantic::BodyAnalysis::Analyze,
             ),
         );
 

@@ -273,10 +273,10 @@ filter_arities:
   "src.unfold.templatetags.unfold::filter::tabs_errors_count": no_argument
 block_specs:
   "src.unfold.templatetags.unfold::tag::capture":
+    body_analysis_evidence: not_detected
     end_tag: endcapture
     intermediates: []
-    opaque: false
   "src.unfold.templatetags.unfold::tag::component":
+    body_analysis_evidence: not_detected
     end_tag: endcomponent
     intermediates: []
-    opaque: false

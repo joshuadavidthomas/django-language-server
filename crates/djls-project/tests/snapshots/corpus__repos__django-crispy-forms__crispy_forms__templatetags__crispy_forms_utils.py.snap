@@ -6,6 +6,6 @@ tag_rules: {}
 filter_arities: {}
 block_specs:
   "crispy_forms.templatetags.crispy_forms_utils::tag::specialspaceless":
+    body_analysis_evidence: not_detected
     end_tag: endspecialspaceless
     intermediates: []
-    opaque: false

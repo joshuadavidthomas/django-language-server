@@ -23,6 +23,6 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "misago.core.templatetags.misago_capture::tag::capture":
+    body_analysis_evidence: not_detected
     end_tag: endcapture
     intermediates: []
-    opaque: false

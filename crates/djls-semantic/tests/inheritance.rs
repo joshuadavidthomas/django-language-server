@@ -101,7 +101,7 @@ fn extracts_partial_defs_from_partial_role_specs() {
                 required: true,
             }),
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_role(TagRole::TemplatePartial),
     )])));
@@ -134,7 +134,7 @@ fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
             Cow::Borrowed("missing.templatetags.layout"),
             None,
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
     );
@@ -595,7 +595,7 @@ fn template_inheritance_follows_extends_role_not_builtin_name() {
             Cow::Borrowed("myapp.templatetags.layout"),
             None,
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
     )])));
@@ -980,7 +980,7 @@ fn extracts_blocks_and_extends_by_role_not_builtin_names() {
                     required: true,
                 }),
                 Cow::Borrowed(&[]),
-                false,
+                djls_semantic::BodyAnalysis::Analyze,
             )
             .with_role(TagRole::TemplateBlock),
         ),
@@ -990,7 +990,7 @@ fn extracts_blocks_and_extends_by_role_not_builtin_names() {
                 Cow::Borrowed("myapp.templatetags.layout"),
                 None,
                 Cow::Borrowed(&[]),
-                false,
+                djls_semantic::BodyAnalysis::Analyze,
             )
             .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
         ),
