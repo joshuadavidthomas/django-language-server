@@ -11,7 +11,6 @@ use djls_source::SourceChanges;
 use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
-use crate::models::model_modules;
 use crate::project::Project;
 use crate::python::SearchPaths;
 use crate::settings::DjangoSettingsSources;
@@ -194,7 +193,6 @@ pub fn apply_django_environment(db: &mut dyn ProjectDb, environment: DjangoEnvir
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProjectFactsPhase {
     SettingsSources,
-    ModelModules,
     TemplateLibrarySources,
     TemplateTagCandidates,
 }
@@ -202,8 +200,7 @@ pub enum ProjectFactsPhase {
 impl ProjectFactsPhase {
     const fn next(self) -> Option<Self> {
         match self {
-            Self::SettingsSources => Some(Self::ModelModules),
-            Self::ModelModules => Some(Self::TemplateLibrarySources),
+            Self::SettingsSources => Some(Self::TemplateLibrarySources),
             Self::TemplateLibrarySources => Some(Self::TemplateTagCandidates),
             Self::TemplateTagCandidates => None,
         }
@@ -217,13 +214,6 @@ impl ProjectFactsPhase {
                 count_label: CountLabel {
                     singular: "settings file",
                     plural: "settings files",
-                },
-            },
-            Self::ModelModules => DjangoDiscoveryProgress {
-                message: "Discovering model modules",
-                count_label: CountLabel {
-                    singular: "model module",
-                    plural: "model modules",
                 },
             },
             Self::TemplateLibrarySources => DjangoDiscoveryProgress {
@@ -255,10 +245,6 @@ impl ProjectFactsPhase {
                     .map(|file| file.path(db).to_path_buf())
                     .collect()
             }
-            Self::ModelModules => model_modules(db, project)
-                .iter()
-                .map(|module| module.path().to_path_buf())
-                .collect(),
             Self::TemplateLibrarySources => {
                 let libraries = template_library_catalog(db, project);
                 ScopedTemplateLibraries::from_project_inventory(libraries)

@@ -153,7 +153,6 @@ pub struct WarmCacheProgress {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WarmCachePhase {
-    BuildModelGraph,
     ResolveTemplateDirs,
     IndexTemplateLibraries,
     IndexTemplates,
@@ -163,10 +162,6 @@ impl WarmCachePhase {
     #[must_use]
     pub const fn progress(self) -> WarmCacheProgress {
         match self {
-            Self::BuildModelGraph => WarmCacheProgress {
-                message: "Building model graph",
-                count_label: None,
-            },
             Self::ResolveTemplateDirs => WarmCacheProgress {
                 message: "Resolving template directories",
                 count_label: Some(CountLabel {
@@ -201,10 +196,6 @@ impl WarmCachePhase {
         let project = db.project()?;
 
         match self {
-            Self::BuildModelGraph => {
-                let _ = db.model_graph();
-                None
-            }
             Self::ResolveTemplateDirs => {
                 Some(template_directories(db, project).known_roots().count())
             }
@@ -239,7 +230,6 @@ impl WarmCachePart {
 }
 
 const WARM_CACHE_PHASES: &[WarmCachePhase] = &[
-    WarmCachePhase::BuildModelGraph,
     WarmCachePhase::ResolveTemplateDirs,
     WarmCachePhase::IndexTemplateLibraries,
     WarmCachePhase::IndexTemplates,
