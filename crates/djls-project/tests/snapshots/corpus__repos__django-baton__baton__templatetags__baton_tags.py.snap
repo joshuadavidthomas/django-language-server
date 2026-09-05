@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "baton.templatetags.baton_tags::tag::baton_ai_stats":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "baton.templatetags.baton_tags::tag::baton_config":
     arg_constraints:
@@ -17,7 +18,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "baton.templatetags.baton_tags::tag::baton_config_value":
     arg_constraints:
@@ -26,10 +28,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: key
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: key
+          requirement: required
+          kind: Variable
     as_var: strip
   "baton.templatetags.baton_tags::tag::baton_theme":
     arg_constraints:
@@ -37,7 +40,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "baton.templatetags.baton_tags::tag::footer":
     arg_constraints:
@@ -45,7 +49,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
 filter_arities:
   "baton.templatetags.baton_tags::filter::to_json": no_argument

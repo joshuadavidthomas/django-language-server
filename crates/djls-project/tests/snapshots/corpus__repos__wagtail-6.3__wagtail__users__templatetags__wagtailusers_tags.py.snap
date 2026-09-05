@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "wagtail.users.templatetags.wagtailusers_tags::tag::format_permissions":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: permission_bound_field
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: permission_bound_field
+          requirement: required
+          kind: Variable
     as_var: keep
   "wagtail.users.templatetags.wagtailusers_tags::tag::user_listing_buttons":
     arg_constraints:
@@ -22,10 +23,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

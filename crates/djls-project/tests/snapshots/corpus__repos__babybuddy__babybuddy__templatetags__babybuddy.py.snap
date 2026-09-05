@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "babybuddy.templatetags.babybuddy::tag::axes_lockout_message":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::confirm_delete_text":
     arg_constraints:
@@ -18,10 +19,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: object
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: object
+          requirement: required
+          kind: Variable
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::confirm_unlock_text":
     arg_constraints:
@@ -30,10 +32,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: object
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: object
+          requirement: required
+          kind: Variable
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::get_child_count":
     arg_constraints:
@@ -41,7 +44,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::get_current_locale":
     arg_constraints:
@@ -49,7 +53,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::get_current_timezone":
     arg_constraints:
@@ -57,7 +62,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::make_absolute_url":
     arg_constraints:
@@ -66,10 +72,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: url
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: url
+          requirement: required
+          kind: Variable
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::relative_url":
     arg_constraints:
@@ -78,13 +85,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: field_name
-        required: true
-        kind: Variable
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: field_name
+          requirement: required
+          kind: Variable
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::user_is_locked":
     arg_constraints:
@@ -93,10 +101,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::user_is_read_only":
     arg_constraints:
@@ -105,10 +114,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: strip
   "babybuddy.templatetags.babybuddy::tag::version_string":
     arg_constraints:
@@ -116,7 +126,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities: {}
 block_specs: {}

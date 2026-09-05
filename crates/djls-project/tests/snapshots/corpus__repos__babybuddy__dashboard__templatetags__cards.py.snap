@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "dashboard.templatetags.cards::tag::card_breastfeeding":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
-      - name: date
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
+        - name: date
+          requirement: optional
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_diaperchange_last":
     arg_constraints:
@@ -25,10 +26,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_diaperchange_types":
     arg_constraints:
@@ -37,13 +39,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
-      - name: date
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
+        - name: date
+          requirement: optional
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_feeding_last":
     arg_constraints:
@@ -52,10 +55,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_feeding_last_method":
     arg_constraints:
@@ -64,10 +68,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_feeding_recent":
     arg_constraints:
@@ -76,13 +81,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
-      - name: end_date
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
+        - name: end_date
+          requirement: optional
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_pumping_last":
     arg_constraints:
@@ -91,10 +97,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_sleep_last":
     arg_constraints:
@@ -103,10 +110,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_sleep_naps_day":
     arg_constraints:
@@ -115,13 +123,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
-      - name: date
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
+        - name: date
+          requirement: optional
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_sleep_recent":
     arg_constraints:
@@ -130,13 +139,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
-      - name: end_date
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
+        - name: end_date
+          requirement: optional
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_statistics":
     arg_constraints:
@@ -145,10 +155,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_timer_list":
     arg_constraints:
@@ -156,10 +167,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: optional
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_tummytime_day":
     arg_constraints:
@@ -168,13 +180,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
-      - name: date
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
+        - name: date
+          requirement: optional
+          kind: Variable
     as_var: keep
   "dashboard.templatetags.cards::tag::card_tummytime_last":
     arg_constraints:
@@ -183,10 +196,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: child
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: child
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

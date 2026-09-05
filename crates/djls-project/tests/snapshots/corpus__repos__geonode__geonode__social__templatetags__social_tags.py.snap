@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "geonode.social.templatetags.social_tags::tag::activity_item":
@@ -9,10 +9,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: action
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: action
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

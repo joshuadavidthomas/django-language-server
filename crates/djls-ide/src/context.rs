@@ -36,6 +36,7 @@ pub(crate) enum TemplateCompletionContext<'source> {
     },
     TagArgument {
         tag: &'source str,
+        completed_arguments: Vec<&'source str>,
         position: usize,
         prefix: OffsetPrefix<'source>,
         close: TagClose,
@@ -125,12 +126,12 @@ impl<'source> TemplateCompletionContext<'source> {
         }
 
         let args = &tokens[1..];
-        let (position, prefix) = if ends_in_unquoted_whitespace(trimmed) {
-            (args.len(), "")
+        let (completed_arguments, position, prefix) = if ends_in_unquoted_whitespace(trimmed) {
+            (args.to_vec(), args.len(), "")
         } else if let Some((partial, complete_args)) = args.split_last() {
-            (complete_args.len(), *partial)
+            (complete_args.to_vec(), complete_args.len(), *partial)
         } else {
-            (0, "")
+            (Vec::new(), 0, "")
         };
 
         if let Some((quote, quoted_prefix)) = unclosed_quote_prefix(prefix) {
@@ -149,6 +150,7 @@ impl<'source> TemplateCompletionContext<'source> {
 
         Self::TagArgument {
             tag,
+            completed_arguments,
             position,
             prefix: OffsetPrefix::new(prefix, offset),
             close,
@@ -625,6 +627,7 @@ mod tests {
                 context,
                 CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
                     tag: "include",
+                    completed_arguments: vec!["\"base.html\""],
                     position: 1,
                     prefix: OffsetPrefix {
                         text: "wi",
@@ -653,6 +656,7 @@ mod tests {
                     context,
                     CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
                         tag: "include",
+                        completed_arguments: vec!["\"base layout.html\""],
                         position: 1,
                         prefix: OffsetPrefix {
                             text: "wi",
@@ -981,6 +985,7 @@ mod tests {
                 context,
                 CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
                     tag: "extends",
+                    completed_arguments: Vec::new(),
                     position: 0,
                     prefix: OffsetPrefix {
                         text: prefix,
@@ -1004,6 +1009,7 @@ mod tests {
                 context,
                 CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
                     tag: "extends",
+                    completed_arguments: Vec::new(),
                     position: 0,
                     prefix: OffsetPrefix {
                         text: "",

@@ -2045,7 +2045,9 @@ env_file = ".env.local"
             alpha_tags
                 .get("alpha_tag")
                 .expect("expected test fixture entry should exist")
-                .arguments()
+                .argument_syntax()
+                .parameters()
+                .expect("simple tag should expose signature parameters")
                 .len(),
             1
         );
@@ -2091,7 +2093,9 @@ env_file = ".env.local"
             alpha_tags
                 .get("alpha_tag")
                 .expect("expected test fixture entry should exist")
-                .arguments()
+                .argument_syntax()
+                .parameters()
+                .expect("simple tag should expose signature parameters")
                 .len(),
             2
         );

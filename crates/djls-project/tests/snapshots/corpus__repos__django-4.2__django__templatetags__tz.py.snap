@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "django.templatetags.tz::tag::get_current_timezone":
@@ -12,16 +12,15 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: as
-        required: true
-        kind:
-          Literal: as
-        position: 0
-      - name: arg2
-        required: true
-        kind: Variable
-        position: 1
+    argument_syntax:
+      Parameters:
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: arg2
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.tz::tag::localtime":
     arg_constraints:
@@ -57,11 +56,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.tz::tag::timezone":
     arg_constraints:
@@ -79,11 +78,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities:
   "django.templatetags.tz::filter::localtime": no_argument

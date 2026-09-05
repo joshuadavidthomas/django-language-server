@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "horizon.templatetags.bootstrap::tag::bs_progress_bar":
@@ -8,10 +8,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: keep
 filter_arities: {}
 block_specs: {}

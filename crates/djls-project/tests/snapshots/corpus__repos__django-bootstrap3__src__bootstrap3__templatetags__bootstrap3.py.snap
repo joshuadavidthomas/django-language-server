@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_alert":
@@ -10,26 +10,28 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: content
-        required: true
-        kind: Variable
-      - name: alert_type
-        required: false
-        kind: Variable
-      - name: dismissable
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: content
+          requirement: required
+          kind: Variable
+        - name: alert_type
+          requirement: optional
+          kind: Variable
+        - name: dismissable
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css":
     arg_constraints:
@@ -37,7 +39,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css_url":
     arg_constraints:
@@ -45,57 +48,63 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_field":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form_errors":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset_errors":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_icon":
     arg_constraints:
@@ -103,10 +112,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: icon
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: icon
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript":
     arg_constraints:
@@ -114,10 +124,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: jquery
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: jquery
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript_url":
     arg_constraints:
@@ -125,7 +136,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_jquery_url":
     arg_constraints:
@@ -133,27 +145,30 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_label":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_messages":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_pagination":
     arg_constraints:
@@ -161,10 +176,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
     as_var: keep
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_theme_url":
     arg_constraints:
@@ -172,7 +188,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_url_replace_param":
     arg_constraints:
@@ -181,16 +198,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: url
-        required: true
-        kind: Variable
-      - name: name
-        required: true
-        kind: Variable
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: url
+          requirement: required
+          kind: Variable
+        - name: name
+          requirement: required
+          kind: Variable
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes": no_argument

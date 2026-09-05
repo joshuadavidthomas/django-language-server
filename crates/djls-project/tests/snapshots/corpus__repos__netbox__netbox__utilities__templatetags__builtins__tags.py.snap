@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "netbox.utilities.templatetags.builtins.tags::tag::badge":
@@ -10,16 +10,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: value
-        required: true
-        kind: Variable
-      - name: bg_color
-        required: false
-        kind: Variable
-      - name: show_empty
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: value
+          requirement: required
+          kind: Variable
+        - name: bg_color
+          requirement: optional
+          kind: Variable
+        - name: show_empty
+          requirement: optional
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::checkmark":
     arg_constraints:
@@ -28,19 +29,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: value
-        required: true
-        kind: Variable
-      - name: show_false
-        required: false
-        kind: Variable
-      - name: "true"
-        required: false
-        kind: Variable
-      - name: "false"
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: value
+          requirement: required
+          kind: Variable
+        - name: show_false
+          requirement: optional
+          kind: Variable
+        - name: "true"
+          requirement: optional
+          kind: Variable
+        - name: "false"
+          requirement: optional
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::copy_content":
     arg_constraints:
@@ -49,19 +51,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: target
-        required: true
-        kind: Variable
-      - name: prefix
-        required: false
-        kind: Variable
-      - name: color
-        required: false
-        kind: Variable
-      - name: classes
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: target
+          requirement: required
+          kind: Variable
+        - name: prefix
+          requirement: optional
+          kind: Variable
+        - name: color
+          requirement: optional
+          kind: Variable
+        - name: classes
+          requirement: optional
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::customfield_value":
     arg_constraints:
@@ -70,13 +73,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: customfield
-        required: true
-        kind: Variable
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: customfield
+          requirement: required
+          kind: Variable
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::formaction":
     arg_constraints:
@@ -84,7 +88,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::htmx_table":
     arg_constraints:
@@ -92,13 +97,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: viewname
-        required: true
-        kind: Variable
-      - name: return_url
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: viewname
+          requirement: required
+          kind: Variable
+        - name: return_url
+          requirement: optional
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::render":
     arg_constraints:
@@ -107,10 +113,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: component
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: component
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::static_with_params":
     arg_constraints:
@@ -118,10 +125,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: path
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: path
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::tag":
     arg_constraints:
@@ -130,13 +138,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: value
-        required: true
-        kind: Variable
-      - name: viewname
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: value
+          requirement: required
+          kind: Variable
+        - name: viewname
+          requirement: optional
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

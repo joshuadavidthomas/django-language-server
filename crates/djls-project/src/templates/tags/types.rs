@@ -86,8 +86,9 @@ pub struct TagRule {
     pub known_options: Option<KnownOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_messages: Option<Vec<ExtractedDiagnosticMessage>>,
-    /// Arguments in template source order.
-    pub extracted_args: Vec<TagArgument>,
+    /// Accepted argument syntax in template source order.
+    #[serde(default)]
+    pub argument_syntax: TagArgumentSyntax,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
     /// When supported, the evaluator strips trailing `as <varname>` from the
@@ -109,7 +110,11 @@ impl TagRule {
                 .diagnostic_messages
                 .as_ref()
                 .is_some_and(|messages| !messages.is_empty())
-            || !self.extracted_args.is_empty()
+            || match &self.argument_syntax {
+                TagArgumentSyntax::Parameters(parameters) => !parameters.is_empty(),
+                TagArgumentSyntax::Forms { forms, .. } => !forms.is_empty(),
+                TagArgumentSyntax::Unknown => false,
+            }
     }
 }
 
@@ -288,6 +293,68 @@ pub struct BlockSpec {
     pub body_analysis_evidence: BodyAnalysisEvidence,
 }
 
+/// Argument syntax known for a tag definition.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TagArgumentSyntax {
+    /// No useful argument syntax was found.
+    #[default]
+    Unknown,
+    /// A signature or configured parameter sequence, including optional parameters.
+    Parameters(Vec<TagArgument>),
+    /// Correlated fixed-length forms found in a manual compile function.
+    Forms {
+        forms: Vec<TagArgumentForm>,
+        coverage: ArgumentFormCoverage,
+    },
+}
+
+impl TagArgumentSyntax {
+    #[must_use]
+    pub fn parameters(&self) -> Option<&[TagArgument]> {
+        match self {
+            Self::Parameters(parameters) => Some(parameters),
+            Self::Unknown | Self::Forms { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub fn forms(&self) -> Option<(&[TagArgumentForm], ArgumentFormCoverage)> {
+        match self {
+            Self::Forms { forms, coverage } => Some((forms, *coverage)),
+            Self::Unknown | Self::Parameters(_) => None,
+        }
+    }
+}
+
+/// Whether the known forms cover every successful syntax path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArgumentFormCoverage {
+    Complete,
+    Partial,
+}
+
+/// One correlated, fixed-length argument form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagArgumentForm {
+    pub arguments: Vec<TagArgument>,
+}
+
+/// Whether a parameter must be present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParameterRequirement {
+    Required,
+    Optional,
+}
+
+impl ParameterRequirement {
+    #[must_use]
+    pub const fn is_required(self) -> bool {
+        matches!(self, Self::Required)
+    }
+}
+
 /// Argument structure extracted from a tag's registration.
 ///
 /// Represents a single positional or keyword argument that a template tag
@@ -297,8 +364,8 @@ pub struct BlockSpec {
 pub struct TagArgument {
     /// Argument name (from parameter name or AST analysis, or generic `arg1`/`arg2`)
     pub name: String,
-    /// Whether this argument is required (no default value)
-    pub required: bool,
+    /// Whether this parameter must be present.
+    pub requirement: ParameterRequirement,
     /// The kind of argument
     pub kind: TagArgumentKind,
 }

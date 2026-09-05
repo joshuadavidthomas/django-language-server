@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "blog.templatetags.blog_tags::tag::add_qsarg":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: name
-        required: true
-        kind: Variable
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: name
+          requirement: required
+          kind: Variable
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: strip
   "blog.templatetags.blog_tags::tag::blog_mixed_list":
     arg_constraints:
@@ -25,10 +26,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: items
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: items
+          requirement: required
+          kind: Variable
     as_var: keep
   "blog.templatetags.blog_tags::tag::blog_mixed_list_with_dates":
     arg_constraints:
@@ -37,19 +39,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: items
-        required: true
-        kind: Variable
-      - name: year_headers
-        required: false
-        kind: Variable
-      - name: day_headers
-        required: false
-        kind: Variable
-      - name: day_links
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: items
+          requirement: required
+          kind: Variable
+        - name: year_headers
+          requirement: optional
+          kind: Variable
+        - name: day_headers
+          requirement: optional
+          kind: Variable
+        - name: day_links
+          requirement: optional
+          kind: Variable
     as_var: keep
   "blog.templatetags.blog_tags::tag::comments_list":
     arg_constraints:
@@ -58,10 +61,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: comments
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: comments
+          requirement: required
+          kind: Variable
     as_var: keep
   "blog.templatetags.blog_tags::tag::comments_list_with_headers":
     arg_constraints:
@@ -70,10 +74,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: comments
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: comments
+          requirement: required
+          kind: Variable
     as_var: keep
   "blog.templatetags.blog_tags::tag::page_href":
     arg_constraints:
@@ -82,10 +87,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
     as_var: strip
   "blog.templatetags.blog_tags::tag::remove_id_filters":
     arg_constraints:
@@ -93,7 +99,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "blog.templatetags.blog_tags::tag::remove_qsarg":
     arg_constraints:
@@ -102,13 +109,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: name
-        required: true
-        kind: Variable
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: name
+          requirement: required
+          kind: Variable
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: strip
   "blog.templatetags.blog_tags::tag::replace_qsarg":
     arg_constraints:
@@ -117,13 +125,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: name
-        required: true
-        kind: Variable
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: name
+          requirement: required
+          kind: Variable
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "blog.templatetags.blog_tags::filter::markdownify": no_argument

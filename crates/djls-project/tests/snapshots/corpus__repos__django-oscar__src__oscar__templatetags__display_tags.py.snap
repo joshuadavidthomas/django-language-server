@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.oscar.templatetags.display_tags::tag::get_parameters":
@@ -10,20 +10,22 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: except_field
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: except_field
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.oscar.templatetags.display_tags::tag::iffeature":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: app_name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: app_name
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs:

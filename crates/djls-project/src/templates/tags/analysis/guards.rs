@@ -132,6 +132,81 @@ impl RaisingGuard<'_> {
 ///
 /// The condition guards a `raise` statement, so it describes when the code
 /// errors. Constraints capture what's valid (the negation).
+pub(super) fn extract_complete_rejecting_guard(
+    if_stmt: &StmtIf,
+    env: &Env,
+) -> Option<ExtractedTagConstraints> {
+    direct_raise_exception(&if_stmt.body)?;
+    if !if_stmt.elif_else_clauses.is_empty() {
+        return None;
+    }
+
+    let mut local_env = env.clone();
+    eval_condition_complete(if_stmt.test.as_ref(), &mut local_env)
+}
+
+fn eval_condition_complete(expr: &Expr, env: &mut Env) -> Option<ExtractedTagConstraints> {
+    let constraints = match expr {
+        Expr::BoolOp(ExprBoolOp {
+            op: BoolOp::Or,
+            values,
+            ..
+        }) => {
+            for value in values {
+                eval_condition_complete(value, env)?;
+            }
+            eval_condition(expr, env)
+        }
+        Expr::Compare(_) => eval_condition(expr, env),
+        Expr::UnaryOp(ExprUnaryOp {
+            op: UnaryOp::Not,
+            operand,
+            ..
+        }) if matches!(operand.as_ref(), Expr::Compare(_)) => eval_condition(expr, env),
+        // The valid side of a raising `and` guard is a disjunction. The flat
+        // constraint model cannot preserve those alternatives exactly.
+        Expr::BoolOp(ExprBoolOp {
+            op: BoolOp::And, ..
+        })
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => return None,
+    };
+
+    (!constraints.arg_constraints.is_empty()
+        || !constraints.required_keywords.is_empty()
+        || !constraints.choice_at_constraints.is_empty())
+    .then_some(constraints)
+}
+
 fn eval_condition(expr: &Expr, env: &mut Env) -> ExtractedTagConstraints {
     match expr {
         // `or`: error when either side is true → each is an independent constraint

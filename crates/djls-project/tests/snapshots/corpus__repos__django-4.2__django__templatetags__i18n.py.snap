@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "django.templatetags.i18n::tag::blocktrans":
@@ -16,7 +16,7 @@ tag_rules:
         - asvar
       duplicate_rejection: detected
       unknown_rejection: detected
-    extracted_args: []
+    argument_syntax: Unknown
     as_var: keep
   "django.templatetags.i18n::tag::blocktranslate":
     arg_constraints: []
@@ -31,7 +31,7 @@ tag_rules:
         - asvar
       duplicate_rejection: detected
       unknown_rejection: detected
-    extracted_args: []
+    argument_syntax: Unknown
     as_var: keep
   "django.templatetags.i18n::tag::get_available_languages":
     arg_constraints:
@@ -42,16 +42,15 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: as
-        required: true
-        kind:
-          Literal: as
-        position: 0
-      - name: arg2
-        required: true
-        kind: Variable
-        position: 1
+    argument_syntax:
+      Parameters:
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: arg2
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.i18n::tag::get_current_language":
     arg_constraints:
@@ -62,16 +61,15 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: as
-        required: true
-        kind:
-          Literal: as
-        position: 0
-      - name: arg2
-        required: true
-        kind: Variable
-        position: 1
+    argument_syntax:
+      Parameters:
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: arg2
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.i18n::tag::get_current_language_bidi":
     arg_constraints:
@@ -82,16 +80,15 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: as
-        required: true
-        kind:
-          Literal: as
-        position: 0
-      - name: arg2
-        required: true
-        kind: Variable
-        position: 1
+    argument_syntax:
+      Parameters:
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: arg2
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.i18n::tag::get_language_info":
     arg_constraints:
@@ -105,25 +102,22 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: for
-        required: true
-        kind:
-          Literal: for
-        position: 0
-      - name: arg2
-        required: true
-        kind: Variable
-        position: 1
-      - name: as
-        required: true
-        kind:
-          Literal: as
-        position: 2
-      - name: arg4
-        required: true
-        kind: Variable
-        position: 3
+    argument_syntax:
+      Parameters:
+        - name: for
+          requirement: required
+          kind:
+            Literal: for
+        - name: arg2
+          requirement: required
+          kind: Variable
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: arg4
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.i18n::tag::get_language_info_list":
     arg_constraints:
@@ -137,25 +131,22 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: for
-        required: true
-        kind:
-          Literal: for
-        position: 0
-      - name: arg2
-        required: true
-        kind: Variable
-        position: 1
-      - name: as
-        required: true
-        kind:
-          Literal: as
-        position: 2
-      - name: arg4
-        required: true
-        kind: Variable
-        position: 3
+    argument_syntax:
+      Parameters:
+        - name: for
+          requirement: required
+          kind:
+            Literal: for
+        - name: arg2
+          requirement: required
+          kind: Variable
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: arg4
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.i18n::tag::language":
     arg_constraints:
@@ -173,11 +164,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.i18n::tag::trans":
     arg_constraints:
@@ -201,11 +192,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.i18n::tag::translate":
     arg_constraints:
@@ -229,11 +220,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities:
   "django.templatetags.i18n::filter::language_bidi": no_argument

@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

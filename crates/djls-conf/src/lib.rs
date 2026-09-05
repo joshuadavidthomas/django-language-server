@@ -789,6 +789,11 @@ name = "case"
 [[tagspecs.libraries.tags.args]]
 name = "value"
 kind = "variable"
+
+[[tagspecs.libraries.tags.args]]
+name = "optional_value"
+kind = "variable"
+required = false
 "#,
             )
             .expect("test should write tag specification djls.toml fixture");
@@ -804,6 +809,8 @@ kind = "variable"
             assert_eq!(doc.libraries[0].module, "myapp.templatetags.custom");
             assert_eq!(doc.libraries[0].tags.len(), 1);
             assert_eq!(doc.libraries[0].tags[0].name, "switch");
+            assert!(doc.libraries[0].tags[0].args[0].required);
+            assert!(!doc.libraries[0].tags[0].args[1].required);
         }
     }
 

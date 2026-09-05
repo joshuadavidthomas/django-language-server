@@ -7,6 +7,8 @@ use ruff_python_ast::StmtAssign;
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::AnalysisResult;
 use crate::templates::tags::analysis::CallContext;
+use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
+use crate::templates::tags::analysis::exceptions::direct_raise_exception;
 use crate::templates::tags::analysis::expressions::eval_expr;
 use crate::templates::tags::analysis::expressions::eval_expr_with_ctx;
 use crate::templates::tags::analysis::match_arms::extract_match_constraints;
@@ -32,6 +34,7 @@ pub(crate) fn process_statements(
     combined
 }
 
+#[allow(clippy::too_many_lines)]
 fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> AnalysisResult {
     let mut result = AnalysisResult::default();
 
@@ -58,37 +61,81 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
         }
 
         Stmt::If(stmt_if) => {
+            let argument_syntax =
+                crate::templates::tags::analysis::forms::extract_if_argument_syntax(
+                    stmt_if, env, ctx,
+                );
+
             result.extend(
                 crate::templates::tags::analysis::guards::extract_from_if_inline(stmt_if, env)
                     .into(),
             );
 
-            // Collect body results separately so we can discard conditional
-            // keywords without reaching into ctx.constraints.
-            let mut body_result = process_statements(&stmt_if.body, env, ctx);
+            if let Some(argument_syntax) = argument_syntax {
+                let entry_env = env.clone();
+                let mut branch_envs = Vec::new();
 
-            // When an if-condition checks a specific element value
-            // (e.g. `if args[-3] == "as"`), keyword constraints extracted
-            // from its body are conditional on that value and can't be
-            // expressed in our flat model. Discard them.
-            // Length guards (`if len(bits) >= 3`) are fine — the keyword
-            // only applies when the position exists, which the evaluator
-            // handles via bounds checking.
-            if condition_involves_element_check(&stmt_if.test, env) {
-                body_result.constraints.required_keywords.clear();
-            }
-            result.extend(body_result);
-
-            for clause in &stmt_if.elif_else_clauses {
-                let mut clause_result = process_statements(&clause.body, env, ctx);
-                if clause
-                    .test
-                    .as_ref()
-                    .is_some_and(|t| condition_involves_element_check(t, env))
-                {
-                    clause_result.constraints.required_keywords.clear();
+                if direct_raise_exception(&stmt_if.body).is_none() {
+                    let mut branch_env = entry_env.clone();
+                    result.extend(process_statements(&stmt_if.body, &mut branch_env, ctx));
+                    branch_envs.push(branch_env);
                 }
-                result.extend(clause_result);
+                for clause in &stmt_if.elif_else_clauses {
+                    if direct_raise_exception(&clause.body).is_some() {
+                        continue;
+                    }
+                    let mut branch_env = entry_env.clone();
+                    result.extend(process_statements(&clause.body, &mut branch_env, ctx));
+                    branch_envs.push(branch_env);
+                }
+                if stmt_if
+                    .elif_else_clauses
+                    .iter()
+                    .all(|clause| clause.test.is_some())
+                {
+                    // No `else`: unmatched lengths retain the entry bindings.
+                    branch_envs.push(entry_env.clone());
+                }
+                *env = if branch_envs.is_empty() {
+                    entry_env
+                } else {
+                    Env::join_exact(&branch_envs)
+                };
+
+                // Branch-local constraints live in their correlated forms.
+                // Flattening them would reject syntax accepted by another
+                // branch. Downstream guards run only against exact bindings
+                // shared by every feasible branch.
+                result.constraints = ExtractedTagConstraints::default();
+                result.argument_syntax = Some(argument_syntax);
+            } else {
+                // Collect body results separately so we can discard conditional
+                // keywords without reaching into ctx.constraints.
+                let mut body_result = process_statements(&stmt_if.body, env, ctx);
+
+                // When an if-condition checks a specific element value
+                // (e.g. `if args[-3] == "as"`), keyword constraints extracted
+                // from its body are conditional on that value and can't be
+                // expressed in our flat model. Discard them.
+                // Length guards (`if len(bits) >= 3`) are fine — the keyword
+                // only applies when the position exists, which the evaluator
+                // handles via bounds checking.
+                if condition_involves_element_check(&stmt_if.test, env) {
+                    body_result.constraints.required_keywords.clear();
+                }
+                result.extend(body_result);
+
+                for clause in &stmt_if.elif_else_clauses {
+                    let mut clause_result = process_statements(&clause.body, env, ctx);
+                    if clause
+                        .test
+                        .as_ref()
+                        .is_some_and(|t| condition_involves_element_check(t, env))
+                    {
+                        clause_result.constraints.required_keywords.clear();
+                    }
+                    result.extend(clause_result);
+                }
             }
         }
 

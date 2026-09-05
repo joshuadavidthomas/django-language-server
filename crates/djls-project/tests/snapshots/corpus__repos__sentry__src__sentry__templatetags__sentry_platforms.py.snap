@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.sentry.templatetags.sentry_platforms::tag::letter_platform_svg":
@@ -10,19 +10,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: display_name
-        required: true
-        kind: Variable
-      - name: identifier
-        required: true
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
-      - name: rounded
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: display_name
+          requirement: required
+          kind: Variable
+        - name: identifier
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
+        - name: rounded
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_platforms::tag::platform_avatar":
     arg_constraints:
@@ -31,13 +32,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: display_name
-        required: true
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: display_name
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

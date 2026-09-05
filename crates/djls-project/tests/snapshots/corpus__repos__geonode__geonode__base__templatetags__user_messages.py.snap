@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "geonode.base.templatetags.user_messages::tag::format_senders":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: thread
-        required: true
-        kind: Variable
-      - name: current_user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: thread
+          requirement: required
+          kind: Variable
+        - name: current_user
+          requirement: required
+          kind: Variable
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::get_item":
     arg_constraints:
@@ -25,13 +26,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: dictionary
-        required: true
-        kind: Variable
-      - name: key
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: dictionary
+          requirement: required
+          kind: Variable
+        - name: key
+          requirement: required
+          kind: Variable
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::is_unread":
     arg_constraints:
@@ -40,13 +42,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: thread
-        required: true
-        kind: Variable
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: thread
+          requirement: required
+          kind: Variable
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::random_uuid":
     arg_constraints:
@@ -54,7 +57,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::show_notification":
     arg_constraints:
@@ -63,13 +67,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: notice_type_label
-        required: true
-        kind: Variable
-      - name: current_user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: notice_type_label
+          requirement: required
+          kind: Variable
+        - name: current_user
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

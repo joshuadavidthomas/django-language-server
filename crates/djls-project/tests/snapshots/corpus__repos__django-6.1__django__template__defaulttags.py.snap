@@ -29,10 +29,11 @@ tag_rules:
               - "off"
         message:
           Static: "'autoescape' argument should be 'on' or 'off'"
-    extracted_args:
-      - name: arg
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::csp_nonce_attr":
     arg_constraints:
@@ -40,10 +41,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: media
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: media
+          requirement: optional
+          kind: Variable
     as_var: strip
   "django.template.defaulttags::tag::cycle":
     arg_constraints:
@@ -68,10 +70,11 @@ tag_rules:
             args:
               - SplitElement:
                   Backward: 1
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::for":
     arg_constraints:
@@ -79,16 +82,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-      - name: arg2
-        required: true
-        kind: Variable
-      - name: arg3
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
+        - name: arg3
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::lorem":
     arg_constraints:
@@ -106,16 +110,17 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-      - name: arg2
-        required: true
-        kind: Variable
-      - name: arg3
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
+        - name: arg3
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::now":
     arg_constraints:
@@ -129,10 +134,11 @@ tag_rules:
             Exact: 2
         message:
           Static: "'now' statement takes one argument"
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: strip
   "django.template.defaulttags::tag::partial":
     arg_constraints:
@@ -140,10 +146,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::partialdef":
     arg_constraints:
@@ -156,24 +163,26 @@ tag_rules:
         value: inline
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-      - name: inline
-        required: true
-        kind:
-          Literal: inline
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: inline
+          requirement: required
+          kind:
+            Literal: inline
     as_var: keep
   "django.template.defaulttags::tag::querystring":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "django.template.defaulttags::tag::regroup":
     arg_constraints:
@@ -207,24 +216,25 @@ tag_rules:
             value: as
         message:
           Static: "next-to-last argument to 'regroup' tag must be 'as'"
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-      - name: by
-        required: true
-        kind:
-          Literal: by
-      - name: arg3
-        required: true
-        kind: Variable
-      - name: as
-        required: true
-        kind:
-          Literal: as
-      - name: var_name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: by
+          requirement: required
+          kind:
+            Literal: by
+        - name: arg3
+          requirement: required
+          kind: Variable
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: var_name
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::resetcycle":
     arg_constraints:
@@ -242,10 +252,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: name
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::templatetag":
     arg_constraints:
@@ -259,10 +270,11 @@ tag_rules:
             Exact: 2
         message:
           Static: "'templatetag' statement takes one argument"
-    extracted_args:
-      - name: tag
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: tag
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::url":
     arg_constraints:
@@ -280,17 +292,15 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: strip
   "django.template.defaulttags::tag::widthratio":
     arg_constraints: []
-    required_keywords:
-      - position:
-          Forward: 4
-        value: as
+    required_keywords: []
     choice_at_constraints: []
     known_options: ~
     diagnostic_messages:
@@ -301,23 +311,37 @@ tag_rules:
             value: as
         message:
           Static: "Invalid syntax in widthratio tag. Expecting 'as' keyword"
-    extracted_args:
-      - name: this_value_expr
-        required: true
-        kind: Variable
-      - name: max_value_expr
-        required: true
-        kind: Variable
-      - name: max_width
-        required: true
-        kind: Variable
-      - name: as
-        required: true
-        kind:
-          Literal: as
-      - name: asvar
-        required: true
-        kind: Variable
+    argument_syntax:
+      Forms:
+        forms:
+          - arguments:
+              - name: this_value_expr
+                requirement: required
+                kind: Variable
+              - name: max_value_expr
+                requirement: required
+                kind: Variable
+              - name: max_width
+                requirement: required
+                kind: Variable
+          - arguments:
+              - name: this_value_expr
+                requirement: required
+                kind: Variable
+              - name: max_value_expr
+                requirement: required
+                kind: Variable
+              - name: max_width
+                requirement: required
+                kind: Variable
+              - name: as
+                requirement: required
+                kind:
+                  Literal: as
+              - name: asvar
+                requirement: required
+                kind: Variable
+        coverage: complete
     as_var: keep
 filter_arities: {}
 block_specs:

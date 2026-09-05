@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "allauth.socialaccount.templatetags.socialaccount::tag::get_providers":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "allauth.socialaccount.templatetags.socialaccount::tag::get_social_accounts":
     arg_constraints:
@@ -18,10 +19,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: strip
   "allauth.socialaccount.templatetags.socialaccount::tag::provider_login_url":
     arg_constraints:
@@ -29,10 +31,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: provider
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: provider
+          requirement: required
+          kind: Variable
     as_var: strip
   "allauth.socialaccount.templatetags.socialaccount::tag::providers_media_js":
     arg_constraints:
@@ -40,7 +43,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities: {}
 block_specs: {}

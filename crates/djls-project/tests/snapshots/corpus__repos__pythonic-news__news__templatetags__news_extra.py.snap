@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "news.templatetags.news_extra::tag::link_user":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: keep
   "news.templatetags.news_extra::tag::more_link":
     arg_constraints:
@@ -21,7 +22,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "news.templatetags.news_extra::tag::news_item":
     arg_constraints:
@@ -29,10 +31,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: item
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: item
+          requirement: required
+          kind: Variable
     as_var: keep
   "news.templatetags.news_extra::tag::user_arrows":
     arg_constraints:
@@ -41,13 +44,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
-      - name: item
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
+        - name: item
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "news.templatetags.news_extra::filter::comment_markdown": no_argument

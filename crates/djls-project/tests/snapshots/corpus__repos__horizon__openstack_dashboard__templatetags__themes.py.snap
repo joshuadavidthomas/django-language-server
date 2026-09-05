@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "openstack_dashboard.templatetags.themes::tag::current_theme":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "openstack_dashboard.templatetags.themes::tag::themable_asset":
     arg_constraints:
@@ -18,10 +19,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: asset
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: asset
+          requirement: required
+          kind: Variable
     as_var: strip
   "openstack_dashboard.templatetags.themes::tag::theme_cookie":
     arg_constraints:
@@ -29,7 +31,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "openstack_dashboard.templatetags.themes::tag::theme_dir":
     arg_constraints:
@@ -37,7 +40,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "openstack_dashboard.templatetags.themes::tag::themes":
     arg_constraints:
@@ -45,7 +49,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities: {}
 block_specs: {}

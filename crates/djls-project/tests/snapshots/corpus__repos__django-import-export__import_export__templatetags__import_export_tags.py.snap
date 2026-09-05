@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "import_export.templatetags.import_export_tags::tag::compare_values":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: value1
-        required: true
-        kind: Variable
-      - name: value2
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: value1
+          requirement: required
+          kind: Variable
+        - name: value2
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -12,8 +12,10 @@ use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_project::BlockSpecs;
 use djls_project::BodyAnalysisEvidence;
+use djls_project::ParameterRequirement;
 use djls_project::TagArgument;
 use djls_project::TagArgumentKind;
+use djls_project::TagArgumentSyntax;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
 use djls_project::TemplateSymbolKind;
@@ -267,7 +269,11 @@ impl TagSpecs {
 
                         extracted_args.push(TagArgument {
                             name: arg.name.clone(),
-                            required: arg.required,
+                            requirement: if arg.required {
+                                ParameterRequirement::Required
+                            } else {
+                                ParameterRequirement::Optional
+                            },
                             kind: kind.clone(),
                         });
 
@@ -293,7 +299,7 @@ impl TagSpecs {
                         }
                     }
 
-                    rule.extracted_args = extracted_args;
+                    rule.argument_syntax = TagArgumentSyntax::Parameters(extracted_args);
 
                     Some(rule.into())
                 };
@@ -374,7 +380,7 @@ impl BodyAnalysis {
 ///
 /// Argument validation is handled by `extracted_rules` (derived from Python AST
 /// extraction). Argument structure for completions/snippets is accessed via
-/// `extracted_rules.extracted_args`. `role` records durable tag meaning
+/// `extracted_rules.argument_syntax`. `role` records durable tag meaning
 /// that downstream features can use without matching on tag names.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSpec {
@@ -386,7 +392,7 @@ pub struct TagSpec {
     /// Extraction-derived validation rules from Python AST analysis.
     ///
     /// When present, provides argument validation (S117 diagnostics) and
-    /// argument structure for completions/snippets via `extracted_args`.
+    /// argument structure for completions/snippets via `argument_syntax`.
     extracted_rules: Option<Arc<TagRule>>,
 }
 
@@ -445,16 +451,16 @@ impl TagSpec {
     }
 
     #[must_use]
-    pub fn arguments(&self) -> &[TagArgument] {
+    pub fn argument_syntax(&self) -> &TagArgumentSyntax {
         self.extracted_rules
             .as_deref()
-            .map_or(&[], |rules| rules.extracted_args.as_slice())
+            .map_or(&TagArgumentSyntax::Unknown, |rules| &rules.argument_syntax)
     }
 
     #[must_use]
-    pub fn with_arguments(mut self, args: Vec<TagArgument>) -> Self {
+    pub fn with_argument_syntax(mut self, argument_syntax: TagArgumentSyntax) -> Self {
         let mut rules = self.extracted_rules.as_deref().cloned().unwrap_or_default();
-        rules.extracted_args = args;
+        rules.argument_syntax = argument_syntax;
         self.extracted_rules = Some(rules.into());
         self
     }
@@ -1200,23 +1206,23 @@ mod tests {
             SymbolKey::tag("django.template.defaulttags", "for"),
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Min(4)],
-                extracted_args: vec![
+                argument_syntax: TagArgumentSyntax::Parameters(vec![
                     TagArgument {
                         name: "item".to_string(),
-                        required: true,
+                        requirement: ParameterRequirement::Required,
                         kind: TagArgumentKind::Variable,
                     },
                     TagArgument {
                         name: "in".to_string(),
-                        required: true,
+                        requirement: ParameterRequirement::Required,
                         kind: TagArgumentKind::Literal("in".to_string()),
                     },
                     TagArgument {
                         name: "iterable".to_string(),
-                        required: true,
+                        requirement: ParameterRequirement::Required,
                         kind: TagArgumentKind::Variable,
                     },
-                ],
+                ]),
                 ..Default::default()
             }
             .into(),
@@ -1231,9 +1237,13 @@ mod tests {
             .extracted_rules
             .as_ref()
             .expect("the merged for tag should contain extracted rules");
-        assert_eq!(rules.extracted_args.len(), 3);
-        assert_eq!(rules.extracted_args[0].name, "item");
-        assert!(rules.extracted_args[0].required);
-        assert_eq!(rules.extracted_args[2].name, "iterable");
+        let parameters = rules
+            .argument_syntax
+            .parameters()
+            .expect("merged rule should retain parameter syntax");
+        assert_eq!(parameters.len(), 3);
+        assert_eq!(parameters[0].name, "item");
+        assert_eq!(parameters[0].requirement, ParameterRequirement::Required);
+        assert_eq!(parameters[2].name, "iterable");
     }
 }

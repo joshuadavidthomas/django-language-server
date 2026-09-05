@@ -16,6 +16,7 @@ use djls_project::TagRule;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_library_catalog;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::TagArgumentKind;
 use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -110,6 +111,41 @@ fn collect_file_errors(db: &TestDatabase, path: &str) -> anyhow::Result<Vec<Vali
             .map(|error| error.0.clone())
             .collect(),
     )
+}
+
+#[test]
+fn widthratio_real_length_dispatch_validates_correlated_forms() {
+    let db = standard_db().expect("standard validation fixture should build");
+
+    for source in [
+        "{% widthratio this_value max_value max_width %}",
+        "{% widthratio this_value max_value max_width as ratio %}",
+    ] {
+        assert!(
+            collect_all_errors(&db, source)
+                .expect("valid widthratio source should validate")
+                .is_empty(),
+            "expected valid widthratio syntax: {source}"
+        );
+    }
+
+    for source in [
+        "{% widthratio %}",
+        "{% widthratio this_value max_value %}",
+        "{% widthratio this_value max_value max_width as %}",
+        "{% widthratio this_value max_value max_width WRONG ratio %}",
+        "{% widthratio this_value max_value max_width as ratio extra %}",
+    ] {
+        let errors = collect_all_errors(&db, source)
+            .expect("malformed widthratio source should produce diagnostics");
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::ExtractedRuleViolation { tag, .. } if tag == "widthratio"
+            )),
+            "expected widthratio rule violation for {source}: {errors:?}"
+        );
+    }
 }
 
 #[test]
@@ -709,6 +745,61 @@ fn configured_source_registration_is_available_through_its_library_catalog() {
                 if tag == "dynamic_panel" || tag == "enddynamic_panel"
         )),
         "configured dynamic registration should have loaded block meaning: {errors:?}"
+    );
+}
+
+#[test]
+fn configured_arguments_fill_a_kwargs_only_simple_tag() {
+    let mut db = TestDatabase::new();
+    let tag_specs: TagSpecDef = serde_json::from_value(serde_json::json!({
+        "libraries": [{
+            "module": "dynamic_tags",
+            "tags": [{
+                "name": "configured",
+                "type": "standalone",
+                "args": [{
+                    "name": "mode",
+                    "kind": "choice",
+                    "extra": {"choices": ["small", "large"]}
+                }]
+            }]
+        }]
+    }))
+    .expect("configured argument fixture should deserialize");
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .tag_specs(tag_specs)
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'dynamic': 'dynamic_tags'}}}]\n",
+        )
+        .file(
+            "/proj/dynamic_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef configured(**kwargs):\n    return ''\n",
+        )
+        .file("/proj/templates/page.html", "{% load dynamic %}")
+        .install(&mut db)
+        .expect("configured kwargs project fixture should install");
+
+    let library =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .resolved_libraries()
+            .into_iter()
+            .find(|library| library.module_name_str() == "dynamic_tags")
+            .expect("configured Template Library should resolve");
+    let spec = library_tag_specs(&db, project, library.id())
+        .get("configured")
+        .cloned()
+        .expect("configured tag should have an effective spec");
+    let parameters = spec
+        .argument_syntax()
+        .parameters()
+        .expect("configured arguments should replace empty signature evidence");
+
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(
+        parameters[0].kind,
+        TagArgumentKind::Choice(vec!["small".to_string(), "large".to_string()])
     );
 }
 

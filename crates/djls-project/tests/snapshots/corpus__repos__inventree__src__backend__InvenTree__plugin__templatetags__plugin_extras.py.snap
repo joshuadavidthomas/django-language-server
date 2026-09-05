@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::inactive_plugin_list":
@@ -8,10 +8,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::mixin_available":
     arg_constraints:
@@ -19,13 +20,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: mixin
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: mixin
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::mixin_enabled":
     arg_constraints:
@@ -33,26 +35,28 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: plugin
-        required: true
-        kind: Variable
-      - name: key
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: plugin
+          requirement: required
+          kind: Variable
+        - name: key
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::plugin_list":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::plugin_settings":
     arg_constraints:
@@ -60,13 +64,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: plugin
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: plugin
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::safe_url":
     arg_constraints:
@@ -74,13 +79,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: view_name
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: view_name
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
 filter_arities: {}
 block_specs: {}

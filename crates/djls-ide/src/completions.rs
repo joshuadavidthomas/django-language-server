@@ -41,8 +41,10 @@ use crate::context::OffsetSuffix;
 use crate::context::TagClose;
 use crate::context::TemplateCompletionContext;
 use crate::ext::CompletionCandidateExt;
+use crate::snippets::compatible_arguments_at;
 use crate::snippets::generate_partial_snippet;
 use crate::snippets::generate_snippet_for_tag_with_end;
+use crate::snippets::has_full_argument_snippet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompletionCandidateKind {
@@ -128,7 +130,7 @@ impl CompletionEdit {
         needs_leading_space: bool,
         close: TagClose,
     ) -> Option<Self> {
-        if spec.arguments().is_empty() {
+        if !has_full_argument_snippet(spec) {
             return None;
         }
 
@@ -537,15 +539,16 @@ pub fn completion(
         }
         CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
             tag,
+            completed_arguments,
             position,
             prefix,
             close,
-            ..
         }) => {
             let spec = parsed_nodelist(db, file)
                 .and_then(|nodelist| tag_spec_at(db, file, nodelist, offset.get(), tag));
             generate_tag_argument_candidates(
                 tag,
+                completed_arguments,
                 *position,
                 prefix,
                 *close,
@@ -786,6 +789,7 @@ fn generate_tag_name_candidates(
 
 fn generate_tag_argument_candidates(
     tag: &str,
+    completed_arguments: &[&str],
     position: usize,
     prefix: &OffsetPrefix<'_>,
     close: TagClose,
@@ -796,36 +800,43 @@ fn generate_tag_argument_candidates(
         return Vec::new();
     };
 
-    let arguments = spec.arguments();
-    let Some(argument) = arguments.get(position) else {
-        return Vec::new();
-    };
-
-    let mut candidates = match &argument.kind {
-        TagArgumentKind::Literal(value) if value.starts_with(prefix.text) => {
-            vec![CompletionCandidate::tag_argument_literal(
-                value, prefix, close,
-            )]
+    let arguments = compatible_arguments_at(spec, completed_arguments, position);
+    let mut candidates = Vec::new();
+    for argument in arguments {
+        let argument_candidates = match &argument.kind {
+            TagArgumentKind::Literal(value) if value.starts_with(prefix.text) => {
+                vec![CompletionCandidate::tag_argument_literal(
+                    value, prefix, close,
+                )]
+            }
+            TagArgumentKind::Choice(choices) => choices
+                .iter()
+                .filter(|choice| choice.starts_with(prefix.text))
+                .map(|choice| {
+                    CompletionCandidate::tag_argument_choice(choice, &argument.name, prefix, close)
+                })
+                .collect(),
+            TagArgumentKind::Variable | TagArgumentKind::Keyword if prefix.text.is_empty() => {
+                let label = format!("<{}>", argument.name);
+                vec![CompletionCandidate::tag_argument_placeholder(label, prefix)]
+            }
+            TagArgumentKind::Literal(_)
+            | TagArgumentKind::Variable
+            | TagArgumentKind::Keyword
+            | TagArgumentKind::VarArgs => Vec::new(),
+        };
+        for candidate in argument_candidates {
+            if !candidates.iter().any(|existing: &CompletionCandidate| {
+                existing.kind == candidate.kind
+                    && existing.edit.insert_text == candidate.edit.insert_text
+            }) {
+                candidates.push(candidate);
+            }
         }
-        TagArgumentKind::Choice(choices) => choices
-            .iter()
-            .filter(|choice| choice.starts_with(prefix.text))
-            .map(|choice| {
-                CompletionCandidate::tag_argument_choice(choice, &argument.name, prefix, close)
-            })
-            .collect(),
-        TagArgumentKind::Variable | TagArgumentKind::Keyword if prefix.text.is_empty() => {
-            let label = format!("<{}>", argument.name);
-            vec![CompletionCandidate::tag_argument_placeholder(label, prefix)]
-        }
-        TagArgumentKind::Literal(_)
-        | TagArgumentKind::Variable
-        | TagArgumentKind::Keyword
-        | TagArgumentKind::VarArgs => Vec::new(),
-    };
+    }
 
     if supports_snippets && prefix.text.is_empty() {
-        let remaining_snippet = generate_partial_snippet(spec, position);
+        let remaining_snippet = generate_partial_snippet(spec, completed_arguments, position);
         if !remaining_snippet.is_empty() {
             let label = if position == 0 {
                 format!("{tag} arguments")
@@ -1010,7 +1021,9 @@ mod tests {
     use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolName;
     use djls_semantic::EndTag;
+    use djls_semantic::ParameterRequirement;
     use djls_semantic::TagArgument;
+    use djls_semantic::TagArgumentSyntax;
     use djls_semantic::TagSpec;
     use djls_source::Span;
     use djls_testing::TestDatabase;
@@ -1149,14 +1162,14 @@ mod tests {
                 Cow::Borrowed(&[]),
                 djls_semantic::BodyAnalysis::Analyze,
             )
-            .with_arguments(vec![TagArgument {
+            .with_argument_syntax(TagArgumentSyntax::Parameters(vec![TagArgument {
                 name: "fragment_name".to_string(),
-                required: true,
+                requirement: ParameterRequirement::Required,
                 kind: TagArgumentKind::Choice(vec![
                     "sidebar".to_string(),
                     "site_header".to_string(),
                 ]),
-            }]),
+            }])),
         );
         specs
     }
@@ -1171,11 +1184,11 @@ mod tests {
             Cow::Borrowed(&[]),
             djls_semantic::BodyAnalysis::Analyze,
         )
-        .with_arguments(vec![TagArgument {
+        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![TagArgument {
             name: "name".to_string(),
-            required: true,
+            requirement: ParameterRequirement::Required,
             kind: TagArgumentKind::Variable,
-        }])
+        }]))
     }
 
     #[test]
@@ -1279,6 +1292,7 @@ mod tests {
         let specs = choice_tag_specs();
         let candidates = generate_tag_argument_candidates(
             "cache",
+            &[],
             0,
             &prefix("si"),
             full_close(),
@@ -1305,6 +1319,7 @@ mod tests {
         let specs = choice_tag_specs();
         let candidates = generate_tag_argument_candidates(
             "cache",
+            &[],
             0,
             &prefix(""),
             full_close(),

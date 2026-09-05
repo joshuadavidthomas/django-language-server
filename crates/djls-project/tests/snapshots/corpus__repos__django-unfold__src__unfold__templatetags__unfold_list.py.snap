@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.unfold.templatetags.unfold_list::tag::paginator_number":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: cl
-        required: true
-        kind: Variable
-      - name: i
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: cl
+          requirement: required
+          kind: Variable
+        - name: i
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

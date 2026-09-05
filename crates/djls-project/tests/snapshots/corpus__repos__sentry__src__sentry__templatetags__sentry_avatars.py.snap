@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.sentry.templatetags.sentry_avatars::tag::avatar":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
     as_var: keep
   "src.sentry.templatetags.sentry_avatars::tag::avatar_for_email":
     arg_constraints:
@@ -25,13 +26,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
     as_var: keep
   "src.sentry.templatetags.sentry_avatars::tag::email_avatar":
     arg_constraints:
@@ -40,19 +42,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: display_name
-        required: true
-        kind: Variable
-      - name: identifier
-        required: true
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
-      - name: try_gravatar
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: display_name
+          requirement: required
+          kind: Variable
+        - name: identifier
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
+        - name: try_gravatar
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_avatars::tag::gravatar_url":
     arg_constraints:
@@ -61,16 +64,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: email
-        required: true
-        kind: Variable
-      - name: size
-        required: true
-        kind: Variable
-      - name: default
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: email
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: required
+          kind: Variable
+        - name: default
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_avatars::tag::letter_avatar_svg":
     arg_constraints:
@@ -79,16 +83,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: display_name
-        required: true
-        kind: Variable
-      - name: identifier
-        required: true
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: display_name
+          requirement: required
+          kind: Variable
+        - name: identifier
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_avatars::tag::profile_photo_url":
     arg_constraints:
@@ -97,13 +102,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user_id
-        required: true
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user_id
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

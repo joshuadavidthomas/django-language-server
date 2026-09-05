@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "crispy_forms.templatetags.crispy_forms_field::tag::crispy_addon":
@@ -10,19 +10,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: field
-        required: true
-        kind: Variable
-      - name: append
-        required: false
-        kind: Variable
-      - name: prepend
-        required: false
-        kind: Variable
-      - name: form_show_labels
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: field
+          requirement: required
+          kind: Variable
+        - name: append
+          requirement: optional
+          kind: Variable
+        - name: prepend
+          requirement: optional
+          kind: Variable
+        - name: form_show_labels
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities:
   "crispy_forms.templatetags.crispy_forms_field::filter::classes": no_argument

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "geonode.people.templatetags.socialaccount_extra::tag::get_number_unconnected_providers":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: strip
   "geonode.people.templatetags.socialaccount_extra::tag::get_other_social_providers":
     arg_constraints:
@@ -22,10 +23,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: strip
   "geonode.people.templatetags.socialaccount_extra::tag::get_user_social_providers":
     arg_constraints:
@@ -34,10 +36,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: strip
   "geonode.people.templatetags.socialaccount_extra::tag::user_providers":
     arg_constraints:
@@ -46,10 +49,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

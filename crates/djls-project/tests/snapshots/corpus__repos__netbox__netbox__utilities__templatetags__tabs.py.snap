@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "netbox.utilities.templatetags.tabs::tag::model_view_tabs":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: instance
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: instance
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

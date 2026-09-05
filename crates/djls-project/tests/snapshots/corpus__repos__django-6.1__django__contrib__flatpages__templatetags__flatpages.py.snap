@@ -14,7 +14,7 @@ tag_rules:
         value: for
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax: Unknown
     as_var: keep
 filter_arities: {}
 block_specs: {}

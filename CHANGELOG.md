@@ -39,6 +39,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed false duplicate-option diagnostics for tag parsers that check membership without raising an error.
 - Fixed tag-rule extraction using incorrect argument positions after unsupported `pop()` calls.
 - Fixed custom tags with mixed body-parser paths suppressing diagnostics and references for bodies Django still parses.
+- Fixed manual tag extraction, validation, and completion losing correlated argument forms such as `widthratio ...` and `widthratio ... as variable`.
 - **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
 
 ## [6.1.0]

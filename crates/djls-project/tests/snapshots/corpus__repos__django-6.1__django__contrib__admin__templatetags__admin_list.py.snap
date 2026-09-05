@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: cl
-        required: true
-        kind: Variable
-      - name: spec
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: cl
+          requirement: required
+          kind: Variable
+        - name: spec
+          requirement: required
+          kind: Variable
     as_var: strip
   "django.contrib.admin.templatetags.admin_list::tag::paginator_number":
     arg_constraints:
@@ -25,13 +26,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: cl
-        required: true
-        kind: Variable
-      - name: i
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: cl
+          requirement: required
+          kind: Variable
+        - name: i
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

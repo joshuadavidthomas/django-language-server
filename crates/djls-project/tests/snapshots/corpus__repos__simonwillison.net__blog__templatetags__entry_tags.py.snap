@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "blog.templatetags.entry_tags::tag::entry_footer":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: entry
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: entry
+          requirement: required
+          kind: Variable
     as_var: keep
   "blog.templatetags.entry_tags::tag::entry_footer_no_date":
     arg_constraints:
@@ -22,10 +23,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: entry
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: entry
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities:
   "blog.templatetags.entry_tags::filter::break_up_long_words": required_argument

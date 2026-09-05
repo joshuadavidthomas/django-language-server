@@ -37,10 +37,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities:
   "django.templatetags.l10n::filter::localize": no_argument

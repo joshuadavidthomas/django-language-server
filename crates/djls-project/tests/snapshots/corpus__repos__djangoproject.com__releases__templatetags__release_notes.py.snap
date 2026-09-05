@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "releases.templatetags.release_notes::tag::get_latest_micro_release":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: version
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: version
+          requirement: required
+          kind: Variable
     as_var: strip
   "releases.templatetags.release_notes::tag::release_notes":
     arg_constraints:
@@ -22,13 +23,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: version
-        required: true
-        kind: Variable
-      - name: show_version
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: version
+          requirement: required
+          kind: Variable
+        - name: show_version
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

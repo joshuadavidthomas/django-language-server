@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "readthedocs.core.templatetags.core_tags::tag::doc_url":
@@ -10,19 +10,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: project
-        required: true
-        kind: Variable
-      - name: version
-        required: false
-        kind: Variable
-      - name: page
-        required: false
-        kind: Variable
-      - name: path
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: project
+          requirement: required
+          kind: Variable
+        - name: version
+          requirement: optional
+          kind: Variable
+        - name: page
+          requirement: optional
+          kind: Variable
+        - name: path
+          requirement: optional
+          kind: Variable
     as_var: strip
   "readthedocs.core.templatetags.core_tags::tag::readthedocs_version":
     arg_constraints:
@@ -30,7 +31,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "readthedocs.core.templatetags.core_tags::tag::url_replace":
     arg_constraints:
@@ -38,16 +40,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: request
-        required: true
-        kind: Variable
-      - name: field
-        required: true
-        kind: Variable
-      - name: values
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: request
+          requirement: required
+          kind: Variable
+        - name: field
+          requirement: required
+          kind: Variable
+        - name: values
+          requirement: optional
+          kind: VarArgs
     as_var: strip
 filter_arities:
   "readthedocs.core.templatetags.core_tags::filter::escapejson": optional_argument

@@ -10,16 +10,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: url
-        required: true
-        kind: Variable
-      - name: popup
-        required: false
-        kind: Variable
-      - name: to_field
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: url
+          requirement: required
+          kind: Variable
+        - name: popup
+          requirement: optional
+          kind: Variable
+        - name: to_field
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities:
   "django.contrib.admin.templatetags.admin_urls::filter::admin_urlname": required_argument

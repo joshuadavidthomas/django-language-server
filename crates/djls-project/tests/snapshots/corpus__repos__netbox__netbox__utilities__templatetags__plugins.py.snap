@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "netbox.utilities.templatetags.plugins::tag::plugin_alerts":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_buttons":
     arg_constraints:
@@ -22,10 +23,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_full_width_page":
     arg_constraints:
@@ -34,10 +36,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_head":
     arg_constraints:
@@ -45,7 +48,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_left_page":
     arg_constraints:
@@ -54,10 +58,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_list_buttons":
     arg_constraints:
@@ -66,10 +71,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: model
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: model
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_navbar":
     arg_constraints:
@@ -77,7 +83,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "netbox.utilities.templatetags.plugins::tag::plugin_right_page":
     arg_constraints:
@@ -86,10 +93,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

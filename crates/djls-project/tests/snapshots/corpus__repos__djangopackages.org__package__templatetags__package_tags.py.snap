@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "package.templatetags.package_tags::tag::participant_url":
@@ -8,13 +8,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: repo
-        required: true
-        kind: Variable
-      - name: participant
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: repo
+          requirement: required
+          kind: Variable
+        - name: participant
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities:
   "package.templatetags.package_tags::filter::emojify": no_argument

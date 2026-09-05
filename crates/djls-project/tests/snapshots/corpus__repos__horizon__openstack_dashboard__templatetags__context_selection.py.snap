@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "openstack_dashboard.templatetags.context_selection::tag::iframe_embed_settings":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::is_multi_region":
     arg_constraints:
@@ -17,7 +18,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "openstack_dashboard.templatetags.context_selection::tag::is_multidomain":
     arg_constraints:
@@ -25,7 +27,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "openstack_dashboard.templatetags.context_selection::tag::show_domain_list":
     arg_constraints:
@@ -33,7 +36,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_overview":
     arg_constraints:
@@ -41,7 +45,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_project_list":
     arg_constraints:
@@ -49,7 +54,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_region_list":
     arg_constraints:
@@ -57,7 +63,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_system_list":
     arg_constraints:
@@ -65,7 +72,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_systems":
     arg_constraints:
@@ -73,7 +81,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities: {}
 block_specs: {}

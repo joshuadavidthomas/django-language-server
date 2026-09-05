@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "misago.parser.templatetags.misago_rich_text::tag::rich_text":
@@ -10,16 +10,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: html
-        required: true
-        kind: Variable
-      - name: data
-        required: false
-        kind: Variable
-      - name: thread
-        required: false
-        kind: Keyword
+    argument_syntax:
+      Parameters:
+        - name: html
+          requirement: required
+          kind: Variable
+        - name: data
+          requirement: optional
+          kind: Variable
+        - name: thread
+          requirement: optional
+          kind: Keyword
     as_var: strip
 filter_arities: {}
 block_specs: {}

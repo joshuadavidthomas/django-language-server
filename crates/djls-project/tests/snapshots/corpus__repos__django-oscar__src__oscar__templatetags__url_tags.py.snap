@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.oscar.templatetags.url_tags::tag::absolute_url":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: domain
-        required: true
-        kind: Variable
-      - name: path
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: domain
+          requirement: required
+          kind: Variable
+        - name: path
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

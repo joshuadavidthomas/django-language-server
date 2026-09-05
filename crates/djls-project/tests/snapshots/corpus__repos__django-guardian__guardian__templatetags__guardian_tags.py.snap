@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "guardian.templatetags.guardian_tags::tag::get_obj_perms":
@@ -53,27 +53,28 @@ tag_rules:
             template: "get_obj_perms tag should be in format: %s"
             args:
               - String: "{% get_obj_perms user/group for obj as \"context_var\" perm_checker %}"
-    extracted_args:
-      - name: for_whom
-        required: true
-        kind: Variable
-      - name: for
-        required: true
-        kind:
-          Literal: for
-      - name: obj
-        required: true
-        kind: Variable
-      - name: as
-        required: true
-        kind:
-          Literal: as
-      - name: arg5
-        required: true
-        kind: Variable
-      - name: arg6
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: for_whom
+          requirement: required
+          kind: Variable
+        - name: for
+          requirement: required
+          kind:
+            Literal: for
+        - name: obj
+          requirement: required
+          kind: Variable
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: arg5
+          requirement: required
+          kind: Variable
+        - name: arg6
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

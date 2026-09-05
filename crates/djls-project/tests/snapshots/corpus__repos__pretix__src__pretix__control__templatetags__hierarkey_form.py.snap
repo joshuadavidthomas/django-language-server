@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.pretix.control.templatetags.hierarkey_form::tag::propagated":
@@ -8,13 +8,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: event
-        required: true
-        kind: Variable
-      - name: url
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: event
+          requirement: required
+          kind: Variable
+        - name: url
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs:

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "pipeline.templatetags.pipeline::tag::javascript":
@@ -8,20 +8,22 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: name
+          requirement: required
+          kind: Variable
     as_var: keep
   "pipeline.templatetags.pipeline::tag::stylesheet":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: name
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

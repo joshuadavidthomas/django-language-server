@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.oscar.templatetags.basket_tags::tag::basket_form":
@@ -10,16 +10,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: request
-        required: true
-        kind: Variable
-      - name: product
-        required: true
-        kind: Variable
-      - name: quantity_type
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: request
+          requirement: required
+          kind: Variable
+        - name: product
+          requirement: required
+          kind: Variable
+        - name: quantity_type
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -16,7 +16,7 @@ tag_rules:
         - asvar
       duplicate_rejection: detected
       unknown_rejection: detected
-    extracted_args: []
+    argument_syntax: Unknown
     as_var: keep
   "django.templatetags.i18n::tag::blocktranslate":
     arg_constraints: []
@@ -31,7 +31,7 @@ tag_rules:
         - asvar
       duplicate_rejection: detected
       unknown_rejection: detected
-    extracted_args: []
+    argument_syntax: Unknown
     as_var: keep
   "django.templatetags.i18n::tag::trans":
     arg_constraints:
@@ -55,10 +55,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.templatetags.i18n::tag::translate":
     arg_constraints:
@@ -82,10 +83,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs:

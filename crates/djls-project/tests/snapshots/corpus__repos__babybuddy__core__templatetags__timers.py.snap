@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "core.templatetags.timers::tag::instance_add_url":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: url_name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: url_name
+          requirement: required
+          kind: Variable
     as_var: strip
   "core.templatetags.timers::tag::quick_timer_nav":
     arg_constraints:
@@ -21,7 +22,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "core.templatetags.timers::tag::timer_nav":
     arg_constraints:
@@ -29,7 +31,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
 filter_arities: {}
 block_specs: {}

@@ -5,8 +5,10 @@ use ruff_python_ast::StmtFunctionDef;
 use crate::ast::ExprExt;
 use crate::templates::tags::types::ArgumentCountConstraint;
 use crate::templates::tags::types::AsVar;
+use crate::templates::tags::types::ParameterRequirement;
 use crate::templates::tags::types::TagArgument;
 use crate::templates::tags::types::TagArgumentKind;
+use crate::templates::tags::types::TagArgumentSyntax;
 use crate::templates::tags::types::TagRule;
 
 /// Extract rules from a `simple_tag` or `inclusion_tag` function signature.
@@ -57,10 +59,14 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
     let mut extracted_args = Vec::new();
     for param in effective_params {
         let name = param.parameter.name.to_string();
-        let required = param.default.is_none();
+        let requirement = if param.default.is_none() {
+            ParameterRequirement::Required
+        } else {
+            ParameterRequirement::Optional
+        };
         extracted_args.push(TagArgument {
             name,
-            required,
+            requirement,
             kind: TagArgumentKind::Variable,
         });
     }
@@ -68,17 +74,21 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
     if has_varargs && let Some(vararg) = &params.vararg {
         extracted_args.push(TagArgument {
             name: vararg.name.to_string(),
-            required: false,
+            requirement: ParameterRequirement::Optional,
             kind: TagArgumentKind::VarArgs,
         });
     }
 
     for kwonly in &params.kwonlyargs {
         let name = kwonly.parameter.name.to_string();
-        let required = kwonly.default.is_none();
+        let requirement = if kwonly.default.is_none() {
+            ParameterRequirement::Required
+        } else {
+            ParameterRequirement::Optional
+        };
         extracted_args.push(TagArgument {
             name,
-            required,
+            requirement,
             kind: TagArgumentKind::Keyword,
         });
     }
@@ -89,7 +99,7 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
         choice_at_constraints: Vec::new(),
         known_options: None,
         diagnostic_messages: None,
-        extracted_args,
+        argument_syntax: TagArgumentSyntax::Parameters(extracted_args),
         as_var,
     }
 }
@@ -161,6 +171,12 @@ mod tests {
             rule.arg_constraints
                 .contains(&ArgumentCountConstraint::Min(2))
         );
+        let parameters = rule
+            .argument_syntax
+            .parameters()
+            .expect("simple tag should expose signature parameters");
+        assert_eq!(parameters[0].requirement, ParameterRequirement::Required);
+        assert_eq!(parameters[1].requirement, ParameterRequirement::Optional);
     }
 
     // Fabricated: `*args` on simple_tag is uncommon in real Django code.
