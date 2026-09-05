@@ -15,6 +15,8 @@ use config::File;
 use config::FileFormat;
 use directories::ProjectDirs;
 use serde::Deserialize;
+use serde_json::Map;
+use serde_json::Value;
 use thiserror::Error;
 
 pub use crate::diagnostics::DiagnosticSeverity;
@@ -59,6 +61,8 @@ pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
 pub enum ConfigError {
     #[error("Configuration build/deserialize error")]
     Config(#[from] ExternalConfigError),
+    #[error("Failed to convert configuration overrides")]
+    Overrides(#[from] serde_json::Error),
     #[error("Failed to read pyproject.toml")]
     PyprojectIo(#[from] std::io::Error),
     #[error("Failed to parse pyproject.toml TOML")]
@@ -84,79 +88,23 @@ pub struct Settings {
     format: FormatConfig,
 }
 
-/// Settings supplied by a caller on top of configuration loaded from disk.
-///
-/// Each field retains whether the caller supplied it, including values such as
-/// `false` and empty lists that differ from an omitted field.
-#[derive(Debug, Deserialize, Default, PartialEq, Clone)]
-pub struct SettingsOverrides {
-    venv_path: Option<Utf8PathBuf>,
-    django_settings_module: Option<String>,
-    django_environments: Option<Vec<DjangoEnvironmentConfig>>,
-    pythonpath: Option<Vec<Utf8PathBuf>>,
-    env_file: Option<String>,
-    tagspecs: Option<TagSpecDef>,
-    diagnostics: Option<DiagnosticsConfig>,
-    format: Option<FormatConfig>,
-}
-
-impl SettingsOverrides {
-    /// Resolve these overrides against default settings without reading config files.
-    #[must_use]
-    pub fn resolve(self) -> Settings {
-        let mut settings = Settings::default();
-        settings.apply_overrides(self);
-        settings
-    }
-}
-
 impl Settings {
+    /// Load file settings, replacing supplied top-level fields before applying defaults.
+    /// Omitted fields and JSON nulls leave file settings unchanged.
     pub fn new(
         project_root: &Utf8Path,
-        overrides: Option<SettingsOverrides>,
+        overrides: Option<Map<String, Value>>,
     ) -> Result<Self, ConfigError> {
         let user_config_file =
             project_dirs().map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"));
 
-        let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
-
-        if let Some(overrides) = overrides {
-            settings.apply_overrides(overrides);
-        }
-
-        Ok(settings)
-    }
-
-    fn apply_overrides(&mut self, overrides: SettingsOverrides) {
-        if let Some(venv_path) = overrides.venv_path {
-            self.venv_path = Some(venv_path);
-        }
-        if let Some(django_settings_module) = overrides.django_settings_module {
-            self.django_settings_module = Some(django_settings_module);
-        }
-        if let Some(django_environments) = overrides.django_environments {
-            self.django_environments = django_environments;
-        }
-        if let Some(pythonpath) = overrides.pythonpath {
-            self.pythonpath = pythonpath;
-        }
-        if let Some(env_file) = overrides.env_file {
-            self.env_file = Some(env_file);
-        }
-        if let Some(tagspecs) = overrides.tagspecs {
-            self.tagspecs = tagspecs;
-        }
-        if let Some(diagnostics) = overrides.diagnostics {
-            self.diagnostics = diagnostics;
-        }
-        if let Some(format) = overrides.format {
-            self.format = format;
-        }
+        Self::load_from_paths(project_root, user_config_file.as_deref(), overrides)
     }
 
     fn load_from_paths(
         project_root: &Utf8Path,
         user_config_path: Option<&Path>,
+        overrides: Option<Map<String, Value>>,
     ) -> Result<Self, ConfigError> {
         let mut builder = Config::builder();
 
@@ -192,9 +140,17 @@ impl Settings {
                 .required(false),
         );
 
-        let config = builder.build()?;
-        let settings: Self = config.try_deserialize()?;
-        Ok(settings)
+        let mut values = builder.build()?.cache.into_table()?;
+        if let Some(mut overrides) = overrides {
+            overrides.retain(|_, value| !value.is_null());
+            // config sources deep-merge tables. Client sections replace them instead,
+            // so an explicit empty diagnostics map can clear inherited severities.
+            // Deserialize values directly; Config::try_from drops empty collections.
+            let overrides: config::Map<String, config::Value> =
+                serde_json::from_value(Value::Object(overrides))?;
+            values.extend(overrides);
+        }
+        Ok(config::Value::from(values).try_deserialize()?)
     }
 
     #[must_use]
@@ -428,7 +384,7 @@ django_settings_module = "project.settings"
             )
             .expect("test should write base Django environment djls.toml fixture");
 
-            let override_settings: SettingsOverrides = toml::from_str(
+            let override_settings: Map<String, Value> = toml::from_str(
                 r#"
 [[django_environments]]
 root = "override"
@@ -585,7 +541,7 @@ T100 = "hint"
 
             let project_root = Utf8Path::from_path(project_dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
-            let settings = Settings::load_from_paths(project_root, Some(&user_conf_path))
+            let settings = Settings::load_from_paths(project_root, Some(&user_conf_path), None)
                 .expect("user and project configuration priority fixtures should load settings");
             assert_eq!(settings.django_settings_module(), Some("active.settings"));
         }
@@ -606,7 +562,7 @@ T100 = "hint"
 
             let project_root = Utf8Path::from_path(project_dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
-            let settings = Settings::load_from_paths(project_root, Some(&user_conf_path))
+            let settings = Settings::load_from_paths(project_root, Some(&user_conf_path), None)
                 .expect("user and djls.toml priority fixtures should load settings");
             assert_eq!(settings.django_settings_module(), Some("active.settings"));
         }
@@ -632,7 +588,7 @@ S100 = "off"
 "#,
             )
             .expect("test should write project settings fixture");
-            let overrides: SettingsOverrides = serde_json::from_value(serde_json::json!({
+            let overrides: Map<String, Value> = serde_json::from_value(serde_json::json!({
                 "django_settings_module": "client.settings",
                 "pythonpath": [],
                 "format": { "enabled": false },
@@ -655,17 +611,18 @@ S100 = "off"
         }
 
         #[test]
-        fn test_active_diagnostics_override_project_diagnostics() {
+        fn test_supplied_diagnostics_replace_the_whole_section() {
             let dir = tempdir().expect("test should create temporary project directory");
             fs::write(
                 dir.path().join("djls.toml"),
                 r#"
 [diagnostics.severity]
 S100 = "off"
+S101 = "off"
 "#,
             )
             .expect("test should write project settings fixture");
-            let overrides: SettingsOverrides = serde_json::from_value(serde_json::json!({
+            let overrides: Map<String, Value> = serde_json::from_value(serde_json::json!({
                 "diagnostics": {
                     "severity": { "S100": "warning" }
                 }
@@ -681,6 +638,40 @@ S100 = "off"
                 settings.diagnostics().get_severity("S100"),
                 DiagnosticSeverity::Warning
             );
+            assert_eq!(
+                settings.diagnostics().get_severity("S101"),
+                DiagnosticSeverity::Error
+            );
+        }
+
+        #[test]
+        fn test_null_overrides_preserve_project_settings() {
+            let dir = tempdir().expect("test should create temporary project directory");
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+django_settings_module = "project.settings"
+pythonpath = ["inherited"]
+
+[format]
+enabled = true
+"#,
+            )
+            .expect("test should write project settings fixture");
+            let project_root = Utf8Path::from_path(dir.path())
+                .expect("temporary project directory path should be valid UTF-8");
+            let overrides = Map::from_iter([
+                ("django_settings_module".into(), Value::Null),
+                ("pythonpath".into(), Value::Null),
+                ("format".into(), Value::Null),
+            ]);
+
+            let settings = Settings::new(project_root, Some(overrides))
+                .expect("null overrides should leave project settings unchanged");
+
+            assert_eq!(settings.django_settings_module(), Some("project.settings"));
+            assert_eq!(settings.pythonpath(), &[Utf8PathBuf::from("inherited")]);
+            assert!(settings.format().enabled());
         }
 
         #[test]
@@ -699,7 +690,7 @@ S100 = "off"
 "#,
             )
             .expect("test should write project settings fixture");
-            let overrides: SettingsOverrides = serde_json::from_value(serde_json::json!({}))
+            let overrides: Map<String, Value> = serde_json::from_value(serde_json::json!({}))
                 .expect("empty client settings overrides should deserialize");
             let project_root = Utf8Path::from_path(dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
@@ -730,7 +721,7 @@ S100 = "off"
 
             let project_root = Utf8Path::from_path(project_dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
-            let settings = Settings::load_from_paths(project_root, Some(&user_conf_path))
+            let settings = Settings::load_from_paths(project_root, Some(&user_conf_path), None)
                 .expect("valid user configuration fixture should load settings");
             assert_eq!(settings.django_settings_module(), Some("user.settings"));
         }
@@ -747,7 +738,7 @@ S100 = "off"
 
             let project_root = Utf8Path::from_path(project_dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
-            let settings = Settings::load_from_paths(project_root, Some(&user_conf_path))
+            let settings = Settings::load_from_paths(project_root, Some(&user_conf_path), None)
                 .expect("missing optional user configuration should not prevent loading settings");
             assert_eq!(settings.django_settings_module(), Some("project.settings"));
         }
@@ -763,7 +754,7 @@ S100 = "off"
 
             let project_root = Utf8Path::from_path(project_dir.path())
                 .expect("temporary project directory path should be valid UTF-8");
-            let settings = Settings::load_from_paths(project_root, None)
+            let settings = Settings::load_from_paths(project_root, None, None)
                 .expect("settings should load without a user configuration path");
             assert_eq!(settings.django_settings_module(), Some("project.settings"));
         }

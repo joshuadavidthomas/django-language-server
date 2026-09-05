@@ -1,7 +1,8 @@
-use djls_conf::SettingsOverrides;
+use djls_conf::Settings;
 use djls_source::PositionEncoding;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
+use serde_json::Map;
 use serde_json::Value;
 use tower_lsp_server::ls_types;
 
@@ -13,7 +14,7 @@ pub(crate) struct ClientInfo {
     client: Client,
     position_encoding: PositionEncoding,
     capabilities: ClientCapabilities,
-    options: ClientOptions,
+    overrides: Map<String, Value>,
 }
 
 impl ClientInfo {
@@ -50,7 +51,7 @@ impl ClientInfo {
             client,
             position_encoding,
             capabilities,
-            options,
+            overrides: options.overrides,
         }
     }
 
@@ -60,8 +61,8 @@ impl ClientInfo {
     }
 
     #[must_use]
-    pub(crate) fn config_overrides(&self) -> &SettingsOverrides {
-        &self.options.overrides
+    pub(crate) fn config_overrides(&self) -> &Map<String, Value> {
+        &self.overrides
     }
 
     #[must_use]
@@ -170,10 +171,14 @@ impl ClientCapabilities {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub(crate) struct ClientOptions {
     #[serde(flatten)]
-    pub overrides: SettingsOverrides,
+    pub settings: Settings,
 
     #[serde(flatten)]
     pub unknown: FxHashMap<String, Value>,
+
+    // Keep supplied keys for reloads; serializing settings would also include defaults.
+    #[serde(skip)]
+    pub overrides: Map<String, Value>,
 }
 
 #[cfg(test)]
