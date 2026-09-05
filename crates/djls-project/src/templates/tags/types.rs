@@ -243,7 +243,6 @@ pub struct ChoiceAt {
 pub struct KnownOptions {
     pub values: Vec<String>,
     pub allow_duplicates: bool,
-    pub rejects_unknown: bool,
 }
 
 /// Block structure extracted from `parser.parse((...))` control flow patterns.

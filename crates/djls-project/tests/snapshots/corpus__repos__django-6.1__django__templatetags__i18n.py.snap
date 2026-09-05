@@ -15,7 +15,6 @@ tag_rules:
         - trimmed
         - asvar
       allow_duplicates: false
-      rejects_unknown: true
     extracted_args: []
     as_var: keep
   "django.templatetags.i18n::tag::blocktranslate":
@@ -30,7 +29,6 @@ tag_rules:
         - trimmed
         - asvar
       allow_duplicates: false
-      rejects_unknown: true
     extracted_args: []
     as_var: keep
   "django.templatetags.i18n::tag::get_available_languages":
@@ -175,7 +173,6 @@ tag_rules:
         - context
         - as
       allow_duplicates: false
-      rejects_unknown: true
     diagnostic_messages:
       - constraint:
           ArgumentCount:
@@ -202,7 +199,6 @@ tag_rules:
         - context
         - as
       allow_duplicates: false
-      rejects_unknown: true
     diagnostic_messages:
       - constraint:
           ArgumentCount:
