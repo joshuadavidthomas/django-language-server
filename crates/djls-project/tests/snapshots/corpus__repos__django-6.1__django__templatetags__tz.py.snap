@@ -17,11 +17,9 @@ tag_rules:
         required: true
         kind:
           Literal: as
-        position: 0
       - name: arg2
         required: true
         kind: Variable
-        position: 1
     as_var: keep
   "django.templatetags.tz::tag::localtime":
     arg_constraints:
@@ -61,7 +59,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "django.templatetags.tz::tag::timezone":
     arg_constraints:
@@ -83,7 +80,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities:
   "django.templatetags.tz::filter::localtime": no_argument

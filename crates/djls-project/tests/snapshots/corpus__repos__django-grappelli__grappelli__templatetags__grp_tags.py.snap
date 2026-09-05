@@ -14,11 +14,9 @@ tag_rules:
       - name: cl
         required: true
         kind: Variable
-        position: 0
       - name: spec
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::get_admin_title":
     arg_constraints:

@@ -14,19 +14,15 @@ tag_rules:
       - name: field
         required: true
         kind: Variable
-        position: 0
       - name: append
         required: false
         kind: Variable
-        position: 1
       - name: prepend
         required: false
         kind: Variable
-        position: 2
       - name: form_show_labels
         required: false
         kind: Variable
-        position: 3
     as_var: strip
 filter_arities:
   "crispy_forms.templatetags.crispy_forms_field::filter::classes": no_argument

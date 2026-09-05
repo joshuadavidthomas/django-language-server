@@ -54,11 +54,9 @@ tag_rules:
       - name: used
         required: true
         kind: Variable
-        position: 0
       - name: limit
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "horizon.templatetags.horizon::tag::template_cache_age":
     arg_constraints:

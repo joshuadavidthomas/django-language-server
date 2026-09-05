@@ -14,7 +14,6 @@ tag_rules:
       - name: entry
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "blog.templatetags.entry_tags::tag::entry_footer_no_date":
     arg_constraints:
@@ -27,7 +26,6 @@ tag_rules:
       - name: entry
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities:
   "blog.templatetags.entry_tags::filter::break_up_long_words": required_argument

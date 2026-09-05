@@ -14,11 +14,9 @@ tag_rules:
       - name: obj
         required: true
         kind: Variable
-        position: 0
       - name: template
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "cms.templatetags.cms_tags::tag::render_plugin":
     arg_constraints:
@@ -31,7 +29,6 @@ tag_rules:
       - name: plugin
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_placeholder":
     arg_constraints:
@@ -44,27 +41,21 @@ tag_rules:
       - name: context
         required: true
         kind: Variable
-        position: 0
       - name: placeholder_name
         required: true
         kind: Variable
-        position: 1
       - name: reverse_id
         required: true
         kind: Variable
-        position: 2
       - name: lang
         required: false
         kind: Variable
-        position: 3
       - name: site
         required: false
         kind: Variable
-        position: 4
       - name: use_cache
         required: false
         kind: Variable
-        position: 5
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_placeholder_by_id":
     arg_constraints:
@@ -77,27 +68,21 @@ tag_rules:
       - name: context
         required: true
         kind: Variable
-        position: 0
       - name: placeholder_name
         required: true
         kind: Variable
-        position: 1
       - name: reverse_id
         required: true
         kind: Variable
-        position: 2
       - name: lang
         required: false
         kind: Variable
-        position: 3
       - name: site
         required: false
         kind: Variable
-        position: 4
       - name: use_cache
         required: false
         kind: Variable
-        position: 5
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_uncached_placeholder":
     arg_constraints:
@@ -109,11 +94,9 @@ tag_rules:
       - name: context
         required: true
         kind: Variable
-        position: 0
       - name: args
         required: false
         kind: VarArgs
-        position: 1
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_uncached_placeholder_by_id":
     arg_constraints:
@@ -125,11 +108,9 @@ tag_rules:
       - name: context
         required: true
         kind: Variable
-        position: 0
       - name: args
         required: false
         kind: VarArgs
-        position: 1
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -55,14 +55,13 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
     }
 
     let mut extracted_args = Vec::new();
-    for (i, param) in effective_params.iter().enumerate() {
+    for param in effective_params {
         let name = param.parameter.name.to_string();
         let required = param.default.is_none();
         extracted_args.push(TagArgument {
             name,
             required,
             kind: TagArgumentKind::Variable,
-            position: i,
         });
     }
 
@@ -71,18 +70,16 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
             name: vararg.name.to_string(),
             required: false,
             kind: TagArgumentKind::VarArgs,
-            position: effective_params.len(),
         });
     }
 
-    for (i, kwonly) in params.kwonlyargs.iter().enumerate() {
+    for kwonly in &params.kwonlyargs {
         let name = kwonly.parameter.name.to_string();
         let required = kwonly.default.is_none();
         extracted_args.push(TagArgument {
             name,
             required,
             kind: TagArgumentKind::Keyword,
-            position: effective_params.len() + usize::from(has_varargs) + i,
         });
     }
 

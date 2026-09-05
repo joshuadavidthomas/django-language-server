@@ -14,19 +14,15 @@ tag_rules:
       - name: num
         required: true
         kind: Variable
-        position: 0
       - name: summary_first
         required: false
         kind: Variable
-        position: 1
       - name: hide_readmore
         required: false
         kind: Variable
-        position: 2
       - name: header_tag
         required: false
         kind: Variable
-        position: 3
     as_var: keep
   "blog.templatetags.weblog::tag::render_month_links":
     arg_constraints:

@@ -14,7 +14,6 @@ tag_rules:
       - name: url_name
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "core.templatetags.timers::tag::quick_timer_nav":
     arg_constraints:

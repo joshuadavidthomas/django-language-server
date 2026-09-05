@@ -14,11 +14,9 @@ tag_rules:
       - name: form
         required: true
         kind: Variable
-        position: 0
       - name: contact
         required: true
         kind: Variable
-        position: 1
     as_var: strip
 filter_arities:
   "geonode.layers.templatetags.contact_roles::filter::get_contact_role_id": required_argument

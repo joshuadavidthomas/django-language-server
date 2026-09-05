@@ -41,7 +41,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities:
   "django.templatetags.l10n::filter::localize": no_argument

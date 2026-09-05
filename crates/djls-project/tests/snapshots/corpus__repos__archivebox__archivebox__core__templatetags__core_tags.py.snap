@@ -30,7 +30,6 @@ tag_rules:
       - name: result
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::plugin_full":
     arg_constraints:
@@ -43,7 +42,6 @@ tag_rules:
       - name: result
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::plugin_icon":
     arg_constraints:
@@ -56,7 +54,6 @@ tag_rules:
       - name: plugin
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::snapshot_base_url":
     arg_constraints:
@@ -69,7 +66,6 @@ tag_rules:
       - name: snapshot
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::snapshot_url":
     arg_constraints:
@@ -82,11 +78,9 @@ tag_rules:
       - name: snapshot
         required: true
         kind: Variable
-        position: 0
       - name: path
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::web_base_url":
     arg_constraints:

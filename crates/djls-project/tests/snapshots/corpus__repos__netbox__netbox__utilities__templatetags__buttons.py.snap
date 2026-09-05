@@ -13,15 +13,12 @@ tag_rules:
       - name: actions
         required: true
         kind: Variable
-        position: 0
       - name: obj
         required: true
         kind: Variable
-        position: 1
       - name: multi
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "netbox.utilities.templatetags.buttons::tag::add_button":
     arg_constraints:
@@ -34,15 +31,12 @@ tag_rules:
       - name: model
         required: true
         kind: Variable
-        position: 0
       - name: action
         required: false
         kind: Variable
-        position: 1
       - name: return_url
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bookmark_button":
     arg_constraints:
@@ -55,7 +49,6 @@ tag_rules:
       - name: instance
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bulk_delete_button":
     arg_constraints:
@@ -68,15 +61,12 @@ tag_rules:
       - name: model
         required: true
         kind: Variable
-        position: 0
       - name: action
         required: false
         kind: Variable
-        position: 1
       - name: query_params
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bulk_edit_button":
     arg_constraints:
@@ -89,15 +79,12 @@ tag_rules:
       - name: model
         required: true
         kind: Variable
-        position: 0
       - name: action
         required: false
         kind: Variable
-        position: 1
       - name: query_params
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::clone_button":
     arg_constraints:
@@ -110,7 +97,6 @@ tag_rules:
       - name: instance
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::delete_button":
     arg_constraints:
@@ -123,7 +109,6 @@ tag_rules:
       - name: instance
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::edit_button":
     arg_constraints:
@@ -136,7 +121,6 @@ tag_rules:
       - name: instance
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::export_button":
     arg_constraints:
@@ -149,7 +133,6 @@ tag_rules:
       - name: model
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::import_button":
     arg_constraints:
@@ -162,11 +145,9 @@ tag_rules:
       - name: model
         required: true
         kind: Variable
-        position: 0
       - name: action
         required: false
         kind: Variable
-        position: 1
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::subscribe_button":
     arg_constraints:
@@ -179,7 +160,6 @@ tag_rules:
       - name: instance
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::sync_button":
     arg_constraints:
@@ -192,7 +172,6 @@ tag_rules:
       - name: instance
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities: {}
 block_specs: {}

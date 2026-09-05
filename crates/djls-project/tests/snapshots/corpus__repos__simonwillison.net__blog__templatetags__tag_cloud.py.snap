@@ -22,7 +22,6 @@ tag_rules:
       - name: tags
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities: {}
 block_specs: {}

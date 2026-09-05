@@ -49,7 +49,7 @@ fn generate_snippet_from_args(args: &[TagArgument]) -> String {
 fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
     let args = spec.arguments();
 
-    let args_snippet = generate_snippet_from_args(&args);
+    let args_snippet = generate_snippet_from_args(args);
 
     if args_snippet.is_empty() {
         tag_name.to_string()
@@ -102,49 +102,45 @@ mod tests {
 
     use super::*;
 
-    fn make_var(name: &str, required: bool, pos: usize) -> TagArgument {
+    fn make_var(name: &str, required: bool) -> TagArgument {
         TagArgument {
             name: name.to_string(),
             required,
             kind: TagArgumentKind::Variable,
-            position: pos,
         }
     }
 
-    fn make_literal(value: &str, required: bool, pos: usize) -> TagArgument {
+    fn make_literal(value: &str, required: bool) -> TagArgument {
         TagArgument {
             name: value.to_string(),
             required,
             kind: TagArgumentKind::Literal(value.to_string()),
-            position: pos,
         }
     }
 
-    fn make_choice(name: &str, required: bool, choices: Vec<&str>, pos: usize) -> TagArgument {
+    fn make_choice(name: &str, required: bool, choices: Vec<&str>) -> TagArgument {
         TagArgument {
             name: name.to_string(),
             required,
             kind: TagArgumentKind::Choice(choices.into_iter().map(String::from).collect()),
-            position: pos,
         }
     }
 
-    fn make_varargs(name: &str, required: bool, pos: usize) -> TagArgument {
+    fn make_varargs(name: &str, required: bool) -> TagArgument {
         TagArgument {
             name: name.to_string(),
             required,
             kind: TagArgumentKind::VarArgs,
-            position: pos,
         }
     }
 
     #[test]
     fn test_snippet_for_for_tag() {
         let args = vec![
-            make_var("item", true, 0),
-            make_literal("in", true, 1),
-            make_var("items", true, 2),
-            make_literal("reversed", false, 3),
+            make_var("item", true),
+            make_literal("in", true),
+            make_var("items", true),
+            make_literal("reversed", false),
         ];
 
         let snippet = generate_snippet_from_args(&args);
@@ -153,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_snippet_for_if_tag() {
-        let args = vec![make_var("condition", true, 0)];
+        let args = vec![make_var("condition", true)];
 
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "${1:condition}");
@@ -161,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_snippet_for_autoescape_tag() {
-        let args = vec![make_choice("mode", true, vec!["on", "off"], 0)];
+        let args = vec![make_choice("mode", true, vec!["on", "off"])];
 
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "${1|on,off|}");
@@ -188,7 +184,7 @@ mod tests {
             Cow::Borrowed(&[]),
             false,
         )
-        .with_arguments(vec![make_var("name", true, 0)]);
+        .with_arguments(vec![make_var("name", true)]);
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
         assert_eq!(snippet, "block ${1:name} %}\n$0\n{% endblock ${1} %}");
@@ -207,7 +203,7 @@ mod tests {
             Cow::Borrowed(&[]),
             false,
         )
-        .with_arguments(vec![make_choice("mode", true, vec!["on", "off"], 0)]);
+        .with_arguments(vec![make_choice("mode", true, vec!["on", "off"])]);
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);
         assert_eq!(
@@ -219,10 +215,10 @@ mod tests {
     #[test]
     fn test_snippet_for_url_tag() {
         let args = vec![
-            make_var("view_name", true, 0),
-            make_varargs("args", false, 1),
-            make_literal("as", false, 2),
-            make_var("varname", false, 3),
+            make_var("view_name", true),
+            make_varargs("args", false),
+            make_literal("as", false),
+            make_var("varname", false),
         ];
 
         let snippet = generate_snippet_from_args(&args);

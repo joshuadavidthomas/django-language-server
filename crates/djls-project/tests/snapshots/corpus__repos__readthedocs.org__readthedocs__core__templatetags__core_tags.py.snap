@@ -14,19 +14,15 @@ tag_rules:
       - name: project
         required: true
         kind: Variable
-        position: 0
       - name: version
         required: false
         kind: Variable
-        position: 1
       - name: page
         required: false
         kind: Variable
-        position: 2
       - name: path
         required: false
         kind: Variable
-        position: 3
     as_var: strip
   "readthedocs.core.templatetags.core_tags::tag::readthedocs_version":
     arg_constraints:
@@ -46,15 +42,12 @@ tag_rules:
       - name: request
         required: true
         kind: Variable
-        position: 0
       - name: field
         required: true
         kind: Variable
-        position: 1
       - name: values
         required: false
         kind: VarArgs
-        position: 2
     as_var: strip
 filter_arities:
   "readthedocs.core.templatetags.core_tags::filter::escapejson": optional_argument

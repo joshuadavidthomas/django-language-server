@@ -14,7 +14,6 @@ tag_rules:
       - name: action
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::admin_extra_filters":
     arg_constraints:
@@ -27,7 +26,6 @@ tag_rules:
       - name: cl
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_changeform_template":
     arg_constraints:
@@ -40,7 +38,6 @@ tag_rules:
       - name: adminform
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_jazzmin_settings":
     arg_constraints:
@@ -53,7 +50,6 @@ tag_rules:
       - name: request
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_jazzmin_ui_tweaks":
     arg_constraints:
@@ -82,11 +78,9 @@ tag_rules:
       - name: admin_form
         required: true
         kind: Variable
-        position: 0
       - name: inline_admin_formsets
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_side_menu":
     arg_constraints:
@@ -98,7 +92,6 @@ tag_rules:
       - name: using
         required: false
         kind: Variable
-        position: 0
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_top_menu":
     arg_constraints:
@@ -111,11 +104,9 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
       - name: admin_site
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_user_avatar":
     arg_constraints:
@@ -128,7 +119,6 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_user_menu":
     arg_constraints:
@@ -141,11 +131,9 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
       - name: admin_site
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::header_class":
     arg_constraints:
@@ -158,11 +146,9 @@ tag_rules:
       - name: header
         required: true
         kind: Variable
-        position: 0
       - name: forloop
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::jazzmin_list_filter":
     arg_constraints:
@@ -175,11 +161,9 @@ tag_rules:
       - name: cl
         required: true
         kind: Variable
-        position: 0
       - name: spec
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::jazzmin_paginator_number":
     arg_constraints:
@@ -192,11 +176,9 @@ tag_rules:
       - name: change_list
         required: true
         kind: Variable
-        position: 0
       - name: i
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::jazzy_admin_url":
     arg_constraints:
@@ -209,11 +191,9 @@ tag_rules:
       - name: value
         required: true
         kind: Variable
-        position: 0
       - name: admin_site
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::sidebar_status":
     arg_constraints:
@@ -226,7 +206,6 @@ tag_rules:
       - name: request
         required: true
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities:
   "jazzmin.templatetags.jazzmin::filter::app_is_installed": no_argument
