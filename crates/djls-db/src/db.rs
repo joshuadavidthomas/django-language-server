@@ -14,7 +14,6 @@ use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
-use djls_project::compute_model_graph;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
@@ -164,13 +163,6 @@ impl SemanticDb for DjangoDatabase {
         );
         FilterAritySpecs::empty_ref()
     }
-
-    fn model_graph(&self) -> &djls_project::ModelGraph {
-        self.project()
-            .map_or(djls_project::ModelGraph::empty_ref(), |project| {
-                compute_model_graph(self, project)
-            })
-    }
 }
 
 #[salsa::db]
@@ -223,10 +215,10 @@ mod invalidation_tests {
     use djls_project::TemplateLibrary;
     use djls_project::TemplateLibraryId;
     use djls_project::TemplateSymbolKind;
+    use djls_project::compute_model_graph;
     use djls_project::template_library_catalog;
     use djls_project::template_library_definition_facts;
     use djls_project::template_library_filter_facts;
-    use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::ValidationErrorAccumulator;
     use djls_semantic::build_template_tree_for_file;
@@ -2761,7 +2753,8 @@ def my_filter(value, arg):
     #[test]
     fn model_graph_empty_when_no_models() {
         let (db, _event_log) = test_db_with_project();
-        let graph = db.model_graph();
+        let project = db.project().expect("fixture should have a Project");
+        let graph = compute_model_graph(&db, project);
         assert!(graph.is_empty());
     }
 
@@ -2769,14 +2762,15 @@ def my_filter(value, arg):
     fn model_graph_cached_on_repeated_access() {
         let (db, event_log) = test_db_with_project();
 
-        let _graph1 = db.model_graph();
+        let project = db.project().expect("fixture should have a Project");
+        let _graph1 = compute_model_graph(&db, project);
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "compute_model_graph"),
             "compute_model_graph should execute on first call"
         );
 
-        let _graph2 = db.model_graph();
+        let _graph2 = compute_model_graph(&db, project);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "compute_model_graph"),
@@ -2823,7 +2817,7 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, &root, &settings);
         db.project = Some(project);
 
-        let graph = db.model_graph();
+        let graph = compute_model_graph(&db, project);
         assert!(graph.models_named("First").next().is_some());
         assert!(graph.models_named("Second").next().is_some());
         let events = event_log.take();
@@ -2844,7 +2838,7 @@ def my_filter(value, arg):
         SourceChanges::new([ChangeEvent::ContentChanged(first_model.path(&db).clone())])
             .apply(&mut db);
 
-        let graph = db.model_graph();
+        let graph = compute_model_graph(&db, project);
         assert!(graph.models_named("First").next().is_none());
         assert!(graph.models_named("FirstRenamed").next().is_some());
         assert!(graph.models_named("Second").next().is_some());
