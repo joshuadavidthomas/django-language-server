@@ -36,7 +36,7 @@ fn fixture_root(name: &str) -> TestResult<Utf8PathBuf> {
 
 fn bootstrap_fixture(
     name: &str,
-    overrides: Option<djls_conf::Settings>,
+    overrides: Option<djls_conf::SettingsOverrides>,
 ) -> TestResult<(OsTestDatabase, Project, Utf8PathBuf)> {
     let root = fixture_root(name)?;
     let mut db = OsTestDatabase::new();
@@ -46,9 +46,9 @@ fn bootstrap_fixture(
     Ok((db, project, root))
 }
 
-fn venv_override(venv: &Utf8Path) -> TestResult<djls_conf::Settings> {
+fn venv_override(venv: &Utf8Path) -> TestResult<djls_conf::SettingsOverrides> {
     let escaped = venv.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-    Ok(toml::from_str::<djls_conf::Settings>(&format!(
+    Ok(toml::from_str::<djls_conf::SettingsOverrides>(&format!(
         "venv_path = \"{escaped}\""
     ))?)
 }
