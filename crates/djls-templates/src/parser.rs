@@ -336,6 +336,26 @@ impl ParseError {
     fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
     }
+
+    #[must_use]
+    pub fn diagnostic_code(&self) -> &'static str {
+        "T100"
+    }
+
+    #[must_use]
+    pub fn primary_span(&self) -> Option<(u32, u32)> {
+        let (position, length) = match self {
+            ParseError::MalformedConstruct {
+                position, opener, ..
+            } => (*position, opener.len().max(1)),
+            ParseError::UnexpectedTokenKind { position, .. }
+            | ParseError::EmptyTag { position }
+            | ParseError::MalformedFilterExpression { position, .. } => (*position, 1),
+            ParseError::StreamError { .. } => return None,
+        };
+
+        Some((position.try_into().ok()?, length.try_into().ok()?))
+    }
 }
 
 const MAX_ERROR_CONTENT_LEN: usize = 60;
@@ -362,6 +382,62 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let (nodes, _errors) = parser.parse();
         nodes
+    }
+
+    #[test]
+    fn parser_errors_keep_legacy_diagnostic_code() {
+        let error = ParseError::MalformedConstruct {
+            position: 15,
+            opener: "{{".to_string(),
+            closer: "}}".to_string(),
+            content: "value".to_string(),
+        };
+
+        assert_eq!(error.diagnostic_code(), "T100");
+    }
+
+    #[test]
+    fn parser_errors_keep_primary_spans() {
+        assert_eq!(
+            ParseError::MalformedConstruct {
+                position: 15,
+                opener: "{{".to_string(),
+                closer: "}}".to_string(),
+                content: "value".to_string(),
+            }
+            .primary_span(),
+            Some((15, 2))
+        );
+        assert_eq!(
+            ParseError::EmptyTag { position: 4 }.primary_span(),
+            Some((4, 1))
+        );
+    }
+
+    #[test]
+    fn stream_errors_remain_spanless() {
+        assert_eq!(
+            ParseError::StreamError {
+                kind: StreamError::AtEnd,
+            }
+            .primary_span(),
+            None
+        );
+    }
+
+    #[test]
+    fn malformed_construct_span_survives_parse_pipeline() {
+        let source = "Hello {{ value";
+        let (_, errors) = crate::parse_template_impl(source);
+
+        assert_eq!(errors.len(), 1);
+        let error = errors
+            .into_iter()
+            .next()
+            .expect("malformed variable should produce one parse error");
+
+        assert_eq!(error.diagnostic_code(), "T100");
+        assert_eq!(error.primary_span(), Some((6, 2)));
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]

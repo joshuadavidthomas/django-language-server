@@ -41,8 +41,8 @@
 //! }
 //! ```
 
-use crate::error::TemplateError;
+use crate::parser::ParseError;
 
-/// Accumulator for template errors
+/// Accumulator for template parse errors.
 #[salsa::accumulator]
-pub struct TemplateErrorAccumulator(pub TemplateError);
+pub struct TemplateErrorAccumulator(pub ParseError);

@@ -37,14 +37,12 @@
 
 mod bits;
 mod db;
-mod error;
 mod filters;
 mod lexer;
 mod nodelist;
 mod parser;
 mod quotes;
 mod tokens;
-mod visitor;
 
 pub use bits::FilterArgument;
 pub use bits::TagBit;
@@ -53,7 +51,6 @@ use djls_source::Db;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::FileReadError;
-pub use error::TemplateError;
 pub use filters::Filter;
 pub use nodelist::Node;
 pub use nodelist::NodeList;
@@ -62,7 +59,6 @@ pub use quotes::TemplateString;
 use salsa::Accumulator;
 pub use tokens::TagDelimiter;
 pub use tokens::Token;
-pub use visitor::Visitor;
 
 #[derive(Clone, PartialEq, Eq, salsa::SalsaValue)]
 pub enum TemplateParseResult<'db> {
@@ -130,7 +126,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> TemplateParseResult<'_> {
 
     // Accumulate any errors via Salsa
     for error in errors {
-        TemplateErrorAccumulator(error.into()).accumulate(db);
+        TemplateErrorAccumulator(error).accumulate(db);
     }
 
     // Always return a NodeList (may contain Error nodes if there were parse errors)

@@ -1,5 +1,5 @@
 use djls_source::File;
-use djls_templates::TemplateError;
+use djls_templates::ParseError;
 use djls_templates::TemplateErrorAccumulator;
 use djls_templates::parse_template;
 
@@ -11,7 +11,7 @@ use crate::validate_template_file;
 /// Syntax and semantic diagnostics collected for one Template.
 pub struct TemplateDiagnostics {
     /// Syntax errors in parser accumulator order.
-    pub template_errors: Vec<TemplateError>,
+    pub template_errors: Vec<ParseError>,
     /// Semantic errors in validation accumulator order.
     pub validation_errors: Vec<ValidationError>,
 }

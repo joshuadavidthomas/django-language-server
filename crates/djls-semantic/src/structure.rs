@@ -79,7 +79,7 @@ fn build_projectless_template_tree<'db>(
     nodelist: NodeList<'db>,
 ) -> TemplateTree<'db> {
     let grammar = grammar::SparseTagGrammar::projectless(db, nodelist);
-    let tree_data = TemplateTreeBuilder::new(db, &grammar).model_data(db, nodelist);
+    let tree_data = TemplateTreeBuilder::new(&grammar).model_data(db, nodelist);
     for error in &tree_data.diagnostics {
         ValidationErrorAccumulator(error.clone()).accumulate(db);
     }

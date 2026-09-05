@@ -13,7 +13,7 @@ use djls_source::FileReadError;
 use djls_source::Severity;
 use djls_source::SourceText;
 use djls_source::Span;
-use djls_templates::TemplateError;
+use djls_templates::ParseError;
 
 /// A readable Template and its collected diagnostics, ready for terminal output.
 pub struct CheckedTemplate {
@@ -107,7 +107,7 @@ fn to_render_severity(severity: DiagnosticSeverity) -> Severity {
 fn render_template_error(
     source: &str,
     path: &str,
-    error: &TemplateError,
+    error: &ParseError,
     config: &DiagnosticsConfig,
     fmt: &DiagnosticRenderer,
 ) -> Option<String> {

@@ -57,7 +57,6 @@ mod tests {
     use djls_conf::DiagnosticSeverity;
     use djls_source::LineIndex;
     use djls_templates::ParseError;
-    use djls_templates::TemplateError;
 
     use super::*;
     use crate::ext::DiagnosticSeverityExt;
@@ -66,12 +65,12 @@ mod tests {
     fn template_parse_diagnostics_use_legacy_code_and_structured_range() {
         let source = "Hello {{ value";
         let line_index = LineIndex::from(source);
-        let error = TemplateError::from(ParseError::MalformedConstruct {
+        let error = ParseError::MalformedConstruct {
             position: 6,
             opener: "{{".to_string(),
             closer: "}}".to_string(),
             content: "value".to_string(),
-        });
+        };
 
         let diagnostic = error
             .to_lsp_diagnostic(
@@ -94,12 +93,12 @@ mod tests {
     fn diagnostic_ranges_follow_position_encoding() {
         let source = "é😀 {{ value";
         let line_index = LineIndex::from(source);
-        let error = TemplateError::from(ParseError::MalformedConstruct {
+        let error = ParseError::MalformedConstruct {
             position: 7,
             opener: "{{".to_string(),
             closer: "}}".to_string(),
             content: "value".to_string(),
-        });
+        };
         let config = djls_conf::DiagnosticsConfig::default();
 
         let utf16 = error
