@@ -4,13 +4,7 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "typogrify.templatetags.typogrify_tags::filter::fuzzydate":
-    expects_arg: true
-    arg_optional: true
-  "typogrify.templatetags.typogrify_tags::filter::super_fuzzydate":
-    expects_arg: false
-    arg_optional: false
-  "typogrify.templatetags.typogrify_tags::filter::text_whole_number":
-    expects_arg: false
-    arg_optional: false
+  "typogrify.templatetags.typogrify_tags::filter::fuzzydate": optional_argument
+  "typogrify.templatetags.typogrify_tags::filter::super_fuzzydate": no_argument
+  "typogrify.templatetags.typogrify_tags::filter::text_whole_number": no_argument
 block_specs: {}

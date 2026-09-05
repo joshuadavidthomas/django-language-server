@@ -112,55 +112,21 @@ tag_rules:
     extracted_args: []
     as_var: strip
 filter_arities:
-  "src.sentry.templatetags.sentry_helpers::filter::absolute_value":
-    expects_arg: false
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::as_sorted":
-    expects_arg: false
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::as_tag_alias":
-    expects_arg: false
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::basename":
-    expects_arg: false
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::date":
-    expects_arg: true
-    arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::filter::duration":
-    expects_arg: false
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::get_item":
-    expects_arg: true
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::is_url":
-    expects_arg: false
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::multiply":
-    expects_arg: true
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::sanitize_periods":
-    expects_arg: false
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::small_count":
-    expects_arg: true
-    arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::filter::soft_break":
-    expects_arg: true
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::split":
-    expects_arg: true
-    arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::filter::timesince":
-    expects_arg: true
-    arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::filter::titleize":
-    expects_arg: false
-    arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::filter::to_json":
-    expects_arg: true
-    arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::filter::urlquote":
-    expects_arg: true
-    arg_optional: true
+  "src.sentry.templatetags.sentry_helpers::filter::absolute_value": no_argument
+  "src.sentry.templatetags.sentry_helpers::filter::as_sorted": no_argument
+  "src.sentry.templatetags.sentry_helpers::filter::as_tag_alias": no_argument
+  "src.sentry.templatetags.sentry_helpers::filter::basename": no_argument
+  "src.sentry.templatetags.sentry_helpers::filter::date": optional_argument
+  "src.sentry.templatetags.sentry_helpers::filter::duration": no_argument
+  "src.sentry.templatetags.sentry_helpers::filter::get_item": required_argument
+  "src.sentry.templatetags.sentry_helpers::filter::is_url": no_argument
+  "src.sentry.templatetags.sentry_helpers::filter::multiply": required_argument
+  "src.sentry.templatetags.sentry_helpers::filter::sanitize_periods": no_argument
+  "src.sentry.templatetags.sentry_helpers::filter::small_count": optional_argument
+  "src.sentry.templatetags.sentry_helpers::filter::soft_break": required_argument
+  "src.sentry.templatetags.sentry_helpers::filter::split": optional_argument
+  "src.sentry.templatetags.sentry_helpers::filter::timesince": optional_argument
+  "src.sentry.templatetags.sentry_helpers::filter::titleize": no_argument
+  "src.sentry.templatetags.sentry_helpers::filter::to_json": optional_argument
+  "src.sentry.templatetags.sentry_helpers::filter::urlquote": optional_argument
 block_specs: {}

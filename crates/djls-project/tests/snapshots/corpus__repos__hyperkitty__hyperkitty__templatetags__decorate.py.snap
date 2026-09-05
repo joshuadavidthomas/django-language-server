@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "hyperkitty.templatetags.decorate::filter::render":
-    expects_arg: true
-    arg_optional: false
+  "hyperkitty.templatetags.decorate::filter::render": required_argument
 block_specs: {}

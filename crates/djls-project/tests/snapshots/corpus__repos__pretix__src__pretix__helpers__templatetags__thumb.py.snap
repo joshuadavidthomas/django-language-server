@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "src.pretix.helpers.templatetags.thumb::filter::thumb":
-    expects_arg: true
-    arg_optional: false
+  "src.pretix.helpers.templatetags.thumb::filter::thumb": required_argument
 block_specs: {}

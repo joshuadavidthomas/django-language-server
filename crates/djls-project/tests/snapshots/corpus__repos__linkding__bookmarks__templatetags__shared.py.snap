@@ -57,21 +57,11 @@ tag_rules:
         position: 0
     as_var: strip
 filter_arities:
-  "bookmarks.templatetags.shared::filter::first_char":
-    expects_arg: false
-    arg_optional: false
-  "bookmarks.templatetags.shared::filter::humanize_absolute_date":
-    expects_arg: false
-    arg_optional: false
-  "bookmarks.templatetags.shared::filter::humanize_relative_date":
-    expects_arg: false
-    arg_optional: false
-  "bookmarks.templatetags.shared::filter::model_to_dict":
-    expects_arg: false
-    arg_optional: false
-  "bookmarks.templatetags.shared::filter::remaining_chars":
-    expects_arg: true
-    arg_optional: false
+  "bookmarks.templatetags.shared::filter::first_char": no_argument
+  "bookmarks.templatetags.shared::filter::humanize_absolute_date": no_argument
+  "bookmarks.templatetags.shared::filter::humanize_relative_date": no_argument
+  "bookmarks.templatetags.shared::filter::model_to_dict": no_argument
+  "bookmarks.templatetags.shared::filter::remaining_chars": required_argument
 block_specs:
   "bookmarks.templatetags.shared::tag::formhelp":
     end_tag: endformhelp

@@ -25,10 +25,6 @@ tag_rules:
         position: 2
     as_var: strip
 filter_arities:
-  "django.contrib.admin.templatetags.admin_urls::filter::admin_urlname":
-    expects_arg: true
-    arg_optional: false
-  "django.contrib.admin.templatetags.admin_urls::filter::admin_urlquote":
-    expects_arg: false
-    arg_optional: false
+  "django.contrib.admin.templatetags.admin_urls::filter::admin_urlname": required_argument
+  "django.contrib.admin.templatetags.admin_urls::filter::admin_urlquote": no_argument
 block_specs: {}

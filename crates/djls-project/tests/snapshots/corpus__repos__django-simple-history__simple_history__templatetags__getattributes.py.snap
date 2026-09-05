@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "simple_history.templatetags.getattributes::filter::getattribute":
-    expects_arg: true
-    arg_optional: false
+  "simple_history.templatetags.getattributes::filter::getattribute": required_argument
 block_specs: {}

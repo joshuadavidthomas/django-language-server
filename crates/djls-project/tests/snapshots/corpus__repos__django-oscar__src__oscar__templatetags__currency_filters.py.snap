@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "src.oscar.templatetags.currency_filters::filter::currency":
-    expects_arg: true
-    arg_optional: true
+  "src.oscar.templatetags.currency_filters::filter::currency": optional_argument
 block_specs: {}

@@ -57,22 +57,10 @@ tag_rules:
         position: 2
     as_var: strip
 filter_arities:
-  "readthedocs.core.templatetags.core_tags::filter::escapejson":
-    expects_arg: true
-    arg_optional: true
-  "readthedocs.core.templatetags.core_tags::filter::get_key_or_none":
-    expects_arg: true
-    arg_optional: false
-  "readthedocs.core.templatetags.core_tags::filter::get_project":
-    expects_arg: false
-    arg_optional: false
-  "readthedocs.core.templatetags.core_tags::filter::get_version":
-    expects_arg: false
-    arg_optional: false
-  "readthedocs.core.templatetags.core_tags::filter::is_rich_select":
-    expects_arg: false
-    arg_optional: false
-  "readthedocs.core.templatetags.core_tags::filter::key":
-    expects_arg: true
-    arg_optional: false
+  "readthedocs.core.templatetags.core_tags::filter::escapejson": optional_argument
+  "readthedocs.core.templatetags.core_tags::filter::get_key_or_none": required_argument
+  "readthedocs.core.templatetags.core_tags::filter::get_project": no_argument
+  "readthedocs.core.templatetags.core_tags::filter::get_version": no_argument
+  "readthedocs.core.templatetags.core_tags::filter::is_rich_select": no_argument
+  "readthedocs.core.templatetags.core_tags::filter::key": required_argument
 block_specs: {}

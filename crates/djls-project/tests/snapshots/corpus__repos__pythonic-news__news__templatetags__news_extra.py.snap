@@ -54,7 +54,5 @@ tag_rules:
         position: 1
     as_var: strip
 filter_arities:
-  "news.templatetags.news_extra::filter::comment_markdown":
-    expects_arg: false
-    arg_optional: false
+  "news.templatetags.news_extra::filter::comment_markdown": no_argument
 block_specs: {}

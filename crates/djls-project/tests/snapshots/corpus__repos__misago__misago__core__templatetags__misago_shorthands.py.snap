@@ -4,10 +4,6 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "misago.core.templatetags.misago_shorthands::filter::iffalse":
-    expects_arg: true
-    arg_optional: false
-  "misago.core.templatetags.misago_shorthands::filter::iftrue":
-    expects_arg: true
-    arg_optional: false
+  "misago.core.templatetags.misago_shorthands::filter::iffalse": required_argument
+  "misago.core.templatetags.misago_shorthands::filter::iftrue": required_argument
 block_specs: {}

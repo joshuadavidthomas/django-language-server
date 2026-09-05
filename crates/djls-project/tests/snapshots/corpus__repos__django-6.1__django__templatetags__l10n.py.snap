@@ -44,12 +44,8 @@ tag_rules:
         position: 0
     as_var: keep
 filter_arities:
-  "django.templatetags.l10n::filter::localize":
-    expects_arg: false
-    arg_optional: false
-  "django.templatetags.l10n::filter::unlocalize":
-    expects_arg: false
-    arg_optional: false
+  "django.templatetags.l10n::filter::localize": no_argument
+  "django.templatetags.l10n::filter::unlocalize": no_argument
 block_specs:
   "django.templatetags.l10n::tag::localize":
     end_tag: endlocalize

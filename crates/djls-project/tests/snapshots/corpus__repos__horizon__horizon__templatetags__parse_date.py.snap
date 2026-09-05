@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "horizon.templatetags.parse_date::filter::parse_date":
-    expects_arg: false
-    arg_optional: false
+  "horizon.templatetags.parse_date::filter::parse_date": no_argument
 block_specs: {}

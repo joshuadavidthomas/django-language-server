@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "horizon.templatetags.splitfilter::filter::split_message":
-    expects_arg: false
-    arg_optional: false
+  "horizon.templatetags.splitfilter::filter::split_message": no_argument
 block_specs: {}

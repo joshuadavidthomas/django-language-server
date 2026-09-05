@@ -4,7 +4,5 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules: {}
 filter_arities:
-  "django.contrib.admin.templatetags.admin_modify::filter::cell_count":
-    expects_arg: false
-    arg_optional: false
+  "django.contrib.admin.templatetags.admin_modify::filter::cell_count": no_argument
 block_specs: {}

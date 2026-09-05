@@ -62,29 +62,23 @@ fn build_filter_arities(
         specs.merge_filter_arities(filter_arities);
     }
 
-    let known: &[(&str, bool, bool)] = &[
-        ("title", false, false),
-        ("lower", false, false),
-        ("upper", false, false),
-        ("default", true, false),
-        ("date", true, true),
-        ("truncatewords", true, false),
-        ("floatformat", true, true),
-        ("join", true, false),
-        ("cut", true, false),
-        ("yesno", true, true),
-        ("pluralize", true, true),
-        ("center", true, false),
+    let known = [
+        ("title", FilterArity::NoArgument),
+        ("lower", FilterArity::NoArgument),
+        ("upper", FilterArity::NoArgument),
+        ("default", FilterArity::RequiredArgument),
+        ("date", FilterArity::OptionalArgument),
+        ("truncatewords", FilterArity::RequiredArgument),
+        ("floatformat", FilterArity::OptionalArgument),
+        ("join", FilterArity::RequiredArgument),
+        ("cut", FilterArity::RequiredArgument),
+        ("yesno", FilterArity::OptionalArgument),
+        ("pluralize", FilterArity::OptionalArgument),
+        ("center", FilterArity::RequiredArgument),
     ];
 
-    for &(name, expects_arg, arg_optional) in known {
-        specs.insert(
-            SymbolKey::filter(defaultfilters, name),
-            FilterArity {
-                expects_arg,
-                arg_optional,
-            },
-        );
+    for (name, arity) in known {
+        specs.insert(SymbolKey::filter(defaultfilters, name), arity);
     }
 
     specs

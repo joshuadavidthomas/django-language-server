@@ -97,16 +97,8 @@ tag_rules:
     extracted_args: []
     as_var: strip
 filter_arities:
-  "archivebox.core.templatetags.core_tags::filter::file_size":
-    expects_arg: false
-    arg_optional: false
-  "archivebox.core.templatetags.core_tags::filter::plugin_display_name":
-    expects_arg: false
-    arg_optional: false
-  "archivebox.core.templatetags.core_tags::filter::plugin_name":
-    expects_arg: false
-    arg_optional: false
-  "archivebox.core.templatetags.core_tags::filter::split":
-    expects_arg: true
-    arg_optional: true
+  "archivebox.core.templatetags.core_tags::filter::file_size": no_argument
+  "archivebox.core.templatetags.core_tags::filter::plugin_display_name": no_argument
+  "archivebox.core.templatetags.core_tags::filter::plugin_name": no_argument
+  "archivebox.core.templatetags.core_tags::filter::split": optional_argument
 block_specs: {}

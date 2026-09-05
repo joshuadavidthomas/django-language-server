@@ -53,7 +53,7 @@ impl FilterAritySpecs {
     /// Later entries overwrite earlier ones (last-wins).
     pub fn merge_filter_arities(&mut self, filter_arities: &FilterArityMap) {
         for (key, arity) in filter_arities {
-            self.insert(key.clone(), arity.clone());
+            self.insert(key.clone(), *arity);
         }
     }
 }
@@ -122,5 +122,5 @@ pub(crate) fn effective_filter_arity_in_scope(
     alternatives_agree
         .then_some(agreed.flatten())
         .flatten()
-        .cloned()
+        .copied()
 }

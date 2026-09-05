@@ -282,36 +282,16 @@ tag_rules:
         position: 0
     as_var: strip
 filter_arities:
-  "src.unfold.templatetags.unfold::filter::add_css_class":
-    expects_arg: true
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::changeform_condition":
-    expects_arg: false
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::changeform_data":
-    expects_arg: false
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::class_name":
-    expects_arg: false
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::has_active_item":
-    expects_arg: false
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::index":
-    expects_arg: true
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::is_list":
-    expects_arg: false
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::tabs":
-    expects_arg: false
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::tabs_active":
-    expects_arg: false
-    arg_optional: false
-  "src.unfold.templatetags.unfold::filter::tabs_errors_count":
-    expects_arg: false
-    arg_optional: false
+  "src.unfold.templatetags.unfold::filter::add_css_class": required_argument
+  "src.unfold.templatetags.unfold::filter::changeform_condition": no_argument
+  "src.unfold.templatetags.unfold::filter::changeform_data": no_argument
+  "src.unfold.templatetags.unfold::filter::class_name": no_argument
+  "src.unfold.templatetags.unfold::filter::has_active_item": no_argument
+  "src.unfold.templatetags.unfold::filter::index": required_argument
+  "src.unfold.templatetags.unfold::filter::is_list": no_argument
+  "src.unfold.templatetags.unfold::filter::tabs": no_argument
+  "src.unfold.templatetags.unfold::filter::tabs_active": no_argument
+  "src.unfold.templatetags.unfold::filter::tabs_errors_count": no_argument
 block_specs:
   "src.unfold.templatetags.unfold::tag::capture":
     end_tag: endcapture

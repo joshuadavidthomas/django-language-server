@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "horizon.templatetags.truncate_filter::filter::truncate":
-    expects_arg: true
-    arg_optional: false
+  "horizon.templatetags.truncate_filter::filter::truncate": required_argument
 block_specs: {}

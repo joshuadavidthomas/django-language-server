@@ -4,10 +4,6 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "misago.core.templatetags.misago_batch::filter::batch":
-    expects_arg: true
-    arg_optional: false
-  "misago.core.templatetags.misago_batch::filter::batchnonefilled":
-    expects_arg: true
-    arg_optional: false
+  "misago.core.templatetags.misago_batch::filter::batch": required_argument
+  "misago.core.templatetags.misago_batch::filter::batchnonefilled": required_argument
 block_specs: {}

@@ -194,7 +194,5 @@ tag_rules:
         position: 0
     as_var: strip
 filter_arities:
-  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::filter::keyvalue":
-    expects_arg: true
-    arg_optional: false
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::filter::keyvalue": required_argument
 block_specs: {}

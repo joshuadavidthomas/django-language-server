@@ -4,25 +4,11 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "core.templatetags.duration::filter::child_age_string":
-    expects_arg: false
-    arg_optional: false
-  "core.templatetags.duration::filter::dayssince":
-    expects_arg: true
-    arg_optional: true
-  "core.templatetags.duration::filter::deltasince":
-    expects_arg: true
-    arg_optional: true
-  "core.templatetags.duration::filter::duration_string":
-    expects_arg: true
-    arg_optional: true
-  "core.templatetags.duration::filter::hours":
-    expects_arg: false
-    arg_optional: false
-  "core.templatetags.duration::filter::minutes":
-    expects_arg: false
-    arg_optional: false
-  "core.templatetags.duration::filter::seconds":
-    expects_arg: false
-    arg_optional: false
+  "core.templatetags.duration::filter::child_age_string": no_argument
+  "core.templatetags.duration::filter::dayssince": optional_argument
+  "core.templatetags.duration::filter::deltasince": optional_argument
+  "core.templatetags.duration::filter::duration_string": optional_argument
+  "core.templatetags.duration::filter::hours": no_argument
+  "core.templatetags.duration::filter::minutes": no_argument
+  "core.templatetags.duration::filter::seconds": no_argument
 block_specs: {}

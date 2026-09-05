@@ -1,5 +1,6 @@
 use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
+use djls_project::FilterArity;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
 use djls_project::TemplateLibraryId;
@@ -95,9 +96,10 @@ fn extract_bundle_filter() {
     let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
         .expect("filter extraction fixture should build");
     let key = SymbolKey::filter("django.template.defaultfilters", "lower");
-    assert!(result.filter_arities.contains_key(&key));
-    let arity = &result.filter_arities[&key];
-    assert!(!arity.expects_arg);
+    assert_eq!(
+        result.filter_arities.get(&key),
+        Some(&FilterArity::NoArgument)
+    );
 }
 
 // Corpus: `default` in django/template/defaultfilters.py — filter with
@@ -107,10 +109,10 @@ fn extract_bundle_filter_with_arg() {
     let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
         .expect("filter-with-argument extraction fixture should build");
     let key = SymbolKey::filter("django.template.defaultfilters", "default");
-    assert!(result.filter_arities.contains_key(&key));
-    let arity = &result.filter_arities[&key];
-    assert!(arity.expects_arg);
-    assert!(!arity.arg_optional);
+    assert_eq!(
+        result.filter_arities.get(&key),
+        Some(&FilterArity::RequiredArgument)
+    );
 }
 
 // Corpus: `block` in django/template/loader_tags.py — `@register.tag("block")`
@@ -1245,9 +1247,12 @@ def do_asset(parser, token):
         Some("endbird:slot")
     );
     let filter_key = SymbolKey::filter("app.templatetags.bird_tags", "bird_filter");
-    let filter_arity = &template_library_filter_facts(&db, key).filter_arities()[&filter_key];
-    assert!(filter_arity.expects_arg);
-    assert!(!filter_arity.arg_optional);
+    assert_eq!(
+        template_library_filter_facts(&db, key)
+            .filter_arities()
+            .get(&filter_key),
+        Some(&FilterArity::RequiredArgument)
+    );
 
     let bird_symbol = definitions
         .symbol(TemplateSymbolKind::Tag, "bird")
@@ -1900,9 +1905,10 @@ fn corpus_filter_no_arg() {
     let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
         .expect("no-argument filter extraction fixture should build");
     let key = SymbolKey::filter("django.template.defaultfilters", "title");
-    assert!(result.filter_arities.contains_key(&key));
-    let arity = &result.filter_arities[&key];
-    assert!(!arity.expects_arg);
+    assert_eq!(
+        result.filter_arities.get(&key),
+        Some(&FilterArity::NoArgument)
+    );
 }
 
 // Corpus: `default` in defaultfilters.py — filter with required arg.
@@ -1911,10 +1917,10 @@ fn corpus_filter_required_arg() {
     let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
         .expect("required-argument filter extraction fixture should build");
     let key = SymbolKey::filter("django.template.defaultfilters", "default");
-    assert!(result.filter_arities.contains_key(&key));
-    let arity = &result.filter_arities[&key];
-    assert!(arity.expects_arg);
-    assert!(!arity.arg_optional);
+    assert_eq!(
+        result.filter_arities.get(&key),
+        Some(&FilterArity::RequiredArgument)
+    );
 }
 
 // Corpus: `date` in defaultfilters.py — filter with optional arg (arg=None).
@@ -1923,10 +1929,10 @@ fn corpus_filter_optional_arg() {
     let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
         .expect("optional-argument filter extraction fixture should build");
     let key = SymbolKey::filter("django.template.defaultfilters", "date");
-    assert!(result.filter_arities.contains_key(&key));
-    let arity = &result.filter_arities[&key];
-    assert!(arity.expects_arg);
-    assert!(arity.arg_optional);
+    assert_eq!(
+        result.filter_arities.get(&key),
+        Some(&FilterArity::OptionalArgument)
+    );
 }
 
 // Corpus: `escapejs` in defaultfilters.py — @register.filter("escapejs")

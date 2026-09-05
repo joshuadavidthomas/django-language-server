@@ -66,10 +66,6 @@ tag_rules:
         position: 1
     as_var: keep
 filter_arities:
-  "actstream.templatetags.activity_tags::filter::activity_stream":
-    expects_arg: true
-    arg_optional: false
-  "actstream.templatetags.activity_tags::filter::is_following":
-    expects_arg: true
-    arg_optional: false
+  "actstream.templatetags.activity_tags::filter::activity_stream": required_argument
+  "actstream.templatetags.activity_tags::filter::is_following": required_argument
 block_specs: {}

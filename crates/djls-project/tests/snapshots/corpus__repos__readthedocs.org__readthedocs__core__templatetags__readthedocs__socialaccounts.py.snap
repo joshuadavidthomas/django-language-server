@@ -4,13 +4,7 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "readthedocs.core.templatetags.readthedocs.socialaccounts::filter::can_be_disconnected":
-    expects_arg: false
-    arg_optional: false
-  "readthedocs.core.templatetags.readthedocs.socialaccounts::filter::has_github_app_account":
-    expects_arg: false
-    arg_optional: false
-  "readthedocs.core.templatetags.readthedocs.socialaccounts::filter::is_access_revoked":
-    expects_arg: false
-    arg_optional: false
+  "readthedocs.core.templatetags.readthedocs.socialaccounts::filter::can_be_disconnected": no_argument
+  "readthedocs.core.templatetags.readthedocs.socialaccounts::filter::has_github_app_account": no_argument
+  "readthedocs.core.templatetags.readthedocs.socialaccounts::filter::is_access_revoked": no_argument
 block_specs: {}

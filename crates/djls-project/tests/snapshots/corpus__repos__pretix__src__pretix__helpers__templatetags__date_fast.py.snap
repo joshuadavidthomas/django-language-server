@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "src.pretix.helpers.templatetags.date_fast::filter::date_fast":
-    expects_arg: true
-    arg_optional: true
+  "src.pretix.helpers.templatetags.date_fast::filter::date_fast": optional_argument
 block_specs: {}

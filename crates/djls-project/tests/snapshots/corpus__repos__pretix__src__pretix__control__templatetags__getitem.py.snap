@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "src.pretix.control.templatetags.getitem::filter::getitem":
-    expects_arg: true
-    arg_optional: false
+  "src.pretix.control.templatetags.getitem::filter::getitem": required_argument
 block_specs: {}

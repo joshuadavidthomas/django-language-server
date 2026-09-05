@@ -313,7 +313,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                     let arity = db
                                         .projectless_filter_arity_specs()
                                         .get(&filter.name)
-                                        .cloned();
+                                        .copied();
                                     let availability = if arity.is_some() {
                                         SymbolAvailability::Available
                                     } else {

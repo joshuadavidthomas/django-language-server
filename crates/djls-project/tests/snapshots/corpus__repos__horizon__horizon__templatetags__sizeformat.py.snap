@@ -4,13 +4,7 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "horizon.templatetags.sizeformat::filter::diskgbformat":
-    expects_arg: false
-    arg_optional: false
-  "horizon.templatetags.sizeformat::filter::mb_float_format":
-    expects_arg: false
-    arg_optional: false
-  "horizon.templatetags.sizeformat::filter::mbformat":
-    expects_arg: false
-    arg_optional: false
+  "horizon.templatetags.sizeformat::filter::diskgbformat": no_argument
+  "horizon.templatetags.sizeformat::filter::mb_float_format": no_argument
+  "horizon.templatetags.sizeformat::filter::mbformat": no_argument
 block_specs: {}

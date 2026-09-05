@@ -86,15 +86,9 @@ tag_rules:
         position: 0
     as_var: keep
 filter_arities:
-  "django.templatetags.tz::filter::localtime":
-    expects_arg: false
-    arg_optional: false
-  "django.templatetags.tz::filter::timezone":
-    expects_arg: true
-    arg_optional: false
-  "django.templatetags.tz::filter::utc":
-    expects_arg: false
-    arg_optional: false
+  "django.templatetags.tz::filter::localtime": no_argument
+  "django.templatetags.tz::filter::timezone": required_argument
+  "django.templatetags.tz::filter::utc": no_argument
 block_specs:
   "django.templatetags.tz::tag::localtime":
     end_tag: endlocaltime

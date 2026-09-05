@@ -4,7 +4,5 @@ expression: snapshot(result)
 ---
 tag_rules: {}
 filter_arities:
-  "src.pretix.base.templatetags.phone_format::filter::phone_format":
-    expects_arg: true
-    arg_optional: true
+  "src.pretix.base.templatetags.phone_format::filter::phone_format": optional_argument
 block_specs: {}

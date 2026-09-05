@@ -4,34 +4,14 @@ expression: sorted_snapshot(&result)
 ---
 tag_rules: {}
 filter_arities:
-  "django.template.defaultfilters::filter::add":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::addslashes":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::cut":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::date":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::default":
-    expects_arg: true
-    arg_optional: false
-  "django.template.defaultfilters::filter::escapejs":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::floatformat":
-    expects_arg: true
-    arg_optional: true
-  "django.template.defaultfilters::filter::lower":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::title":
-    expects_arg: false
-    arg_optional: false
-  "django.template.defaultfilters::filter::upper":
-    expects_arg: false
-    arg_optional: false
+  "django.template.defaultfilters::filter::add": required_argument
+  "django.template.defaultfilters::filter::addslashes": no_argument
+  "django.template.defaultfilters::filter::cut": required_argument
+  "django.template.defaultfilters::filter::date": optional_argument
+  "django.template.defaultfilters::filter::default": required_argument
+  "django.template.defaultfilters::filter::escapejs": no_argument
+  "django.template.defaultfilters::filter::floatformat": optional_argument
+  "django.template.defaultfilters::filter::lower": no_argument
+  "django.template.defaultfilters::filter::title": no_argument
+  "django.template.defaultfilters::filter::upper": no_argument
 block_specs: {}
