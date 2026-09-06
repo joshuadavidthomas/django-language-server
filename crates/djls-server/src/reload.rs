@@ -1792,13 +1792,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn lsp_overrides_preserve_explicit_false_and_empty_values() {
+        let tempdir = tempdir().expect("temporary project directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary project path should be valid UTF-8");
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            r#"
+django_settings_module = "project.settings"
+pythonpath = ["inherited"]
+
+[format]
+enabled = true
+
+[diagnostics.severity]
+S100 = "off"
+"#,
+        )
+        .expect("project settings fixture should be written");
+
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root.as_std_path())
+                    .expect("project root should convert to a file URI"),
+                name: "test_project".to_string(),
+            }]),
+            initialization_options: Some(serde_json::json!({
+                "django_settings_module": "client.settings",
+                "pythonpath": [],
+                "format": { "enabled": false },
+                "diagnostics": {},
+            })),
+            ..Default::default()
+        };
+        let session = Arc::new(Mutex::new(Session::new(&params)));
+
+        let settings = match load_project_settings(&session).await {
+            StageOutcome::Complete(settings) => settings,
+            StageOutcome::Cancelled | StageOutcome::Failed => {
+                panic!("valid project settings and LSP overrides should load")
+            }
+        };
+
+        assert_eq!(settings.django_settings_module(), Some("client.settings"));
+        assert!(settings.pythonpath().is_empty());
+        assert!(!settings.format().enabled());
+        assert_eq!(
+            settings.diagnostics().get_severity("S100"),
+            djls_conf::DiagnosticSeverity::Error
+        );
+    }
+
+    #[tokio::test]
+    async fn omitted_lsp_overrides_preserve_project_values() {
+        let tempdir = tempdir().expect("temporary project directory should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary project path should be valid UTF-8");
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            r#"
+pythonpath = ["inherited"]
+
+[format]
+enabled = true
+
+[diagnostics.severity]
+S100 = "off"
+"#,
+        )
+        .expect("project settings fixture should be written");
+
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root.as_std_path())
+                    .expect("project root should convert to a file URI"),
+                name: "test_project".to_string(),
+            }]),
+            initialization_options: Some(serde_json::json!({})),
+            ..Default::default()
+        };
+        let session = Arc::new(Mutex::new(Session::new(&params)));
+
+        let settings = match load_project_settings(&session).await {
+            StageOutcome::Complete(settings) => settings,
+            StageOutcome::Cancelled | StageOutcome::Failed => {
+                panic!("valid project settings and omitted LSP overrides should load")
+            }
+        };
+
+        assert_eq!(settings.pythonpath(), &[Utf8PathBuf::from("inherited")]);
+        assert!(settings.format().enabled());
+        assert_eq!(
+            settings.diagnostics().get_severity("S100"),
+            djls_conf::DiagnosticSeverity::Off
+        );
+    }
+
+    #[tokio::test]
     async fn project_settings_load_error_skips_discovery_inputs() {
         let tempdir = tempdir().expect("temporary project directory should be created");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
             .expect("temporary project path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
-            "debug = not_a_boolean",
+            "pythonpath = 'not an array'",
         )
         .expect("invalid project settings fixture should be written");
 

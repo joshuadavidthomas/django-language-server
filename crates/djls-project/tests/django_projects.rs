@@ -36,7 +36,7 @@ fn fixture_root(name: &str) -> TestResult<Utf8PathBuf> {
 
 fn bootstrap_fixture(
     name: &str,
-    overrides: Option<djls_conf::Settings>,
+    overrides: Option<serde_json::Map<String, serde_json::Value>>,
 ) -> TestResult<(OsTestDatabase, Project, Utf8PathBuf)> {
     let root = fixture_root(name)?;
     let mut db = OsTestDatabase::new();
@@ -44,13 +44,6 @@ fn bootstrap_fixture(
     let project = Project::bootstrap(&db, root.as_path(), &settings);
     db.set_project(project);
     Ok((db, project, root))
-}
-
-fn venv_override(venv: &Utf8Path) -> TestResult<djls_conf::Settings> {
-    let escaped = venv.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-    Ok(toml::from_str::<djls_conf::Settings>(&format!(
-        "venv_path = \"{escaped}\""
-    ))?)
 }
 
 fn template_dirs(db: &OsTestDatabase, project: Project) -> Vec<Utf8PathBuf> {
@@ -66,7 +59,7 @@ fn template_dirs(db: &OsTestDatabase, project: Project) -> Vec<Utf8PathBuf> {
 fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
     let root = fixture_root("src-layout").expect("src-layout fixture root should resolve");
     let venv = root.join(".venv");
-    let overrides = venv_override(&venv).expect("src-layout venv override should deserialize");
+    let overrides = serde_json::Map::from_iter([("venv_path".into(), serde_json::json!(venv))]);
     let (db, project, root) = bootstrap_fixture("src-layout", Some(overrides))
         .expect("src-layout fixture should bootstrap");
 
@@ -115,7 +108,7 @@ fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
 fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
     let root = fixture_root("editable-pth").expect("editable-pth fixture root should resolve");
     let venv = root.join(".venv");
-    let overrides = venv_override(&venv).expect("editable-pth venv override should deserialize");
+    let overrides = serde_json::Map::from_iter([("venv_path".into(), serde_json::json!(venv))]);
     let (db, project, root) = bootstrap_fixture("editable-pth", Some(overrides))
         .expect("editable-pth fixture should bootstrap");
 
@@ -174,7 +167,7 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
 fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     let root = fixture_root("namespace-apps").expect("namespace-apps fixture root should resolve");
     let venv = root.join(".venv");
-    let overrides = venv_override(&venv).expect("namespace-apps venv override should deserialize");
+    let overrides = serde_json::Map::from_iter([("venv_path".into(), serde_json::json!(venv))]);
     let (db, project, root) = bootstrap_fixture("namespace-apps", Some(overrides))
         .expect("namespace-apps fixture should bootstrap");
 

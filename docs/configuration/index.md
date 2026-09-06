@@ -105,12 +105,6 @@ backend = "djangofmt"
 
 When enabled, editor "format document" requests are handled by `djangofmt`. DJLS passes through standard editor formatting options when the client provides them, including tab width, spaces vs tabs, trailing whitespace trimming, final newline insertion, and final newline trimming.
 
-### `debug`
-
-**Default:** `false`
-
-Enable debug logging for troubleshooting language server issues.
-
 ### `diagnostics`
 
 Configure diagnostic severity levels. All diagnostics are enabled by default at "error" severity level.
@@ -284,7 +278,7 @@ When configuration is needed, the server supports multiple methods in priority o
 
 ### LSP client
 
-Pass configuration through your editor's LSP client using `initializationOptions`. This has the highest priority and is useful for workspace-specific overrides.
+Pass configuration through your editor's LSP client using `initializationOptions`. This has the highest priority and is useful for workspace-specific overrides. Only fields present in `initializationOptions` override file settings; explicit `false` values and empty lists or maps clear the corresponding file setting.
 
 ```json
 {

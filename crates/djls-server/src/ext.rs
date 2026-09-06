@@ -6,6 +6,7 @@ use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_source::Range;
+use serde::Deserialize;
 use tower_lsp_server::ls_types;
 
 use crate::client::Client;
@@ -92,14 +93,28 @@ impl InitializeParamsExt for ls_types::InitializeParams {
         let client_options: ClientOptions = self
             .initialization_options
             .as_ref()
-            .and_then(|v| match serde_json::from_value(v.clone()) {
-                Ok(opts) => Some(opts),
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to deserialize initialization options: {}. Using defaults.",
-                        err
-                    );
-                    None
+            .and_then(|value| {
+                let mut value = value.clone();
+                if let Some(fields) = value.as_object_mut() {
+                    // Null means no override, including for non-optional settings.
+                    fields.retain(|_, value| !value.is_null());
+                }
+                match ClientOptions::deserialize(&value) {
+                    Ok(mut opts) => {
+                        if let serde_json::Value::Object(fields) = value {
+                            opts.overrides = fields;
+                            opts.overrides
+                                .retain(|key, _| !opts.unknown.contains_key(key));
+                        }
+                        Some(opts)
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            "Failed to deserialize initialization options: {}. Using defaults.",
+                            err
+                        );
+                        None
+                    }
                 }
             })
             .unwrap_or_default();
@@ -198,6 +213,81 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
+
+    #[test]
+    fn client_options_keep_supplied_fields_separate_from_startup_defaults() {
+        let supplied = serde_json::json!({
+            "pythonpath": [],
+            "format": { "enabled": false },
+            "diagnostics": {},
+            "unknown_setting": true,
+        });
+        let params = ls_types::InitializeParams {
+            initialization_options: Some(supplied),
+            ..Default::default()
+        };
+
+        let options = params.client_options();
+
+        assert!(options.settings.pythonpath().is_empty());
+        assert!(!options.settings.format().enabled());
+        assert_eq!(
+            serde_json::Value::Object(options.overrides),
+            serde_json::json!({
+                "pythonpath": [],
+                "format": { "enabled": false },
+                "diagnostics": {},
+            })
+        );
+        assert_eq!(options.unknown.len(), 1);
+        assert_eq!(options.unknown["unknown_setting"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn invalid_client_options_discard_overrides_as_well_as_startup_settings() {
+        for supplied in [
+            serde_json::json!({"pythonpath": "not an array", "env_file": "client.env"}),
+            serde_json::json!({"format": {"enabled": "false"}, "env_file": "client.env"}),
+            serde_json::json!([]),
+            serde_json::json!(null),
+            serde_json::json!(false),
+        ] {
+            let params = ls_types::InitializeParams {
+                initialization_options: Some(supplied.clone()),
+                ..Default::default()
+            };
+
+            let options = params.client_options();
+
+            assert_eq!(
+                options.settings,
+                djls_conf::Settings::default(),
+                "{supplied}"
+            );
+            assert!(options.overrides.is_empty(), "{supplied}");
+        }
+    }
+
+    #[test]
+    fn null_client_fields_do_not_discard_other_overrides() {
+        let params = ls_types::InitializeParams {
+            initialization_options: Some(serde_json::json!({
+                "pythonpath": null,
+                "format": null,
+                "django_settings_module": null,
+                "env_file": "client.env",
+            })),
+            ..Default::default()
+        };
+
+        let options = params.client_options();
+
+        assert_eq!(options.settings.env_file(), Some("client.env"));
+        assert_eq!(
+            serde_json::Value::Object(options.overrides),
+            serde_json::json!({"env_file": "client.env"})
+        );
+    }
 
     #[test]
     fn test_position_encoding_kind_unknown_returns_none() {

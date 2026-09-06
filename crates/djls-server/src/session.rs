@@ -383,12 +383,10 @@ impl Session {
 
         let client_options = params.client_options();
 
-        let client_settings = client_options.settings.clone();
-
         let workspace = Workspace::new();
         let db = DjangoDatabase::new(
             workspace.overlay(),
-            &client_settings,
+            &client_options.settings,
             project_path.as_deref(),
         );
 
