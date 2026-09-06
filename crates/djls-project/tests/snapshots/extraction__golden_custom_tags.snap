@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"custom-tag extraction snapshot should serialize\")"
 ---
 tag_rules:
   "tests.template_tests.templatetags.custom::tag::no_params":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::no_params_with_context":
     arg_constraints:
@@ -17,7 +18,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::one_param":
     arg_constraints:
@@ -26,10 +28,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_one_default":
     arg_constraints:
@@ -38,13 +41,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-      - name: two
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_two_params":
     arg_constraints:
@@ -53,13 +57,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-      - name: two
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

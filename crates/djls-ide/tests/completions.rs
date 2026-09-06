@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::fs;
 use std::io;
 
 use camino::Utf8Path;
@@ -11,12 +12,15 @@ use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_library_catalog;
+use djls_semantic::ParameterRequirement;
 use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
+use djls_semantic::TagArgumentSyntax;
 use djls_semantic::TagSpec;
 use djls_semantic::builtin_tag_specs;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
+use djls_testing::Corpus;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
@@ -123,11 +127,11 @@ fn captured_closer_does_not_offer_colliding_standalone_arguments() {
             Cow::Borrowed(&[]),
             djls_semantic::BodyAnalysis::Analyze,
         )
-        .with_arguments(vec![TagArgument {
+        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![TagArgument {
             name: "collision".to_string(),
             kind: TagArgumentKind::Choice(vec!["standalone-choice".to_string()]),
-            required: true,
-        }]),
+            requirement: ParameterRequirement::Required,
+        }])),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
@@ -460,6 +464,103 @@ fn conflicting_backend_signatures_do_not_offer_argument_snippets() {
     assert!(
         completion(&db, file, offset, PositionEncoding::Utf16, true).is_none(),
         "disagreeing feasible signatures must not produce an argument snippet"
+    );
+}
+
+#[test]
+fn project_backed_widthratio_completes_correlated_django_forms() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let django_root = corpus
+        .latest_package("django")
+        .expect("a synced Django package should be available");
+    let defaulttags_source = fs::read_to_string(django_root.join("django/template/defaulttags.py"))
+        .expect("Django defaulttags source should be readable");
+
+    let cases = [
+        ("full.html", "{% widthratio § %}"),
+        ("suffix.html", "{% widthratio this max width § %}"),
+        ("target.html", "{% widthratio this max width as § %}"),
+        (
+            "incompatible.html",
+            "{% widthratio this max width nope § %}",
+        ),
+    ];
+    let parsed_cases = cases
+        .iter()
+        .map(|(name, marked)| {
+            let (source, offset) = source_and_offset(marked)
+                .expect("widthratio completion case should contain a cursor marker");
+            ((*name).to_string(), source, offset)
+        })
+        .collect::<Vec<_>>();
+
+    let mut fixture = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['django.template.defaulttags']}}]\n",
+        )
+        .file("/test/project/django/__init__.py", "")
+        .file("/test/project/django/template/__init__.py", "")
+        .file(
+            "/test/project/django/template/defaulttags.py",
+            &defaulttags_source,
+        );
+    for (name, source, _) in &parsed_cases {
+        fixture = fixture.file(format!("/test/project/templates/{name}"), source);
+    }
+
+    let mut db = TestDatabase::new();
+    fixture
+        .install(&mut db)
+        .expect("widthratio completion project fixture should install");
+
+    let items_for = |name: &str, offset: Offset| -> Vec<ls_types::CompletionItem> {
+        let file = db
+            .file(Utf8Path::new(&format!("/test/project/templates/{name}")))
+            .expect("widthratio template fixture should exist");
+        match completion(&db, file, offset, PositionEncoding::Utf16, true) {
+            Some(ls_types::CompletionResponse::Array(items)) => items,
+            Some(ls_types::CompletionResponse::List(list)) => list.items,
+            None => Vec::new(),
+        }
+    };
+    let inserted_text = |item: &ls_types::CompletionItem| match item.text_edit.as_ref() {
+        Some(ls_types::CompletionTextEdit::Edit(edit)) => Some(edit.new_text.clone()),
+        Some(ls_types::CompletionTextEdit::InsertAndReplace(edit)) => Some(edit.new_text.clone()),
+        None => item.insert_text.clone(),
+    };
+
+    let full = items_for("full.html", parsed_cases[0].2);
+    let full_snippet = full
+        .iter()
+        .find(|item| item.label == "widthratio arguments")
+        .expect("the three-argument widthratio form should produce a snippet");
+    assert_eq!(
+        inserted_text(full_snippet).as_deref(),
+        Some("${1:this_value_expr} ${2:max_value_expr} ${3:max_width}")
+    );
+
+    let suffix = items_for("suffix.html", parsed_cases[1].2);
+    assert!(suffix.iter().any(|item| item.label == "as"));
+    assert!(
+        suffix
+            .iter()
+            .any(|item| item.label == "remaining arguments")
+    );
+
+    let target = items_for("target.html", parsed_cases[2].2);
+    assert!(target.iter().any(|item| item.label == "<asvar>"));
+    assert!(
+        target
+            .iter()
+            .any(|item| item.label == "remaining arguments")
+    );
+
+    let incompatible = items_for("incompatible.html", parsed_cases[3].2);
+    assert!(
+        incompatible.is_empty(),
+        "an incompatible earlier literal must reject every widthratio form: {incompatible:?}"
     );
 }
 

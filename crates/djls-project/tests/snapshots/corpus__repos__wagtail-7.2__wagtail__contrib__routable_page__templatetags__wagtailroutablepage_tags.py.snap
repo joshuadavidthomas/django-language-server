@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "wagtail.contrib.routable_page.templatetags.wagtailroutablepage_tags::tag::routablepageurl":
@@ -9,16 +9,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
-      - name: url_name
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
+        - name: url_name
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
 filter_arities: {}
 block_specs: {}

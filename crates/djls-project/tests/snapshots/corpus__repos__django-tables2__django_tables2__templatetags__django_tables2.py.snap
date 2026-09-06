@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "django_tables2.templatetags.django_tables2::tag::export_url":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: export_format
-        required: true
-        kind: Variable
-      - name: export_trigger_param
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: export_format
+          requirement: required
+          kind: Variable
+        - name: export_trigger_param
+          requirement: optional
+          kind: Variable
     as_var: strip
   "django_tables2.templatetags.django_tables2::tag::render_attrs":
     arg_constraints:
@@ -24,10 +25,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: attrs
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: attrs
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "django_tables2.templatetags.django_tables2::filter::table_page_range": required_argument

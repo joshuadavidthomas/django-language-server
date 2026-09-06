@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "cms.templatetags.cms_js_tags::tag::render_cms_structure_js":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: renderer
-        required: true
-        kind: Variable
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: renderer
+          requirement: required
+          kind: Variable
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "cms.templatetags.cms_js_tags::tag::render_plugin_init_js":
     arg_constraints:
@@ -25,10 +26,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: plugin
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: plugin
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "cms.templatetags.cms_js_tags::filter::bool": no_argument

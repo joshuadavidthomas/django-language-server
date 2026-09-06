@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "cms.templatetags.cms_tags::tag::render_extra_menu_items":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
-      - name: template
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
+        - name: template
+          requirement: optional
+          kind: Variable
     as_var: strip
   "cms.templatetags.cms_tags::tag::render_plugin":
     arg_constraints:
@@ -25,10 +26,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: plugin
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: plugin
+          requirement: required
+          kind: Variable
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_placeholder":
     arg_constraints:
@@ -37,25 +39,26 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: context
-        required: true
-        kind: Variable
-      - name: placeholder_name
-        required: true
-        kind: Variable
-      - name: reverse_id
-        required: true
-        kind: Variable
-      - name: lang
-        required: false
-        kind: Variable
-      - name: site
-        required: false
-        kind: Variable
-      - name: use_cache
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: context
+          requirement: required
+          kind: Variable
+        - name: placeholder_name
+          requirement: required
+          kind: Variable
+        - name: reverse_id
+          requirement: required
+          kind: Variable
+        - name: lang
+          requirement: optional
+          kind: Variable
+        - name: site
+          requirement: optional
+          kind: Variable
+        - name: use_cache
+          requirement: optional
+          kind: Variable
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_placeholder_by_id":
     arg_constraints:
@@ -64,25 +67,26 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: context
-        required: true
-        kind: Variable
-      - name: placeholder_name
-        required: true
-        kind: Variable
-      - name: reverse_id
-        required: true
-        kind: Variable
-      - name: lang
-        required: false
-        kind: Variable
-      - name: site
-        required: false
-        kind: Variable
-      - name: use_cache
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: context
+          requirement: required
+          kind: Variable
+        - name: placeholder_name
+          requirement: required
+          kind: Variable
+        - name: reverse_id
+          requirement: required
+          kind: Variable
+        - name: lang
+          requirement: optional
+          kind: Variable
+        - name: site
+          requirement: optional
+          kind: Variable
+        - name: use_cache
+          requirement: optional
+          kind: Variable
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_uncached_placeholder":
     arg_constraints:
@@ -90,13 +94,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: context
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: context
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_uncached_placeholder_by_id":
     arg_constraints:
@@ -104,13 +109,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: context
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: context
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
 filter_arities: {}
 block_specs: {}

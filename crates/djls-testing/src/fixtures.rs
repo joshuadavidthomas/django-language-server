@@ -659,10 +659,15 @@ def url(parser, token):
 @register.tag
 def widthratio(parser, token):
     bits = token.split_contents()
-    if len(bits) not in (4, 6):
+    if len(bits) == 4:
+        tag, this_value_expr, max_value_expr, max_width = bits
+        asvar = None
+    elif len(bits) == 6:
+        tag, this_value_expr, max_value_expr, max_width, as_, asvar = bits
+        if as_ != "as":
+            raise TemplateSyntaxError("Invalid syntax in widthratio tag. Expecting 'as' keyword")
+    else:
         raise TemplateSyntaxError("widthratio takes at least three arguments")
-    if len(bits) == 6 and bits[4] != "as":
-        raise TemplateSyntaxError("Invalid syntax in widthratio tag. Expecting 'as' keyword")
 "#,
     );
 

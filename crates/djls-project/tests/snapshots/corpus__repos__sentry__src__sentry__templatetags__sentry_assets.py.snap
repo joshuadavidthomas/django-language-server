@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.sentry.templatetags.sentry_assets::tag::absolute_asset_url":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: module
-        required: true
-        kind: Variable
-      - name: path
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: module
+          requirement: required
+          kind: Variable
+        - name: path
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_assets::tag::crossorigin":
     arg_constraints:
@@ -24,7 +25,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.sentry.templatetags.sentry_assets::tag::injected_script_assets":
     arg_constraints:
@@ -32,7 +34,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities: {}
 block_specs:

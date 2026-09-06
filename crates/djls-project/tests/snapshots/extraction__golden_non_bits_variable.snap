@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"custom parser extraction snapshot should serialize\")"
 ---
 tag_rules:
   "app.templatetags.custom::tag::custom_tag":
@@ -15,13 +15,14 @@ tag_rules:
             Exact: 3
         message:
           Static: "'custom_tag' requires exactly two arguments"
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-      - name: arg2
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

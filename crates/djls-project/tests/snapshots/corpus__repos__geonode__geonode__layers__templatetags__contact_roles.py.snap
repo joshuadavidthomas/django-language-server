@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "geonode.layers.templatetags.contact_roles::tag::getattribute":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: form
-        required: true
-        kind: Variable
-      - name: contact
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: form
+          requirement: required
+          kind: Variable
+        - name: contact
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "geonode.layers.templatetags.contact_roles::filter::get_contact_role_id": required_argument

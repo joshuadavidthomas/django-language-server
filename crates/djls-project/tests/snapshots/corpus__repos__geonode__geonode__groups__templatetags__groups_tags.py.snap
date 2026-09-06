@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "geonode.groups.templatetags.groups_tags::tag::group_profile_image":
@@ -10,16 +10,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: group_profile
-        required: true
-        kind: Variable
-      - name: css_classes
-        required: false
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: group_profile
+          requirement: required
+          kind: Variable
+        - name: css_classes
+          requirement: optional
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

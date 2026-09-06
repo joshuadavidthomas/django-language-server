@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.pretix.base.templatetags.textbubble::tag::endtextbubble":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.pretix.base.templatetags.textbubble::tag::textbubble":
     arg_constraints:
@@ -17,13 +18,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: type
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: type
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
 filter_arities: {}
 block_specs: {}

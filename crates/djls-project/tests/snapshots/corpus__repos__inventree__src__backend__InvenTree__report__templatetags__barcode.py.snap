@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.backend.InvenTree.report.templatetags.barcode::tag::barcode":
@@ -9,13 +9,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: data
-        required: true
-        kind: Variable
-      - name: barcode_class
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: data
+          requirement: required
+          kind: Variable
+        - name: barcode_class
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::clean_barcode":
     arg_constraints:
@@ -24,10 +25,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: data
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: data
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::datamatrix":
     arg_constraints:
@@ -35,10 +37,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: data
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: data
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::qrcode":
     arg_constraints:
@@ -46,10 +49,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: data
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: data
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

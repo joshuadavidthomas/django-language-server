@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "hyperkitty.templatetags.hk_generic::tag::export_allowed":
@@ -9,17 +9,19 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "hyperkitty.templatetags.hk_generic::tag::gravatar":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "hyperkitty.templatetags.hk_generic::tag::is_message_new":
     arg_constraints:
@@ -28,10 +30,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: refdate
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: refdate
+          requirement: required
+          kind: Variable
     as_var: strip
   "hyperkitty.templatetags.hk_generic::tag::settings_value_equals":
     arg_constraints:
@@ -40,13 +43,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: name
-        required: true
-        kind: Variable
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: name
+          requirement: required
+          kind: Variable
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "hyperkitty.templatetags.hk_generic::filter::date_with_senders_timezone": no_argument

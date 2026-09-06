@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.pretix.base.templatetags.eventsignal::tag::eventsignal":
@@ -9,13 +9,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: event
-        required: true
-        kind: Variable
-      - name: signame
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: event
+          requirement: required
+          kind: Variable
+        - name: signame
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.pretix.base.templatetags.eventsignal::tag::signal":
     arg_constraints:
@@ -23,13 +24,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: signame
-        required: true
-        kind: Variable
-      - name: request
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: signame
+          requirement: required
+          kind: Variable
+        - name: request
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -165,6 +165,20 @@ impl Env {
         }
     }
 
+    /// Keep only bindings that have the same exact value on every branch.
+    #[must_use]
+    pub(crate) fn join_exact(branches: &[Self]) -> Self {
+        let Some((first, rest)) = branches.split_first() else {
+            return Self::default();
+        };
+        let mut joined = first.clone();
+        joined.bindings.retain(|name, value| {
+            rest.iter()
+                .all(|branch| branch.bindings.get(name) == Some(value))
+        });
+        joined
+    }
+
     /// Iterate over all bindings.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&str, &AbstractValue)> {
         self.bindings.iter().map(|(k, v)| (k.as_str(), v))

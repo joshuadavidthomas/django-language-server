@@ -1,9 +1,11 @@
 use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
+use djls_project::ArgumentFormCoverage;
 use djls_project::BodyAnalysisEvidence;
 use djls_project::FilterArity;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
+use djls_project::TagArgumentKind;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_library_definition_facts;
@@ -1607,7 +1609,12 @@ fn corpus_simple_tag_no_args() {
     let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "no_params");
     assert!(result.tag_rules.contains_key(&key));
     let rule = &result.tag_rules[&key];
-    assert!(rule.extracted_args.is_empty());
+    assert!(
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")
+            .is_empty()
+    );
 }
 
 // Corpus: `one_param` in custom.py — @register.simple_tag with one required arg.
@@ -1618,8 +1625,20 @@ fn corpus_simple_tag_with_args() {
     let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "one_param");
     assert!(result.tag_rules.contains_key(&key));
     let rule = &result.tag_rules[&key];
-    assert_eq!(rule.extracted_args.len(), 1);
-    assert!(rule.extracted_args[0].required);
+    assert_eq!(
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")
+            .len(),
+        1
+    );
+    assert!(
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")[0]
+            .requirement
+            .is_required()
+    );
 }
 
 // Corpus: `no_params_with_context` in custom.py —
@@ -1635,7 +1654,10 @@ fn corpus_simple_tag_takes_context() {
     assert!(result.tag_rules.contains_key(&key));
     let rule = &result.tag_rules[&key];
     assert!(
-        rule.extracted_args.is_empty(),
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")
+            .is_empty(),
         "context param should not appear as extracted arg"
     );
 }
@@ -1655,8 +1677,20 @@ fn corpus_inclusion_tag() {
     );
     assert!(result.tag_rules.contains_key(&key));
     let rule = &result.tag_rules[&key];
-    assert_eq!(rule.extracted_args.len(), 1);
-    assert!(rule.extracted_args[0].required);
+    assert_eq!(
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")
+            .len(),
+        1
+    );
+    assert!(
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")[0]
+            .requirement
+            .is_required()
+    );
 }
 
 // Corpus: `inclusion_no_params_with_context` in inclusion.py —
@@ -1675,7 +1709,10 @@ fn corpus_inclusion_tag_takes_context() {
     assert!(result.tag_rules.contains_key(&key));
     let rule = &result.tag_rules[&key];
     assert!(
-        rule.extracted_args.is_empty(),
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")
+            .is_empty(),
         "context param should not appear as extracted arg"
     );
 }
@@ -1695,9 +1732,28 @@ fn corpus_inclusion_tag_with_args() {
     );
     assert!(result.tag_rules.contains_key(&key));
     let rule = &result.tag_rules[&key];
-    assert_eq!(rule.extracted_args.len(), 2);
-    assert!(rule.extracted_args[0].required);
-    assert!(!rule.extracted_args[1].required);
+    assert_eq!(
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")
+            .len(),
+        2
+    );
+    assert!(
+        rule.argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")[0]
+            .requirement
+            .is_required()
+    );
+    assert!(
+        !rule
+            .argument_syntax
+            .parameters()
+            .expect("expected parameter syntax")[1]
+            .requirement
+            .is_required()
+    );
 }
 
 // Corpus: `querystring` in defaulttags.py — @register.simple_tag(name="querystring",
@@ -1713,9 +1769,8 @@ fn corpus_simple_tag_with_name_kwarg() {
     );
 }
 
-// Corpus: `widthratio` in defaulttags.py — real Django uses
-// `if len(bits) == 4 / elif len(bits) == 6 / else` pattern, which
-// extracts as required keyword "as" at position 4 (for the 6-arg form).
+// Corpus: `widthratio` in defaulttags.py uses Django's real exhaustive
+// `if len(bits) == 4 / elif len(bits) == 6 / else: raise` dispatch.
 #[test]
 fn corpus_len_exact_check() {
     let result = extract_source(DEFAULTTAGS_SOURCE, "django.template.defaulttags")
@@ -1726,10 +1781,23 @@ fn corpus_len_exact_check() {
         "widthratio should be extracted"
     );
     let rule = &result.tag_rules[&key];
-    assert!(
-        !rule.required_keywords.is_empty(),
-        "widthratio should have required keyword (as)"
+    let (forms, coverage) = rule
+        .argument_syntax
+        .forms()
+        .expect("widthratio should retain correlated forms");
+    assert_eq!(coverage, ArgumentFormCoverage::Complete);
+    assert_eq!(
+        forms
+            .iter()
+            .map(|form| form.arguments.len())
+            .collect::<Vec<_>>(),
+        vec![3, 5]
     );
+    assert_eq!(
+        forms[1].arguments[3].kind,
+        TagArgumentKind::Literal("as".into())
+    );
+    assert_eq!(forms[1].arguments[4].name, "asvar");
 }
 
 // Corpus: `cycle` in defaulttags.py — `len(args) < 2` → Min(2).

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "core.templatetags.page_metadata_tags::tag::page_metadata":
@@ -9,19 +9,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page_title
-        required: false
-        kind: Variable
-      - name: page_description
-        required: false
-        kind: Variable
-      - name: page_keywords
-        required: false
-        kind: Variable
-      - name: og_image_url
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page_title
+          requirement: optional
+          kind: Variable
+        - name: page_description
+          requirement: optional
+          kind: Variable
+        - name: page_keywords
+          requirement: optional
+          kind: Variable
+        - name: og_image_url
+          requirement: optional
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

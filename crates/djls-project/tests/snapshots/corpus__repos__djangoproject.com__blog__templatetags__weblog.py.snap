@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "blog.templatetags.weblog::tag::render_latest_blog_entries":
@@ -10,19 +10,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: num
-        required: true
-        kind: Variable
-      - name: summary_first
-        required: false
-        kind: Variable
-      - name: hide_readmore
-        required: false
-        kind: Variable
-      - name: header_tag
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: num
+          requirement: required
+          kind: Variable
+        - name: summary_first
+          requirement: optional
+          kind: Variable
+        - name: hide_readmore
+          requirement: optional
+          kind: Variable
+        - name: header_tag
+          requirement: optional
+          kind: Variable
     as_var: keep
   "blog.templatetags.weblog::tag::render_month_links":
     arg_constraints:
@@ -30,7 +31,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
 filter_arities: {}
 block_specs: {}

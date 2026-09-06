@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "releases.templatetags.date_format::tag::isodate":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: datestr
-        required: true
-        kind: Variable
-      - name: dateformat
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: datestr
+          requirement: required
+          kind: Variable
+        - name: dateformat
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

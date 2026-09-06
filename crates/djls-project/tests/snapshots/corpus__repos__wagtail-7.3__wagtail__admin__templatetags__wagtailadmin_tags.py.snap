@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::absolute_static":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: path
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: path
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::admin_edit_url":
     arg_constraints:
@@ -22,13 +23,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
-      - name: user
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
+        - name: user
+          requirement: optional
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::admin_theme_classname":
     arg_constraints:
@@ -36,7 +38,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::admin_theme_color_scheme":
     arg_constraints:
@@ -44,7 +47,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::admin_url_name":
     arg_constraints:
@@ -53,13 +57,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
-      - name: action
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
+        - name: action
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::allow_unicode_slugs":
     arg_constraints:
@@ -67,7 +72,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::avatar":
     arg_constraints:
@@ -75,25 +81,26 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: false
-        kind: Variable
-      - name: classname
-        required: false
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
-      - name: tooltip
-        required: false
-        kind: Variable
-      - name: tooltip_html
-        required: false
-        kind: Variable
-      - name: edit_link
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: optional
+          kind: Variable
+        - name: classname
+          requirement: optional
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
+        - name: tooltip
+          requirement: optional
+          kind: Variable
+        - name: tooltip_html
+          requirement: optional
+          kind: Variable
+        - name: edit_link
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::avatar_url":
     arg_constraints:
@@ -102,16 +109,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
-      - name: size
-        required: false
-        kind: Variable
-      - name: gravatar_only
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: user
+          requirement: required
+          kind: Variable
+        - name: size
+          requirement: optional
+          kind: Variable
+        - name: gravatar_only
+          requirement: optional
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::base_url_setting":
     arg_constraints:
@@ -119,10 +127,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: default
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: default
+          requirement: optional
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::breadcrumbs":
     arg_constraints:
@@ -131,19 +140,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: items
-        required: true
-        kind: Variable
-      - name: is_expanded
-        required: false
-        kind: Variable
-      - name: classname
-        required: false
-        kind: Variable
-      - name: icon_name
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: items
+          requirement: required
+          kind: Variable
+        - name: is_expanded
+          requirement: optional
+          kind: Variable
+        - name: classname
+          requirement: optional
+          kind: Variable
+        - name: icon_name
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::build_absolute_url":
     arg_constraints:
@@ -152,10 +162,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: url
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: url
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::bulk_action_choices":
     arg_constraints:
@@ -164,23 +175,25 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: app_label
-        required: true
-        kind: Variable
-      - name: model_name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: app_label
+          requirement: required
+          kind: Variable
+        - name: model_name
+          requirement: required
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::classnames":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: classes
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: classes
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::dialog_toggle":
     arg_constraints:
@@ -189,16 +202,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: dialog_id
-        required: true
-        kind: Variable
-      - name: classname
-        required: false
-        kind: Variable
-      - name: text
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: dialog_id
+          requirement: required
+          kind: Variable
+        - name: classname
+          requirement: optional
+          kind: Variable
+        - name: text
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::formattedfield":
     arg_constraints:
@@ -206,49 +220,50 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: field
-        required: false
-        kind: Variable
-      - name: rendered_field
-        required: false
-        kind: Variable
-      - name: classname
-        required: false
-        kind: Variable
-      - name: show_label
-        required: false
-        kind: Variable
-      - name: id_for_label
-        required: false
-        kind: Variable
-      - name: sr_only_label
-        required: false
-        kind: Variable
-      - name: icon
-        required: false
-        kind: Variable
-      - name: help_text
-        required: false
-        kind: Variable
-      - name: help_text_id
-        required: false
-        kind: Variable
-      - name: show_add_comment_button
-        required: false
-        kind: Variable
-      - name: label_text
-        required: false
-        kind: Variable
-      - name: error_message_id
-        required: false
-        kind: Variable
-      - name: wrapper_id
-        required: false
-        kind: Variable
-      - name: attrs
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: field
+          requirement: optional
+          kind: Variable
+        - name: rendered_field
+          requirement: optional
+          kind: Variable
+        - name: classname
+          requirement: optional
+          kind: Variable
+        - name: show_label
+          requirement: optional
+          kind: Variable
+        - name: id_for_label
+          requirement: optional
+          kind: Variable
+        - name: sr_only_label
+          requirement: optional
+          kind: Variable
+        - name: icon
+          requirement: optional
+          kind: Variable
+        - name: help_text
+          requirement: optional
+          kind: Variable
+        - name: help_text_id
+          requirement: optional
+          kind: Variable
+        - name: show_add_comment_button
+          requirement: optional
+          kind: Variable
+        - name: label_text
+          requirement: optional
+          kind: Variable
+        - name: error_message_id
+          requirement: optional
+          kind: Variable
+        - name: wrapper_id
+          requirement: optional
+          kind: Variable
+        - name: attrs
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::formattedfieldfromcontext":
     arg_constraints:
@@ -256,7 +271,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::get_comments_enabled":
     arg_constraints:
@@ -264,7 +280,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::hook_output":
     arg_constraints:
@@ -273,10 +290,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: hook_name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: hook_name
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::human_readable_date":
     arg_constraints:
@@ -285,16 +303,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: date
-        required: true
-        kind: Variable
-      - name: description
-        required: false
-        kind: Variable
-      - name: placement
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: date
+          requirement: required
+          kind: Variable
+        - name: description
+          requirement: optional
+          kind: Variable
+        - name: placement
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::i18n_enabled":
     arg_constraints:
@@ -302,7 +321,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::icon":
     arg_constraints:
@@ -310,19 +330,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: name
-        required: false
-        kind: Variable
-      - name: classname
-        required: false
-        kind: Variable
-      - name: title
-        required: false
-        kind: Variable
-      - name: wrapped
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: name
+          requirement: optional
+          kind: Variable
+        - name: classname
+          requirement: optional
+          kind: Variable
+        - name: title
+          requirement: optional
+          kind: Variable
+        - name: wrapped
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::is_page":
     arg_constraints:
@@ -331,10 +352,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::keyboard_shortcuts_dialog":
     arg_constraints:
@@ -342,7 +364,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::latest_str":
     arg_constraints:
@@ -351,10 +374,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::locale_label_from_id":
     arg_constraints:
@@ -363,10 +387,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: locale_id
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: locale_id
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::message_level_tag":
     arg_constraints:
@@ -375,10 +400,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: message
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: message
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::message_tags":
     arg_constraints:
@@ -387,10 +413,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: message
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: message
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_breadcrumbs":
     arg_constraints:
@@ -399,34 +426,35 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
-      - name: url_name
-        required: true
-        kind: Variable
-      - name: url_root_name
-        required: false
-        kind: Variable
-      - name: include_self
-        required: false
-        kind: Variable
-      - name: is_expanded
-        required: false
-        kind: Variable
-      - name: querystring_value
-        required: false
-        kind: Variable
-      - name: trailing_breadcrumb_title
-        required: false
-        kind: Variable
-      - name: classname
-        required: false
-        kind: Variable
-      - name: icon_name
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
+        - name: url_name
+          requirement: required
+          kind: Variable
+        - name: url_root_name
+          requirement: optional
+          kind: Variable
+        - name: include_self
+          requirement: optional
+          kind: Variable
+        - name: is_expanded
+          requirement: optional
+          kind: Variable
+        - name: querystring_value
+          requirement: optional
+          kind: Variable
+        - name: trailing_breadcrumb_title
+          requirement: optional
+          kind: Variable
+        - name: classname
+          requirement: optional
+          kind: Variable
+        - name: icon_name
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_header_buttons":
     arg_constraints:
@@ -435,16 +463,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
-      - name: user
-        required: true
-        kind: Variable
-      - name: view_name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
+        - name: user
+          requirement: required
+          kind: Variable
+        - name: view_name
+          requirement: required
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_listing_buttons":
     arg_constraints:
@@ -453,16 +482,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
-      - name: user
-        required: true
-        kind: Variable
-      - name: next_url
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
+        - name: user
+          requirement: required
+          kind: Variable
+        - name: next_url
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_permissions":
     arg_constraints:
@@ -471,10 +501,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::paginate":
     arg_constraints:
@@ -483,19 +514,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
-      - name: base_url
-        required: false
-        kind: Variable
-      - name: page_key
-        required: false
-        kind: Variable
-      - name: classname
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
+        - name: base_url
+          requirement: optional
+          kind: Variable
+        - name: page_key
+          requirement: optional
+          kind: Variable
+        - name: classname
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::pagination_querystring":
     arg_constraints:
@@ -504,13 +536,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page_number
-        required: true
-        kind: Variable
-      - name: page_key
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page_number
+          requirement: required
+          kind: Variable
+        - name: page_key
+          requirement: optional
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::resolve_url":
     arg_constraints:
@@ -519,10 +552,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: url
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: url
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::search_other":
     arg_constraints:
@@ -530,10 +564,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: current
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: current
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::sidebar_collapsed":
     arg_constraints:
@@ -541,7 +576,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::sidebar_props":
     arg_constraints:
@@ -549,7 +585,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::status":
     arg_constraints:
@@ -557,25 +594,26 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: label
-        required: false
-        kind: Variable
-      - name: classname
-        required: false
-        kind: Variable
-      - name: url
-        required: false
-        kind: Variable
-      - name: title
-        required: false
-        kind: Variable
-      - name: hidden_label
-        required: false
-        kind: Variable
-      - name: attrs
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: label
+          requirement: optional
+          kind: Variable
+        - name: classname
+          requirement: optional
+          kind: Variable
+        - name: url
+          requirement: optional
+          kind: Variable
+        - name: title
+          requirement: optional
+          kind: Variable
+        - name: hidden_label
+          requirement: optional
+          kind: Variable
+        - name: attrs
+          requirement: optional
+          kind: Variable
     as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::test_collection_is_public":
     arg_constraints:
@@ -584,10 +622,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: collection
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: collection
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::test_page_is_public":
     arg_constraints:
@@ -596,10 +635,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: page
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::timesince_last_update":
     arg_constraints:
@@ -608,19 +648,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: last_update
-        required: true
-        kind: Variable
-      - name: show_time_prefix
-        required: false
-        kind: Variable
-      - name: user_display_name
-        required: false
-        kind: Variable
-      - name: use_shorthand
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: last_update
+          requirement: required
+          kind: Variable
+        - name: show_time_prefix
+          requirement: optional
+          kind: Variable
+        - name: user_display_name
+          requirement: optional
+          kind: Variable
+        - name: use_shorthand
+          requirement: optional
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::versioned_static":
     arg_constraints:
@@ -629,10 +670,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: path
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: path
+          requirement: required
+          kind: Variable
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::wagtail_config":
     arg_constraints:
@@ -640,7 +682,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::workflow_status_with_date":
     arg_constraints:
@@ -649,10 +692,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: workflow_state
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: workflow_state
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::abs": no_argument

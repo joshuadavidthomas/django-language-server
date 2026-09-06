@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "tests.template_tests.templatetags.inclusion::tag::inclusion_explicit_no_context":
@@ -10,11 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_explicit_no_context_from_template":
     arg_constraints:
@@ -23,11 +23,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_extends1":
     arg_constraints:
@@ -35,7 +35,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_extends2":
     arg_constraints:
@@ -43,7 +44,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_keyword_only_default":
     arg_constraints:
@@ -51,11 +53,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: kwarg
-        required: false
-        kind: Keyword
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: kwarg
+          requirement: optional
+          kind: Keyword
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params":
     arg_constraints:
@@ -63,7 +65,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params_from_template":
     arg_constraints:
@@ -71,7 +74,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params_with_context":
     arg_constraints:
@@ -79,7 +83,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params_with_context_from_template":
     arg_constraints:
@@ -87,7 +92,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_one_default":
     arg_constraints:
@@ -96,15 +102,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-        position: 0
-      - name: two
-        required: false
-        kind: Variable
-        position: 1
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_one_default_from_template":
     arg_constraints:
@@ -113,15 +118,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-        position: 0
-      - name: two
-        required: false
-        kind: Variable
-        position: 1
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_one_param":
     arg_constraints:
@@ -130,11 +134,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_one_param_from_template":
     arg_constraints:
@@ -143,33 +147,33 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_only_unlimited_args":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_only_unlimited_args_from_template":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_params_and_context":
     arg_constraints:
@@ -178,11 +182,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_params_and_context_from_template":
     arg_constraints:
@@ -191,11 +195,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg
-        required: true
-        kind: Variable
-        position: 0
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_takes_context_without_params":
     arg_constraints:
@@ -203,7 +207,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_use_l10n":
     arg_constraints:
@@ -211,7 +216,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_without_context_parameter":
     arg_constraints:
@@ -219,7 +225,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_two_params":
     arg_constraints:
@@ -228,15 +235,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-        position: 0
-      - name: two
-        required: true
-        kind: Variable
-        position: 1
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: required
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_two_params_from_template":
     arg_constraints:
@@ -245,15 +251,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-        position: 0
-      - name: two
-        required: true
-        kind: Variable
-        position: 1
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: required
+          kind: Variable
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args":
     arg_constraints:
@@ -261,19 +266,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-        position: 0
-      - name: two
-        required: false
-        kind: Variable
-        position: 1
-      - name: args
-        required: false
-        kind: VarArgs
-        position: 2
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args_from_template":
     arg_constraints:
@@ -281,19 +284,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-        position: 0
-      - name: two
-        required: false
-        kind: Variable
-        position: 1
-      - name: args
-        required: false
-        kind: VarArgs
-        position: 2
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args_kwargs":
     arg_constraints:
@@ -301,19 +302,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: one
-        required: true
-        kind: Variable
-        position: 0
-      - name: two
-        required: false
-        kind: Variable
-        position: 1
-      - name: args
-        required: false
-        kind: VarArgs
-        position: 2
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: keep
 filter_arities: {}
 block_specs: {}

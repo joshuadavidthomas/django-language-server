@@ -1,5 +1,7 @@
+use djls_semantic::ArgumentFormCoverage;
 use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
+use djls_semantic::TagArgumentSyntax;
 use djls_semantic::TagSpec;
 
 /// Generate an LSP snippet pattern from an array of tag arguments.
@@ -11,12 +13,12 @@ fn generate_snippet_from_args(args: &[TagArgument]) -> String {
     for arg in args {
         // Skip optional literals entirely - they're usually flags like "reversed" or "only"
         // that the user can add manually if needed
-        if !arg.required && matches!(arg.kind, TagArgumentKind::Literal(_)) {
+        if !arg.requirement.is_required() && matches!(arg.kind, TagArgumentKind::Literal(_)) {
             continue;
         }
 
         // Skip other optional args if we haven't seen any required args yet
-        if !arg.required && parts.is_empty() {
+        if !arg.requirement.is_required() && parts.is_empty() {
             continue;
         }
 
@@ -47,14 +49,43 @@ fn generate_snippet_from_args(args: &[TagArgument]) -> String {
 /// Generate a complete LSP snippet for a tag including the tag name
 #[must_use]
 fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
-    let args = spec.arguments();
-
-    let args_snippet = generate_snippet_from_args(args);
+    let arguments = match spec.argument_syntax() {
+        TagArgumentSyntax::Parameters(arguments) => Some(arguments.as_slice()),
+        TagArgumentSyntax::Forms {
+            forms,
+            coverage: ArgumentFormCoverage::Complete,
+        } => forms
+            .iter()
+            .min_by_key(|form| form.arguments.len())
+            .map(|form| form.arguments.as_slice()),
+        TagArgumentSyntax::Unknown
+        | TagArgumentSyntax::Forms {
+            coverage: ArgumentFormCoverage::Partial,
+            ..
+        } => None,
+    };
+    let args_snippet = arguments.map_or_else(String::new, generate_snippet_from_args);
 
     if args_snippet.is_empty() {
         tag_name.to_string()
     } else {
         format!("{tag_name} {args_snippet}")
+    }
+}
+
+#[must_use]
+pub(crate) fn has_full_argument_snippet(spec: &TagSpec) -> bool {
+    match spec.argument_syntax() {
+        TagArgumentSyntax::Parameters(arguments) => !arguments.is_empty(),
+        TagArgumentSyntax::Forms {
+            forms,
+            coverage: ArgumentFormCoverage::Complete,
+        } => forms.iter().any(|form| !form.arguments.is_empty()),
+        TagArgumentSyntax::Unknown
+        | TagArgumentSyntax::Forms {
+            coverage: ArgumentFormCoverage::Partial,
+            ..
+        } => false,
     }
 }
 
@@ -81,31 +112,98 @@ pub(crate) fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) 
     snippet
 }
 
-/// Generate a partial snippet starting from a specific argument position
+/// Return next parameters from forms compatible with the arguments already typed.
 #[must_use]
-pub(crate) fn generate_partial_snippet(spec: &TagSpec, starting_from_position: usize) -> String {
-    let args = spec.arguments();
+pub(crate) fn compatible_arguments_at<'a>(
+    spec: &'a TagSpec,
+    completed_arguments: &[&str],
+    position: usize,
+) -> Vec<&'a TagArgument> {
+    let sequences: Vec<&[TagArgument]> = match spec.argument_syntax() {
+        TagArgumentSyntax::Unknown => Vec::new(),
+        TagArgumentSyntax::Parameters(arguments) => vec![arguments],
+        TagArgumentSyntax::Forms { forms, .. } => {
+            forms.iter().map(|form| form.arguments.as_slice()).collect()
+        }
+    };
 
-    if starting_from_position >= args.len() {
-        return String::new();
+    let mut arguments = Vec::new();
+    for sequence in sequences {
+        if sequence.len() <= position || !arguments_match_prefix(sequence, completed_arguments) {
+            continue;
+        }
+        let argument = &sequence[position];
+        if !arguments.contains(&argument) {
+            arguments.push(argument);
+        }
     }
+    arguments
+}
 
-    let remaining_args = &args[starting_from_position..];
-    generate_snippet_from_args(remaining_args)
+/// Generate a partial snippet from the shortest compatible syntax sequence.
+#[must_use]
+pub(crate) fn generate_partial_snippet(
+    spec: &TagSpec,
+    completed_arguments: &[&str],
+    starting_from_position: usize,
+) -> String {
+    let sequence = match spec.argument_syntax() {
+        TagArgumentSyntax::Unknown => None,
+        TagArgumentSyntax::Parameters(arguments) => Some(arguments.as_slice()),
+        TagArgumentSyntax::Forms { forms, .. } => forms
+            .iter()
+            .filter(|form| {
+                form.arguments.len() > starting_from_position
+                    && arguments_match_prefix(&form.arguments, completed_arguments)
+            })
+            .min_by_key(|form| form.arguments.len())
+            .map(|form| form.arguments.as_slice()),
+    };
+    let Some(sequence) = sequence else {
+        return String::new();
+    };
+    let Some(remaining) = sequence.get(starting_from_position..) else {
+        return String::new();
+    };
+    generate_snippet_from_args(remaining)
+}
+
+fn arguments_match_prefix(arguments: &[TagArgument], completed: &[&str]) -> bool {
+    completed.len() <= arguments.len()
+        && arguments
+            .iter()
+            .zip(completed)
+            .all(|(argument, bit)| match &argument.kind {
+                TagArgumentKind::Literal(value) => value == bit,
+                TagArgumentKind::Choice(values) => values.iter().any(|value| value == bit),
+                TagArgumentKind::Variable | TagArgumentKind::VarArgs | TagArgumentKind::Keyword => {
+                    true
+                }
+            })
 }
 
 #[cfg(test)]
 mod tests {
     use djls_semantic::EndTag;
+    use djls_semantic::ParameterRequirement;
     use djls_semantic::TagArgument;
+    use djls_semantic::TagArgumentForm;
     use djls_semantic::TagArgumentKind;
 
     use super::*;
 
+    fn requirement(required: bool) -> ParameterRequirement {
+        if required {
+            ParameterRequirement::Required
+        } else {
+            ParameterRequirement::Optional
+        }
+    }
+
     fn make_var(name: &str, required: bool) -> TagArgument {
         TagArgument {
             name: name.to_string(),
-            required,
+            requirement: requirement(required),
             kind: TagArgumentKind::Variable,
         }
     }
@@ -113,7 +211,7 @@ mod tests {
     fn make_literal(value: &str, required: bool) -> TagArgument {
         TagArgument {
             name: value.to_string(),
-            required,
+            requirement: requirement(required),
             kind: TagArgumentKind::Literal(value.to_string()),
         }
     }
@@ -121,7 +219,7 @@ mod tests {
     fn make_choice(name: &str, required: bool, choices: Vec<&str>) -> TagArgument {
         TagArgument {
             name: name.to_string(),
-            required,
+            requirement: requirement(required),
             kind: TagArgumentKind::Choice(choices.into_iter().map(String::from).collect()),
         }
     }
@@ -129,7 +227,7 @@ mod tests {
     fn make_varargs(name: &str, required: bool) -> TagArgument {
         TagArgument {
             name: name.to_string(),
-            required,
+            requirement: requirement(required),
             kind: TagArgumentKind::VarArgs,
         }
     }
@@ -184,7 +282,7 @@ mod tests {
             Cow::Borrowed(&[]),
             djls_semantic::BodyAnalysis::Analyze,
         )
-        .with_arguments(vec![make_var("name", true)]);
+        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![make_var("name", true)]));
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
         assert_eq!(snippet, "block ${1:name} %}\n$0\n{% endblock ${1} %}");
@@ -203,13 +301,86 @@ mod tests {
             Cow::Borrowed(&[]),
             djls_semantic::BodyAnalysis::Analyze,
         )
-        .with_arguments(vec![make_choice("mode", true, vec!["on", "off"])]);
+        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![make_choice(
+            "mode",
+            true,
+            vec!["on", "off"],
+        )]));
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);
         assert_eq!(
             snippet,
             "autoescape ${1|on,off|} %}\n$0\n{% endautoescape %}"
         );
+    }
+
+    #[test]
+    fn correlated_forms_use_shortest_full_snippet_and_whole_suffix() {
+        let spec = TagSpec::new(
+            "django.template.defaulttags".into(),
+            None,
+            std::borrow::Cow::Borrowed(&[]),
+            djls_semantic::BodyAnalysis::Analyze,
+        )
+        .with_argument_syntax(TagArgumentSyntax::Forms {
+            forms: vec![
+                TagArgumentForm {
+                    arguments: vec![
+                        make_var("this_value_expr", true),
+                        make_var("max_value_expr", true),
+                        make_var("max_width", true),
+                    ],
+                },
+                TagArgumentForm {
+                    arguments: vec![
+                        make_var("this_value_expr", true),
+                        make_var("max_value_expr", true),
+                        make_var("max_width", true),
+                        make_literal("as", true),
+                        make_var("asvar", true),
+                    ],
+                },
+            ],
+            coverage: ArgumentFormCoverage::Complete,
+        });
+
+        assert_eq!(
+            generate_snippet_for_tag_with_end("widthratio", &spec),
+            "widthratio ${1:this_value_expr} ${2:max_value_expr} ${3:max_width}"
+        );
+        assert_eq!(
+            generate_partial_snippet(&spec, &["this", "max", "width"], 3),
+            "as ${1:asvar}"
+        );
+        assert_eq!(
+            generate_partial_snippet(&spec, &["this", "max", "width", "as"], 4),
+            "${1:asvar}"
+        );
+    }
+
+    #[test]
+    fn compatible_form_arguments_follow_earlier_literals() {
+        let spec = TagSpec::new(
+            "test.tags".into(),
+            None,
+            std::borrow::Cow::Borrowed(&[]),
+            djls_semantic::BodyAnalysis::Analyze,
+        )
+        .with_argument_syntax(TagArgumentSyntax::Forms {
+            forms: vec![
+                TagArgumentForm {
+                    arguments: vec![make_literal("first", true), make_literal("left", true)],
+                },
+                TagArgumentForm {
+                    arguments: vec![make_literal("second", true), make_literal("right", true)],
+                },
+            ],
+            coverage: ArgumentFormCoverage::Complete,
+        });
+
+        let arguments = compatible_arguments_at(&spec, &["first"], 1);
+        assert_eq!(arguments.len(), 1);
+        assert_eq!(arguments[0].kind, TagArgumentKind::Literal("left".into()));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "core.templatetags.breadcrumb::tag::child_quick_switch":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: current_child
-        required: true
-        kind: Variable
-      - name: target_url
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: current_child
+          requirement: required
+          kind: Variable
+        - name: target_url
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

@@ -19,10 +19,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: block_name
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: block_name
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.loader_tags::tag::extends":
     arg_constraints:
@@ -40,10 +41,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
   "django.template.loader_tags::tag::include":
     arg_constraints:
@@ -66,10 +68,11 @@ tag_rules:
             args:
               - SplitElement:
                   Forward: 0
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs:

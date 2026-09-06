@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "geonode.layers.templatetags.dataset_tags::tag::get_all_resource_styles":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: resource
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: resource
+          requirement: required
+          kind: Variable
     as_var: strip
   "geonode.layers.templatetags.dataset_tags::tag::get_sld_name_from_url":
     arg_constraints:
@@ -22,10 +23,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: sld_url
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: sld_url
+          requirement: required
+          kind: Variable
     as_var: strip
   "geonode.layers.templatetags.dataset_tags::tag::get_style_name_from_legend_url":
     arg_constraints:
@@ -34,10 +36,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: legend_url
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: legend_url
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "geonode.layers.templatetags.dataset_tags::filter::camelize": no_argument

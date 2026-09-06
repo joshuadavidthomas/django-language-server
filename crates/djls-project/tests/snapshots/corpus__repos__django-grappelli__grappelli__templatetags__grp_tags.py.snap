@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "grappelli.templatetags.grp_tags::tag::admin_list_filter":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: cl
-        required: true
-        kind: Variable
-      - name: spec
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: cl
+          requirement: required
+          kind: Variable
+        - name: spec
+          requirement: required
+          kind: Variable
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::get_admin_title":
     arg_constraints:
@@ -24,7 +25,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::get_admin_url":
     arg_constraints:
@@ -32,7 +34,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::get_date_format":
     arg_constraints:
@@ -40,7 +43,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::get_datetime_format":
     arg_constraints:
@@ -48,7 +52,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::get_lang":
     arg_constraints:
@@ -56,7 +61,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::get_site_title":
     arg_constraints:
@@ -64,7 +70,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::get_time_format":
     arg_constraints:
@@ -72,7 +79,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::grappelli_admin_title":
     arg_constraints:
@@ -80,7 +88,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::grappelli_clean_input_types":
     arg_constraints:
@@ -88,7 +97,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "grappelli.templatetags.grp_tags::tag::switch_user_dropdown":
     arg_constraints:
@@ -96,7 +106,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities:
   "grappelli.templatetags.grp_tags::filter::classname": optional_argument

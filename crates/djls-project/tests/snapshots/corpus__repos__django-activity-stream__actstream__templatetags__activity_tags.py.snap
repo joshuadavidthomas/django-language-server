@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "actstream.templatetags.activity_tags::tag::actor_url":
@@ -15,10 +15,11 @@ tag_rules:
             Exact: 2
         message:
           Static: "Accepted format {% actor_url [actor_instance] %}"
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
     as_var: keep
   "actstream.templatetags.activity_tags::tag::follow_all_url":
     arg_constraints:
@@ -32,13 +33,14 @@ tag_rules:
             Max: 3
         message:
           Static: "Accepted format {% follow_all_url [instance] %} or {% follow_url [instance] [flag] %}"
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-      - name: arg2
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
     as_var: keep
   "actstream.templatetags.activity_tags::tag::follow_url":
     arg_constraints:
@@ -52,13 +54,14 @@ tag_rules:
             Max: 3
         message:
           Static: "Accepted format {% follow_url [instance] %} or {% follow_url [instance] [flag] %}"
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-      - name: arg2
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities:
   "actstream.templatetags.activity_tags::filter::activity_stream": required_argument

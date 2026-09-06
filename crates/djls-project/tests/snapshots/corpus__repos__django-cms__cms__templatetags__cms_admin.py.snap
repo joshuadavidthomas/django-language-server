@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "cms.templatetags.cms_admin::tag::admin_static_url":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "cms.templatetags.cms_admin::tag::get_page_display_name":
     arg_constraints:
@@ -18,10 +19,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: cms_page
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: cms_page
+          requirement: required
+          kind: Variable
     as_var: strip
   "cms.templatetags.cms_admin::tag::render_filter_field":
     arg_constraints:
@@ -30,13 +32,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: request
-        required: true
-        kind: Variable
-      - name: field
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: request
+          requirement: required
+          kind: Variable
+        - name: field
+          requirement: required
+          kind: Variable
     as_var: keep
   "cms.templatetags.cms_admin::tag::show_admin_menu_for_pages":
     arg_constraints:
@@ -45,13 +48,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: descendants
-        required: true
-        kind: Variable
-      - name: depth
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: descendants
+          requirement: required
+          kind: Variable
+        - name: depth
+          requirement: optional
+          kind: Variable
     as_var: strip
   "cms.templatetags.cms_admin::tag::submit_row_plugin":
     arg_constraints:
@@ -59,7 +63,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
 filter_arities:
   "cms.templatetags.cms_admin::filter::boolean_icon": no_argument

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "netbox.utilities.templatetags.form_helpers::tag::render_custom_fields":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: form
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: form
+          requirement: required
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_errors":
     arg_constraints:
@@ -22,10 +23,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: form
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: form
+          requirement: required
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_field":
     arg_constraints:
@@ -34,16 +36,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: field
-        required: true
-        kind: Variable
-      - name: bulk_nullable
-        required: false
-        kind: Variable
-      - name: label
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: field
+          requirement: required
+          kind: Variable
+        - name: bulk_nullable
+          requirement: optional
+          kind: Variable
+        - name: label
+          requirement: optional
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_fieldset":
     arg_constraints:
@@ -52,13 +55,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: form
-        required: true
-        kind: Variable
-      - name: fieldset
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: form
+          requirement: required
+          kind: Variable
+        - name: fieldset
+          requirement: required
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_form":
     arg_constraints:
@@ -67,10 +71,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: form
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: form
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities:
   "netbox.utilities.templatetags.form_helpers::filter::getfield": required_argument

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "django.contrib.admin.templatetags.log::tag::get_admin_log":
@@ -35,25 +35,22 @@ tag_rules:
             value: for_user
         message:
           Static: "Fourth argument to 'get_admin_log' must be 'for_user'"
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-        position: 0
-      - name: as
-        required: true
-        kind:
-          Literal: as
-        position: 1
-      - name: arg3
-        required: true
-        kind: Variable
-        position: 2
-      - name: for_user
-        required: true
-        kind:
-          Literal: for_user
-        position: 3
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: arg3
+          requirement: required
+          kind: Variable
+        - name: for_user
+          requirement: required
+          kind:
+            Literal: for_user
     as_var: keep
 filter_arities: {}
 block_specs: {}

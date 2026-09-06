@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "wagtail.images.templatetags.wagtailimages_tags::tag::image_url":
@@ -10,16 +10,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: image
-        required: true
-        kind: Variable
-      - name: filter_spec
-        required: true
-        kind: Variable
-      - name: viewname
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: image
+          requirement: required
+          kind: Variable
+        - name: filter_spec
+          requirement: required
+          kind: Variable
+        - name: viewname
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

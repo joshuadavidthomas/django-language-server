@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "netbox.utilities.templatetags.helpers::tag::action_url":
@@ -9,13 +9,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-      - name: arg2
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.helpers::tag::applied_filters":
     arg_constraints:
@@ -24,16 +25,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: model
-        required: true
-        kind: Variable
-      - name: form
-        required: true
-        kind: Variable
-      - name: query_params
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: model
+          requirement: required
+          kind: Variable
+        - name: form
+          requirement: required
+          kind: Variable
+        - name: query_params
+          requirement: required
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.helpers::tag::querystring":
     arg_constraints:
@@ -41,10 +43,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: request
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: request
+          requirement: required
+          kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.helpers::tag::table_config_form":
     arg_constraints:
@@ -53,13 +56,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: table
-        required: true
-        kind: Variable
-      - name: table_name
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: table
+          requirement: required
+          kind: Variable
+        - name: table_name
+          requirement: optional
+          kind: Variable
     as_var: keep
   "netbox.utilities.templatetags.helpers::tag::utilization_graph":
     arg_constraints:
@@ -68,16 +72,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: utilization
-        required: true
-        kind: Variable
-      - name: warning_threshold
-        required: false
-        kind: Variable
-      - name: danger_threshold
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: utilization
+          requirement: required
+          kind: Variable
+        - name: warning_threshold
+          requirement: optional
+          kind: Variable
+        - name: danger_threshold
+          requirement: optional
+          kind: Variable
     as_var: keep
 filter_arities:
   "netbox.utilities.templatetags.helpers::filter::as_range": no_argument

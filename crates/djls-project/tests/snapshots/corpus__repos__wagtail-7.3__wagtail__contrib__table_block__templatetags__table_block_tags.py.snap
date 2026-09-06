@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_classname":
@@ -10,16 +10,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: row_index
-        required: true
-        kind: Variable
-      - name: col_index
-        required: true
-        kind: Variable
-      - name: table_header
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: row_index
+          requirement: required
+          kind: Variable
+        - name: col_index
+          requirement: required
+          kind: Variable
+        - name: table_header
+          requirement: optional
+          kind: Variable
     as_var: strip
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_hidden":
     arg_constraints:
@@ -28,16 +29,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: row_index
-        required: true
-        kind: Variable
-      - name: col_index
-        required: true
-        kind: Variable
-      - name: table_header
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: row_index
+          requirement: required
+          kind: Variable
+        - name: col_index
+          requirement: required
+          kind: Variable
+        - name: table_header
+          requirement: optional
+          kind: Variable
     as_var: strip
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_span":
     arg_constraints:
@@ -46,16 +48,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: row_index
-        required: true
-        kind: Variable
-      - name: col_index
-        required: true
-        kind: Variable
-      - name: table_header
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: row_index
+          requirement: required
+          kind: Variable
+        - name: col_index
+          requirement: required
+          kind: Variable
+        - name: table_header
+          requirement: optional
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

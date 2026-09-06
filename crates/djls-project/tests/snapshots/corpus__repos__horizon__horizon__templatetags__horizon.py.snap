@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "horizon.templatetags.horizon::tag::datepicker_locale":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "horizon.templatetags.horizon::tag::horizon_dashboard_nav":
     arg_constraints:
@@ -17,7 +18,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "horizon.templatetags.horizon::tag::horizon_main_nav":
     arg_constraints:
@@ -25,7 +27,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "horizon.templatetags.horizon::tag::horizon_nav":
     arg_constraints:
@@ -33,7 +36,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: keep
   "horizon.templatetags.horizon::tag::load_config":
     arg_constraints:
@@ -41,7 +45,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "horizon.templatetags.horizon::tag::quotapercent":
     arg_constraints:
@@ -50,13 +55,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: used
-        required: true
-        kind: Variable
-      - name: limit
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: used
+          requirement: required
+          kind: Variable
+        - name: limit
+          requirement: required
+          kind: Variable
     as_var: strip
   "horizon.templatetags.horizon::tag::template_cache_age":
     arg_constraints:
@@ -64,7 +70,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities:
   "horizon.templatetags.horizon::filter::has_permissions": required_argument

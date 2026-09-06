@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::decimal":
@@ -9,13 +9,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: x
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: x
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::define":
     arg_constraints:
@@ -23,33 +24,36 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: value
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: value
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_commit_date":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_commit_hash":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_customize":
     arg_constraints:
@@ -57,56 +61,61 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: reference
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: reference
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_installer":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_instance_name":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_title":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_version":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: shortstring
-        required: false
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: shortstring
+          requirement: optional
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::render_date":
     arg_constraints:
@@ -115,10 +124,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: date_object
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: date_object
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::setting_object":
     arg_constraints:
@@ -126,13 +136,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: key
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: key
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::settings_value":
     arg_constraints:
@@ -140,13 +151,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: key
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: key
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::str2bool":
     arg_constraints:
@@ -154,23 +166,25 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: x
-        required: true
-        kind: Variable
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: x
+          requirement: required
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::to_list":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: args
-        required: false
-        kind: VarArgs
+    argument_syntax:
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
 filter_arities:
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::filter::keyvalue": required_argument

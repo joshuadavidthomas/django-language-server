@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "bookmarks.templatetags.shared::tag::formfield":
@@ -9,20 +9,22 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: field
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: field
+          requirement: required
+          kind: Variable
     as_var: strip
   "bookmarks.templatetags.shared::tag::formhelp":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: field_var
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: field_var
+          requirement: required
+          kind: Variable
     as_var: keep
   "bookmarks.templatetags.shared::tag::formlabel":
     arg_constraints:
@@ -31,13 +33,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: field
-        required: true
-        kind: Variable
-      - name: label_text
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: field
+          requirement: required
+          kind: Variable
+        - name: label_text
+          requirement: required
+          kind: Variable
     as_var: strip
   "bookmarks.templatetags.shared::tag::markdown":
     arg_constraints:
@@ -46,10 +49,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: markdown_text
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: markdown_text
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities:
   "bookmarks.templatetags.shared::filter::first_char": no_argument

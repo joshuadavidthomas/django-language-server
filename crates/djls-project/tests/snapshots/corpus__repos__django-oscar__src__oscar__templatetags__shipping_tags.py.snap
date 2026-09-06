@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.oscar.templatetags.shipping_tags::tag::shipping_charge":
@@ -10,13 +10,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: method
-        required: true
-        kind: Variable
-      - name: basket
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: method
+          requirement: required
+          kind: Variable
+        - name: basket
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.oscar.templatetags.shipping_tags::tag::shipping_charge_discount":
     arg_constraints:
@@ -25,13 +26,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: method
-        required: true
-        kind: Variable
-      - name: basket
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: method
+          requirement: required
+          kind: Variable
+        - name: basket
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.oscar.templatetags.shipping_tags::tag::shipping_charge_excl_discount":
     arg_constraints:
@@ -40,13 +42,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: method
-        required: true
-        kind: Variable
-      - name: basket
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: method
+          requirement: required
+          kind: Variable
+        - name: basket
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}

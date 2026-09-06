@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "hc.front.templatetags.hc_extras::tag::absolute_site_logo_url":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::debug_warning":
     arg_constraints:
@@ -17,7 +18,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::now_isoformat":
     arg_constraints:
@@ -25,7 +27,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::site_hostname":
     arg_constraints:
@@ -33,7 +36,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::site_name":
     arg_constraints:
@@ -41,7 +45,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::site_root":
     arg_constraints:
@@ -49,7 +54,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::site_version":
     arg_constraints:
@@ -57,7 +63,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::sort_url":
     arg_constraints:
@@ -66,10 +73,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: sort
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: sort
+          requirement: required
+          kind: Variable
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::support_email":
     arg_constraints:
@@ -77,7 +85,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities:
   "hc.front.templatetags.hc_extras::filter::add6days": no_argument

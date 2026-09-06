@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.sentry.templatetags.sentry_helpers::tag::get_sentry_version":
@@ -9,7 +9,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::loading_message":
     arg_constraints:
@@ -17,7 +18,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::org_url":
     arg_constraints:
@@ -26,19 +28,20 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: organization
-        required: true
-        kind: Variable
-      - name: path
-        required: true
-        kind: Variable
-      - name: query
-        required: false
-        kind: Variable
-      - name: fragment
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: organization
+          requirement: required
+          kind: Variable
+        - name: path
+          requirement: required
+          kind: Variable
+        - name: query
+          requirement: optional
+          kind: Variable
+        - name: fragment
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::percent":
     arg_constraints:
@@ -47,16 +50,17 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: value
-        required: true
-        kind: Variable
-      - name: total
-        required: true
-        kind: Variable
-      - name: format
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: value
+          requirement: required
+          kind: Variable
+        - name: total
+          requirement: required
+          kind: Variable
+        - name: format
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::random_int":
     arg_constraints:
@@ -65,13 +69,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: a
-        required: true
-        kind: Variable
-      - name: b
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: a
+          requirement: required
+          kind: Variable
+        - name: b
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::security_contact":
     arg_constraints:
@@ -79,7 +84,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::serialize":
     arg_constraints:
@@ -88,10 +94,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: value
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: value
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::system_origin":
     arg_constraints:
@@ -99,7 +106,8 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args: []
+    argument_syntax:
+      Parameters: []
     as_var: strip
 filter_arities:
   "src.sentry.templatetags.sentry_helpers::filter::absolute_value": no_argument

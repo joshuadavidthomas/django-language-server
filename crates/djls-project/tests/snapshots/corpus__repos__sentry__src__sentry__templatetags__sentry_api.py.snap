@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
 tag_rules:
   "src.sentry.templatetags.sentry_api::tag::convert_to_json":
@@ -10,10 +10,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_api::tag::get_recipient_context":
     arg_constraints:
@@ -22,13 +23,14 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: request
-        required: true
-        kind: Variable
-      - name: escape
-        required: false
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: request
+          requirement: required
+          kind: Variable
+        - name: escape
+          requirement: optional
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_api::tag::serialize":
     arg_constraints:
@@ -37,10 +39,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
   "src.sentry.templatetags.sentry_api::tag::serialize_detailed_org":
     arg_constraints:
@@ -49,10 +52,11 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: obj
-        required: true
-        kind: Variable
+    argument_syntax:
+      Parameters:
+        - name: obj
+          requirement: required
+          kind: Variable
     as_var: strip
 filter_arities: {}
 block_specs: {}
