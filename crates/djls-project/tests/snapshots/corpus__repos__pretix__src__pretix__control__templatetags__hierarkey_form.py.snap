@@ -19,6 +19,6 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "src.pretix.control.templatetags.hierarkey_form::tag::propagated":
+    body_analysis_evidence: not_detected
     end_tag: endpropagated
     intermediates: []
-    opaque: false

@@ -661,6 +661,6 @@ filter_arities:
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::widgettype": no_argument
 block_specs:
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::fragment":
+    body_analysis_evidence: not_detected
     end_tag: endfragment
     intermediates: []
-    opaque: false

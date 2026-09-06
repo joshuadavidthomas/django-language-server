@@ -28,6 +28,6 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "src.oscar.templatetags.display_tags::tag::iffeature":
+    body_analysis_evidence: not_detected
     end_tag: endiffeature
     intermediates: []
-    opaque: false

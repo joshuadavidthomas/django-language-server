@@ -6,8 +6,8 @@ tag_rules: {}
 filter_arities: {}
 block_specs:
   "django_fastdev.templatetags.fastdev::tag::ifexists":
+    body_analysis_evidence: not_detected
     end_tag: endifexists
     intermediates:
       - elifexists
       - else
-    opaque: false

@@ -32,6 +32,6 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "django.templatetags.cache::tag::cache":
+    body_analysis_evidence: not_detected
     end_tag: endcache
     intermediates: []
-    opaque: false

@@ -322,42 +322,42 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "django.template.defaulttags::tag::autoescape":
+    body_analysis_evidence: not_detected
     end_tag: endautoescape
     intermediates: []
-    opaque: false
   "django.template.defaulttags::tag::comment":
+    body_analysis_evidence: skip_past
     end_tag: endcomment
     intermediates: []
-    opaque: true
   "django.template.defaulttags::tag::filter":
+    body_analysis_evidence: not_detected
     end_tag: endfilter
     intermediates: []
-    opaque: false
   "django.template.defaulttags::tag::for":
+    body_analysis_evidence: not_detected
     end_tag: endfor
     intermediates:
       - empty
-    opaque: false
   "django.template.defaulttags::tag::if":
+    body_analysis_evidence: not_detected
     end_tag: endif
     intermediates:
       - elif
       - else
-    opaque: false
   "django.template.defaulttags::tag::ifchanged":
+    body_analysis_evidence: not_detected
     end_tag: endifchanged
     intermediates:
       - else
-    opaque: false
   "django.template.defaulttags::tag::spaceless":
+    body_analysis_evidence: not_detected
     end_tag: endspaceless
     intermediates: []
-    opaque: false
   "django.template.defaulttags::tag::verbatim":
+    body_analysis_evidence: not_detected
     end_tag: endverbatim
     intermediates: []
-    opaque: false
   "django.template.defaulttags::tag::with":
+    body_analysis_evidence: not_detected
     end_tag: endwith
     intermediates: []
-    opaque: false

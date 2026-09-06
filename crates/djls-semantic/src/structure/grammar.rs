@@ -14,6 +14,7 @@ use djls_templates::TagBit;
 use crate::db::Db;
 use crate::scoping::LoadState;
 use crate::scoping::LoadedLibraries;
+use crate::tags::BodyAnalysis;
 use crate::tags::TagSpec;
 use crate::tags::effective_tag_spec_in_scope;
 use crate::tags::library_tag_specs;
@@ -93,7 +94,7 @@ pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGra
                     .or_default(),
                 definition.clone(),
             );
-            if !spec.opaque {
+            if !spec.body_analysis().is_opaque() {
                 for intermediate in spec.intermediate_tags.iter() {
                     push_candidate(
                         vocabulary
@@ -127,7 +128,7 @@ pub(crate) struct OpeningContract {
     pub(crate) closer: String,
     pub(crate) intermediates: Vec<String>,
     pub(crate) end_required: bool,
-    pub(crate) opaque: bool,
+    pub(crate) body_analysis: BodyAnalysis,
 }
 
 impl OpeningContract {
@@ -135,7 +136,7 @@ impl OpeningContract {
         let end = spec.end_tag.as_ref()?;
         Some(Self {
             closer: end.name.as_ref().to_string(),
-            intermediates: if spec.opaque {
+            intermediates: if spec.body_analysis().is_opaque() {
                 Vec::new()
             } else {
                 spec.intermediate_tags
@@ -144,7 +145,7 @@ impl OpeningContract {
                     .collect()
             },
             end_required: end.required,
-            opaque: spec.opaque,
+            body_analysis: spec.body_analysis(),
         })
     }
 
@@ -363,7 +364,7 @@ fn classify_project_orphan(
         vocabulary.intermediate_candidates(spelling),
         load_state,
         |spec| {
-            !spec.opaque
+            !spec.body_analysis().is_opaque()
                 && spec
                     .intermediate_tags
                     .iter()

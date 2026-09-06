@@ -11,6 +11,7 @@ use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_project::BlockSpecs;
+use djls_project::BodyAnalysisEvidence;
 use djls_project::TagArgument;
 use djls_project::TagArgumentKind;
 use djls_project::TagRule;
@@ -50,32 +51,34 @@ impl TagSpecs {
                 continue;
             }
             if let Some(spec) = self.0.get_mut(&key.name) {
-                // An unknown closer is insufficient evidence to modify an
-                // existing spec.
-                let Some(end_tag_name) = &block_spec.end_tag else {
-                    continue;
-                };
-
-                spec.end_tag = Some(EndTag {
-                    name: end_tag_name.clone().into(),
-                    required: true,
-                });
-                // Override intermediates from extraction
-                spec.intermediate_tags = if block_spec.intermediates.is_empty() {
-                    Cow::Borrowed(&[])
-                } else {
-                    Cow::Owned(
-                        block_spec
-                            .intermediates
-                            .iter()
-                            .map(|name| IntermediateTag {
-                                name: name.clone().into(),
-                            })
-                            .collect(),
-                    )
-                };
-                // Propagate opaque flag from extraction
-                spec.opaque = block_spec.opaque;
+                // Closer evidence and body policy resolve independently. An
+                // unknown closer preserves fallback structure, while positive
+                // body evidence can still refine how the body is treated.
+                if let Some(end_tag_name) = &block_spec.end_tag {
+                    spec.end_tag = Some(EndTag {
+                        name: end_tag_name.clone().into(),
+                        required: true,
+                    });
+                    spec.intermediate_tags = if block_spec.intermediates.is_empty() {
+                        Cow::Borrowed(&[])
+                    } else {
+                        Cow::Owned(
+                            block_spec
+                                .intermediates
+                                .iter()
+                                .map(|name| IntermediateTag {
+                                    name: name.clone().into(),
+                                })
+                                .collect(),
+                        )
+                    };
+                }
+                match block_spec.body_analysis_evidence {
+                    BodyAnalysisEvidence::NotDetected | BodyAnalysisEvidence::Mixed => {}
+                    BodyAnalysisEvidence::SkipPast => {
+                        spec.body_analysis = BodyAnalysis::Opaque;
+                    }
+                }
             } else {
                 // Tag not yet in specs — create a new entry from extraction
                 let end_tag = block_spec.end_tag.as_ref().map(|name| EndTag {
@@ -95,7 +98,9 @@ impl TagSpecs {
                         module: key.registration_module.clone().into(),
                         end_tag,
                         intermediate_tags: Cow::Owned(intermediate_tags),
-                        opaque: block_spec.opaque,
+                        body_analysis: BodyAnalysis::from_evidence(
+                            block_spec.body_analysis_evidence,
+                        ),
                         role: None,
                         extracted_rules: None,
                     },
@@ -122,7 +127,7 @@ impl TagSpecs {
                         key.registration_module.clone().into(),
                         None,
                         Cow::Borrowed(&[]),
-                        false,
+                        BodyAnalysis::Analyze,
                     )
                     .with_extracted_rules(Arc::clone(tag_rule)),
                 );
@@ -299,7 +304,7 @@ impl TagSpecs {
                         module: library.module.clone().into(),
                         end_tag,
                         intermediate_tags: Cow::Owned(intermediate_tags),
-                        opaque: false,
+                        body_analysis: BodyAnalysis::Analyze,
                         role: None,
                         extracted_rules,
                     },
@@ -343,6 +348,28 @@ impl IntoIterator for TagSpecs {
     }
 }
 
+/// Whether semantic features should analyze a tag body.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BodyAnalysis {
+    #[default]
+    Analyze,
+    Opaque,
+}
+
+impl BodyAnalysis {
+    fn from_evidence(evidence: BodyAnalysisEvidence) -> Self {
+        match evidence {
+            BodyAnalysisEvidence::NotDetected | BodyAnalysisEvidence::Mixed => Self::Analyze,
+            BodyAnalysisEvidence::SkipPast => Self::Opaque,
+        }
+    }
+
+    #[must_use]
+    pub const fn is_opaque(self) -> bool {
+        matches!(self, Self::Opaque)
+    }
+}
+
 /// Specification for a Django template tag's structure, validation rules, and role.
 ///
 /// Argument validation is handled by `extracted_rules` (derived from Python AST
@@ -354,7 +381,7 @@ pub struct TagSpec {
     module: S,
     pub end_tag: Option<EndTag>,
     pub(crate) intermediate_tags: L<IntermediateTag>,
-    pub(crate) opaque: bool,
+    pub(crate) body_analysis: BodyAnalysis,
     role: Option<TagRole>,
     /// Extraction-derived validation rules from Python AST analysis.
     ///
@@ -369,13 +396,13 @@ impl TagSpec {
         module: Cow<'static, str>,
         end_tag: Option<EndTag>,
         intermediate_tags: Cow<'static, [IntermediateTag]>,
-        opaque: bool,
+        body_analysis: BodyAnalysis,
     ) -> Self {
         Self {
             module,
             end_tag,
             intermediate_tags,
-            opaque,
+            body_analysis,
             role: None,
             extracted_rules: None,
         }
@@ -384,6 +411,11 @@ impl TagSpec {
     #[must_use]
     pub(crate) fn module(&self) -> &str {
         self.module.as_ref()
+    }
+
+    #[must_use]
+    pub fn body_analysis(&self) -> BodyAnalysis {
+        self.body_analysis
     }
 
     #[must_use]
@@ -466,7 +498,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
         module: B(module),
         end_tag: None,
         intermediate_tags: B(&[]),
-        opaque: false,
+        body_analysis: BodyAnalysis::Analyze,
         role: None,
         extracted_rules: None,
     };
@@ -475,7 +507,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
         module: B(module),
         end_tag: None,
         intermediate_tags: B(&[]),
-        opaque: false,
+        body_analysis: BodyAnalysis::Analyze,
         role: Some(role),
         extracted_rules: None,
     };
@@ -483,7 +515,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
     let block = |module: &'static str,
                  end: &'static str,
                  intermediates: Vec<IntermediateTag>,
-                 opaque: bool,
+                 body_analysis: BodyAnalysis,
                  role: TagRole| TagSpec {
         module: B(module),
         end_tag: Some(EndTag {
@@ -491,7 +523,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             required: true,
         }),
         intermediate_tags: Cow::Owned(intermediates),
-        opaque,
+        body_analysis,
         role: Some(role),
         extracted_rules: None,
     };
@@ -501,23 +533,47 @@ pub fn builtin_tag_specs() -> TagSpecs {
     // defaulttags
     specs.insert(
         "autoescape".into(),
-        block(dt, "endautoescape", vec![], false, TagRole::ControlTag),
+        block(
+            dt,
+            "endautoescape",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
     specs.insert(
         "comment".into(),
-        block(dt, "endcomment", vec![], true, TagRole::ControlTag),
+        block(
+            dt,
+            "endcomment",
+            vec![],
+            BodyAnalysis::Opaque,
+            TagRole::ControlTag,
+        ),
     );
     specs.insert("csrf_token".into(), simple(dt));
     specs.insert("cycle".into(), simple(dt));
     specs.insert("debug".into(), simple(dt));
     specs.insert(
         "filter".into(),
-        block(dt, "endfilter", vec![], false, TagRole::ControlTag),
+        block(
+            dt,
+            "endfilter",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
     specs.insert("firstof".into(), simple(dt));
     specs.insert(
         "for".into(),
-        block(dt, "endfor", vec![im("empty")], false, TagRole::ControlTag),
+        block(
+            dt,
+            "endfor",
+            vec![im("empty")],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
     specs.insert(
         "if".into(),
@@ -525,7 +581,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             dt,
             "endif",
             vec![im("elif"), im("else")],
-            false,
+            BodyAnalysis::Analyze,
             TagRole::ControlTag,
         ),
     );
@@ -535,7 +591,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             dt,
             "endifchanged",
             vec![im("else")],
-            false,
+            BodyAnalysis::Analyze,
             TagRole::ControlTag,
         ),
     );
@@ -548,24 +604,48 @@ pub fn builtin_tag_specs() -> TagSpecs {
     specs.insert("regroup".into(), simple(dt));
     specs.insert(
         "spaceless".into(),
-        block(dt, "endspaceless", vec![], false, TagRole::ControlTag),
+        block(
+            dt,
+            "endspaceless",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
     specs.insert("templatetag".into(), simple(dt));
     specs.insert("url".into(), simple_role(dt, TagRole::RouteReference));
     specs.insert(
         "verbatim".into(),
-        block(dt, "endverbatim", vec![], true, TagRole::ControlTag),
+        block(
+            dt,
+            "endverbatim",
+            vec![],
+            BodyAnalysis::Opaque,
+            TagRole::ControlTag,
+        ),
     );
     specs.insert("widthratio".into(), simple(dt));
     specs.insert(
         "with".into(),
-        block(dt, "endwith", vec![], false, TagRole::ControlTag),
+        block(
+            dt,
+            "endwith",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
 
     // loader_tags
     specs.insert(
         "block".into(),
-        block(lt, "endblock", vec![], false, TagRole::TemplateBlock),
+        block(
+            lt,
+            "endblock",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::TemplateBlock,
+        ),
     );
     specs.insert(
         "extends".into(),
@@ -589,7 +669,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             i18n,
             "endblocktrans",
             vec![im("plural")],
-            false,
+            BodyAnalysis::Analyze,
             TagRole::ControlTag,
         ),
     );
@@ -599,7 +679,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             i18n,
             "endblocktranslate",
             vec![im("plural")],
-            false,
+            BodyAnalysis::Analyze,
             TagRole::ControlTag,
         ),
     );
@@ -609,13 +689,25 @@ pub fn builtin_tag_specs() -> TagSpecs {
     // cache
     specs.insert(
         "cache".into(),
-        block(cache, "endcache", vec![], false, TagRole::ControlTag),
+        block(
+            cache,
+            "endcache",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
 
     // l10n
     specs.insert(
         "localize".into(),
-        block(l10n, "endlocalize", vec![], false, TagRole::ControlTag),
+        block(
+            l10n,
+            "endlocalize",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
 
     // static
@@ -627,11 +719,23 @@ pub fn builtin_tag_specs() -> TagSpecs {
     // tz
     specs.insert(
         "localtime".into(),
-        block(tz, "endlocaltime", vec![], false, TagRole::ControlTag),
+        block(
+            tz,
+            "endlocaltime",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
     specs.insert(
         "timezone".into(),
-        block(tz, "endtimezone", vec![], false, TagRole::ControlTag),
+        block(
+            tz,
+            "endtimezone",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
     );
 
     TagSpecs::new(specs)
@@ -659,7 +763,7 @@ mod tests {
                 module: "django.template.defaulttags".into(),
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
+                body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
             },
@@ -682,7 +786,7 @@ mod tests {
                         name: "else".into(),
                     },
                 ]),
-                opaque: false,
+                body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
             },
@@ -705,7 +809,7 @@ mod tests {
                         name: "else".into(),
                     }, // Note: else is shared
                 ]),
-                opaque: false,
+                body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
             },
@@ -721,7 +825,7 @@ mod tests {
                     required: true,
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
+                body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
             },
@@ -777,7 +881,7 @@ mod tests {
                 module: "custom.module".into(),
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
+                body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
             },
@@ -791,7 +895,7 @@ mod tests {
                     required: false,
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
+                body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
             },
@@ -843,7 +947,7 @@ mod tests {
             BlockSpec {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
-                opaque: false,
+                body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
             },
         );
 
@@ -884,7 +988,7 @@ mod tests {
                 intermediate_tags: Cow::Owned(vec![IntermediateTag {
                     name: "middle".into(),
                 }]),
-                opaque: true,
+                body_analysis: BodyAnalysis::Opaque,
                 role: None,
                 extracted_rules: None,
             },
@@ -901,7 +1005,7 @@ mod tests {
             BlockSpec {
                 end_tag: None,
                 intermediates: vec![],
-                opaque: false,
+                body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
             },
         );
 
@@ -916,6 +1020,86 @@ mod tests {
     }
 
     #[test]
+    fn test_merge_block_specs_unknown_end_tag_still_applies_body_evidence() {
+        let mut specs = create_test_specs();
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
+            SymbolKey::tag("django.template.defaulttags", "if"),
+            BlockSpec {
+                end_tag: None,
+                intermediates: vec![],
+                body_analysis_evidence: BodyAnalysisEvidence::SkipPast,
+            },
+        );
+
+        specs.merge_block_specs(&block_specs);
+
+        let if_spec = specs
+            .get("if")
+            .expect("the existing block spec should remain available");
+        assert_eq!(
+            if_spec
+                .end_tag
+                .as_ref()
+                .map(|end_tag| end_tag.name.as_ref()),
+            Some("endif")
+        );
+        assert_eq!(if_spec.body_analysis(), BodyAnalysis::Opaque);
+    }
+
+    #[test]
+    fn test_merge_block_specs_mixed_evidence_preserves_builtin_body_policy() {
+        let mut specs = create_test_specs();
+        specs
+            .get_mut("if")
+            .expect("the test spec should exist")
+            .body_analysis = BodyAnalysis::Opaque;
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
+            SymbolKey::tag("django.template.defaulttags", "if"),
+            BlockSpec {
+                end_tag: None,
+                intermediates: vec![],
+                body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+            },
+        );
+
+        specs.merge_block_specs(&block_specs);
+
+        assert_eq!(
+            specs
+                .get("if")
+                .expect("the existing block spec should remain available")
+                .body_analysis(),
+            BodyAnalysis::Opaque
+        );
+    }
+
+    #[test]
+    fn test_merge_block_specs_mixed_evidence_analyzes_new_custom_body() {
+        let mut specs = create_test_specs();
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
+            SymbolKey::tag("myapp.templatetags.custom", "mixed"),
+            BlockSpec {
+                end_tag: Some("endmixed".to_string()),
+                intermediates: vec![],
+                body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+            },
+        );
+
+        specs.merge_block_specs(&block_specs);
+
+        assert_eq!(
+            specs
+                .get("mixed")
+                .expect("the custom block spec should be inserted")
+                .body_analysis(),
+            BodyAnalysis::Analyze
+        );
+    }
+
+    #[test]
     fn test_merge_block_specs_unknown_end_tag_inserts_new_spec_without_end_tag() {
         let mut specs = create_test_specs();
         let original_count = specs.len();
@@ -926,7 +1110,7 @@ mod tests {
             BlockSpec {
                 end_tag: None,
                 intermediates: vec![],
-                opaque: false,
+                body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
             },
         );
 
@@ -950,7 +1134,7 @@ mod tests {
             BlockSpec {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
-                opaque: false,
+                body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
             },
         );
 
@@ -986,7 +1170,7 @@ mod tests {
             BlockSpec {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
-                opaque: false,
+                body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
             },
         );
 

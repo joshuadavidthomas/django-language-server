@@ -1,5 +1,6 @@
 use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
+use djls_project::BodyAnalysisEvidence;
 use djls_project::FilterArity;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
@@ -1820,9 +1821,7 @@ fn corpus_block_with_intermediates() {
     assert!(spec.intermediates.contains(&"else".to_string()));
 }
 
-// Corpus: `comment` in defaulttags.py — opaque block (skip_past).
-// Real `verbatim` actually uses parser.parse(), not skip_past — only
-// `comment` is truly opaque in defaulttags.py.
+// Corpus: `comment` in defaulttags.py uses skip_past.
 #[test]
 fn corpus_opaque_block() {
     let result = extract_source(DEFAULTTAGS_SOURCE, "django.template.defaulttags")
@@ -1830,22 +1829,22 @@ fn corpus_opaque_block() {
     let key = SymbolKey::tag("django.template.defaulttags", "comment");
     assert!(result.block_specs.as_map().contains_key(&key));
     let spec = &result.block_specs.as_map()[&key];
-    assert!(spec.opaque);
+    assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::SkipPast);
     assert_eq!(spec.end_tag.as_deref(), Some("endcomment"));
 }
 
-// Corpus: `verbatim` in defaulttags.py — uses parser.parse(), not
-// skip_past. No split_contents call (no argument validation).
+// Corpus: `verbatim` in defaulttags.py uses parser.parse(), so extraction
+// records no skip evidence. Semantic builtin policy still makes its body opaque.
 #[test]
-fn corpus_non_opaque_no_split_contents() {
+fn corpus_verbatim_has_no_skip_evidence() {
     let result = extract_source(DEFAULTTAGS_SOURCE, "django.template.defaulttags")
         .expect("non-opaque extraction fixture should build");
     let key = SymbolKey::tag("django.template.defaulttags", "verbatim");
     assert!(result.block_specs.as_map().contains_key(&key));
     let spec = &result.block_specs.as_map()[&key];
-    assert!(
-        !spec.opaque,
-        "real verbatim uses parser.parse(), not skip_past"
+    assert_eq!(
+        spec.body_analysis_evidence,
+        BodyAnalysisEvidence::NotDetected
     );
     assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
 }
@@ -1915,7 +1914,10 @@ fn corpus_simple_block() {
     let spec = &result.block_specs.as_map()[&key];
     assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
     assert!(spec.intermediates.is_empty());
-    assert!(!spec.opaque);
+    assert_eq!(
+        spec.body_analysis_evidence,
+        BodyAnalysisEvidence::NotDetected
+    );
 }
 
 // Corpus: `title` in defaultfilters.py — filter with no arg (value only).

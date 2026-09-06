@@ -16,6 +16,6 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "compressor.templatetags.compress::tag::compress":
+    body_analysis_evidence: not_detected
     end_tag: endcompress
     intermediates: []
-    opaque: false

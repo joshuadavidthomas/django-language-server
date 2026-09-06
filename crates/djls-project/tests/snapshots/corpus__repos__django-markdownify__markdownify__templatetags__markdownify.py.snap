@@ -7,6 +7,6 @@ filter_arities:
   "markdownify.templatetags.markdownify::filter::markdownify": optional_argument
 block_specs:
   "markdownify.templatetags.markdownify::tag::markdownify":
+    body_analysis_evidence: not_detected
     end_tag: endmarkdownify
     intermediates: []
-    opaque: false

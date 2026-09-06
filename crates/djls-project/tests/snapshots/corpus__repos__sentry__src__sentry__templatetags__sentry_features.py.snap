@@ -27,7 +27,7 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "src.sentry.templatetags.sentry_features::tag::feature":
+    body_analysis_evidence: not_detected
     end_tag: endfeature
     intermediates:
       - else
-    opaque: false

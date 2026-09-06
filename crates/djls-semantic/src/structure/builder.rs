@@ -208,7 +208,7 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
             Some(TagClassification::Opener(contract)) => {
                 let parent = self.active_region();
 
-                if contract.opaque {
+                if contract.body_analysis.is_opaque() {
                     self.stack.push(TreeFrame::Opaque(OpaqueFrame {
                         opener_name: name.to_string(),
                         contract: contract.clone(),

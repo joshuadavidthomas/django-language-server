@@ -6,6 +6,6 @@ tag_rules: {}
 filter_arities: {}
 block_specs:
   "hc.front.templatetags.linemode::tag::linemode":
+    body_analysis_evidence: not_detected
     end_tag: endlinemode
     intermediates: []
-    opaque: false

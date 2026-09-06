@@ -13,6 +13,7 @@ use crate::templates::tags::blocks::EndTagEvidence;
 use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::dynamic_end;
 use crate::templates::tags::blocks::is_token_contents_expr;
+use crate::templates::tags::types::BodyAnalysisEvidence;
 
 /// Detect block structure from `parser.next_token()` loop patterns.
 ///
@@ -69,7 +70,7 @@ pub(super) fn detect(
     Some(ExtractedBlockSpec {
         end_tag,
         intermediates,
-        opaque: false,
+        body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
     })
 }
 

@@ -197,6 +197,6 @@ filter_arities:
   "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_setting": no_argument
 block_specs:
   "src.bootstrap3.templatetags.bootstrap3::tag::buttons":
+    body_analysis_evidence: not_detected
     end_tag: endbuttons
     intermediates: []
-    opaque: false

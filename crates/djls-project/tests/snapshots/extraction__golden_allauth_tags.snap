@@ -1,11 +1,11 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"allauth extraction snapshot should serialize\")"
 ---
 tag_rules: {}
 filter_arities: {}
 block_specs:
   "allauth.templatetags.allauth::tag::element":
+    body_analysis_evidence: not_detected
     end_tag: endelement
     intermediates: []
-    opaque: false

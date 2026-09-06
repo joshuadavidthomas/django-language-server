@@ -26,6 +26,7 @@ pub use crate::templates::tags::types::ArgumentCountConstraint;
 pub use crate::templates::tags::types::AsVar;
 pub use crate::templates::tags::types::BlockSpec;
 pub use crate::templates::tags::types::BlockSpecs;
+pub use crate::templates::tags::types::BodyAnalysisEvidence;
 pub use crate::templates::tags::types::ChoiceAt;
 pub use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 pub use crate::templates::tags::types::ExtractedDiagnosticMessage;

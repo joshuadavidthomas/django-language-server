@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"timezone extraction snapshot should serialize\")"
 ---
 tag_rules:
   "django.templatetags.tz::tag::get_current_timezone":
@@ -84,10 +84,10 @@ tag_rules:
 filter_arities: {}
 block_specs:
   "django.templatetags.tz::tag::localtime":
+    body_analysis_evidence: not_detected
     end_tag: endlocaltime
     intermediates: []
-    opaque: false
   "django.templatetags.tz::tag::timezone":
+    body_analysis_evidence: not_detected
     end_tag: endtimezone
     intermediates: []
-    opaque: false

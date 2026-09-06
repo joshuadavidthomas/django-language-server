@@ -225,16 +225,16 @@ filter_arities:
   "django.templatetags.i18n::filter::language_name_translated": no_argument
 block_specs:
   "django.templatetags.i18n::tag::blocktrans":
+    body_analysis_evidence: not_detected
     end_tag: endblocktrans
     intermediates:
       - plural
-    opaque: false
   "django.templatetags.i18n::tag::blocktranslate":
+    body_analysis_evidence: not_detected
     end_tag: endblocktranslate
     intermediates:
       - plural
-    opaque: false
   "django.templatetags.i18n::tag::language":
+    body_analysis_evidence: not_detected
     end_tag: endlanguage
     intermediates: []
-    opaque: false

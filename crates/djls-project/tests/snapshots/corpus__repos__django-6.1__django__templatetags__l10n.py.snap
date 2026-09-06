@@ -47,6 +47,6 @@ filter_arities:
   "django.templatetags.l10n::filter::unlocalize": no_argument
 block_specs:
   "django.templatetags.l10n::tag::localize":
+    body_analysis_evidence: not_detected
     end_tag: endlocalize
     intermediates: []
-    opaque: false

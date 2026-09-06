@@ -73,10 +73,10 @@ filter_arities:
   "horizon.templatetags.horizon::filter::quotainf": optional_argument
 block_specs:
   "horizon.templatetags.horizon::tag::jstemplate":
+    body_analysis_evidence: not_detected
     end_tag: endjstemplate
     intermediates: []
-    opaque: false
   "horizon.templatetags.horizon::tag::minifyspace":
+    body_analysis_evidence: not_detected
     end_tag: endminifyspace
     intermediates: []
-    opaque: false

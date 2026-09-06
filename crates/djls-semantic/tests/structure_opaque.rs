@@ -41,7 +41,7 @@ fn opaque_opener_treats_intermediate_as_raw_content() {
                 name: "opaque_else".into(),
             }]
             .into(),
-            true,
+            djls_semantic::BodyAnalysis::Opaque,
         ),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);

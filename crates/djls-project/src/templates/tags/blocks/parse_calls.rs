@@ -6,6 +6,8 @@ use ruff_python_ast::ExprCall;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtIf;
+use ruff_python_ast::visitor;
+use ruff_python_ast::visitor::Visitor;
 
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
@@ -15,6 +17,7 @@ use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::extract_string_sequence;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::blocks::is_token_contents_expr;
+use crate::templates::tags::types::BodyAnalysisEvidence;
 
 /// Detect block structure from `parser.parse((...))` calls with control flow analysis.
 ///
@@ -33,6 +36,46 @@ pub(super) fn detect(
     }
 
     classify_stop_tokens(body, parser_var, token_var, &parse_calls)
+}
+
+/// Return whether the body contains an observed `parser.parse(...)` call.
+pub(super) fn is_detected(body: &[Stmt], parser_var: &str) -> bool {
+    let mut visitor = ParseCallVisitor {
+        parser_var,
+        detected: false,
+    };
+    for statement in body {
+        visitor.visit_stmt(statement);
+        if visitor.detected {
+            break;
+        }
+    }
+    visitor.detected
+}
+
+struct ParseCallVisitor<'parser> {
+    parser_var: &'parser str,
+    detected: bool,
+}
+
+impl<'ast> Visitor<'ast> for ParseCallVisitor<'_> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        if self.detected || matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            return;
+        }
+        visitor::walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if self.detected || matches!(expr, Expr::Lambda(_)) {
+            return;
+        }
+        if is_parser_parse_call(expr, self.parser_var) {
+            self.detected = true;
+            return;
+        }
+        visitor::walk_expr(self, expr);
+    }
 }
 
 /// Information about a single `parser.parse((...))` call site.
@@ -87,22 +130,10 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
 
 /// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
 fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInfo> {
-    let Expr::Call(ExprCall {
-        func, arguments, ..
-    }) = expr
-    else {
+    let Expr::Call(ExprCall { arguments, .. }) = expr else {
         return None;
     };
-    let Expr::Attribute(ExprAttribute {
-        attr, value: obj, ..
-    }) = func.as_ref()
-    else {
-        return None;
-    };
-    if attr.as_str() != "parse" {
-        return None;
-    }
-    if !is_parser_receiver(obj, parser_var) {
+    if !is_parser_parse_call(expr, parser_var) {
         return None;
     }
     if arguments.args.is_empty() {
@@ -115,6 +146,19 @@ fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInf
     }
 
     Some(ParseCallInfo { stop_tokens })
+}
+
+fn is_parser_parse_call(expr: &Expr, parser_var: &str) -> bool {
+    let Expr::Call(ExprCall { func, .. }) = expr else {
+        return false;
+    };
+    let Expr::Attribute(ExprAttribute {
+        attr, value: obj, ..
+    }) = func.as_ref()
+    else {
+        return false;
+    };
+    attr.as_str() == "parse" && is_parser_receiver(obj, parser_var)
 }
 
 /// Classify stop-tokens into end-tags and intermediates using control flow analysis.
@@ -201,7 +245,7 @@ fn classify_stop_tokens(
     Some(ExtractedBlockSpec {
         end_tag,
         intermediates,
-        opaque: false,
+        body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
     })
 }
 

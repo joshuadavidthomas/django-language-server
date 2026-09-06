@@ -1052,7 +1052,12 @@ fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
     let mut specs = builtin_tag_specs();
     specs.insert(
         "endif".to_string(),
-        TagSpec::new("test.tags".into(), None, Cow::Borrowed(&[]), false),
+        TagSpec::new(
+            "test.tags".into(),
+            None,
+            Cow::Borrowed(&[]),
+            djls_semantic::BodyAnalysis::Analyze,
+        ),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
@@ -1114,15 +1119,20 @@ fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
     let mut specs = builtin_tag_specs();
     specs.insert(
         "else".to_string(),
-        TagSpec::new("test.loader".into(), None, Cow::Borrowed(&[]), false)
-            .with_role(TagRole::TemplateLibraryLoader)
-            .with_extracted_rules(
-                TagRule {
-                    arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
-                    ..TagRule::default()
-                }
-                .into(),
-            ),
+        TagSpec::new(
+            "test.loader".into(),
+            None,
+            Cow::Borrowed(&[]),
+            djls_semantic::BodyAnalysis::Analyze,
+        )
+        .with_role(TagRole::TemplateLibraryLoader)
+        .with_extracted_rules(
+            TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
+                ..TagRule::default()
+            }
+            .into(),
+        ),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
@@ -2130,6 +2140,45 @@ fn opaque_region_suppresses_all_validation() {
     assert!(
         validation_errors.is_empty(),
         "No expression/filter/scoping errors expected inside verbatim, got: {validation_errors:?}"
+    );
+}
+
+#[test]
+fn extracted_verbatim_policy_stays_opaque_while_custom_mixed_body_is_analyzed() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+        )
+        .file(
+            "/proj/django/template/defaulttags.py",
+            include_str!(
+                "../../djls-project/src/templates/tags/testdata/django_defaulttags.py"
+            ),
+        )
+        .file(
+            "/proj/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef panel(parser, token):\n    if token.contents:\n        body = parser.parse(('endpanel',))\n    else:\n        parser.skip_past('endpanel')\n    return Node(body)\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% verbatim %}{% if and hidden %}{% endverbatim %}{% load custom %}{% panel %}{% if and active %}{% endpanel %}",
+        )
+        .install(&mut db)
+        .expect("body-analysis fixture should install into the test database");
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html")
+        .expect("fixture file validation errors should be collected");
+    let expression_errors = errors
+        .iter()
+        .filter(|error| matches!(error, ValidationError::ExpressionSyntaxError { .. }))
+        .count();
+
+    assert_eq!(
+        expression_errors, 1,
+        "verbatim must suppress its body while a custom parser.parse body stays active: {errors:?}"
     );
 }
 

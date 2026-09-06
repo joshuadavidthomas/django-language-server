@@ -6,6 +6,6 @@ tag_rules: {}
 filter_arities: {}
 block_specs:
   "hc.front.templatetags.asciitable::tag::table":
+    body_analysis_evidence: not_detected
     end_tag: endtable
     intermediates: []
-    opaque: false

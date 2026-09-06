@@ -68,6 +68,7 @@ pub use structure::build_template_outline_for_file;
 pub use structure::build_template_tree_for_file;
 pub use structure::compute_opaque_regions;
 pub use structure::semantic_grammar_vocabulary;
+pub use tags::BodyAnalysis;
 pub use tags::EndTag;
 pub use tags::IntermediateTag;
 pub use tags::LibraryTagSpecs;

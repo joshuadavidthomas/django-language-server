@@ -124,7 +124,7 @@ fn loader_role_outline_does_not_depend_on_load_spelling() {
             Cow::Borrowed("test.loader"),
             None,
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_role(TagRole::TemplateLibraryLoader),
     )])));
@@ -205,7 +205,7 @@ fn custom_callable_block_tags_produce_callable_outline_items() {
                 required: true,
             }),
             Cow::Borrowed(&[]),
-            false,
+            djls_semantic::BodyAnalysis::Analyze,
         )
         .with_role(TagRole::TemplateTag),
     )])));
@@ -230,7 +230,7 @@ fn tags_without_role_hide_standalone_tags_but_keep_blocks() {
                     required: true,
                 }),
                 Cow::Borrowed(&[]),
-                false,
+                djls_semantic::BodyAnalysis::Analyze,
             ),
         ),
         (
@@ -239,7 +239,7 @@ fn tags_without_role_hide_standalone_tags_but_keep_blocks() {
                 Cow::Borrowed("myapp.templatetags.custom"),
                 None,
                 Cow::Borrowed(&[]),
-                false,
+                djls_semantic::BodyAnalysis::Analyze,
             ),
         ),
     ])));
