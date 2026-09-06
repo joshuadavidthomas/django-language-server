@@ -272,6 +272,22 @@ def terminal_forms(parser, token):
 register.tag("terminal_forms", terminal_forms)
 
 
+def authored_loop(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 4:
+        raise template.TemplateSyntaxError("authored_loop needs four words")
+    has_reversed_tail = bits[-1] == "reversed"
+    separator = -3 if has_reversed_tail else -2
+    if bits[separator] != "in":
+        raise template.TemplateSyntaxError("authored_loop expects 'variables in sequence'")
+    parser.parse(("endauthored_loop",))
+    parser.delete_first_token()
+    return template.Node()
+
+
+register.tag("authored_loop", authored_loop)
+
+
 def conjunction_guard(parser, token):
     bits = token.split_contents()
     if len(bits) > 3 and bits[2] != "as":

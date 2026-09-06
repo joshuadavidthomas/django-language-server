@@ -4,6 +4,10 @@ use std::ops::ControlFlow;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprList;
 use ruff_python_ast::ExprTuple;
+use ruff_python_ast::Pattern;
+use ruff_python_ast::PatternMatchAs;
+use ruff_python_ast::PatternMatchSequence;
+use ruff_python_ast::PatternMatchValue;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::visitor;
@@ -12,6 +16,7 @@ use ruff_python_ast::visitor::Visitor;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::python::evaluation::name_analysis::pattern_bound_names;
 use crate::templates::tags::analysis::AnalysisResult;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
@@ -19,7 +24,7 @@ use crate::templates::tags::analysis::exceptions::direct_raise_exception;
 use crate::templates::tags::analysis::exceptions::extract_exception_message;
 use crate::templates::tags::analysis::expressions::eval_expr;
 use crate::templates::tags::analysis::expressions::eval_expr_with_ctx;
-use crate::templates::tags::analysis::match_arms::extract_match_constraints;
+use crate::templates::tags::analysis::extract_arg_names;
 use crate::templates::tags::analysis::mutations::PopInfo;
 use crate::templates::tags::analysis::mutations::try_extract_option_loop;
 use crate::templates::tags::analysis::mutations::try_extract_pop_call;
@@ -31,6 +36,9 @@ use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 use crate::templates::tags::types::ExtractedDiagnosticMessage;
 use crate::templates::tags::types::ExtractedMessageTemplate;
 use crate::templates::tags::types::SplitPosition;
+use crate::templates::tags::types::TagArgumentForm;
+use crate::templates::tags::types::TagArgumentPattern;
+use crate::templates::tags::types::TagArgumentPatternKind;
 use crate::templates::tags::types::TagArgumentSyntax;
 
 const MAX_EXEC_STATES: usize = 64;
@@ -45,6 +53,17 @@ enum PathAssumption {
         position: SplitPosition,
         value: String,
     },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+enum FormEvidence {
+    #[default]
+    Untracked,
+    PendingPartial,
+    Tracked {
+        complete: bool,
+    },
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,14 +110,14 @@ impl BuiltinException {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum PendingException {
     Builtin(BuiltinException),
     Unpack(ArgumentCountConstraint),
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct RaisedException {
     kind: PendingException,
     message: Option<ExtractedMessageTemplate>,
@@ -113,7 +132,7 @@ impl RaisedException {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ControlOutcome {
     Next,
     Return(AbstractValue),
@@ -128,6 +147,7 @@ struct ExecutionState {
     env: Env,
     result: AnalysisResult,
     exclusions: Vec<PathAssumption>,
+    form_evidence: FormEvidence,
 }
 
 impl ExecutionState {
@@ -136,7 +156,40 @@ impl ExecutionState {
             env,
             result: AnalysisResult::default(),
             exclusions: Vec::new(),
+            form_evidence: FormEvidence::Untracked,
             outcome: ControlOutcome::Next,
+        }
+    }
+
+    fn track_forms(&mut self) {
+        match self.form_evidence {
+            FormEvidence::Untracked => {
+                self.form_evidence = FormEvidence::Tracked { complete: true };
+            }
+            FormEvidence::PendingPartial => {
+                self.form_evidence = FormEvidence::Tracked { complete: false };
+            }
+            FormEvidence::Tracked { .. } | FormEvidence::Unknown => {}
+        }
+    }
+
+    fn mark_form_partial(&mut self) {
+        match &mut self.form_evidence {
+            FormEvidence::Untracked => self.form_evidence = FormEvidence::PendingPartial,
+            FormEvidence::Tracked { complete, .. } => *complete = false,
+            FormEvidence::PendingPartial | FormEvidence::Unknown => {}
+        }
+    }
+
+    fn mark_tracked_form_partial(&mut self) {
+        if let FormEvidence::Tracked { complete, .. } = &mut self.form_evidence {
+            *complete = false;
+        }
+    }
+
+    fn mark_form_unknown(&mut self) {
+        if !matches!(self.form_evidence, FormEvidence::Untracked) {
+            self.form_evidence = FormEvidence::Unknown;
         }
     }
 
@@ -301,6 +354,10 @@ impl ExecutionStates {
     fn normalize(&mut self) {
         normalize_state_destinations(&mut [&mut self.0]);
     }
+
+    fn normalize_with(&mut self, other: &mut Self) {
+        normalize_state_destinations(&mut [&mut self.0, &mut other.0]);
+    }
 }
 
 fn normalize_state_destinations(destinations: &mut [&mut Vec<ExecutionState>]) {
@@ -389,6 +446,7 @@ fn summarize_states(states: &[ExecutionState]) -> Option<ExecutionState> {
     summary.env = Env::join_exact(states.iter().map(|state| &state.env));
     summary.result = project_common_results(&states.iter().collect::<Vec<_>>());
     summary.exclusions = summarize_exclusions(states);
+    summary.form_evidence = summarize_form_evidence(states);
     summary.outcome = match &summary.outcome {
         ControlOutcome::Return(first)
             if states.iter().all(
@@ -429,6 +487,29 @@ fn summarize_exclusions(states: &[ExecutionState]) -> Vec<PathAssumption> {
         })
         .cloned()
         .collect()
+}
+
+fn summarize_form_evidence(states: &[ExecutionState]) -> FormEvidence {
+    if states
+        .iter()
+        .all(|state| matches!(state.form_evidence, FormEvidence::Untracked))
+    {
+        return FormEvidence::Untracked;
+    }
+    if states
+        .iter()
+        .all(|state| matches!(state.form_evidence, FormEvidence::PendingPartial))
+    {
+        return FormEvidence::PendingPartial;
+    }
+    if states
+        .iter()
+        .all(|state| matches!(state.form_evidence, FormEvidence::Tracked { .. }))
+    {
+        FormEvidence::Tracked { complete: false }
+    } else {
+        FormEvidence::Unknown
+    }
 }
 
 /// Process a function body and retain facts entailed by every accepting path.
@@ -524,16 +605,14 @@ fn process_statement_states(
             Stmt::With(stmt_with) => states = branch_with(stmt_with, states, ctx),
             Stmt::Expr(stmt_expr) => {
                 for state in states.next_mut() {
-                    process_expression_statement(stmt_expr, &mut state.env);
+                    if process_expression_statement(stmt_expr, &mut state.env) {
+                        state.mark_form_partial();
+                    }
                 }
             }
             Stmt::While(stmt_while) => states = branch_while(stmt_while, states, ctx),
             Stmt::Match(stmt_match) => states = branch_match(stmt_match, states, ctx),
-            Stmt::Pass(_)
-            | Stmt::Global(_)
-            | Stmt::Nonlocal(_)
-            | Stmt::Assert(_)
-            | Stmt::IpyEscapeCommand(_) => {}
+            Stmt::Pass(_) | Stmt::Global(_) | Stmt::Nonlocal(_) => {}
             Stmt::AnnAssign(_)
             | Stmt::FunctionDef(_)
             | Stmt::ClassDef(_)
@@ -544,7 +623,13 @@ fn process_statement_states(
             | Stmt::ImportFrom(_) => {
                 let changes = PotentialEnvChanges::collect(std::slice::from_ref(stmt));
                 for state in states.next_mut() {
+                    state.mark_form_unknown();
                     state.env = changes.apply(&state.env);
+                }
+            }
+            Stmt::Assert(_) | Stmt::IpyEscapeCommand(_) => {
+                for state in states.next_mut() {
+                    state.mark_form_unknown();
                 }
             }
             Stmt::Break(_) => {
@@ -572,6 +657,7 @@ fn branch_for(
     let incoming = states.take_next();
     for state in incoming {
         let iterator = eval_expr(&stmt_for.iter, &mut state.env.clone());
+        let iterates_split = matches!(iterator, AbstractValue::SplitResult(_));
         if let AbstractValue::Tuple(values) = iterator {
             let mut active = vec![state];
             for value in values {
@@ -613,7 +699,14 @@ fn branch_for(
             continue;
         }
 
+        let mut state = state;
         let body_changes = PotentialEnvChanges::collect(&stmt_for.body);
+        let loop_affects_split = body_changes.affects_split_results(&state.env);
+        if loop_affects_split {
+            state.mark_form_partial();
+        } else if iterates_split {
+            state.mark_tracked_form_partial();
+        }
         let mut exhausted = vec![state.clone()];
         let mut target_changes = PotentialEnvChanges::default();
         target_changes.record_target(&stmt_for.target);
@@ -638,6 +731,11 @@ fn branch_for(
         for repeat_state in &repeatable {
             let mut widened = repeat_state.clone();
             widened.env = body_changes.apply(&widened.env);
+            if loop_affects_split {
+                widened.mark_form_partial();
+            } else if iterates_split {
+                widened.mark_tracked_form_partial();
+            }
             exhausted.push(widened);
         }
         exhausted.append(&mut repeatable);
@@ -683,6 +781,10 @@ fn branch_while(
         }
 
         let body_changes = PotentialEnvChanges::collect(&stmt_while.body);
+        let loop_affects_split = body_changes.affects_split_results(&state.env);
+        if loop_affects_split {
+            state.mark_form_partial();
+        }
         let can_exhaust = static_truthiness(&stmt_while.test) != Some(true);
         let mut exhausted = if can_exhaust {
             vec![state.clone()]
@@ -712,6 +814,9 @@ fn branch_while(
         for repeat_state in &repeatable {
             let mut widened = repeat_state.clone();
             widened.env = body_changes.apply(&widened.env);
+            if loop_affects_split {
+                widened.mark_form_partial();
+            }
             if can_exhaust {
                 exhausted.push(widened.clone());
             }
@@ -753,22 +858,357 @@ fn branch_match(
 ) -> ExecutionStates {
     let incoming = states.take_next();
     for mut state in incoming {
-        if let Some(constraints) = extract_match_constraints(stmt_match, &mut state.env) {
-            state.result.constraints.extend(constraints);
-        }
-
-        if stmt_match.cases.is_empty() {
-            states.0.push(state);
-            continue;
-        }
+        let mut subject = eval_expr_with_ctx(&stmt_match.subject, &mut state.env, Some(ctx));
+        let mut residual = ExecutionStates(vec![state]);
 
         for case in &stmt_match.cases {
-            let mut branch =
-                process_statement_states(&case.body, ExecutionStates(vec![state.clone()]), ctx);
+            let mut matched = ExecutionStates(Vec::new());
+            let mut unmatched = ExecutionStates(Vec::new());
+            for candidate in residual.0 {
+                let (mut candidate_matches, mut candidate_residual) =
+                    split_match_pattern(&case.pattern, &subject, candidate);
+                matched.0.append(&mut candidate_matches);
+                unmatched.0.append(&mut candidate_residual);
+            }
+            matched.normalize_with(&mut unmatched);
+
+            let (guarded, mut guard_residual) =
+                split_match_guard(case.guard.as_deref(), matched, &mut subject, ctx);
+            let mut branch = process_statement_states(&case.body, guarded, ctx);
             states.0.append(&mut branch.0);
+            unmatched.0.append(&mut guard_residual.0);
+            states.normalize_with(&mut unmatched);
+            residual = unmatched;
+            if residual.0.is_empty() {
+                break;
+            }
         }
+        states.0.append(&mut residual.0);
+        states.normalize();
     }
     states
+}
+
+fn split_match_pattern(
+    pattern: &Pattern,
+    subject: &AbstractValue,
+    mut state: ExecutionState,
+) -> (Vec<ExecutionState>, Vec<ExecutionState>) {
+    match pattern {
+        Pattern::MatchAs(PatternMatchAs {
+            pattern: None,
+            name,
+            ..
+        }) => {
+            if let Some(name) = name {
+                state.env.set(name.to_string(), subject.clone());
+            }
+            (vec![state], Vec::new())
+        }
+        Pattern::MatchAs(PatternMatchAs {
+            pattern: Some(inner),
+            name,
+            ..
+        }) => {
+            let (mut matched, unmatched) = split_match_pattern(inner, subject, state);
+            if let Some(name) = name {
+                for state in &mut matched {
+                    state.env.set(name.to_string(), subject.clone());
+                }
+            }
+            (matched, unmatched)
+        }
+        Pattern::MatchOr(pattern_or) => {
+            let mut matched = ExecutionStates(Vec::new());
+            let mut residual = ExecutionStates(vec![state]);
+            for alternative in &pattern_or.patterns {
+                let mut next_residual = ExecutionStates(Vec::new());
+                for candidate in residual.0 {
+                    let (mut alternative_matches, mut alternative_residual) =
+                        split_match_pattern(alternative, subject, candidate);
+                    matched.0.append(&mut alternative_matches);
+                    next_residual.0.append(&mut alternative_residual);
+                }
+                matched.normalize_with(&mut next_residual);
+                residual = next_residual;
+                if residual.0.is_empty() {
+                    break;
+                }
+            }
+            (matched.0, residual.0)
+        }
+        Pattern::MatchSequence(sequence) => {
+            let AbstractValue::SplitResult(split) = subject else {
+                return split_unknown_pattern(pattern, subject_affects_forms(subject), state);
+            };
+            split_sequence_pattern(sequence, *split, state)
+        }
+        Pattern::MatchValue(_)
+        | Pattern::MatchSingleton(_)
+        | Pattern::MatchMapping(_)
+        | Pattern::MatchClass(_)
+        | Pattern::MatchStar(_) => {
+            split_unknown_pattern(pattern, subject_affects_forms(subject), state)
+        }
+    }
+}
+
+fn split_sequence_pattern(
+    sequence: &PatternMatchSequence,
+    split: crate::templates::tags::analysis::state::TokenSplit,
+    mut state: ExecutionState,
+) -> (Vec<ExecutionState>, Vec<ExecutionState>) {
+    state.track_forms();
+    let star = sequence
+        .patterns
+        .iter()
+        .position(|pattern| matches!(pattern, Pattern::MatchStar(_)));
+    let fixed = sequence.patterns.len() - usize::from(star.is_some());
+    let length = split.resolve_length(fixed);
+    let mut predicates = vec![if star.is_some() {
+        SplitPredicate::LengthAtLeast(length)
+    } else {
+        SplitPredicate::LengthEquals(length)
+    }];
+    let mut captures = Vec::new();
+    let mut uncertain = false;
+    let mut unsupported = false;
+
+    for (index, pattern) in sequence.patterns.iter().enumerate() {
+        if let Pattern::MatchStar(starred) = pattern {
+            if let Some(name) = &starred.name {
+                let before = index;
+                let after = sequence.patterns.len() - before - 1;
+                let mut capture_split = split.after_slice_from(before);
+                for _ in 0..after {
+                    capture_split = capture_split.after_pop_back();
+                }
+                captures.push((name.to_string(), AbstractValue::SplitResult(capture_split)));
+            }
+            continue;
+        }
+        let position = match star {
+            Some(star) if index > star => {
+                SplitPosition::Backward(split.back_offset() + sequence.patterns.len() - index)
+            }
+            Some(_) | None => split.resolve_index(index),
+        };
+        if !lower_sequence_atom(
+            pattern,
+            position,
+            &mut predicates,
+            &mut captures,
+            &mut uncertain,
+        ) {
+            unsupported = true;
+        }
+    }
+
+    let mut candidates = ExecutionStates(vec![state]);
+    let mut residual = ExecutionStates(Vec::new());
+    for predicate in predicates {
+        let mut next = ExecutionStates(Vec::new());
+        for candidate in candidates.0 {
+            if let Some(rejected) = candidate.clone().assume(&predicate, false) {
+                residual.0.push(rejected);
+            }
+            if let Some(candidate) = candidate.assume(&predicate, true) {
+                next.0.push(candidate);
+            }
+        }
+        next.normalize_with(&mut residual);
+        candidates = next;
+        if candidates.0.is_empty() {
+            break;
+        }
+    }
+
+    if uncertain {
+        let mut uncertain_residual = candidates.0.clone();
+        for state in &mut uncertain_residual {
+            state.mark_tracked_form_partial();
+        }
+        residual.0.append(&mut uncertain_residual);
+        for state in &mut candidates.0 {
+            state.mark_tracked_form_partial();
+        }
+    }
+    if unsupported {
+        let mut unsupported_residual = candidates.0.clone();
+        for state in &mut unsupported_residual {
+            state.mark_form_unknown();
+        }
+        residual.0.append(&mut unsupported_residual);
+        forget_pattern_captures(&sequence.patterns, &mut candidates.0);
+        for state in &mut candidates.0 {
+            state.mark_form_unknown();
+        }
+    }
+    for state in &mut candidates.0 {
+        for (name, value) in &captures {
+            state.env.set(name.clone(), value.clone());
+        }
+    }
+    forget_pattern_captures(&sequence.patterns, &mut residual.0);
+    candidates.normalize_with(&mut residual);
+    (candidates.0, residual.0)
+}
+
+fn lower_sequence_atom(
+    pattern: &Pattern,
+    position: SplitPosition,
+    predicates: &mut Vec<SplitPredicate>,
+    captures: &mut Vec<(String, AbstractValue)>,
+    uncertain: &mut bool,
+) -> bool {
+    match pattern {
+        Pattern::MatchAs(PatternMatchAs {
+            pattern: None,
+            name,
+            ..
+        }) => {
+            if let Some(name) = name {
+                captures.push((
+                    name.to_string(),
+                    AbstractValue::SplitElement { index: position },
+                ));
+            }
+            true
+        }
+        Pattern::MatchAs(PatternMatchAs {
+            pattern: Some(inner),
+            name,
+            ..
+        }) => {
+            let supported = lower_sequence_atom(inner, position, predicates, captures, uncertain);
+            if let Some(name) = name {
+                captures.push((
+                    name.to_string(),
+                    AbstractValue::SplitElement { index: position },
+                ));
+            }
+            supported
+        }
+        Pattern::MatchValue(PatternMatchValue { value, .. }) => {
+            let Some(value) = value.string_literal() else {
+                return false;
+            };
+            if position == SplitPosition::Forward(0) {
+                *uncertain = true;
+            } else {
+                predicates.push(SplitPredicate::ElementEquals {
+                    position,
+                    value: value.to_string(),
+                });
+            }
+            true
+        }
+        Pattern::MatchSingleton(_)
+        | Pattern::MatchSequence(_)
+        | Pattern::MatchMapping(_)
+        | Pattern::MatchClass(_)
+        | Pattern::MatchStar(_)
+        | Pattern::MatchOr(_) => false,
+    }
+}
+
+fn subject_affects_forms(subject: &AbstractValue) -> bool {
+    matches!(
+        subject,
+        AbstractValue::SplitResult(_)
+            | AbstractValue::SplitElement { .. }
+            | AbstractValue::SplitLength(_)
+            | AbstractValue::SplitPredicate(_)
+    )
+}
+
+fn split_unknown_pattern(
+    pattern: &Pattern,
+    affects_forms: bool,
+    mut state: ExecutionState,
+) -> (Vec<ExecutionState>, Vec<ExecutionState>) {
+    if affects_forms {
+        state.mark_form_unknown();
+    }
+    let mut residual = state.clone();
+    for name in pattern_bound_names(pattern) {
+        state.env.set(name.to_string(), AbstractValue::Unknown);
+        residual.env.set(name.to_string(), AbstractValue::Unknown);
+    }
+    (vec![state], vec![residual])
+}
+
+fn forget_pattern_captures(patterns: &[Pattern], states: &mut [ExecutionState]) {
+    for name in patterns.iter().flat_map(pattern_bound_names) {
+        for state in &mut *states {
+            state.env.set(name.to_string(), AbstractValue::Unknown);
+        }
+    }
+}
+
+fn split_match_guard(
+    guard: Option<&Expr>,
+    matched: ExecutionStates,
+    subject: &mut AbstractValue,
+    ctx: &mut CallContext<'_>,
+) -> (ExecutionStates, ExecutionStates) {
+    let Some(guard) = guard else {
+        return (matched, ExecutionStates(Vec::new()));
+    };
+    let mut taken = ExecutionStates(Vec::new());
+    let mut residual = ExecutionStates(Vec::new());
+    let mut subject_became_uncertain = false;
+    for mut state in matched.0 {
+        let truthiness = static_truthiness(guard);
+        let predicate =
+            crate::templates::tags::analysis::guards::split_predicate_condition(guard, &state.env);
+        let subject_bindings = state
+            .env
+            .iter()
+            .filter(|(_, value)| *value == &*subject)
+            .map(|(name, _)| name.to_string())
+            .collect::<Vec<_>>();
+        let may_mutate_split = expression_may_mutate_split(guard, &state.env);
+        let _ = eval_expr_with_ctx(guard, &mut state.env, Some(ctx));
+        if may_mutate_split {
+            state.env.forget_split_results();
+            state.mark_form_partial();
+        }
+        if may_mutate_split
+            || (!subject_bindings.is_empty()
+                && subject_bindings
+                    .iter()
+                    .all(|name| state.env.get(name) != &*subject))
+        {
+            subject_became_uncertain = true;
+        }
+
+        match truthiness {
+            Some(true) => taken.0.push(state),
+            Some(false) => residual.0.push(state),
+            None => {
+                if let Some((predicate, truth)) = predicate {
+                    if let Some(rejected) = state.clone().assume(&predicate, !truth) {
+                        residual.0.push(rejected);
+                    }
+                    if let Some(state) = state.assume(&predicate, truth) {
+                        taken.0.push(state);
+                    }
+                } else {
+                    let mut rejected = state.clone();
+                    state.mark_form_unknown();
+                    rejected.mark_form_unknown();
+                    taken.0.push(state);
+                    residual.0.push(rejected);
+                }
+            }
+        }
+    }
+    if subject_became_uncertain {
+        *subject = AbstractValue::Unknown;
+    }
+    taken.normalize_with(&mut residual);
+    (taken, residual)
 }
 
 struct ConditionalAssignment<'a> {
@@ -812,7 +1252,7 @@ fn analyze_conditional_assignment<'a>(
 
 fn branch_conditional_assignment(
     conditional: ConditionalAssignment<'_>,
-    path: ExecutionState,
+    mut path: ExecutionState,
 ) -> Vec<ExecutionState> {
     let ConditionalAssignment {
         target,
@@ -821,6 +1261,7 @@ fn branch_conditional_assignment(
         true_value,
         false_value,
     } = conditional;
+    path.track_forms();
     let mut alternatives = Vec::with_capacity(2);
     if let Some(mut taken) = path.clone().assume(&predicate, condition_truth) {
         taken.env.set(target.to_string(), true_value);
@@ -843,15 +1284,15 @@ fn branch_if(
     let mut alternatives = states;
 
     for mut path in incoming {
-        if let Some(argument_syntax) =
-            crate::templates::tags::analysis::forms::extract_if_argument_syntax(
-                stmt_if, &path.env, ctx,
+        if let Some((SplitPredicate::LengthEquals(_), true)) =
+            crate::templates::tags::analysis::guards::split_predicate_condition(
+                &stmt_if.test,
+                &path.env,
             )
+            && (direct_raise_exception(&stmt_if.body).is_none()
+                || !stmt_if.elif_else_clauses.is_empty())
         {
-            path.result.extend(AnalysisResult {
-                argument_syntax: Some(argument_syntax),
-                ..AnalysisResult::default()
-            });
+            path.track_forms();
         }
 
         let mut unmatched = Some(path);
@@ -885,7 +1326,21 @@ fn branch_if(
                             test, body, &path.env,
                         )
                     });
-            let taken = path.clone();
+            let unsupported_form_condition = test.is_some_and(|test| {
+                truth.is_none()
+                    && predicate.is_none()
+                    && direct_raise_exception(body).is_some()
+                    && unsupported_condition_affects_static_syntax(test, &path.env)
+            })
+                && crate::templates::tags::analysis::guards::extract_complete_rejecting_guard(
+                    stmt_if, &path.env,
+                )
+                .is_none();
+
+            let mut taken = path.clone();
+            if unsupported_form_condition {
+                taken.mark_form_unknown();
+            }
             let taken = match predicate.as_ref() {
                 Some((predicate, condition_truth)) => taken.assume(predicate, *condition_truth),
                 None => Some(taken),
@@ -904,7 +1359,10 @@ fn branch_if(
             }
 
             if truth != Some(true) && test.is_some() {
-                let fallthrough = path;
+                let mut fallthrough = path;
+                if unsupported_form_condition {
+                    fallthrough.mark_form_unknown();
+                }
                 let fallthrough = match predicate.as_ref() {
                     Some((predicate, condition_truth)) => {
                         fallthrough.assume(predicate, !condition_truth)
@@ -1074,6 +1532,15 @@ impl PotentialEnvChanges {
             self.assigned_names.insert(name);
             self.mutates_split_result = true;
         }
+    }
+
+    fn affects_split_results(&self, env: &Env) -> bool {
+        self.mutates_split_result
+            || self.forget_all
+            || self
+                .assigned_names
+                .iter()
+                .any(|name| matches!(env.get(name), AbstractValue::SplitResult(_)))
     }
 
     fn apply(&self, env: &Env) -> Env {
@@ -1536,14 +2003,20 @@ fn run_finally(
 
 fn project_results(paths: &[&ExecutionState]) -> AnalysisResult {
     let mut result = project_common_results(paths);
-    if matches!(
-        result.argument_syntax,
-        Some(TagArgumentSyntax::Forms {
-            coverage: crate::templates::tags::types::ArgumentFormCoverage::Complete,
-            ..
-        })
-    ) {
-        result.constraints = ExtractedTagConstraints::default();
+    if let Some(argument_syntax) = project_argument_forms(paths) {
+        // Complete forms own the full argument grammar and its diagnostics.
+        // Partial forms cannot replace facts proved across the unknown remainder.
+        if matches!(
+            argument_syntax,
+            TagArgumentSyntax::Forms {
+                coverage: crate::templates::tags::types::ArgumentFormCoverage::Complete,
+                ..
+            }
+        ) {
+            result.constraints = ExtractedTagConstraints::default();
+            result.diagnostic_messages.clear();
+        }
+        result.argument_syntax = Some(argument_syntax);
     }
     result
 }
@@ -1580,6 +2053,442 @@ fn project_common_results(paths: &[&ExecutionState]) -> AnalysisResult {
         known_options,
         argument_syntax,
     }
+}
+
+fn project_argument_forms(paths: &[&ExecutionState]) -> Option<TagArgumentSyntax> {
+    if !paths
+        .iter()
+        .any(|path| matches!(path.form_evidence, FormEvidence::Tracked { .. }))
+    {
+        return None;
+    }
+
+    let mut forms: Vec<TagArgumentForm> = Vec::new();
+    let mut complete = true;
+    for path in paths {
+        match &path.form_evidence {
+            FormEvidence::Tracked {
+                complete: path_complete,
+            } => {
+                complete &= *path_complete;
+                if let Some(form) = project_argument_form(path, &path.exclusions) {
+                    if !forms
+                        .iter_mut()
+                        .any(|candidate| candidate.merge_messages_if_same_shape(&form))
+                    {
+                        forms.push(form);
+                    }
+                } else {
+                    complete = false;
+                }
+            }
+            FormEvidence::Unknown | FormEvidence::PendingPartial | FormEvidence::Untracked => {
+                complete = false;
+            }
+        }
+    }
+
+    if forms.len() > MAX_EXEC_STATES {
+        forms.truncate(MAX_EXEC_STATES);
+        complete = false;
+    }
+    if forms.is_empty() {
+        Some(TagArgumentSyntax::Unknown)
+    } else if !complete && forms.iter().all(|form| form.minimum_len() == 0) {
+        None
+    } else {
+        let coverage = if complete {
+            crate::templates::tags::types::ArgumentFormCoverage::Complete
+        } else {
+            crate::templates::tags::types::ArgumentFormCoverage::Partial
+        };
+        let length_mismatch_message = if complete
+            && form_count_constraint(&forms)
+                .is_some_and(|constraint| project_count_constraints(paths) == [constraint])
+        {
+            common_count_message(paths)
+        } else {
+            None
+        };
+        Some(TagArgumentSyntax::Forms {
+            forms,
+            coverage,
+            length_mismatch_message,
+        })
+    }
+}
+
+fn form_count_constraint(forms: &[TagArgumentForm]) -> Option<ArgumentCountConstraint> {
+    if forms.is_empty() {
+        return None;
+    }
+    if forms.iter().all(|form| form.exact_len().is_some()) {
+        let mut lengths = forms
+            .iter()
+            .filter_map(TagArgumentForm::exact_len)
+            .map(|length| length + 1)
+            .collect::<Vec<_>>();
+        lengths.sort_unstable();
+        lengths.dedup();
+        return match lengths.as_slice() {
+            [length] => Some(ArgumentCountConstraint::Exact(*length)),
+            _ => Some(ArgumentCountConstraint::OneOf(lengths)),
+        };
+    }
+    forms
+        .iter()
+        .map(TagArgumentForm::minimum_len)
+        .min()
+        .map(|minimum| ArgumentCountConstraint::Min(minimum + 1))
+}
+
+#[allow(clippy::too_many_lines)]
+fn project_argument_form(
+    path: &ExecutionState,
+    assumptions: &[PathAssumption],
+) -> Option<TagArgumentForm> {
+    let finite = finite_counts(&path.result.constraints.arg_constraints);
+    let exact = match finite.as_deref() {
+        Some([length]) => Some(*length),
+        Some(_) | None => None,
+    };
+
+    if let Some(split_length) = exact {
+        if !count_satisfies(split_length, &path.result.constraints.arg_constraints)
+            || assumptions.iter().any(|assumption| {
+                matches!(assumption, PathAssumption::LengthNotEquals(length) if *length == split_length)
+            })
+        {
+            return None;
+        }
+        let arguments_len = split_length.checked_sub(1)?;
+        if form_positions(path, assumptions)
+            .into_iter()
+            .any(|position| position.to_bits_index(arguments_len).is_none())
+        {
+            return None;
+        }
+        let count = [ArgumentCountConstraint::Exact(split_length)];
+        let names = extract_arg_names(
+            &path.env,
+            &path.result.constraints.required_keywords,
+            &path.result.constraints.choice_at_constraints,
+            &count,
+        );
+        let pattern = (0..arguments_len)
+            .map(|index| {
+                let position = SplitPosition::Forward(index + 1);
+                let default_name = names.get(index).map_or_else(
+                    || format!("arg{}", index + 1),
+                    |argument| argument.name.clone(),
+                );
+                project_pattern_atom(
+                    path,
+                    assumptions,
+                    position,
+                    Some(arguments_len),
+                    default_name,
+                )
+            })
+            .collect::<Option<Vec<_>>>()?;
+        return TagArgumentForm::new(pattern).ok();
+    }
+
+    if finite.is_some() || upper_bound(&path.result.constraints.arg_constraints).is_some() {
+        return None;
+    }
+    let split_minimum = lower_bound(&path.result.constraints.arg_constraints)?;
+    if assumptions.iter().any(|assumption| {
+        matches!(assumption, PathAssumption::LengthNotEquals(length) if *length >= split_minimum)
+    }) {
+        return None;
+    }
+
+    let mut prefix_len = 0;
+    let mut suffix_len = 0;
+    for position in form_positions(path, assumptions) {
+        match position {
+            SplitPosition::Forward(position) if position > 0 => {
+                prefix_len = prefix_len.max(position);
+            }
+            SplitPosition::Backward(position) => suffix_len = suffix_len.max(position),
+            SplitPosition::Forward(_) => {}
+        }
+    }
+    let minimum_arguments = split_minimum.checked_sub(1)?;
+    let variable_minimum = minimum_arguments.checked_sub(prefix_len + suffix_len)?;
+    let variable_name = path
+        .env
+        .iter()
+        .filter_map(|(name, value)| match value {
+            AbstractValue::SplitResult(split)
+                if split.front_offset() == prefix_len + 1 && split.back_offset() == suffix_len =>
+            {
+                Some(name)
+            }
+            AbstractValue::Unknown
+            | AbstractValue::Token
+            | AbstractValue::Parser
+            | AbstractValue::SplitResult(_)
+            | AbstractValue::SplitElement { .. }
+            | AbstractValue::SplitLength(_)
+            | AbstractValue::Int(_)
+            | AbstractValue::Str(_)
+            | AbstractValue::SplitPredicate(_)
+            | AbstractValue::Tuple(_) => None,
+        })
+        .min()
+        .unwrap_or("arguments")
+        .to_string();
+
+    let mut pattern = Vec::with_capacity(prefix_len + suffix_len + 1);
+    for index in 0..prefix_len {
+        let position = SplitPosition::Forward(index + 1);
+        pattern.push(project_pattern_atom(
+            path,
+            assumptions,
+            position,
+            None,
+            position_name(&path.env, position, None).unwrap_or_else(|| format!("arg{}", index + 1)),
+        )?);
+    }
+    pattern.push(TagArgumentPattern {
+        name: variable_name,
+        kind: TagArgumentPatternKind::VariableWidth {
+            minimum: variable_minimum,
+        },
+        mismatch_message: None,
+    });
+    for backward in (1..=suffix_len).rev() {
+        let position = SplitPosition::Backward(backward);
+        pattern.push(project_pattern_atom(
+            path,
+            assumptions,
+            position,
+            None,
+            position_name(&path.env, position, None)
+                .unwrap_or_else(|| format!("arg_from_end_{backward}")),
+        )?);
+    }
+    TagArgumentForm::new(pattern).ok()
+}
+
+fn form_positions(path: &ExecutionState, assumptions: &[PathAssumption]) -> Vec<SplitPosition> {
+    let mut positions = path
+        .result
+        .constraints
+        .required_keywords
+        .iter()
+        .map(|keyword| keyword.position)
+        .chain(
+            path.result
+                .constraints
+                .choice_at_constraints
+                .iter()
+                .map(|choice| choice.position),
+        )
+        .chain(
+            assumptions
+                .iter()
+                .filter_map(|assumption| match assumption {
+                    PathAssumption::ElementNotEquals { position, .. } => Some(*position),
+                    PathAssumption::LengthNotEquals(_) => None,
+                }),
+        )
+        .collect::<Vec<_>>();
+    positions.sort_by_key(|position| match position {
+        SplitPosition::Forward(index) => (0, *index),
+        SplitPosition::Backward(index) => (1, *index),
+    });
+    positions.dedup();
+    positions
+}
+
+#[allow(clippy::too_many_lines)]
+fn project_pattern_atom(
+    path: &ExecutionState,
+    assumptions: &[PathAssumption],
+    position: SplitPosition,
+    exact_arguments_len: Option<usize>,
+    default_name: String,
+) -> Option<TagArgumentPattern> {
+    let same_position =
+        |candidate: SplitPosition| positions_equal(candidate, position, exact_arguments_len);
+    let mut required = path
+        .result
+        .constraints
+        .required_keywords
+        .iter()
+        .filter(|keyword| same_position(keyword.position))
+        .map(|keyword| keyword.value.clone())
+        .collect::<Vec<_>>();
+    required.sort();
+    required.dedup();
+    if required.len() > 1 {
+        return None;
+    }
+
+    let mut excluded = assumptions
+        .iter()
+        .filter_map(|assumption| match assumption {
+            PathAssumption::ElementNotEquals {
+                position: candidate,
+                value,
+            } if same_position(*candidate) => Some(value.clone()),
+            PathAssumption::LengthNotEquals(_) | PathAssumption::ElementNotEquals { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    excluded.sort();
+    excluded.dedup();
+    if excluded.len() > 1
+        || required
+            .first()
+            .is_some_and(|value| excluded.contains(value))
+    {
+        return None;
+    }
+
+    let choices = path
+        .result
+        .constraints
+        .choice_at_constraints
+        .iter()
+        .filter(|choice| same_position(choice.position))
+        .map(|choice| choice.values.as_slice())
+        .collect::<Vec<_>>();
+    let choice = choices.first().map(|first| {
+        first
+            .iter()
+            .filter(|candidate| {
+                choices
+                    .iter()
+                    .skip(1)
+                    .all(|values| values.contains(candidate))
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    });
+    if choice.as_ref().is_some_and(Vec::is_empty) {
+        return None;
+    }
+
+    let (name, kind) = if let Some(value) = required.into_iter().next() {
+        if choice
+            .as_ref()
+            .is_some_and(|values| !values.contains(&value))
+        {
+            return None;
+        }
+        (value.clone(), TagArgumentPatternKind::Literal(value))
+    } else if let Some(mut values) = choice {
+        if let Some(excluded) = excluded.first() {
+            values.retain(|value| value != excluded);
+        }
+        if values.is_empty() {
+            return None;
+        }
+        (default_name, TagArgumentPatternKind::Choice(values))
+    } else if let Some(value) = excluded.into_iter().next() {
+        (default_name, TagArgumentPatternKind::VariableExcept(value))
+    } else {
+        (default_name, TagArgumentPatternKind::Variable)
+    };
+    let mismatch_message = pattern_mismatch_message(path, position, exact_arguments_len, &kind);
+    Some(TagArgumentPattern {
+        name,
+        kind,
+        mismatch_message,
+    })
+}
+
+fn pattern_mismatch_message(
+    path: &ExecutionState,
+    position: SplitPosition,
+    exact_arguments_len: Option<usize>,
+    kind: &TagArgumentPatternKind,
+) -> Option<ExtractedMessageTemplate> {
+    let mut messages = path
+        .result
+        .diagnostic_messages
+        .iter()
+        .filter(|diagnostic| match (&diagnostic.constraint, kind) {
+            (
+                ExtractedDiagnosticConstraint::RequiredKeyword {
+                    position: candidate,
+                    value: expected,
+                },
+                TagArgumentPatternKind::Literal(value),
+            ) => positions_equal(*candidate, position, exact_arguments_len) && expected == value,
+            (
+                ExtractedDiagnosticConstraint::ChoiceAt {
+                    position: candidate,
+                    values: expected,
+                },
+                TagArgumentPatternKind::Choice(values),
+            ) => positions_equal(*candidate, position, exact_arguments_len) && expected == values,
+            (
+                ExtractedDiagnosticConstraint::ArgumentCount(_)
+                | ExtractedDiagnosticConstraint::RequiredKeyword { .. }
+                | ExtractedDiagnosticConstraint::ChoiceAt { .. },
+                TagArgumentPatternKind::Variable
+                | TagArgumentPatternKind::VariableWidth { .. }
+                | TagArgumentPatternKind::VariableExcept(_),
+            )
+            | (
+                ExtractedDiagnosticConstraint::ArgumentCount(_)
+                | ExtractedDiagnosticConstraint::ChoiceAt { .. },
+                TagArgumentPatternKind::Literal(_),
+            )
+            | (
+                ExtractedDiagnosticConstraint::ArgumentCount(_)
+                | ExtractedDiagnosticConstraint::RequiredKeyword { .. },
+                TagArgumentPatternKind::Choice(_),
+            ) => false,
+        })
+        .map(|diagnostic| &diagnostic.message);
+    let first = messages.next()?;
+    messages
+        .all(|message| message == first)
+        .then(|| first.clone())
+}
+
+fn positions_equal(
+    left: SplitPosition,
+    right: SplitPosition,
+    exact_arguments_len: Option<usize>,
+) -> bool {
+    left == right
+        || exact_arguments_len.is_some_and(|length| {
+            left.to_bits_index(length).is_some()
+                && left.to_bits_index(length) == right.to_bits_index(length)
+        })
+}
+
+fn position_name(
+    env: &Env,
+    position: SplitPosition,
+    exact_arguments_len: Option<usize>,
+) -> Option<String> {
+    env.iter()
+        .filter_map(|(name, value)| match value {
+            AbstractValue::SplitElement { index }
+                if positions_equal(*index, position, exact_arguments_len) =>
+            {
+                Some(name)
+            }
+            AbstractValue::Unknown
+            | AbstractValue::Token
+            | AbstractValue::Parser
+            | AbstractValue::SplitResult(_)
+            | AbstractValue::SplitElement { .. }
+            | AbstractValue::SplitLength(_)
+            | AbstractValue::Int(_)
+            | AbstractValue::Str(_)
+            | AbstractValue::SplitPredicate(_)
+            | AbstractValue::Tuple(_) => None,
+        })
+        .min()
+        .map(str::to_string)
 }
 
 fn project_constraints(paths: &[&ExecutionState]) -> ExtractedTagConstraints {
@@ -1874,6 +2783,40 @@ fn diagnostic_constraint_is_projected(
     }
 }
 
+struct SplitMethodCall<'a> {
+    env: &'a Env,
+    found: bool,
+}
+
+impl<'a> Visitor<'a> for SplitMethodCall<'_> {
+    fn visit_expr(&mut self, expression: &'a Expr) {
+        if let Expr::Call(call) = expression
+            && let Expr::Attribute(attribute) = call.func.as_ref()
+            && let Some(name) = attribute.value.name_target()
+            && matches!(self.env.get(name), AbstractValue::SplitElement { .. })
+        {
+            self.found = true;
+            return;
+        }
+        visitor::walk_expr(self, expression);
+    }
+}
+
+fn unsupported_condition_affects_static_syntax(expr: &Expr, env: &Env) -> bool {
+    let constraints =
+        crate::templates::tags::analysis::guards::extract_false_condition_constraints(expr, env);
+    if !constraints.arg_constraints.is_empty()
+        || !constraints.required_keywords.is_empty()
+        || !constraints.choice_at_constraints.is_empty()
+    {
+        return true;
+    }
+
+    let mut method_call = SplitMethodCall { env, found: false };
+    method_call.visit_expr(expr);
+    method_call.found
+}
+
 fn static_truthiness(expr: &Expr) -> Option<bool> {
     if let Some(value) = expr.bool_literal() {
         return Some(value);
@@ -1895,13 +2838,14 @@ fn execute_assignment(
 ) -> Vec<ExecutionState> {
     let StmtAssign { targets, value, .. } = assign;
     let pop_info = try_extract_pop_call(value);
-    let invalidates_split = expression_may_mutate_split(value, &state.env)
+    let form_incomplete = expression_may_mutate_split(value, &state.env)
         || unsupported_container_captures_split(value, &state.env)
         || pop_info.as_ref().is_some_and(PopInfo::is_untracked);
     let rhs = eval_expr_with_ctx(value, &mut state.env, Some(ctx));
 
-    if invalidates_split {
+    if form_incomplete {
         state.env.forget_split_results();
+        state.mark_form_partial();
     }
     execute_assignment_targets(targets, &rhs, state)
 }
@@ -1921,6 +2865,7 @@ fn execute_assignment_targets(
                     ArgumentCountConstraint::Exact(length) => SplitPredicate::LengthEquals(*length),
                     ArgumentCountConstraint::Min(length) => SplitPredicate::LengthAtLeast(*length),
                     ArgumentCountConstraint::Max(_) | ArgumentCountConstraint::OneOf(_) => {
+                        state.mark_form_unknown();
                         next.push(state);
                         continue;
                     }
@@ -1947,6 +2892,9 @@ fn execute_assignment_targets(
             };
 
             let assignment = process_assignment_target(target, rhs, &mut state.env);
+            if assignment.form_incomplete {
+                state.mark_form_partial();
+            }
             match assignment.failure {
                 AssignmentFailure::Never => next.push(state),
                 AssignmentFailure::Maybe => {
@@ -2040,14 +2988,15 @@ fn split_unpack_constraint(
     })
 }
 
-fn process_expression_statement(stmt_expr: &ruff_python_ast::StmtExpr, env: &mut Env) {
+fn process_expression_statement(stmt_expr: &ruff_python_ast::StmtExpr, env: &mut Env) -> bool {
     let pop_info = try_extract_pop_call(&stmt_expr.value);
-    let invalidates_split = expression_may_mutate_split(&stmt_expr.value, env)
+    let form_incomplete = expression_may_mutate_split(&stmt_expr.value, env)
         || pop_info.as_ref().is_some_and(PopInfo::is_untracked);
     eval_expr(&stmt_expr.value, env);
-    if invalidates_split {
+    if form_incomplete {
         env.forget_split_results();
     }
+    form_incomplete
 }
 
 fn unsupported_container_captures_split(expr: &Expr, env: &Env) -> bool {
@@ -2204,17 +3153,20 @@ enum AssignmentFailure {
 
 #[derive(Clone, Copy)]
 struct AssignmentTargetResult {
+    form_incomplete: bool,
     failure: AssignmentFailure,
 }
 
 impl AssignmentTargetResult {
-    fn applied() -> Self {
+    fn applied(form_incomplete: bool) -> Self {
         Self {
+            form_incomplete,
             failure: AssignmentFailure::Never,
         }
     }
 
     fn include(&mut self, result: Self) {
+        self.form_incomplete |= result.form_incomplete;
         self.failure = match (self.failure, result.failure) {
             (AssignmentFailure::Definite, _) | (_, AssignmentFailure::Definite) => {
                 AssignmentFailure::Definite
@@ -2235,7 +3187,7 @@ fn process_assignment_target(
 ) -> AssignmentTargetResult {
     if let Some(name) = target.name_target() {
         env.set(name.to_string(), value.clone());
-        return AssignmentTargetResult::applied();
+        return AssignmentTargetResult::applied(false);
     }
 
     match target {
@@ -2248,11 +3200,11 @@ fn process_assignment_target(
             match eval_expr(&attribute.value, &mut target_env) {
                 AbstractValue::SplitResult(_) => {
                     env.forget_split_results();
-                    AssignmentTargetResult::applied()
+                    AssignmentTargetResult::applied(true)
                 }
                 AbstractValue::Token => {
                     env.forget_tokens();
-                    AssignmentTargetResult::applied()
+                    AssignmentTargetResult::applied(false)
                 }
                 AbstractValue::Unknown
                 | AbstractValue::Parser
@@ -2261,19 +3213,19 @@ fn process_assignment_target(
                 | AbstractValue::Int(_)
                 | AbstractValue::Str(_)
                 | AbstractValue::SplitPredicate(_)
-                | AbstractValue::Tuple(_) => AssignmentTargetResult::applied(),
+                | AbstractValue::Tuple(_) => AssignmentTargetResult::applied(false),
             }
         }
         Expr::Subscript(subscript) => {
             let mut target_env = env.clone();
-            let invalidates_split = matches!(
+            let form_incomplete = matches!(
                 eval_expr(&subscript.value, &mut target_env),
                 AbstractValue::SplitResult(_)
             );
-            if invalidates_split {
+            if form_incomplete {
                 env.forget_split_results();
             }
-            AssignmentTargetResult::applied()
+            AssignmentTargetResult::applied(form_incomplete)
         }
         Expr::BoolOp(_)
         | Expr::Named(_)
@@ -2302,7 +3254,7 @@ fn process_assignment_target(
         | Expr::EllipsisLiteral(_)
         | Expr::Name(_)
         | Expr::Slice(_)
-        | Expr::IpyEscapeCommand(_) => AssignmentTargetResult::applied(),
+        | Expr::IpyEscapeCommand(_) => AssignmentTargetResult::applied(false),
     }
 }
 
@@ -2316,7 +3268,7 @@ fn process_tuple_unpack(
         .iter()
         .position(|target| matches!(target, Expr::Starred(_)));
     let fixed = targets.len() - usize::from(star_index.is_some());
-    let mut result = AssignmentTargetResult::applied();
+    let mut result = AssignmentTargetResult::applied(false);
 
     match value {
         AbstractValue::Tuple(elements) => {
@@ -2412,7 +3364,19 @@ mod tests {
     }
 
     fn eval_body(source: &str) -> Env {
-        let func = parse_function(source);
+        let parsed = parse_module(source).expect("valid Python");
+        let module = parsed.into_syntax();
+        let func = module
+            .body
+            .iter()
+            .find_map(|statement| {
+                if let Stmt::FunctionDef(function) = statement {
+                    Some(function)
+                } else {
+                    None
+                }
+            })
+            .expect("no function found");
         let parser_param = func
             .parameters
             .args
@@ -2424,12 +3388,16 @@ mod tests {
             .get(1)
             .map_or("token", |p| p.parameter.name.as_str());
         let mut env = Env::for_compile_function(parser_param, token_param);
-        env.set_builtin_name_scope(std::collections::HashSet::new());
+        let bindings =
+            crate::templates::tags::analysis::constants::StaticBindings::from_module(&module.body);
+        crate::templates::tags::analysis::constants::seed_static_bindings(
+            &bindings, func, &mut env,
+        );
         let mut ctx = CallContext {
             db: None,
             file: None,
         };
-        process_statements(&func.body, &mut env, &mut ctx);
+        let _ = process_statements(&func.body, &mut env, &mut ctx);
         env
     }
 
@@ -2490,7 +3458,7 @@ mod tests {
     }
 
     #[test]
-    fn deduplicate_paths_preserves_first_occurrence_order() {
+    fn deduplicate_states_preserves_first_occurrence_order() {
         let path = |value| {
             let mut env = Env::default();
             env.set("value".to_string(), AbstractValue::Int(value));
@@ -2510,6 +3478,58 @@ mod tests {
         deduplicate_states(&mut paths);
 
         assert_eq!(paths, vec![first, second, third]);
+    }
+
+    #[test]
+    fn return_expression_applies_pop_once() {
+        let function = parse_function(
+            "def compile(parser, token):\n    bits = token.split_contents()\n    return bits.pop(0)\n",
+        );
+        let mut env = Env::for_compile_function("parser", "token");
+        let mut ctx = CallContext {
+            db: None,
+            file: None,
+        };
+        let (_, value) = process_statements(&function.body, &mut env, &mut ctx);
+        assert_eq!(
+            value,
+            AbstractValue::SplitElement {
+                index: SplitPosition::Forward(0)
+            }
+        );
+        assert_eq!(
+            env.get("bits"),
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_front())
+        );
+    }
+
+    #[test]
+    fn repeated_predicate_keeps_one_fact_and_implicit_tag_minimum() {
+        let mut state =
+            super::ExecutionState::from_env(Env::for_compile_function("parser", "token"));
+        state.track_forms();
+        let predicate = super::SplitPredicate::ElementEquals {
+            position: SplitPosition::Forward(1),
+            value: "literal".to_string(),
+        };
+        state = state.assume(&predicate, true).expect("feasible predicate");
+        state = state.assume(&predicate, true).expect("feasible predicate");
+        assert_eq!(state.result.constraints.required_keywords.len(), 1);
+        state = state
+            .assume(&super::SplitPredicate::LengthAtLeast(1), true)
+            .expect("feasible length");
+        assert!(state.result.constraints.arg_constraints.is_empty());
+        assert!(
+            state
+                .clone()
+                .assume(&super::SplitPredicate::LengthAtLeast(0), false)
+                .is_none()
+        );
+        assert!(
+            state
+                .assume(&super::SplitPredicate::LengthAtLeast(1), false)
+                .is_none()
+        );
     }
 
     #[test]
@@ -2537,6 +3557,60 @@ def do_tag(parser, token):
             env.get("bits"),
             &AbstractValue::SplitResult(TokenSplit::fresh())
         );
+    }
+
+    #[test]
+    fn string_join_does_not_preserve_split_list_shape() {
+        let env = eval_body(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    joined = ",".join(bits)
+"#,
+        );
+        assert_eq!(env.get("joined"), &AbstractValue::Unknown);
+    }
+
+    #[test]
+    fn regex_split_does_not_preserve_input_list_shape() {
+        let env = eval_body(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    joined = " ".join(bits)
+    pieces = re.split(r" *, *", joined)
+"#,
+        );
+        assert_eq!(env.get("pieces"), &AbstractValue::Unknown);
+    }
+
+    #[test]
+    fn unsupported_writes_invalidate_stale_split_bindings() {
+        for write in [
+            "bits: list = runtime_value()",
+            "bits += runtime_value()",
+            "del bits",
+            "def bits():\n        pass",
+            "import runtime as bits",
+        ] {
+            let source = format!(
+                "def do_tag(parser, token):\n    bits = token.split_contents()\n    {write}\n"
+            );
+            let env = eval_body(&source);
+            assert_eq!(env.get("bits"), &AbstractValue::Unknown, "{source}");
+        }
+    }
+
+    #[test]
+    fn backward_position_absence_uses_its_distance_from_end() {
+        assert!(position_is_absent(
+            SplitPosition::Backward(2),
+            &[ArgumentCountConstraint::Max(2)]
+        ));
+        assert!(!position_is_absent(
+            SplitPosition::Backward(2),
+            &[ArgumentCountConstraint::Max(3)]
+        ));
     }
 
     #[test]
@@ -3056,20 +4130,22 @@ def do_tag(parser, token):
         let module = parsed.into_syntax();
         let func = module
             .body
-            .into_iter()
-            .find_map(|s| {
-                if let Stmt::FunctionDef(f) = s {
-                    Some(f)
+            .iter()
+            .find_map(|statement| {
+                if let Stmt::FunctionDef(function) = statement {
+                    Some(function)
                 } else {
                     None
                 }
             })
             .expect("no function found");
-        crate::templates::tags::analysis::analyze_compile_function(&func)
+        crate::templates::tags::analysis::analyze_compile_function_in_module(&module.body, func)
     }
 
     fn analyze_func(func: &StmtFunctionDef) -> crate::templates::tags::types::TagRule {
-        crate::templates::tags::analysis::analyze_compile_function(func)
+        // These detached vendored functions are tested under the explicit
+        // assumption that their module leaves builtin names unshadowed.
+        crate::templates::tags::analysis::analyze_compile_function_in_module(&[], func)
     }
 
     // Fabricated: simple option loop without duplicate checking. No corpus
@@ -3271,12 +4347,8 @@ def do_tag(parser, token):
             raise TemplateSyntaxError("bad")
 "#,
         );
-        assert!(
-            rule.arg_constraints
-                .contains(&crate::templates::tags::types::ArgumentCountConstraint::Min(1)),
-            "expected Min(1), got {:?}",
-            rule.arg_constraints
-        );
+        // The mandatory tag name adds no restriction on user arguments.
+        assert!(rule.arg_constraints.is_empty());
     }
 
     // Fabricated: match with multiple fixed-length non-error arms of
@@ -3395,8 +4467,7 @@ def do_tag(parser, token):
     }
 
     #[test]
-    fn unknown_while_body_assignments_are_widened() {
-        // A non-option loop may execute zero or many times.
+    fn while_body_assignment_is_not_claimed_when_loop_may_not_run() {
         let env = eval_body(
             r"
 def do_tag(parser, token):
@@ -3411,8 +4482,7 @@ def do_tag(parser, token):
     }
 
     #[test]
-    fn unknown_while_body_pop_side_effects_are_widened() {
-        // The loop count is unknown, so its final split offset is unknown.
+    fn while_body_mutation_is_not_claimed_when_loop_may_not_run() {
         let env = eval_body(
             r"
 def do_tag(parser, token):
@@ -3488,7 +4558,7 @@ def do_tag(parser, token):
             rule.arg_constraints,
             vec![ArgumentCountConstraint::Exact(2)]
         );
-        assert!(rule.diagnostic_messages.is_none());
+        assert_eq!(rule.diagnostic_messages.as_ref().map(Vec::len), Some(1));
     }
 
     #[test]

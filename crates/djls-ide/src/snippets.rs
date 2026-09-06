@@ -1,3 +1,5 @@
+use djls_project::TagArgumentPattern;
+use djls_project::TagArgumentPatternKind;
 use djls_semantic::ArgumentFormCoverage;
 use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
@@ -46,26 +48,102 @@ fn generate_snippet_from_args(args: &[TagArgument]) -> String {
     parts.join(" ")
 }
 
+fn generate_snippet_from_pattern(arguments: &[&TagArgumentPattern]) -> String {
+    let mut parts = Vec::new();
+    let mut placeholder_index = 1;
+    for argument in arguments {
+        let part = match &argument.kind {
+            TagArgumentPatternKind::Literal(value) => value.clone(),
+            TagArgumentPatternKind::Choice(values) => {
+                let result = format!("${{{}|{}|}}", placeholder_index, values.join(","));
+                placeholder_index += 1;
+                result
+            }
+            TagArgumentPatternKind::Variable
+            | TagArgumentPatternKind::VariableWidth { .. }
+            | TagArgumentPatternKind::VariableExcept(_) => {
+                let result = format!("${{{}:{}}}", placeholder_index, argument.name);
+                placeholder_index += 1;
+                result
+            }
+        };
+        parts.push(part);
+    }
+    parts.join(" ")
+}
+
+fn expanded_pattern(
+    form: &djls_project::TagArgumentForm,
+    length: usize,
+) -> Option<Vec<&TagArgumentPattern>> {
+    let variable = form
+        .pattern()
+        .iter()
+        .position(|argument| matches!(argument.kind, TagArgumentPatternKind::VariableWidth { .. }));
+    match variable {
+        None => (length == form.pattern().len()).then(|| form.pattern().iter().collect()),
+        Some(variable) => {
+            if length < form.minimum_len() {
+                return None;
+            }
+            let repeated = length - (form.pattern().len() - 1);
+            let mut expanded = Vec::with_capacity(length);
+            expanded.extend(form.pattern()[..variable].iter());
+            expanded.extend(std::iter::repeat_n(&form.pattern()[variable], repeated));
+            expanded.extend(form.pattern()[variable + 1..].iter());
+            Some(expanded)
+        }
+    }
+}
+
+fn minimum_form_completion<'a>(
+    form: &'a djls_project::TagArgumentForm,
+    completed: &[&str],
+) -> Option<Vec<&'a TagArgumentPattern>> {
+    let maximum = completed.len() + form.pattern().len() + form.minimum_len() + 1;
+    (form.minimum_len().max(completed.len())..=maximum).find_map(|length| {
+        let expanded = expanded_pattern(form, length)?;
+        expanded
+            .iter()
+            .zip(completed)
+            .all(|(argument, bit)| argument.kind.matches(bit))
+            .then(|| expanded.into_iter().skip(completed.len()).collect())
+    })
+}
+
 /// Generate a complete LSP snippet for a tag including the tag name
 #[must_use]
 fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
-    let arguments = match spec.argument_syntax() {
+    let args_snippet = match spec.argument_syntax() {
         TagArgumentSyntax::Signature { parameters, .. }
-        | TagArgumentSyntax::Parameters(parameters) => Some(parameters.as_slice()),
+        | TagArgumentSyntax::Parameters(parameters) => generate_snippet_from_args(parameters),
         TagArgumentSyntax::Forms {
             forms,
             coverage: ArgumentFormCoverage::Complete,
+            ..
         } => forms
             .iter()
-            .min_by_key(|form| form.arguments.len())
-            .map(|form| form.arguments.as_slice()),
+            .min_by_key(|form| {
+                (
+                    form.minimum_len(),
+                    form.pattern()
+                        .iter()
+                        .filter(|argument| {
+                            matches!(argument.kind, TagArgumentPatternKind::Literal(_))
+                        })
+                        .count(),
+                )
+            })
+            .and_then(|form| expanded_pattern(form, form.minimum_len()))
+            .map_or_else(String::new, |arguments| {
+                generate_snippet_from_pattern(&arguments)
+            }),
         TagArgumentSyntax::Unknown
         | TagArgumentSyntax::Forms {
             coverage: ArgumentFormCoverage::Partial,
             ..
-        } => None,
+        } => String::new(),
     };
-    let args_snippet = arguments.map_or_else(String::new, generate_snippet_from_args);
 
     if args_snippet.is_empty() {
         tag_name.to_string()
@@ -82,7 +160,8 @@ pub(crate) fn has_full_argument_snippet(spec: &TagSpec) -> bool {
         TagArgumentSyntax::Forms {
             forms,
             coverage: ArgumentFormCoverage::Complete,
-        } => forms.iter().any(|form| !form.arguments.is_empty()),
+            ..
+        } => forms.iter().any(|form| form.minimum_len() > 0),
         TagArgumentSyntax::Unknown
         | TagArgumentSyntax::Forms {
             coverage: ArgumentFormCoverage::Partial,
@@ -114,30 +193,74 @@ pub(crate) fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) 
     snippet
 }
 
-/// Return next parameters from forms compatible with the arguments already typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompatibleArgumentKind<'a> {
+    Literal(&'a str),
+    Choice(&'a [String]),
+    Variable,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CompatibleArgument<'a> {
+    pub name: &'a str,
+    pub kind: CompatibleArgumentKind<'a>,
+}
+
+/// Return next parameters from syntax compatible with the arguments already typed.
 #[must_use]
 pub(crate) fn compatible_arguments_at<'a>(
     spec: &'a TagSpec,
     completed_arguments: &[&str],
     position: usize,
-) -> Vec<&'a TagArgument> {
-    let sequences: Vec<&[TagArgument]> = match spec.argument_syntax() {
-        TagArgumentSyntax::Unknown => Vec::new(),
-        TagArgumentSyntax::Signature { parameters, .. }
-        | TagArgumentSyntax::Parameters(parameters) => vec![parameters],
-        TagArgumentSyntax::Forms { forms, .. } => {
-            forms.iter().map(|form| form.arguments.as_slice()).collect()
-        }
-    };
-
+) -> Vec<CompatibleArgument<'a>> {
     let mut arguments = Vec::new();
-    for sequence in sequences {
-        if sequence.len() <= position || !arguments_match_prefix(sequence, completed_arguments) {
-            continue;
+    match spec.argument_syntax() {
+        TagArgumentSyntax::Unknown => {}
+        TagArgumentSyntax::Signature { parameters, .. }
+        | TagArgumentSyntax::Parameters(parameters) => {
+            if parameters.len() > position
+                && arguments_match_prefix(parameters, completed_arguments)
+            {
+                let argument = &parameters[position];
+                let kind = match &argument.kind {
+                    TagArgumentKind::Literal(value) => CompatibleArgumentKind::Literal(value),
+                    TagArgumentKind::Choice(values) => CompatibleArgumentKind::Choice(values),
+                    TagArgumentKind::Variable
+                    | TagArgumentKind::Keyword
+                    | TagArgumentKind::VarArgs => CompatibleArgumentKind::Variable,
+                };
+                arguments.push(CompatibleArgument {
+                    name: &argument.name,
+                    kind,
+                });
+            }
         }
-        let argument = &sequence[position];
-        if !arguments.contains(&argument) {
-            arguments.push(argument);
+        TagArgumentSyntax::Forms { forms, .. } => {
+            for form in forms {
+                for continuation in form.prefix_continuations(completed_arguments) {
+                    let argument = continuation.argument;
+                    let kind = match &argument.kind {
+                        TagArgumentPatternKind::Literal(value) => {
+                            CompatibleArgumentKind::Literal(value)
+                        }
+                        TagArgumentPatternKind::Choice(values) => {
+                            CompatibleArgumentKind::Choice(values)
+                        }
+                        TagArgumentPatternKind::Variable
+                        | TagArgumentPatternKind::VariableWidth { .. }
+                        | TagArgumentPatternKind::VariableExcept(_) => {
+                            CompatibleArgumentKind::Variable
+                        }
+                    };
+                    let candidate = CompatibleArgument {
+                        name: &argument.name,
+                        kind,
+                    };
+                    if !arguments.contains(&candidate) {
+                        arguments.push(candidate);
+                    }
+                }
+            }
         }
     }
     arguments
@@ -150,26 +273,22 @@ pub(crate) fn generate_partial_snippet(
     completed_arguments: &[&str],
     starting_from_position: usize,
 ) -> String {
-    let sequence = match spec.argument_syntax() {
-        TagArgumentSyntax::Unknown => None,
+    match spec.argument_syntax() {
+        TagArgumentSyntax::Unknown => String::new(),
         TagArgumentSyntax::Signature { parameters, .. }
-        | TagArgumentSyntax::Parameters(parameters) => Some(parameters.as_slice()),
+        | TagArgumentSyntax::Parameters(parameters) => parameters
+            .get(starting_from_position..)
+            .filter(|_| arguments_match_prefix(parameters, completed_arguments))
+            .map_or_else(String::new, generate_snippet_from_args),
         TagArgumentSyntax::Forms { forms, .. } => forms
             .iter()
-            .filter(|form| {
-                form.arguments.len() > starting_from_position
-                    && arguments_match_prefix(&form.arguments, completed_arguments)
-            })
-            .min_by_key(|form| form.arguments.len())
-            .map(|form| form.arguments.as_slice()),
-    };
-    let Some(sequence) = sequence else {
-        return String::new();
-    };
-    let Some(remaining) = sequence.get(starting_from_position..) else {
-        return String::new();
-    };
-    generate_snippet_from_args(remaining)
+            .filter_map(|form| minimum_form_completion(form, completed_arguments))
+            .filter(|remaining| !remaining.is_empty())
+            .min_by_key(Vec::len)
+            .map_or_else(String::new, |remaining| {
+                generate_snippet_from_pattern(&remaining)
+            }),
+    }
 }
 
 fn arguments_match_prefix(arguments: &[TagArgument], completed: &[&str]) -> bool {
@@ -195,6 +314,26 @@ mod tests {
     use djls_semantic::TagArgumentKind;
 
     use super::*;
+
+    fn make_form(arguments: Vec<TagArgument>) -> TagArgumentForm {
+        TagArgumentForm::new(
+            arguments
+                .into_iter()
+                .map(|argument| TagArgumentPattern {
+                    name: argument.name,
+                    kind: match argument.kind {
+                        TagArgumentKind::Variable
+                        | TagArgumentKind::Keyword
+                        | TagArgumentKind::VarArgs => TagArgumentPatternKind::Variable,
+                        TagArgumentKind::Literal(value) => TagArgumentPatternKind::Literal(value),
+                        TagArgumentKind::Choice(values) => TagArgumentPatternKind::Choice(values),
+                    },
+                    mismatch_message: None,
+                })
+                .collect(),
+        )
+        .expect("fixed-width test form is valid")
+    }
 
     fn requirement(required: bool) -> ParameterRequirement {
         if required {
@@ -328,24 +467,21 @@ mod tests {
         )
         .with_argument_syntax(TagArgumentSyntax::Forms {
             forms: vec![
-                TagArgumentForm {
-                    arguments: vec![
-                        make_var("this_value_expr", true),
-                        make_var("max_value_expr", true),
-                        make_var("max_width", true),
-                    ],
-                },
-                TagArgumentForm {
-                    arguments: vec![
-                        make_var("this_value_expr", true),
-                        make_var("max_value_expr", true),
-                        make_var("max_width", true),
-                        make_literal("as", true),
-                        make_var("asvar", true),
-                    ],
-                },
+                make_form(vec![
+                    make_var("this_value_expr", true),
+                    make_var("max_value_expr", true),
+                    make_var("max_width", true),
+                ]),
+                make_form(vec![
+                    make_var("this_value_expr", true),
+                    make_var("max_value_expr", true),
+                    make_var("max_width", true),
+                    make_literal("as", true),
+                    make_var("asvar", true),
+                ]),
             ],
             coverage: ArgumentFormCoverage::Complete,
+            length_mismatch_message: None,
         });
 
         assert_eq!(
@@ -372,19 +508,22 @@ mod tests {
         )
         .with_argument_syntax(TagArgumentSyntax::Forms {
             forms: vec![
-                TagArgumentForm {
-                    arguments: vec![make_literal("first", true), make_literal("left", true)],
-                },
-                TagArgumentForm {
-                    arguments: vec![make_literal("second", true), make_literal("right", true)],
-                },
+                make_form(vec![
+                    make_literal("first", true),
+                    make_literal("left", true),
+                ]),
+                make_form(vec![
+                    make_literal("second", true),
+                    make_literal("right", true),
+                ]),
             ],
             coverage: ArgumentFormCoverage::Complete,
+            length_mismatch_message: None,
         });
 
         let arguments = compatible_arguments_at(&spec, &["first"], 1);
         assert_eq!(arguments.len(), 1);
-        assert_eq!(arguments[0].kind, TagArgumentKind::Literal("left".into()));
+        assert_eq!(arguments[0].kind, CompatibleArgumentKind::Literal("left"));
     }
 
     #[test]

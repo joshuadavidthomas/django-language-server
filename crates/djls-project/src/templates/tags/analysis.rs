@@ -3,9 +3,7 @@ pub(crate) mod constants;
 pub(crate) mod constraints;
 pub(crate) mod exceptions;
 pub(crate) mod expressions;
-pub(crate) mod forms;
 pub(crate) mod guards;
-pub(crate) mod match_arms;
 pub(crate) mod mutations;
 pub(crate) mod state;
 pub(crate) mod statements;
@@ -150,12 +148,18 @@ impl<'a> CompileFunction<'a> {
 ///
 /// Helper function calls are resolved only when analysis runs with a Salsa
 /// database and file context (see [`CallContext`]). In standalone mode
-/// (no database), helper calls evaluate to `Unknown`.
+/// (no database), helper calls evaluate to `Unknown`. Bare builtin names also
+/// remain unproven without module bindings.
 #[must_use]
 pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
     analyze_compile_function_with_context(func, None, None, None)
 }
 
+/// Analyze a compile function with name-resolution facts from its parsed module.
+///
+/// This pure seam is for source-backed callers that do not have a Salsa file.
+/// A detached function cannot prove whether its bare names still refer to
+/// Python builtins and must use [`analyze_compile_function`] instead.
 #[cfg(test)]
 pub(crate) fn analyze_compile_function_in_module(
     module: &[Stmt],
@@ -196,19 +200,22 @@ fn analyze_compile_function_with_context(
 
     let (result, _) = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
 
-    let argument_syntax = result.argument_syntax.unwrap_or_else(|| {
-        let arguments = extract_arg_names(
-            &env,
-            &result.constraints.required_keywords,
-            &[],
-            &result.constraints.arg_constraints,
-        );
-        if arguments.is_empty() {
-            TagArgumentSyntax::Unknown
-        } else {
-            TagArgumentSyntax::Parameters(arguments)
+    let argument_syntax = match result.argument_syntax {
+        None | Some(TagArgumentSyntax::Unknown) => {
+            let arguments = extract_arg_names(
+                &env,
+                &result.constraints.required_keywords,
+                &[],
+                &result.constraints.arg_constraints,
+            );
+            if arguments.is_empty() {
+                TagArgumentSyntax::Unknown
+            } else {
+                TagArgumentSyntax::Parameters(arguments)
+            }
         }
-    });
+        Some(syntax) => syntax,
+    };
 
     TagRule {
         arg_constraints: result.constraints.arg_constraints,
@@ -474,6 +481,9 @@ mod tests {
 
     use super::*;
     use crate::templates::tags::types::ArgumentFormCoverage;
+    use crate::templates::tags::types::ExtractedMessageArg;
+    use crate::templates::tags::types::ExtractedMessageTemplate;
+    use crate::templates::tags::types::TagArgumentPatternKind;
 
     fn parameters(rule: &TagRule) -> &[TagArgument] {
         rule.argument_syntax
@@ -496,6 +506,36 @@ mod tests {
             })
             .expect("no function found");
         analyze_compile_function_in_module(&module.body, func)
+    }
+
+    #[test]
+    fn detached_compile_function_does_not_assume_builtin_identity() {
+        let parsed = parse_module(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise TemplateSyntaxError("bad")
+"#,
+        )
+        .expect("valid Python");
+        let module = parsed.into_syntax();
+        let func = module
+            .body
+            .iter()
+            .find_map(|statement| {
+                if let Stmt::FunctionDef(function) = statement {
+                    Some(function)
+                } else {
+                    None
+                }
+            })
+            .expect("no function found");
+
+        let rule = analyze_compile_function(func);
+
+        assert!(rule.arg_constraints.is_empty());
+        assert_eq!(rule.argument_syntax, TagArgumentSyntax::Unknown);
     }
 
     #[test]
@@ -621,17 +661,17 @@ def do_tag(parser, token):
             .expect("expected correlated argument forms");
         assert_eq!(coverage, ArgumentFormCoverage::Complete);
         assert_eq!(forms.len(), 2);
-        assert_eq!(forms[0].arguments.len(), 2);
-        assert_eq!(forms[1].arguments.len(), 4);
+        assert_eq!(forms[0].pattern().len(), 2);
+        assert_eq!(forms[1].pattern().len(), 4);
         assert_eq!(
-            forms[1].arguments[1].kind,
-            TagArgumentKind::Literal("as".to_string())
+            forms[1].pattern()[1].kind,
+            TagArgumentPatternKind::Literal("as".to_string())
         );
-        assert_eq!(forms[1].arguments[2].name, "target");
+        assert_eq!(forms[1].pattern()[2].name, "target");
     }
 
     #[test]
-    fn sequential_syntax_dispatches_become_unknown() {
+    fn sequential_syntax_dispatches_intersect_on_the_same_paths() {
         let rule = analyze_source(
             r#"
 def do_tag(parser, token):
@@ -649,7 +689,14 @@ def do_tag(parser, token):
 "#,
         );
 
-        assert_eq!(rule.argument_syntax, TagArgumentSyntax::Unknown);
+        let (forms, coverage) = rule
+            .argument_syntax
+            .forms()
+            .expect("both dispatches constrain the same accepted path");
+        assert_eq!(coverage, ArgumentFormCoverage::Complete);
+        assert_eq!(forms.len(), 1);
+        assert!(forms[0].match_full(&["safe", "value"]).is_ok());
+        assert!(forms[0].match_full(&["unsafe", "value"]).is_err());
     }
 
     #[test]
@@ -722,7 +769,7 @@ def do_tag(parser, token):
             .expect("the original width satisfies the adjusted count");
         assert_eq!(coverage, ArgumentFormCoverage::Complete);
         assert_eq!(forms.len(), 1);
-        assert_eq!(forms[0].arguments.len(), 3);
+        assert_eq!(forms[0].pattern().len(), 3);
     }
 
     #[test]
@@ -746,8 +793,14 @@ def do_tag(parser, token):
             .forms()
             .expect("the supported branch should remain available");
         assert_eq!(coverage, ArgumentFormCoverage::Partial);
-        assert_eq!(forms.len(), 1);
-        assert_eq!(forms[0].arguments.len(), 2);
+        assert_eq!(forms.len(), 2);
+        assert_eq!(
+            forms
+                .iter()
+                .map(|form| form.pattern().len())
+                .collect::<Vec<_>>(),
+            vec![2, 4]
+        );
     }
 
     #[test]
@@ -779,28 +832,75 @@ def do_tag(parser, token):
         assert_eq!(forms.len(), 2);
         assert_eq!(
             forms[0]
-                .arguments
+                .pattern()
                 .iter()
                 .map(|argument| &argument.kind)
                 .collect::<Vec<_>>(),
             vec![
-                &TagArgumentKind::Literal("first".to_string()),
-                &TagArgumentKind::Variable,
-                &TagArgumentKind::Literal("left".to_string()),
+                &TagArgumentPatternKind::Literal("first".to_string()),
+                &TagArgumentPatternKind::Variable,
+                &TagArgumentPatternKind::Literal("left".to_string()),
             ]
         );
         assert_eq!(
             forms[1]
-                .arguments
+                .pattern()
                 .iter()
                 .map(|argument| &argument.kind)
                 .collect::<Vec<_>>(),
             vec![
-                &TagArgumentKind::Literal("second".to_string()),
-                &TagArgumentKind::Variable,
-                &TagArgumentKind::Literal("right".to_string()),
+                &TagArgumentPatternKind::Literal("second".to_string()),
+                &TagArgumentPatternKind::Variable,
+                &TagArgumentPatternKind::Literal("right".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn same_shape_branches_keep_atom_messages_on_their_execution_paths() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 4:
+        tag, kind, value, ending = bits
+        if kind == "first":
+            if ending != "done":
+                raise TemplateSyntaxError("first branch: %s" % token.contents)
+        elif kind == "second":
+            if ending != "done":
+                raise TemplateSyntaxError("second branch: %s" % token.contents)
+        else:
+            raise TemplateSyntaxError("bad kind")
+    else:
+        raise TemplateSyntaxError("bad count")
+"#,
+        );
+
+        let (forms, coverage) = rule
+            .argument_syntax
+            .forms()
+            .expect("expected branch-specific forms");
+        assert_eq!(coverage, ArgumentFormCoverage::Complete);
+        assert!(rule.diagnostic_messages.is_none());
+        for (branch, template) in [
+            ("first", "first branch: %s"),
+            ("second", "second branch: %s"),
+        ] {
+            let form = forms
+                .iter()
+                .find(|form| {
+                    form.pattern()[0].kind == TagArgumentPatternKind::Literal(branch.to_string())
+                })
+                .expect("branch form should be retained");
+            assert_eq!(
+                form.pattern()[2].mismatch_message,
+                Some(ExtractedMessageTemplate::PercentFormat {
+                    template: template.to_string(),
+                    args: vec![ExtractedMessageArg::TokenContents],
+                })
+            );
+        }
     }
 
     #[test]
@@ -830,14 +930,14 @@ def do_tag(parser, token):
         assert_eq!(forms.len(), 1);
         assert_eq!(
             forms[0]
-                .arguments
+                .pattern()
                 .iter()
                 .map(|argument| &argument.kind)
                 .collect::<Vec<_>>(),
             vec![
-                &TagArgumentKind::Literal("first".to_string()),
-                &TagArgumentKind::Variable,
-                &TagArgumentKind::Literal("last".to_string()),
+                &TagArgumentPatternKind::Literal("first".to_string()),
+                &TagArgumentPatternKind::Variable,
+                &TagArgumentPatternKind::Literal("last".to_string()),
             ]
         );
     }
@@ -865,7 +965,7 @@ def do_tag(parser, token):
     }
 
     #[test]
-    fn cross_position_literal_elif_is_partial() {
+    fn cross_position_literal_elif_projects_negative_discriminator() {
         let rule = analyze_source(
             r#"
 def do_tag(parser, token):
@@ -886,13 +986,20 @@ def do_tag(parser, token):
         let (forms, coverage) = rule
             .argument_syntax
             .forms()
-            .expect("the representable part of the elif should remain available");
-        assert_eq!(coverage, ArgumentFormCoverage::Partial);
+            .expect("the negative and positive facts form one ordered pattern");
+        assert_eq!(coverage, ArgumentFormCoverage::Complete);
         assert_eq!(forms.len(), 1);
         assert_eq!(
-            forms[0].arguments[1].kind,
-            TagArgumentKind::Literal("allowed".to_string())
+            forms[0].pattern()[0].kind,
+            TagArgumentPatternKind::VariableExcept("blocked".to_string())
         );
+        assert_eq!(
+            forms[0].pattern()[1].kind,
+            TagArgumentPatternKind::Literal("allowed".to_string())
+        );
+        assert!(forms[0].match_full(&["other", "allowed"]).is_ok());
+        assert!(forms[0].match_full(&["blocked", "allowed"]).is_err());
+        assert!(forms[0].match_full(&["other", "wrong"]).is_err());
     }
 
     #[test]
@@ -924,8 +1031,8 @@ def do_tag(parser, token):
         assert_eq!(coverage, ArgumentFormCoverage::Complete);
         assert_eq!(forms.len(), 1);
         assert_eq!(
-            forms[0].arguments[0].kind,
-            TagArgumentKind::Literal("second".to_string())
+            forms[0].pattern()[0].kind,
+            TagArgumentPatternKind::Literal("second".to_string())
         );
     }
 
@@ -956,13 +1063,13 @@ def do_tag(parser, token):
         assert_eq!(forms.len(), 1);
         assert_eq!(
             forms[0]
-                .arguments
+                .pattern()
                 .iter()
                 .map(|argument| &argument.kind)
                 .collect::<Vec<_>>(),
             vec![
-                &TagArgumentKind::Literal("first".to_string()),
-                &TagArgumentKind::Variable,
+                &TagArgumentPatternKind::Literal("first".to_string()),
+                &TagArgumentPatternKind::Variable,
             ]
         );
     }
@@ -990,7 +1097,7 @@ def do_tag(parser, token):
             .expect("the supported branch should remain available");
         assert_eq!(coverage, ArgumentFormCoverage::Partial);
         assert_eq!(forms.len(), 1);
-        assert_eq!(forms[0].arguments.len(), 3);
+        assert_eq!(forms[0].pattern().len(), 3);
     }
 
     #[test]
@@ -1016,7 +1123,7 @@ def do_tag(parser, token):
             .expect("the supported branch should remain available");
         assert_eq!(coverage, ArgumentFormCoverage::Partial);
         assert_eq!(forms.len(), 1);
-        assert_eq!(forms[0].arguments.len(), 3);
+        assert_eq!(forms[0].pattern().len(), 3);
     }
 
     #[test]
@@ -1033,7 +1140,7 @@ def do_tag(parser, token):
         bits = bits[2:]
     else:
         raise TemplateSyntaxError("bad count")
-    if len(bits) < 4:
+    if len(bits) < 2:
         raise TemplateSyntaxError("bad remaining count")
 "#,
         );
@@ -1052,12 +1159,92 @@ def do_tag(parser, token):
     }
 
     #[test]
+    fn nested_with_return_does_not_receive_tail_literal() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 2:
+        with manager():
+            return Node()
+    else:
+        raise TemplateSyntaxError("bad count")
+    if bits[1] != "tail":
+        raise TemplateSyntaxError("bad tail")
+"#,
+        );
+        let (forms, coverage) = rule.argument_syntax.forms().expect("returned form");
+        assert_eq!(coverage, ArgumentFormCoverage::Complete);
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].pattern()[0].kind, TagArgumentPatternKind::Variable);
+        assert!(forms[0].match_full(&["other"]).is_ok());
+    }
+
+    #[test]
+    fn nested_loop_and_match_returns_remain_separate_from_tail_guards() {
+        for suite in [
+            "for value in runtime_values:\n            return Node()",
+            "while runtime_check():\n            return Node()",
+            "match runtime_value:\n            case 1:\n                return Node()\n            case _:\n                pass",
+        ] {
+            let source = format!(
+                "def do_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) == 2:\n        {suite}\n    else:\n        raise TemplateSyntaxError('bad count')\n    if bits[1] != 'tail':\n        raise TemplateSyntaxError('bad tail')\n"
+            );
+            let rule = analyze_source(&source);
+            let (forms, _) = rule.argument_syntax.forms().expect("known accepted forms");
+            assert!(
+                forms.iter().any(|form| form.match_full(&["other"]).is_ok()),
+                "a return inside the nested suite must bypass the tail: {source}"
+            );
+            assert!(
+                forms.iter().any(|form| form.match_full(&["tail"]).is_ok()),
+                "the non-returning nested path must still satisfy the tail: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn exact_width_prunes_out_of_range_and_aliased_literal_paths() {
+        for body in [
+            "if bits[3] == 'x':\n            pass\n        else:\n            raise TemplateSyntaxError('bad')",
+            "if bits[1] == 'x':\n            if bits[-2] == 'y':\n                pass\n            else:\n                raise TemplateSyntaxError('bad alias')\n        else:\n            raise TemplateSyntaxError('bad first')",
+        ] {
+            let source = format!(
+                "def do_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) == 2:\n        {body}\n    else:\n        raise TemplateSyntaxError('bad count')\n"
+            );
+            let rule = analyze_source(&source);
+            assert_eq!(rule.argument_syntax, TagArgumentSyntax::Unknown, "{source}");
+        }
+    }
+
+    #[test]
+    fn compiled_filter_object_is_not_treated_as_its_source_bit() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 2:
+        value = parser.compile_filter(bits[1])
+        if value == "raw":
+            return Node()
+        else:
+            raise TemplateSyntaxError("bad value")
+    else:
+        raise TemplateSyntaxError("bad count")
+"#,
+        );
+        let (forms, _) = rule.argument_syntax.forms().expect("known count form");
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].pattern()[0].kind, TagArgumentPatternKind::Variable);
+    }
+
+    #[test]
     fn form_expansion_is_bounded_and_marked_partial() {
         let mut dispatches = String::new();
         for position in 1..=7 {
             write!(
                 dispatches,
-                "if bits[{position}] == 'left{position}':\n    pass\nelif bits[{position}] == 'right{position}':\n    pass\nelse:\n    raise TemplateSyntaxError('bad')\n"
+                "if bits[{position}] == 'left{position}':\n    pass\nelse:\n    pass\n"
             )
             .expect("writing to a String should succeed");
         }
@@ -1072,7 +1259,194 @@ def do_tag(parser, token):
             .forms()
             .expect("bounded known forms should remain available");
         assert_eq!(coverage, ArgumentFormCoverage::Partial);
-        assert_eq!(forms.len(), 64);
+        // One slot retains the rejecting destination summary; the total path
+        // budget remains 64 rather than granting 64 states per destination.
+        assert_eq!(forms.len(), 63);
+    }
+
+    #[test]
+    fn fixed_tuple_for_loop_executes_every_iteration() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    for _ in (1, 2):
+        bits.pop(0)
+    if len(bits) == 2:
+        return Node()
+    raise TemplateSyntaxError("bad")
+"#,
+        );
+
+        let (forms, coverage) = rule
+            .argument_syntax
+            .forms()
+            .expect("the two iterations establish one accepted width");
+        assert_eq!(coverage, ArgumentFormCoverage::Complete);
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].pattern().len(), 3);
+    }
+
+    #[test]
+    fn unknown_loop_remainder_keeps_later_form_tracking_partial() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    while runtime_check():
+        bits.pop(0)
+    if len(bits) == 2:
+        return Node()
+    raise TemplateSyntaxError("bad")
+"#,
+        );
+
+        let (_, coverage) = rule
+            .argument_syntax
+            .forms()
+            .expect("bounded loop paths still retain useful width evidence");
+        assert_eq!(coverage, ArgumentFormCoverage::Partial);
+    }
+
+    #[test]
+    fn accepting_match_wildcard_prevents_literal_constraint() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case ["tag", "special"]:
+            return Node()
+        case _:
+            return Node()
+"#,
+        );
+
+        assert!(rule.arg_constraints.is_empty());
+        assert!(rule.required_keywords.is_empty());
+    }
+
+    #[test]
+    fn supported_match_guard_retains_its_static_constraints() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case ["tag", mode] if mode == "safe":
+            return Node()
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+
+        assert_eq!(
+            rule.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+        let (forms, coverage) = rule.argument_syntax.forms().expect("known guarded form");
+        assert_eq!(coverage, ArgumentFormCoverage::Partial);
+        assert_eq!(forms.len(), 1);
+        assert_eq!(
+            forms[0].pattern()[0].kind,
+            TagArgumentPatternKind::Literal("safe".to_string())
+        );
+    }
+
+    #[test]
+    fn unsupported_split_writes_and_escapes_discard_stale_width() {
+        for operation in [
+            "bits[:] = ['tag', 'forced']",
+            "[first, *bits] = ['tag', 'forced']",
+            "replacement = bits = ['tag', 'forced']",
+            "replace_contents(bits)",
+            "replace_contents((bits,))",
+            "replace_contents([bits])",
+            "alias, = (bits,)\n    replace_contents(alias)",
+        ] {
+            let rule = analyze_source(&format!(
+                "def do_tag(parser, token):\n    bits = token.split_contents()\n    {operation}\n    if len(bits) != 2:\n        raise TemplateSyntaxError('bad')\n    return Node()\n"
+            ));
+
+            assert_eq!(
+                rule.argument_syntax,
+                TagArgumentSyntax::Unknown,
+                "operation retained stale split facts: {operation}"
+            );
+            assert!(rule.arg_constraints.is_empty(), "operation: {operation}");
+        }
+    }
+
+    #[test]
+    fn scalar_reads_and_string_join_do_not_escape_the_split_list() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    value = bits[1]
+    consume_scalar(value)
+    joined = " ".join(bits)
+    if len(bits) != 2:
+        raise TemplateSyntaxError("bad")
+    return Node(joined)
+"#,
+        );
+
+        assert_eq!(
+            rule.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+    }
+
+    #[test]
+    fn pass_only_try_does_not_make_handler_return_reachable() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    try:
+        pass
+    except ValueError:
+        return Node()
+    if len(bits) != 2:
+        raise TemplateSyntaxError("bad")
+    return Node()
+"#,
+        );
+
+        assert_eq!(
+            rule.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+    }
+
+    #[test]
+    fn wagtail_include_block_keeps_argument_evidence_across_option_branch() {
+        let rule = analyze_source(
+            r#"
+def include_block(parser, token):
+    tokens = token.split_contents()
+    try:
+        tag_name = tokens.pop(0)
+        block_var_token = tokens.pop(0)
+    except IndexError:
+        raise TemplateSyntaxError("requires one argument")
+    block_var = parser.compile_filter(block_var_token)
+    if tokens and tokens[0] == "with":
+        tokens.pop(0)
+        extra_context = token_kwargs(tokens, parser)
+    else:
+        extra_context = None
+    return Node(block_var, extra_context)
+"#,
+        );
+        let TagArgumentSyntax::Parameters(parameters) = &rule.argument_syntax else {
+            panic!("{rule:#?}");
+        };
+        assert!(
+            parameters
+                .iter()
+                .any(|parameter| parameter.name == "block_var_token"),
+            "{rule:#?}"
+        );
     }
 
     #[test]

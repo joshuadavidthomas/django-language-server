@@ -62,10 +62,57 @@ tag_rules:
         message:
           Static: "'cycle' tag requires at least two arguments"
     argument_syntax:
-      Parameters:
-        - name: arg1
-          requirement: required
-          kind: Variable
+      Forms:
+        forms:
+          - pattern:
+              - name: name
+                kind: Variable
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 1
+              - name: as
+                kind:
+                  Literal: as
+              - name: arg_from_end_2
+                kind: Variable
+              - name: silent
+                kind:
+                  Literal: silent
+                mismatch_message:
+                  PercentFormat:
+                    template: "Only 'silent' flag is allowed after cycle's name, not '%s'."
+                    args:
+                      - SplitElement:
+                          Backward: 1
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 1
+              - name: arg_from_end_3
+                kind:
+                  VariableExcept: as
+              - name: as
+                kind:
+                  Literal: as
+              - name: name
+                kind: Variable
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 1
+              - name: arg_from_end_3
+                kind:
+                  VariableExcept: as
+              - name: arg_from_end_2
+                kind:
+                  VariableExcept: as
+              - name: name
+                kind: Variable
+        coverage: partial
     as_var: keep
   "django.template.defaulttags::tag::firstof":
     arg_constraints:
@@ -86,22 +133,53 @@ tag_rules:
           kind: Variable
     as_var: strip
   "django.template.defaulttags::tag::for":
-    arg_constraints:
-      - Min: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: arg1
-          requirement: required
-          kind: Variable
-        - name: arg2
-          requirement: required
-          kind: Variable
-        - name: arg3
-          requirement: required
-          kind: Variable
+      Forms:
+        forms:
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 0
+              - name: in
+                kind:
+                  Literal: in
+                mismatch_message:
+                  PercentFormat:
+                    template: "'for' statements should use the format 'for x in y': %s"
+                    args:
+                      - TokenContents
+              - name: arg_from_end_2
+                kind: Variable
+              - name: reversed
+                kind:
+                  Literal: reversed
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 1
+              - name: in
+                kind:
+                  Literal: in
+                mismatch_message:
+                  PercentFormat:
+                    template: "'for' statements should use the format 'for x in y': %s"
+                    args:
+                      - TokenContents
+              - name: arg_from_end_1
+                kind:
+                  VariableExcept: reversed
+        coverage: complete
+        length_mismatch_message:
+          PercentFormat:
+            template: "'for' statements should have at least four words: %s"
+            args:
+              - TokenContents
     as_var: keep
   "django.template.defaulttags::tag::lorem":
     arg_constraints:
@@ -164,10 +242,12 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: arg1
-          requirement: required
-          kind: Variable
+      Forms:
+        forms:
+          - pattern:
+              - name: partial_name
+                kind: Variable
+        coverage: partial
     as_var: keep
   "django.template.defaulttags::tag::partialdef":
     arg_constraints:
@@ -181,14 +261,18 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: arg1
-          requirement: required
-          kind: Variable
-        - name: inline
-          requirement: required
-          kind:
-            Literal: inline
+      Forms:
+        forms:
+          - pattern:
+              - name: partial_name
+                kind: Variable
+              - name: inline
+                kind:
+                  Literal: inline
+          - pattern:
+              - name: partial_name
+                kind: Variable
+        coverage: partial
     as_var: keep
   "django.template.defaulttags::tag::querystring":
     arg_constraints: []
@@ -273,10 +357,12 @@ tag_rules:
               - SplitElement:
                   Forward: 0
     argument_syntax:
-      Parameters:
-        - name: arg1
-          requirement: required
-          kind: Variable
+      Forms:
+        forms:
+          - pattern:
+              - name: name
+                kind: Variable
+        coverage: partial
     as_var: keep
   "django.template.defaulttags::tag::templatetag":
     arg_constraints:
@@ -334,43 +420,29 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    diagnostic_messages:
-      - constraint:
-          RequiredKeyword:
-            position:
-              Forward: 4
-            value: as
-        message:
-          Static: "Invalid syntax in widthratio tag. Expecting 'as' keyword"
     argument_syntax:
       Forms:
         forms:
-          - arguments:
+          - pattern:
               - name: this_value_expr
-                requirement: required
                 kind: Variable
               - name: max_value_expr
-                requirement: required
                 kind: Variable
               - name: max_width
-                requirement: required
                 kind: Variable
-          - arguments:
+          - pattern:
               - name: this_value_expr
-                requirement: required
                 kind: Variable
               - name: max_value_expr
-                requirement: required
                 kind: Variable
               - name: max_width
-                requirement: required
                 kind: Variable
               - name: as
-                requirement: required
                 kind:
                   Literal: as
+                mismatch_message:
+                  Static: "Invalid syntax in widthratio tag. Expecting 'as' keyword"
               - name: asvar
-                requirement: required
                 kind: Variable
         coverage: complete
     as_var: keep

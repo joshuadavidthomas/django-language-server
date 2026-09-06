@@ -7,11 +7,14 @@ use djls_project::ExtractedDiagnosticConstraint;
 use djls_project::ExtractedDiagnosticMessage;
 use djls_project::ExtractedMessageArg;
 use djls_project::ExtractedMessageTemplate;
+use djls_project::FormAtomExpectation;
+use djls_project::FormAtomMismatch;
 use djls_project::KnownOptions;
 use djls_project::OptionRejection;
 use djls_project::RequiredKeyword;
 use djls_project::SplitPosition;
 use djls_project::TagArgumentForm;
+use djls_project::TagArgumentFormMismatch;
 use djls_project::TagArgumentKind;
 use djls_project::TagArgumentSyntax;
 use djls_project::TagRule;
@@ -182,17 +185,21 @@ pub(crate) fn evaluate_tag_rules(
         return vec![error];
     }
 
-    if let TagArgumentSyntax::Forms { forms, coverage } = &rules.argument_syntax
-        && !forms.iter().any(|form| form_matches(form, effective_bits))
-        && matches!(coverage, ArgumentFormCoverage::Complete)
+    if let TagArgumentSyntax::Forms {
+        forms,
+        coverage: ArgumentFormCoverage::Complete,
+        length_mismatch_message,
+    } = &rules.argument_syntax
+        && let Err(mismatch) = match_complete_forms(forms, effective_bits)
     {
-        errors.push(form_mismatch_error(
+        return vec![form_mismatch_error(
             tag_name,
             effective_bits,
             forms,
-            diagnostic_messages,
+            length_mismatch_message.as_ref(),
+            mismatch,
             span,
-        ));
+        )];
     }
 
     for constraint in &rules.arg_constraints {
@@ -423,93 +430,120 @@ fn django_keyword_name(bit: &str) -> Option<&str> {
     .then_some(name)
 }
 
-fn form_matches(form: &TagArgumentForm, bits: &[String]) -> bool {
-    form.arguments.len() == bits.len()
-        && form
-            .arguments
-            .iter()
-            .zip(bits)
-            .all(|(argument, bit)| match &argument.kind {
-                TagArgumentKind::Literal(value) => bit == value,
-                TagArgumentKind::Choice(values) => values.contains(bit),
-                TagArgumentKind::Variable | TagArgumentKind::VarArgs | TagArgumentKind::Keyword => {
-                    true
+fn match_complete_forms<'a>(
+    forms: &'a [TagArgumentForm],
+    bits: &[String],
+) -> Result<(), TagArgumentFormMismatch<'a>> {
+    let mut best_mismatch: Option<FormAtomMismatch<'a>> = None;
+    for form in forms {
+        match form.match_full(bits) {
+            Ok(()) => return Ok(()),
+            Err(TagArgumentFormMismatch::Length) => {}
+            Err(TagArgumentFormMismatch::Atom(mismatch)) => {
+                let candidate_is_exclusion =
+                    matches!(mismatch.expected, FormAtomExpectation::Excluded(_));
+                let replace = best_mismatch.is_none_or(|best| {
+                    mismatch.argument_index > best.argument_index
+                        || (mismatch.argument_index == best.argument_index
+                            && !candidate_is_exclusion
+                            && matches!(best.expected, FormAtomExpectation::Excluded(_)))
+                });
+                if replace {
+                    best_mismatch = Some(mismatch);
                 }
-            })
+            }
+        }
+    }
+
+    Err(best_mismatch.map_or(
+        TagArgumentFormMismatch::Length,
+        TagArgumentFormMismatch::Atom,
+    ))
 }
 
 fn form_mismatch_error(
     tag_name: &str,
     bits: &[String],
     forms: &[TagArgumentForm],
-    diagnostic_messages: &[ExtractedDiagnosticMessage],
+    length_mismatch_message: Option<&ExtractedMessageTemplate>,
+    mismatch: TagArgumentFormMismatch<'_>,
     span: Span,
 ) -> ValidationError {
-    if let Some(form) = forms.iter().find(|form| form.arguments.len() == bits.len()) {
-        for (index, (argument, bit)) in form.arguments.iter().zip(bits).enumerate() {
-            let position = SplitPosition::Forward(index + 1);
-            match &argument.kind {
-                TagArgumentKind::Literal(value) if bit != value => {
-                    let constraint = ExtractedDiagnosticConstraint::RequiredKeyword {
-                        position,
-                        value: value.clone(),
-                    };
-                    let message =
-                        message_for_constraint(diagnostic_messages, &constraint, tag_name, bits)
-                            .unwrap_or_else(|| {
-                                format!("Tag '{tag_name}' expects '{value}' at position {position}")
-                            });
-                    return ValidationError::ExtractedRuleViolation {
-                        tag: tag_name.to_string(),
-                        message,
-                        span,
-                    };
-                }
-                TagArgumentKind::Choice(values) if !values.contains(bit) => {
-                    let constraint = ExtractedDiagnosticConstraint::ChoiceAt {
-                        position,
-                        values: values.clone(),
-                    };
-                    let message =
-                        message_for_constraint(diagnostic_messages, &constraint, tag_name, bits)
-                            .unwrap_or_else(|| {
-                                format!(
-                                    "Tag '{tag_name}' argument must be one of: '{}'",
-                                    values.join("', '")
-                                )
-                            });
-                    return ValidationError::ExtractedRuleViolation {
-                        tag: tag_name.to_string(),
-                        message,
-                        span,
-                    };
-                }
-                TagArgumentKind::Literal(_)
-                | TagArgumentKind::Choice(_)
-                | TagArgumentKind::Variable
-                | TagArgumentKind::VarArgs
-                | TagArgumentKind::Keyword => {}
+    let message = match mismatch {
+        TagArgumentFormMismatch::Atom(FormAtomMismatch {
+            argument_index,
+            expected,
+            message,
+        }) => {
+            let forward = SplitPosition::Forward(argument_index + 1);
+            message
+                .and_then(|message| render_message_template(message, tag_name, bits))
+                .unwrap_or_else(|| match expected {
+                    FormAtomExpectation::Literal(value) => {
+                        format!("Tag '{tag_name}' expects '{value}' at position {forward}")
+                    }
+                    FormAtomExpectation::Choice(values) => format!(
+                        "Tag '{tag_name}' argument must be one of: '{}'",
+                        values.join("', '")
+                    ),
+                    FormAtomExpectation::Excluded(value) => {
+                        format!("Tag '{tag_name}' does not accept '{value}' at position {forward}")
+                    }
+                })
+        }
+        TagArgumentFormMismatch::Length => {
+            if let Some(message) = length_mismatch_message
+                .and_then(|message| render_message_template(message, tag_name, bits))
+            {
+                message
+            } else {
+                return form_length_mismatch_error(tag_name, bits.len(), forms, span);
             }
         }
-    }
-
-    let mut split_lengths: Vec<usize> = forms.iter().map(|form| form.arguments.len() + 1).collect();
-    split_lengths.sort_unstable();
-    split_lengths.dedup();
-    let constraint = if let [length] = split_lengths.as_slice() {
-        ArgumentCountConstraint::Exact(*length)
-    } else {
-        ArgumentCountConstraint::OneOf(split_lengths)
     };
-    let split_len = bits.len() + 1;
+    ValidationError::ExtractedRuleViolation {
+        tag: tag_name.to_string(),
+        message,
+        span,
+    }
+}
+
+fn form_length_mismatch_error(
+    tag_name: &str,
+    argument_count: usize,
+    forms: &[TagArgumentForm],
+    span: Span,
+) -> ValidationError {
+    let constraint = if forms.iter().all(|form| form.exact_len().is_some()) {
+        let mut split_lengths = forms
+            .iter()
+            .filter_map(TagArgumentForm::exact_len)
+            .map(|length| length + 1)
+            .collect::<Vec<_>>();
+        split_lengths.sort_unstable();
+        split_lengths.dedup();
+        if let [length] = split_lengths.as_slice() {
+            ArgumentCountConstraint::Exact(*length)
+        } else {
+            ArgumentCountConstraint::OneOf(split_lengths)
+        }
+    } else {
+        ArgumentCountConstraint::Min(
+            forms
+                .iter()
+                .map(TagArgumentForm::minimum_len)
+                .min()
+                .unwrap_or(0)
+                + 1,
+        )
+    };
     let message = match &constraint {
         ArgumentCountConstraint::Exact(expected) => {
             let expected_args = expected.saturating_sub(1);
-            let actual_args = split_len.saturating_sub(1);
             format!(
-                "Tag '{tag_name}' takes exactly {expected_args} argument{}, but {actual_args} {} given",
+                "Tag '{tag_name}' takes exactly {expected_args} argument{}, but {argument_count} {} given",
                 if expected_args == 1 { "" } else { "s" },
-                if actual_args == 1 { "was" } else { "were" }
+                if argument_count == 1 { "was" } else { "were" }
             )
         }
         ArgumentCountConstraint::OneOf(values) => format!(
@@ -630,9 +664,17 @@ fn format_arg(
         (ExtractedMessageArg::String(value), FormatKind::String) => Some(value.clone()),
         (ExtractedMessageArg::String(value), FormatKind::Repr) => Some(python_repr(value)),
         (
-            ExtractedMessageArg::String(_) | ExtractedMessageArg::SplitElement(_),
+            ExtractedMessageArg::String(_)
+            | ExtractedMessageArg::SplitElement(_)
+            | ExtractedMessageArg::TokenContents,
             FormatKind::Integer,
         ) => None,
+        (ExtractedMessageArg::TokenContents, FormatKind::String) => {
+            Some(normalized_token_contents(tag_name, bits))
+        }
+        (ExtractedMessageArg::TokenContents, FormatKind::Repr) => {
+            Some(python_repr(&normalized_token_contents(tag_name, bits)))
+        }
         (ExtractedMessageArg::SplitElement(position), FormatKind::String) => {
             split_position_value(*position, tag_name, bits)
         }
@@ -640,6 +682,13 @@ fn format_arg(
             split_position_value(*position, tag_name, bits).map(|value| python_repr(&value))
         }
     }
+}
+
+fn normalized_token_contents(tag_name: &str, bits: &[String]) -> String {
+    std::iter::once(tag_name)
+        .chain(bits.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn split_position_value(
@@ -707,6 +756,8 @@ mod tests {
     use djls_project::ParameterRequirement;
     use djls_project::SplitPosition;
     use djls_project::TagArgument;
+    use djls_project::TagArgumentPattern;
+    use djls_project::TagArgumentPatternKind;
 
     use super::*;
 
@@ -715,17 +766,24 @@ mod tests {
     }
 
     fn form(kinds: Vec<TagArgumentKind>) -> TagArgumentForm {
-        TagArgumentForm {
-            arguments: kinds
+        TagArgumentForm::new(
+            kinds
                 .into_iter()
                 .enumerate()
-                .map(|(index, kind)| TagArgument {
+                .map(|(index, kind)| TagArgumentPattern {
                     name: format!("arg{}", index + 1),
-                    requirement: ParameterRequirement::Required,
-                    kind,
+                    kind: match kind {
+                        TagArgumentKind::Variable
+                        | TagArgumentKind::VarArgs
+                        | TagArgumentKind::Keyword => TagArgumentPatternKind::Variable,
+                        TagArgumentKind::Literal(value) => TagArgumentPatternKind::Literal(value),
+                        TagArgumentKind::Choice(values) => TagArgumentPatternKind::Choice(values),
+                    },
+                    mismatch_message: None,
                 })
                 .collect(),
-        }
+        )
+        .expect("fixed-width test forms are valid")
     }
 
     #[test]
@@ -891,6 +949,7 @@ mod tests {
                     ]),
                 ],
                 coverage: ArgumentFormCoverage::Complete,
+                length_mismatch_message: None,
             },
             ..TagRule::default()
         };
@@ -909,11 +968,40 @@ mod tests {
     }
 
     #[test]
+    fn singleton_complete_form_rejects_excluded_value_at_correct_count() {
+        let form = TagArgumentForm::new(vec![TagArgumentPattern {
+            name: "value".to_string(),
+            kind: TagArgumentPatternKind::VariableExcept("blocked".to_string()),
+            mismatch_message: None,
+        }])
+        .expect("a fixed-width excluded-value form is valid");
+        let rule = TagRule {
+            argument_syntax: TagArgumentSyntax::Forms {
+                forms: vec![form],
+                coverage: ArgumentFormCoverage::Complete,
+                length_mismatch_message: None,
+            },
+            ..TagRule::default()
+        };
+
+        let errors =
+            evaluate_tag_rules("custom", &make_bits(&["blocked"]), &rule, Span::new(0, 10));
+
+        assert!(matches!(
+            errors.as_slice(),
+            [ValidationError::ExtractedRuleViolation { tag, message, .. }]
+                if tag == "custom"
+                    && message == "Tag 'custom' does not accept 'blocked' at position 1"
+        ));
+    }
+
+    #[test]
     fn partial_forms_do_not_reject_unknown_successful_syntax() {
         let rule = TagRule {
             argument_syntax: TagArgumentSyntax::Forms {
                 forms: vec![form(vec![TagArgumentKind::Literal("known".into())])],
                 coverage: ArgumentFormCoverage::Partial,
+                length_mismatch_message: None,
             },
             ..TagRule::default()
         };
@@ -963,6 +1051,50 @@ mod tests {
             &errors[0],
             ValidationError::ExtractedRuleViolation { message, .. }
             if message == "'custom' takes at least one argument"
+        ));
+    }
+
+    #[test]
+    fn token_contents_percent_format_uses_normalized_source_spelling() {
+        let bits = make_bits(&["item", "from", "\"quoted value\""]);
+        assert_eq!(
+            render_percent_format(
+                "bad %% tag: %s / %r",
+                &[
+                    ExtractedMessageArg::TokenContents,
+                    ExtractedMessageArg::TokenContents,
+                ],
+                "targetTag",
+                &bits,
+            ),
+            Some(
+                "bad % tag: targetTag item from \"quoted value\" / 'targetTag item from \"quoted value\"'"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn token_contents_integer_format_falls_back_to_generic_diagnostic() {
+        let rule = TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+            diagnostic_messages: Some(vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Exact(2),
+                ),
+                message: ExtractedMessageTemplate::PercentFormat {
+                    template: "bad tag: %d".to_string(),
+                    args: vec![ExtractedMessageArg::TokenContents],
+                },
+            }]),
+            ..TagRule::default()
+        };
+        let errors = evaluate_tag_rules("targetTag", &[], &rule, Span::new(0, 10));
+
+        assert!(matches!(
+            &errors[0],
+            ValidationError::ExtractedRuleViolation { message, .. }
+                if message == "Tag 'targetTag' takes exactly 1 argument, but 0 were given"
         ));
     }
 

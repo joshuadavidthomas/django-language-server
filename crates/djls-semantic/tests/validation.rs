@@ -117,6 +117,225 @@ fn collect_file_errors(db: &TestDatabase, path: &str) -> anyhow::Result<Vec<Vali
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
+fn for_reversed_forms_validate_dynamic_in_position() {
+    let valid = [
+        ("valid-single.html", "{% for x in items %}{% endfor %}"),
+        ("valid-unpack.html", "{% for x, y in items %}{% endfor %}"),
+        (
+            "valid-reversed.html",
+            "{% for x in items reversed %}{% endfor %}",
+        ),
+        (
+            "valid-unpack-reversed.html",
+            "{% for x, y in items reversed %}{% endfor %}",
+        ),
+    ];
+    let invalid = [
+        ("invalid-from.html", "{% for x from items %}{% endfor %}"),
+        (
+            "invalid-from-reversed.html",
+            "{% for x from items reversed %}{% endfor %}",
+        ),
+        (
+            "invalid-sequence.html",
+            "{% for x in reversed %}{% endfor %}",
+        ),
+        (
+            "invalid-discriminator.html",
+            "{% for x y in reversed %}{% endfor %}",
+        ),
+        ("invalid-too-short.html", "{% for x in %}{% endfor %}"),
+    ];
+    let mut fixture = ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['django.template.defaulttags']}}]\n",
+        )
+        .file("/project/django/__init__.py", "")
+        .file("/project/django/template/__init__.py", "")
+        .file(
+            "/project/django/template/defaulttags.py",
+            include_str!("../../djls-project/src/templates/tags/testdata/django_defaulttags.py"),
+        );
+    for (name, source) in valid.iter().chain(&invalid) {
+        fixture = fixture.file(format!("/project/templates/{name}"), *source);
+    }
+    let mut db = TestDatabase::new();
+    fixture
+        .install(&mut db)
+        .expect("for fixture should install");
+
+    for (name, source) in valid {
+        assert!(
+            collect_file_errors(&db, &format!("/project/templates/{name}"))
+                .expect("valid for source should validate")
+                .is_empty(),
+            "expected valid for syntax: {source}"
+        );
+    }
+
+    for (name, source) in invalid {
+        let errors = collect_file_errors(&db, &format!("/project/templates/{name}"))
+            .expect("malformed for source should produce diagnostics");
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::ExtractedRuleViolation { tag, .. } if tag == "for"
+            )),
+            "expected for rule violation for {source}: {errors:?}"
+        );
+    }
+
+    for (name, expected) in [
+        (
+            "invalid-from.html",
+            "'for' statements should use the format 'for x in y': for x from items",
+        ),
+        (
+            "invalid-from-reversed.html",
+            "'for' statements should use the format 'for x in y': for x from items reversed",
+        ),
+        (
+            "invalid-too-short.html",
+            "'for' statements should have at least four words: for x in",
+        ),
+    ] {
+        let errors = collect_file_errors(&db, &format!("/project/templates/{name}"))
+            .expect("malformed for source should produce its source diagnostic");
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::ExtractedRuleViolation { tag, message, .. }
+                    if tag == "for" && message == expected
+            )),
+            "{name}: {errors:#?}"
+        );
+    }
+
+    let errors = collect_file_errors(&db, "/project/templates/invalid-sequence.html")
+        .expect("reserved sequence value should produce a form diagnostic");
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, message, .. }
+                if tag == "for"
+                    && message == "Tag 'for' does not accept 'reversed' at position 3"
+        )),
+        "{errors:#?}"
+    );
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { message, .. }
+                if message.contains("exactly 3 arguments")
+        )),
+        "{errors:#?}"
+    );
+}
+
+#[test]
+fn branch_specific_form_diagnostics_use_the_matching_execution_path() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['routed_tags']}}]\n",
+        )
+        .file(
+            "/project/routed_tags.py",
+            r#"from django import template
+register = template.Library()
+@register.tag("routed")
+def compile_routed(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 4:
+        tag, branch, value, ending = bits
+        if branch == "first":
+            if ending != "done":
+                raise template.TemplateSyntaxError("first branch: %s" % token.contents)
+        elif branch == "second":
+            if ending != "done":
+                raise template.TemplateSyntaxError("second branch: %s" % token.contents)
+        else:
+            raise template.TemplateSyntaxError("bad branch")
+    else:
+        raise template.TemplateSyntaxError("bad count")
+    return Node()
+"#,
+        )
+        .file(
+            "/project/templates/first.html",
+            "{% routed first value wrong %}",
+        )
+        .file(
+            "/project/templates/second.html",
+            "{% routed second value wrong %}",
+        )
+        .install(&mut db)
+        .expect("routed tag fixture should install");
+
+    for (name, expected) in [
+        ("first.html", "first branch: routed first value wrong"),
+        ("second.html", "second branch: routed second value wrong"),
+    ] {
+        let errors = collect_file_errors(&db, &format!("/project/templates/{name}"))
+            .expect("invalid routed form should produce a diagnostic");
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::ExtractedRuleViolation { tag, message, .. }
+                    if tag == "routed" && message == expected
+            )),
+            "{name}: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn token_contents_diagnostic_uses_registration_alias_and_normalized_bits() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['loop_tags']}}]\n",
+        )
+        .file(
+            "/project/loop_tags.py",
+            r#"from django import template
+register = template.Library()
+@register.tag("targetTag")
+def compile_loop(parser, token):
+    bits = token.split_contents()
+    if bits[2] != "in":
+        raise template.TemplateSyntaxError("Use 100%% syntax: %r" % token.contents)
+    return Node()
+"#,
+        )
+        .file(
+            "/project/templates/invalid.html",
+            "{% targetTag   \"quoted value\"   from %}",
+        )
+        .install(&mut db)
+        .expect("alias fixture should install");
+
+    let errors = collect_file_errors(&db, "/project/templates/invalid.html")
+        .expect("invalid aliased tag should produce a diagnostic");
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::ExtractedRuleViolation { tag, message, .. }
+                if tag == "targetTag"
+                    && message == "Use 100% syntax: 'targetTag \"quoted value\" from'"
+        )),
+        "{errors:#?}"
+    );
+}
+
+#[test]
 fn widthratio_real_length_dispatch_validates_correlated_forms() {
     let db = standard_db().expect("standard validation fixture should build");
 

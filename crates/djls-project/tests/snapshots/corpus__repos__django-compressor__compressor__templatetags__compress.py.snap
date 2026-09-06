@@ -48,16 +48,31 @@ tag_rules:
               - String: file
               - String: inline
     argument_syntax:
-      Parameters:
-        - name: kind
-          requirement: required
-          kind: Variable
-        - name: arg2
-          requirement: required
-          kind: Variable
-        - name: arg3
-          requirement: required
-          kind: Variable
+      Forms:
+        forms:
+          - pattern:
+              - name: kind
+                kind: Variable
+              - name: arg2
+                kind:
+                  Choice:
+                    - file
+                    - inline
+                    - preload
+                mismatch_message:
+                  PercentFormat:
+                    template: "%r's second argument must be '%s' or '%s'."
+                    args:
+                      - SplitElement:
+                          Forward: 0
+                      - String: file
+                      - String: inline
+              - name: name
+                kind: Variable
+          - pattern:
+              - name: kind
+                kind: Variable
+        coverage: partial
     as_var: keep
 filter_arities: {}
 block_specs:

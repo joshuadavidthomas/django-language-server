@@ -58,16 +58,22 @@ tag_rules:
         message:
           Static: "Too many arguments for 'capture' tag."
     argument_syntax:
-      Parameters:
-        - name: arg1
-          requirement: required
-          kind: Variable
-        - name: arg2
-          requirement: required
-          kind: Variable
-        - name: arg3
-          requirement: required
-          kind: Variable
+      Forms:
+        forms:
+          - pattern:
+              - name: as
+                kind:
+                  Literal: as
+                mismatch_message:
+                  Static: "'as' is required for 'capture' tag."
+              - name: variable_name
+                kind: Variable
+              - name: silent
+                kind:
+                  Literal: silent
+                mismatch_message:
+                  Static: "'silent' is required for 'capture' tag."
+        coverage: partial
     as_var: keep
   "src.unfold.templatetags.unfold::tag::component":
     arg_constraints:

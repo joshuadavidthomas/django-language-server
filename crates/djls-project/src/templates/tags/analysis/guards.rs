@@ -772,17 +772,19 @@ mod tests {
         let module = parsed.into_syntax();
         let func = module
             .body
-            .into_iter()
-            .find_map(|s| {
-                if let Stmt::FunctionDef(f) = s {
-                    Some(f)
+            .iter()
+            .find_map(|statement| {
+                if let Stmt::FunctionDef(function) = statement {
+                    Some(function)
                 } else {
                     None
                 }
             })
             .expect("no function found");
+        let bindings =
+            crate::templates::tags::analysis::constants::StaticBindings::from_module(&module.body);
 
-        extract_result_from_func(&func)
+        extract_result_from_func_with_bindings(func, &bindings)
     }
 
     fn extract_from_func(func: &StmtFunctionDef) -> ExtractedTagConstraints {
@@ -790,6 +792,17 @@ mod tests {
     }
 
     fn extract_result_from_func(func: &StmtFunctionDef) -> AnalysisResult {
+        // These detached vendored functions come from modules whose builtin
+        // names are known to be unshadowed for the tested operations.
+        let bindings =
+            crate::templates::tags::analysis::constants::StaticBindings::from_module(&[]);
+        extract_result_from_func_with_bindings(func, &bindings)
+    }
+
+    fn extract_result_from_func_with_bindings(
+        func: &StmtFunctionDef,
+        bindings: &crate::templates::tags::analysis::constants::StaticBindings,
+    ) -> AnalysisResult {
         let parser_param = func
             .parameters
             .args
@@ -802,7 +815,7 @@ mod tests {
             .map_or("token", |p| p.parameter.name.as_str());
 
         let mut env = Env::for_compile_function(parser_param, token_param);
-        env.set_builtin_name_scope(std::collections::HashSet::new());
+        crate::templates::tags::analysis::constants::seed_static_bindings(bindings, func, &mut env);
         let mut ctx = CallContext {
             db: None,
             file: None,
@@ -1981,8 +1994,23 @@ def do_tag(parser, token):
     fn corpus_do_for() {
         let func = django_function("django/template/defaulttags.py", "do_for")
             .expect("expected Django fixture function should exist");
-        let c = extract_from_func(&func);
-        assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(4)));
+        let result = extract_result_from_func(&func);
+        assert!(result.constraints.arg_constraints.is_empty());
+        let Some(TagArgumentSyntax::Forms {
+            forms, coverage, ..
+        }) = result.argument_syntax
+        else {
+            panic!("expected correlated for forms")
+        };
+        assert_eq!(coverage, ArgumentFormCoverage::Complete);
+        assert_eq!(forms.len(), 2);
+        assert_eq!(
+            forms
+                .iter()
+                .map(crate::templates::tags::types::TagArgumentForm::minimum_len)
+                .collect::<Vec<_>>(),
+            vec![3, 3]
+        );
     }
 
     // Corpus: cycle in defaulttags.py — `len(args) < 2` produces Min(2).
@@ -1990,8 +2018,24 @@ def do_tag(parser, token):
     fn corpus_cycle() {
         let func = django_function("django/template/defaulttags.py", "cycle")
             .expect("expected Django fixture function should exist");
-        let c = extract_from_func(&func);
-        assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
+        let result = extract_result_from_func(&func);
+        assert_eq!(
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Min(2)]
+        );
+        assert!(result.diagnostic_messages.iter().any(|message| matches!(
+            message.constraint,
+            ExtractedDiagnosticConstraint::ArgumentCount(ArgumentCountConstraint::Min(2))
+        )));
+        let Some(TagArgumentSyntax::Forms {
+            forms, coverage, ..
+        }) = result.argument_syntax
+        else {
+            panic!("expected known cycle forms")
+        };
+        assert_eq!(coverage, ArgumentFormCoverage::Partial);
+        assert!(forms.iter().all(|form| form.minimum_len() >= 1));
+        assert!(forms.iter().any(|form| form.exact_len() == Some(1)));
     }
 
     // Corpus: url in defaulttags.py — `len(bits) < 2` produces Min(2).
@@ -2010,10 +2054,16 @@ def do_tag(parser, token):
     fn corpus_localtime_tag() {
         let func = django_function("django/templatetags/tz.py", "localtime_tag")
             .expect("expected Django fixture function should exist");
-        let c = extract_from_func(&func);
-        assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Max(2)));
+        let result = extract_result_from_func(&func);
+        assert!(
+            result
+                .constraints
+                .arg_constraints
+                .contains(&ArgumentCountConstraint::Max(2)),
+            "{result:#?}"
+        );
         assert_eq!(
-            c.choice_at_constraints,
+            result.constraints.choice_at_constraints,
             vec![ChoiceAt {
                 position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()]
