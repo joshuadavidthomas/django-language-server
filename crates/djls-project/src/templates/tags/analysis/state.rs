@@ -122,8 +122,28 @@ pub(crate) enum AbstractValue {
     Tuple(Vec<AbstractValue>),
 }
 
+impl AbstractValue {
+    pub(crate) fn forget_mutable(&mut self) {
+        match self {
+            Self::SplitResult(_) => *self = Self::Unknown,
+            Self::Tuple(values) => {
+                for value in values {
+                    value.forget_mutable();
+                }
+            }
+            Self::Unknown
+            | Self::Token
+            | Self::Parser
+            | Self::SplitElement { .. }
+            | Self::SplitLength(_)
+            | Self::Int(_)
+            | Self::Str(_) => {}
+        }
+    }
+}
+
 /// The abstract environment: maps variable names to their abstract values.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Env {
     bindings: HashMap<String, AbstractValue>,
 }
@@ -165,18 +185,45 @@ impl Env {
         }
     }
 
+    /// Forget every binding that aliases a mutable abstract value.
+    pub(crate) fn forget_aliases(&mut self, aliased: &AbstractValue) {
+        for value in self.bindings.values_mut() {
+            if value == aliased {
+                *value = AbstractValue::Unknown;
+            }
+        }
+    }
+
     /// Keep only bindings that have the same exact value on every branch.
     #[must_use]
-    pub(crate) fn join_exact(branches: &[Self]) -> Self {
-        let Some((first, rest)) = branches.split_first() else {
+    pub(crate) fn join_exact<'a>(branches: impl IntoIterator<Item = &'a Self>) -> Self {
+        let mut branches = branches.into_iter();
+        let Some(first) = branches.next() else {
             return Self::default();
         };
         let mut joined = first.clone();
-        joined.bindings.retain(|name, value| {
-            rest.iter()
-                .all(|branch| branch.bindings.get(name) == Some(value))
-        });
+        for branch in branches {
+            joined
+                .bindings
+                .retain(|name, value| branch.bindings.get(name) == Some(value));
+        }
         joined
+    }
+
+    /// Forget a binding that may have changed before an implicit exception.
+    pub(crate) fn forget(&mut self, name: &str) {
+        if let Some(value) = self.bindings.get_mut(name) {
+            *value = AbstractValue::Unknown;
+        }
+    }
+
+    /// Forget every mutable token-derived sequence, including aliases.
+    pub(crate) fn forget_split_results(&mut self) {
+        for value in self.bindings.values_mut() {
+            if matches!(value, AbstractValue::SplitResult(_)) {
+                *value = AbstractValue::Unknown;
+            }
+        }
     }
 
     /// Iterate over all bindings.

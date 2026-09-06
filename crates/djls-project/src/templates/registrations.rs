@@ -650,11 +650,7 @@ fn for_each_registration<'db>(
     body: &'db [Stmt],
     registration_file: djls_source::File,
     module_name: &str,
-    mut f: impl FnMut(
-        &RegistrationInfo,
-        Option<(&'db StmtFunctionDef, djls_source::File, bool)>,
-        SymbolKey,
-    ),
+    mut f: impl FnMut(&RegistrationInfo, Option<(&'db StmtFunctionDef, djls_source::File)>, SymbolKey),
 ) {
     let func_defs = collect_func_defs(body);
 
@@ -670,13 +666,10 @@ fn for_each_registration<'db>(
                         && navigation.is_none_or(|source| function.span() == source.definition_span)
                 })
                 .copied()
-                .map(|function| (function, registration_file, false)),
-            RegistrationCallable::ResolvedFunction { definition, .. } => {
-                definition.statement(db).map(|function| {
-                    let file = definition.file();
-                    (function, file, file != registration_file)
-                })
-            }
+                .map(|function| (function, registration_file)),
+            RegistrationCallable::ResolvedFunction { definition, .. } => definition
+                .statement(db)
+                .map(|function| (function, definition.file())),
             RegistrationCallable::Unresolved(_) => None,
         };
 
@@ -1406,7 +1399,7 @@ fn template_library_source_analysis<'db>(
                     && !registration_analysis.inventory_is_open())
                 .then(|| match &registration.callable {
                     RegistrationCallable::ResolvedFunction { .. } => {
-                        func.map(|(function, implementation_file, _)| {
+                        func.map(|(function, implementation_file)| {
                             TemplateSymbolSource::new(
                                 implementation_file,
                                 function.span(),
@@ -1437,7 +1430,7 @@ fn template_library_source_analysis<'db>(
             block_specs.0.remove(&symbol_key);
             filter_arities.remove(&symbol_key);
 
-            let Some((func, implementation_file, imported)) = func else {
+            let Some((func, implementation_file)) = func else {
                 return;
             };
             let trusted_callable = parse_quality == TemplateLibraryParseQuality::Exact
@@ -1452,7 +1445,7 @@ fn template_library_source_analysis<'db>(
                 };
             if let Some(rule) = registration.kind.extract_tag_rule(
                 db,
-                imported.then_some(implementation_file),
+                Some(implementation_file),
                 func,
                 &registration.options,
                 trusted_callable,

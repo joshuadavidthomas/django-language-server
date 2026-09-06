@@ -205,7 +205,7 @@ fn process_form_statements(
                 continue;
             }
 
-            let result = process_statements(std::slice::from_ref(stmt), &mut state.env, ctx);
+            let (result, _) = process_statements(std::slice::from_ref(stmt), &mut state.env, ctx);
             state.constraints.extend(result.constraints);
             if constraints_are_compatible(&state.constraints, split_length) {
                 next.push(state);

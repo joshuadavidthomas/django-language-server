@@ -47,23 +47,30 @@ tag_rules:
             Min: 2
         message:
           Static: "'cycle' tag requires at least two arguments"
-      - constraint:
-          RequiredKeyword:
-            position:
-              Backward: 1
-            value: silent
-        message:
-          PercentFormat:
-            template: "Only 'silent' flag is allowed after cycle's name, not '%s'."
-            args:
-              - SplitElement:
-                  Backward: 1
     argument_syntax:
       Parameters:
         - name: arg1
           requirement: required
           kind: Variable
     as_var: keep
+  "django.template.defaulttags::tag::firstof":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          Static: "'firstof' statement requires at least one argument"
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: strip
   "django.template.defaulttags::tag::for":
     arg_constraints:
       - Min: 4
@@ -84,14 +91,22 @@ tag_rules:
     as_var: keep
   "django.template.defaulttags::tag::lorem":
     arg_constraints:
-      - Exact: 4
+      - OneOf:
+          - 1
+          - 2
+          - 3
+          - 4
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     diagnostic_messages:
       - constraint:
           ArgumentCount:
-            Exact: 4
+            OneOf:
+              - 1
+              - 2
+              - 3
+              - 4
         message:
           PercentFormat:
             template: Incorrect format for %r tag
@@ -245,7 +260,7 @@ tag_rules:
                   Forward: 0
     argument_syntax:
       Parameters:
-        - name: name
+        - name: arg1
           requirement: required
           kind: Variable
     as_var: keep

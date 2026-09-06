@@ -164,3 +164,182 @@ def stdlib_wrapped(value):
 
 
 register.simple_tag(logged(stdlib_wrapped))
+
+
+def optional_pop(parser, token):
+    bits = token.split_contents()
+    if bits[-1] == "tail":
+        bits.pop()
+    if bits[0] == "optional_pop":
+        bits.pop(0)
+    if bits:
+        raise template.TemplateSyntaxError("'optional_pop' accepts only a tail marker")
+    return template.Node()
+
+
+register.tag("optional_pop", optional_pop)
+
+
+def truthiness_guard(parser, token):
+    bits = token.split_contents()[1:]
+    if not bits:
+        raise template.TemplateSyntaxError(
+            "'truthiness_guard' requires at least one argument"
+        )
+    return template.Node()
+
+
+register.tag("truthiness_guard", truthiness_guard)
+
+
+def early_return_guard(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("'early_return_guard' requires one argument")
+    if bits[1] == "early":
+        return template.Node()
+    return template.Node()
+
+
+register.tag("early_return_guard", early_return_guard)
+
+
+def common_branch_guard(parser, token):
+    bits = token.split_contents()
+    if token.lineno:
+        if len(bits) != 2:
+            raise template.TemplateSyntaxError("'common_branch_guard' requires one argument")
+    else:
+        if len(bits) != 2:
+            raise template.TemplateSyntaxError("'common_branch_guard' requires one argument")
+    return template.Node()
+
+
+register.tag("common_branch_guard", common_branch_guard)
+
+
+def finally_guard(parser, token):
+    bits = token.split_contents()
+    try:
+        return template.Node()
+    finally:
+        if len(bits) != 2:
+            raise template.TemplateSyntaxError("'finally_guard' requires one argument")
+
+
+register.tag("finally_guard", finally_guard)
+
+
+def pre_try_finally(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 1:
+        return template.Node()
+    try:
+        pass
+    finally:
+        if len(bits) != 2:
+            raise template.TemplateSyntaxError("'pre_try_finally' requires zero or one argument")
+    return template.Node()
+
+
+register.tag("pre_try_finally", pre_try_finally)
+
+
+def finally_suppresses_raise(parser, token):
+    bits = token.split_contents()
+    parser.parse(("endfinally_suppresses_raise",))
+    parser.delete_first_token()
+    try:
+        if len(bits) != 2:
+            raise template.TemplateSyntaxError("wrong count")
+    finally:
+        return template.Node()
+
+
+register.tag("finally_suppresses_raise", finally_suppresses_raise)
+
+
+def terminal_forms(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 2:
+        return template.Node()
+    else:
+        raise template.TemplateSyntaxError("'terminal_forms' requires one argument")
+    if len(bits) != 3:
+        raise template.TemplateSyntaxError("unreachable")
+
+
+register.tag("terminal_forms", terminal_forms)
+
+
+def conjunction_guard(parser, token):
+    bits = token.split_contents()
+    if len(bits) > 3 and bits[2] != "as":
+        raise template.TemplateSyntaxError("bad syntax")
+    parser.parse(("endconjunction_guard",))
+    parser.delete_first_token()
+    return template.Node()
+
+
+register.tag("conjunction_guard", conjunction_guard)
+
+
+def fail_between_pops():
+    raise RuntimeError("controlled failure")
+
+
+def exception_between_pops(parser, token):
+    bits = token.split_contents()
+    try:
+        bits.pop()
+        fail_between_pops()
+        bits.pop()
+    except RuntimeError:
+        pass
+    if len(bits) != 1:
+        raise template.TemplateSyntaxError("'exception_between_pops' requires one argument")
+    parser.parse(("endexception_between_pops",))
+    parser.delete_first_token()
+    return template.Node()
+
+
+register.tag("exception_between_pops", exception_between_pops)
+
+
+def restored_exception_state(parser, token):
+    bits = token.split_contents()
+    try:
+        bits.pop()
+        fail_between_pops()
+        bits = token.split_contents()
+    except RuntimeError:
+        pass
+    if len(bits) != 1:
+        raise template.TemplateSyntaxError(
+            "'restored_exception_state' expected the failure after one pop"
+        )
+    parser.parse(("endrestored_exception_state",))
+    parser.delete_first_token()
+    return template.Node()
+
+
+register.tag("restored_exception_state", restored_exception_state)
+
+
+def unhandled_exception_finally(parser, token):
+    bits = token.split_contents()
+    try:
+        bits.pop()
+        fail_between_pops()
+        bits = token.split_contents()
+    finally:
+        if len(bits) != 1:
+            raise template.TemplateSyntaxError(
+                "'unhandled_exception_finally' expected the failure after one pop"
+            )
+        parser.parse(("endunhandled_exception_finally",))
+        parser.delete_first_token()
+        return template.Node()
+
+
+register.tag("unhandled_exception_finally", unhandled_exception_finally)

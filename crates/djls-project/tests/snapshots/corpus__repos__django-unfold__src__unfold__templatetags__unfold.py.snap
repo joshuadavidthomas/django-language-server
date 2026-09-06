@@ -48,13 +48,7 @@ tag_rules:
   "src.unfold.templatetags.unfold::tag::capture":
     arg_constraints:
       - Max: 4
-    required_keywords:
-      - position:
-          Forward: 1
-        value: as
-      - position:
-          Forward: 3
-        value: silent
+    required_keywords: []
     choice_at_constraints: []
     known_options: ~
     diagnostic_messages:
@@ -63,33 +57,17 @@ tag_rules:
             Max: 4
         message:
           Static: "Too many arguments for 'capture' tag."
-      - constraint:
-          RequiredKeyword:
-            position:
-              Forward: 1
-            value: as
-        message:
-          Static: "'as' is required for 'capture' tag."
-      - constraint:
-          RequiredKeyword:
-            position:
-              Forward: 3
-            value: silent
-        message:
-          Static: "'silent' is required for 'capture' tag."
     argument_syntax:
       Parameters:
-        - name: as
-          requirement: required
-          kind:
-            Literal: as
-        - name: variable_name
+        - name: arg1
           requirement: required
           kind: Variable
-        - name: silent
+        - name: arg2
           requirement: required
-          kind:
-            Literal: silent
+          kind: Variable
+        - name: arg3
+          requirement: required
+          kind: Variable
     as_var: keep
   "src.unfold.templatetags.unfold::tag::component":
     arg_constraints:

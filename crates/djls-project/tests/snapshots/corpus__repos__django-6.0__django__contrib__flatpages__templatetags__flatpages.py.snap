@@ -4,17 +4,32 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "django.contrib.flatpages.templatetags.flatpages::tag::get_flatpages":
-    arg_constraints: []
+    arg_constraints:
+      - Min: 3
+      - Max: 6
     required_keywords:
       - position:
           Backward: 2
         value: as
-      - position:
-          Backward: 4
-        value: for
     choice_at_constraints: []
     known_options: ~
-    argument_syntax: Unknown
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
+        - name: arg3
+          requirement: required
+          kind: Variable
+        - name: arg4
+          requirement: required
+          kind: Variable
+        - name: arg5
+          requirement: required
+          kind: Variable
     as_var: keep
 filter_arities: {}
 block_specs: {}

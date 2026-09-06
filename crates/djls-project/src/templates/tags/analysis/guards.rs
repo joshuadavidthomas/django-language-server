@@ -26,6 +26,7 @@ use crate::templates::tags::types::ArgumentCountConstraint;
 use crate::templates::tags::types::ChoiceAt;
 use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 use crate::templates::tags::types::ExtractedDiagnosticMessage;
+use crate::templates::tags::types::ExtractedMessageTemplate;
 use crate::templates::tags::types::RequiredKeyword;
 
 /// Rule fragments contributed by one or more raising guards.
@@ -35,51 +36,77 @@ pub(crate) struct ExtractedRuleFragment {
     pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
 }
 
-impl ExtractedRuleFragment {
-    fn extend(&mut self, other: Self) {
-        self.constraints.extend(other.constraints);
-        self.diagnostic_messages.extend(other.diagnostic_messages);
+/// Extract the fact established when one raising branch is not taken.
+pub(crate) fn extract_direct_guard(
+    test: &Expr,
+    body: &[ruff_python_ast::Stmt],
+    env: &Env,
+) -> ExtractedRuleFragment {
+    let Some(raised_exception) = direct_raise_exception(body) else {
+        return ExtractedRuleFragment::default();
+    };
+    RaisingGuard {
+        test,
+        raised_exception,
+    }
+    .rule(std::slice::from_ref(env))
+}
+
+/// Facts entailed while the condition is true. These have no diagnostic
+/// provenance because the condition itself does not reject the invocation.
+pub(crate) fn extract_true_condition_constraints(
+    test: &Expr,
+    env: &Env,
+) -> ExtractedTagConstraints {
+    let mut env = env.clone();
+    match test {
+        Expr::Compare(compare) => eval_negated_compare(compare, &mut env),
+        Expr::UnaryOp(ExprUnaryOp {
+            op: UnaryOp::Not,
+            operand,
+            ..
+        }) => eval_condition(operand, &mut env),
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => ExtractedTagConstraints::default(),
     }
 }
 
-/// Extract rule fragments from a single if-statement using the current env state.
-///
-/// Called inline during statement processing so that constraints see the env
-/// as it exists at the point in the code where the if-statement appears,
-/// not the final env state after the entire function body has been processed.
-pub(crate) fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ExtractedRuleFragment {
-    let mut result = ExtractedRuleFragment::default();
-
-    if let Some(raised_exception) = direct_raise_exception(&if_stmt.body) {
-        result.extend(
-            RaisingGuard {
-                test: if_stmt.test.as_ref(),
-                raised_exception,
-            }
-            .rule(env),
-        );
-    }
-
-    for clause in &if_stmt.elif_else_clauses {
-        let Some(test) = &clause.test else {
-            continue;
-        };
-        let Some(raised_exception) = direct_raise_exception(&clause.body) else {
-            continue;
-        };
-
-        result.extend(
-            RaisingGuard {
-                test,
-                raised_exception,
-            }
-            .rule(env),
-        );
-    }
-
-    // NOTE: We do NOT recurse into nested if-statements here — that's handled
-    // by the caller (process_statements) as it walks into the body/clauses.
-    result
+/// Facts entailed while the condition is false.
+pub(crate) fn extract_false_condition_constraints(
+    test: &Expr,
+    env: &Env,
+) -> ExtractedTagConstraints {
+    eval_condition(test, &mut env.clone())
 }
 
 struct RaisingGuard<'a> {
@@ -88,44 +115,110 @@ struct RaisingGuard<'a> {
 }
 
 impl RaisingGuard<'_> {
-    fn rule(self, env: &mut Env) -> ExtractedRuleFragment {
-        let constraints = eval_condition(self.test, env);
-        let mut diagnostic_messages = Vec::new();
+    fn rule(self, envs: &[Env]) -> ExtractedRuleFragment {
+        let per_state = envs
+            .iter()
+            .map(|env| eval_condition(self.test, &mut env.clone()))
+            .collect::<Vec<_>>();
+        let constraints = combine_state_constraints(&per_state);
 
-        if let Some(message) = extract_exception_message(self.raised_exception, env) {
-            diagnostic_messages.extend(constraints.arg_constraints.iter().cloned().map(
-                |constraint| ExtractedDiagnosticMessage {
-                    constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
-                    message: message.clone(),
-                },
-            ));
-
-            diagnostic_messages.extend(constraints.required_keywords.iter().map(|keyword| {
-                ExtractedDiagnosticMessage {
-                    constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
-                        position: keyword.position,
-                        value: keyword.value.clone(),
-                    },
-                    message: message.clone(),
-                }
-            }));
-
-            diagnostic_messages.extend(constraints.choice_at_constraints.iter().map(|choice| {
-                ExtractedDiagnosticMessage {
-                    constraint: ExtractedDiagnosticConstraint::ChoiceAt {
-                        position: choice.position,
-                        values: choice.values.clone(),
-                    },
-                    message: message.clone(),
-                }
-            }));
-        }
+        let messages = envs
+            .iter()
+            .map(|env| extract_exception_message(self.raised_exception, env))
+            .collect::<Vec<_>>();
+        let message = messages.first().cloned().flatten().filter(|first| {
+            messages
+                .iter()
+                .all(|message| message.as_ref() == Some(first))
+        });
+        let diagnostic_messages = message.map_or_else(Vec::new, |message| {
+            diagnostics_for_constraints(&constraints, &message)
+        });
 
         ExtractedRuleFragment {
             constraints,
             diagnostic_messages,
         }
     }
+}
+
+fn combine_state_constraints(states: &[ExtractedTagConstraints]) -> ExtractedTagConstraints {
+    let Some(first) = states.first() else {
+        return ExtractedTagConstraints::default();
+    };
+    if states.iter().any(|constraints| {
+        constraints.arg_constraints.is_empty()
+            && constraints.required_keywords.is_empty()
+            && constraints.choice_at_constraints.is_empty()
+    }) {
+        return ExtractedTagConstraints::default();
+    }
+    if states.iter().all(|constraints| constraints == first) {
+        return first.clone();
+    }
+
+    if states.iter().all(|constraints| {
+        constraints.arg_constraints.len() == 1
+            && constraints.required_keywords.is_empty()
+            && constraints.choice_at_constraints.is_empty()
+            && matches!(
+                constraints.arg_constraints[0],
+                ArgumentCountConstraint::Exact(_) | ArgumentCountConstraint::OneOf(_)
+            )
+    }) {
+        let mut lengths = states
+            .iter()
+            .flat_map(|constraints| match &constraints.arg_constraints[0] {
+                ArgumentCountConstraint::Exact(length) => std::slice::from_ref(length),
+                ArgumentCountConstraint::OneOf(lengths) => lengths.as_slice(),
+                ArgumentCountConstraint::Min(_) | ArgumentCountConstraint::Max(_) => &[],
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        lengths.sort_unstable();
+        lengths.dedup();
+        return ExtractedTagConstraints::single_length(if lengths.len() == 1 {
+            ArgumentCountConstraint::Exact(lengths[0])
+        } else {
+            ArgumentCountConstraint::OneOf(lengths)
+        });
+    }
+
+    ExtractedTagConstraints::default()
+}
+
+fn diagnostics_for_constraints(
+    constraints: &ExtractedTagConstraints,
+    message: &ExtractedMessageTemplate,
+) -> Vec<ExtractedDiagnosticMessage> {
+    let mut diagnostics = constraints
+        .arg_constraints
+        .iter()
+        .cloned()
+        .map(|constraint| ExtractedDiagnosticMessage {
+            constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
+            message: message.clone(),
+        })
+        .collect::<Vec<_>>();
+    diagnostics.extend(constraints.required_keywords.iter().map(|keyword| {
+        ExtractedDiagnosticMessage {
+            constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
+                position: keyword.position,
+                value: keyword.value.clone(),
+            },
+            message: message.clone(),
+        }
+    }));
+    diagnostics.extend(constraints.choice_at_constraints.iter().map(|choice| {
+        ExtractedDiagnosticMessage {
+            constraint: ExtractedDiagnosticConstraint::ChoiceAt {
+                position: choice.position,
+                values: choice.values.clone(),
+            },
+            message: message.clone(),
+        }
+    }));
+    diagnostics
 }
 
 /// Evaluate a condition expression as a constraint.
@@ -146,6 +239,10 @@ pub(super) fn extract_complete_rejecting_guard(
 }
 
 fn eval_condition_complete(expr: &Expr, env: &mut Env) -> Option<ExtractedTagConstraints> {
+    if let Some(constraint) = split_truthiness_constraint(expr, env) {
+        return Some(ExtractedTagConstraints::single_length(constraint));
+    }
+
     let constraints = match expr {
         Expr::BoolOp(ExprBoolOp {
             op: BoolOp::Or,
@@ -208,6 +305,10 @@ fn eval_condition_complete(expr: &Expr, env: &mut Env) -> Option<ExtractedTagCon
 }
 
 fn eval_condition(expr: &Expr, env: &mut Env) -> ExtractedTagConstraints {
+    if let Some(constraint) = split_truthiness_constraint(expr, env) {
+        return ExtractedTagConstraints::single_length(constraint);
+    }
+
     match expr {
         // `or`: error when either side is true → each is an independent constraint
         Expr::BoolOp(ExprBoolOp {
@@ -220,17 +321,21 @@ fn eval_condition(expr: &Expr, env: &mut Env) -> ExtractedTagConstraints {
                 acc.or(eval_condition(value, env))
             }),
 
-        // `and`: error when both true → length constraints are protective guards,
-        // discard them but keep keyword constraints
+        // `and`: acceptance is the disjunction of the operands' false sides.
+        // The flat constraint IR can retain only proofs common to each side.
         Expr::BoolOp(ExprBoolOp {
             op: BoolOp::And,
             values,
             ..
-        }) => values
-            .iter()
-            .fold(ExtractedTagConstraints::default(), |acc, value| {
-                acc.and(eval_condition(value, env))
-            }),
+        }) => {
+            let mut values = values.iter();
+            let Some(first) = values.next() else {
+                return ExtractedTagConstraints::default();
+            };
+            values.fold(eval_condition(first, env), |acc, value| {
+                acc.and(&eval_condition(value, env))
+            })
+        }
 
         // Comparison: `len(bits) < 4` or `bits[2] != "as"`
         Expr::Compare(compare) => eval_compare(compare, env),
@@ -280,6 +385,25 @@ fn eval_condition(expr: &Expr, env: &mut Env) -> ExtractedTagConstraints {
         | Expr::Slice(_)
         | Expr::IpyEscapeCommand(_) => ExtractedTagConstraints::default(),
     }
+}
+
+fn split_truthiness_constraint(expr: &Expr, env: &mut Env) -> Option<ArgumentCountConstraint> {
+    if let Expr::UnaryOp(ExprUnaryOp {
+        op: UnaryOp::Not,
+        operand,
+        ..
+    }) = expr
+    {
+        let AbstractValue::SplitResult(split) = eval_expr(operand, env) else {
+            return None;
+        };
+        return Some(ArgumentCountConstraint::Min(split.resolve_length(1)));
+    }
+
+    let AbstractValue::SplitResult(split) = eval_expr(expr, env) else {
+        return None;
+    };
+    Some(ArgumentCountConstraint::Exact(split.resolve_length(0)))
 }
 
 fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints {
@@ -428,15 +552,12 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagCon
                 CmpOp::Lt if n > 0 => {
                     Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
                 }
+                CmpOp::LtE => Some(ArgumentCountConstraint::Max(split.resolve_length(n))),
                 CmpOp::Gt => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
-                CmpOp::NotEq
-                | CmpOp::Lt
-                | CmpOp::LtE
-                | CmpOp::GtE
-                | CmpOp::Is
-                | CmpOp::IsNot
-                | CmpOp::In
-                | CmpOp::NotIn => None,
+                CmpOp::GtE => Some(ArgumentCountConstraint::Min(split.resolve_length(n))),
+                CmpOp::NotEq | CmpOp::Lt | CmpOp::Is | CmpOp::IsNot | CmpOp::In | CmpOp::NotIn => {
+                    None
+                }
             };
             if let Some(c) = constraint {
                 return ExtractedTagConstraints::single_length(c);
@@ -506,9 +627,11 @@ mod tests {
     use crate::templates::tags::analysis::state::Env;
     use crate::templates::tags::analysis::statements::process_statements;
     use crate::templates::tags::testing::django_function;
+    use crate::templates::tags::types::ArgumentFormCoverage;
     use crate::templates::tags::types::ExtractedMessageArg;
     use crate::templates::tags::types::ExtractedMessageTemplate;
     use crate::templates::tags::types::SplitPosition;
+    use crate::templates::tags::types::TagArgumentSyntax;
 
     fn extract_from_source(source: &str) -> ExtractedTagConstraints {
         extract_result_from_source(source).constraints
@@ -553,7 +676,7 @@ mod tests {
             db: None,
             file: None,
         };
-        process_statements(&func.body, &mut env, &mut ctx)
+        process_statements(&func.body, &mut env, &mut ctx).0
     }
 
     // Fabricated: tests isolated `<` comparator on len(bits). Real Django functions
@@ -787,10 +910,8 @@ def do_tag(parser, token):
         );
     }
 
-    // Fabricated: tests `and` semantics — length discarded, keyword kept.
-    // Tests boolean operator handling logic.
     #[test]
-    fn compound_and_discards_length() {
+    fn compound_and_discards_unrepresentable_constraints() {
         let c = extract_from_source(
             r#"
 def do_tag(parser, token):
@@ -799,15 +920,8 @@ def do_tag(parser, token):
         raise TemplateSyntaxError("err")
 "#,
         );
-        // Length discarded under `and`, only keyword kept
         assert!(c.arg_constraints.is_empty());
-        assert_eq!(
-            c.required_keywords,
-            vec![RequiredKeyword {
-                position: SplitPosition::Forward(2),
-                value: "as".to_string()
-            }]
-        );
+        assert!(c.required_keywords.is_empty());
     }
 
     // Fabricated: tests `not (N <= len(bits) <= M)` range negation.
@@ -848,6 +962,390 @@ def do_tag(parser, token):
         assert_eq!(
             c.arg_constraints,
             vec![ArgumentCountConstraint::OneOf(vec![2, 3, 4])]
+        );
+    }
+
+    #[test]
+    fn split_result_truthiness_after_slice_produces_minimum_and_message() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()[1:]
+    if not bits:
+        raise TemplateSyntaxError("tag requires at least one argument")
+"#,
+        );
+        assert_eq!(
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Min(2)]
+        );
+        assert_eq!(
+            result.diagnostic_messages,
+            vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Min(2)
+                ),
+                message: ExtractedMessageTemplate::Static(
+                    "tag requires at least one argument".to_string()
+                ),
+            }]
+        );
+    }
+
+    #[test]
+    fn unknown_object_truthiness_produces_no_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    value = runtime_value()
+    if not value:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(c.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn conditional_pops_match_lorem_count_shape() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = list(token.split_contents())
+    if remove_random:
+        bits.pop()
+    if remove_method:
+        bits.pop()
+    if remove_count:
+        bits.pop()
+    if len(bits) != 1:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.arg_constraints,
+            vec![ArgumentCountConstraint::OneOf(vec![1, 2, 3, 4])]
+        );
+    }
+
+    #[test]
+    fn state_overflow_widens_instead_of_truncating_to_a_count() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if a:
+        a_value = 1
+    if b:
+        b_value = 1
+    if c:
+        c_value = 1
+    if d:
+        d_value = 1
+    if e:
+        e_value = 1
+    if f:
+        f_value = 1
+    if remove_tail:
+        bits.pop()
+    if len(bits) != 1:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(c.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn returned_mutation_path_prevents_a_later_guard_from_becoming_global() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if condition:
+        bits.pop()
+        return Node()
+    if len(bits) != 1:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // The return accepts original counts other than one, so the guard that
+        // only runs on the fallthrough path cannot become a global rule.
+        assert!(c.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn raised_mutation_path_does_not_rejoin_a_later_guard() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if condition:
+        bits.pop()
+        raise RuntimeError()
+    if len(bits) != 1:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(1)]);
+    }
+
+    #[test]
+    fn static_branch_truth_controls_terminal_paths() {
+        let always_returns = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if True:
+        return Node()
+    if len(bits) != 2:
+        raise TemplateSyntaxError("unreachable")
+"#,
+        );
+        assert!(always_returns.arg_constraints.is_empty());
+
+        let never_returns = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if False:
+        return Node()
+    if len(bits) != 2:
+        raise TemplateSyntaxError("reachable")
+"#,
+        );
+        assert_eq!(
+            never_returns.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+    }
+
+    #[test]
+    fn a_guard_before_an_early_return_remains_global() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise TemplateSyntaxError("expected one argument")
+    if mode:
+        return Node()
+    return Node()
+"#,
+        );
+        assert_eq!(
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+        assert_eq!(
+            result.diagnostic_messages,
+            vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Exact(2)
+                ),
+                message: ExtractedMessageTemplate::Static("expected one argument".to_string()),
+            }]
+        );
+    }
+
+    #[test]
+    fn identical_guards_in_both_branches_remain_global() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if mode:
+        if len(bits) != 2:
+            raise TemplateSyntaxError("expected one argument")
+    else:
+        if len(bits) != 2:
+            raise TemplateSyntaxError("expected one argument")
+    return Node()
+"#,
+        );
+        assert_eq!(
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+        assert_eq!(result.diagnostic_messages.len(), 1);
+        assert_eq!(
+            result.diagnostic_messages[0].message,
+            ExtractedMessageTemplate::Static("expected one argument".to_string())
+        );
+    }
+
+    #[test]
+    fn finally_guard_applies_to_a_pending_return() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    try:
+        return Node()
+    finally:
+        if len(bits) != 2:
+            raise TemplateSyntaxError("expected one argument")
+"#,
+        );
+        assert_eq!(
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+        assert_eq!(result.diagnostic_messages.len(), 1);
+        assert_eq!(
+            result.diagnostic_messages[0].message,
+            ExtractedMessageTemplate::Static("expected one argument".to_string())
+        );
+    }
+
+    #[test]
+    fn return_before_try_does_not_enter_its_finalizer() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if mode:
+        return Node()
+    try:
+        pass
+    finally:
+        if len(bits) != 2:
+            raise TemplateSyntaxError("expected one argument")
+"#,
+        );
+        assert!(result.constraints.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn finally_return_accepts_a_pending_raise() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    try:
+        if len(bits) != 2:
+            raise TemplateSyntaxError("wrong count")
+    finally:
+        return Node()
+"#,
+        );
+        assert!(result.constraints.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn fixed_forms_preserve_terminal_destinations() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 2:
+        return Node()
+    else:
+        raise TemplateSyntaxError("wrong count")
+    if len(bits) != 3:
+        raise TemplateSyntaxError("unreachable")
+"#,
+        );
+        assert!(result.constraints.arg_constraints.is_empty());
+        assert!(matches!(
+            result.argument_syntax,
+            Some(TagArgumentSyntax::Forms {
+                coverage: ArgumentFormCoverage::Complete,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn unknown_exception_between_pops_widens_the_mutated_split() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    try:
+        bits.pop()
+        runtime_call()
+        bits.pop()
+    except RuntimeError:
+        pass
+    if len(bits) != 1:
+        raise TemplateSyntaxError("wrong count")
+"#,
+        );
+        assert!(result.constraints.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn unknown_exception_before_restoration_ignores_equal_terminal_envs() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    try:
+        bits.pop()
+        runtime_call()
+        bits = token.split_contents()
+    except RuntimeError:
+        pass
+    if len(bits) != 1:
+        raise TemplateSyntaxError("wrong count")
+"#,
+        );
+        assert!(result.constraints.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn finally_return_accepts_an_unhandled_implicit_exception() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    try:
+        bits.pop()
+        runtime_call()
+        bits = token.split_contents()
+    finally:
+        if len(bits) != 1:
+            raise TemplateSyntaxError("wrong count")
+        return Node()
+"#,
+        );
+        assert!(result.constraints.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn raise_in_finally_replaces_a_pending_return() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    try:
+        return Node()
+    finally:
+        raise RuntimeError()
+    if len(bits) != 2:
+        raise TemplateSyntaxError("unreachable")
+"#,
+        );
+        assert!(result.constraints.arg_constraints.is_empty());
+        assert!(result.diagnostic_messages.is_empty());
+    }
+
+    #[test]
+    fn conditional_front_and_back_pops_produce_an_accepted_count_union() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if remove_tail:
+        bits.pop()
+    if remove_head:
+        bits.pop(0)
+    if len(bits) != 1:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.arg_constraints,
+            vec![ArgumentCountConstraint::OneOf(vec![1, 2, 3])]
         );
     }
 
@@ -893,26 +1391,21 @@ def do_tag(parser, token):
         );
     }
 
-    // Fabricated: tests nested if producing keyword constraint from inner guard.
-    // Real functions nest ifs but always with additional logic.
     #[test]
-    fn nested_if_raise() {
+    fn nested_if_raise_does_not_escape_an_unknown_condition() {
         let c = extract_from_source(
             r#"
 def do_tag(parser, token):
     bits = token.split_contents()
-    if len(bits) >= 3:
+    if runtime_condition:
+        if len(bits) != 3:
+            raise TemplateSyntaxError("count")
         if bits[2] != "as":
-            raise TemplateSyntaxError("err")
+            raise TemplateSyntaxError("literal")
 "#,
         );
-        assert_eq!(
-            c.required_keywords,
-            vec![RequiredKeyword {
-                position: SplitPosition::Forward(2),
-                value: "as".to_string()
-            }]
-        );
+        assert!(c.arg_constraints.is_empty());
+        assert!(c.required_keywords.is_empty());
     }
 
     // Fabricated: tests elif producing constraints from both branches.

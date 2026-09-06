@@ -22,7 +22,6 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
 
 pub(crate) use self::calls::AbstractValueKey;
-pub(crate) use self::calls::extract_return_value;
 pub(crate) use self::state::AbstractValue;
 pub(crate) use self::state::Env;
 pub(crate) use self::statements::process_statements;
@@ -67,7 +66,7 @@ pub(crate) struct CallContext<'a> {
 /// context that is threaded through the analysis. Constraints stay separate from
 /// diagnostic messages because constraints come from guard conditions, while
 /// messages come from the exception raised by a guard body.
-#[derive(Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct AnalysisResult {
     pub constraints: ExtractedTagConstraints,
     pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
@@ -83,7 +82,11 @@ impl AnalysisResult {
     /// processing order of statements).
     fn extend(&mut self, other: AnalysisResult) {
         self.constraints.extend(other.constraints);
-        self.diagnostic_messages.extend(other.diagnostic_messages);
+        for message in other.diagnostic_messages {
+            if !self.diagnostic_messages.contains(&message) {
+                self.diagnostic_messages.push(message);
+            }
+        }
         if other.known_options.is_some() {
             self.known_options = other.known_options;
         }
@@ -172,7 +175,7 @@ fn analyze_compile_function_with_context(
     let mut env = state::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
     let mut ctx = CallContext { db, file };
 
-    let result = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
+    let (result, _) = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
 
     let argument_syntax = result.argument_syntax.unwrap_or_else(|| {
         let arguments = extract_arg_names(

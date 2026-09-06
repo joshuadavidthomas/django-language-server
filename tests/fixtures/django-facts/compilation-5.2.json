@@ -1,5 +1,8 @@
 {
   "django_compilation": {
+    "and_false_side_is_disjunction.html": {
+      "result": "compiled"
+    },
     "authored_default_duplicate_binding.html": {
       "result": "compiled"
     },
@@ -69,6 +72,17 @@
     "class_valid.html": {
       "result": "compiled"
     },
+    "common_branch_invalid.html": {
+      "error": "'common_branch_guard' requires one argument",
+      "result": "failed"
+    },
+    "common_branch_valid.html": {
+      "result": "compiled"
+    },
+    "conjunction_guard_invalid.html": {
+      "error": "bad syntax",
+      "result": "failed"
+    },
     "context_simple_block_missing.html": {
       "error": "'context_panel' did not receive value(s) for the argument(s): 'title'",
       "result": "failed"
@@ -104,6 +118,13 @@
     "direct_context_valid.html": {
       "result": "compiled"
     },
+    "early_return_accepted.html": {
+      "result": "compiled"
+    },
+    "early_return_invalid.html": {
+      "error": "'early_return_guard' requires one argument",
+      "result": "failed"
+    },
     "empty_block_name_uses_function_name_missing.html": {
       "error": "'empty_named_panel' did not receive value(s) for the argument(s): 'title'",
       "result": "failed"
@@ -124,6 +145,30 @@
     },
     "empty_simple_name_uses_function_name_valid.html": {
       "result": "compiled"
+    },
+    "exception_after_first_pop.html": {
+      "result": "compiled"
+    },
+    "exception_before_restored_binding.html": {
+      "result": "compiled"
+    },
+    "exception_between_pops_missing.html": {
+      "error": "'exception_between_pops' requires one argument",
+      "result": "failed"
+    },
+    "finally_guard_invalid.html": {
+      "error": "'finally_guard' requires one argument",
+      "result": "failed"
+    },
+    "finally_guard_valid.html": {
+      "result": "compiled"
+    },
+    "finally_return_suppresses_raise.html": {
+      "result": "compiled"
+    },
+    "finally_suppresses_raise_unclosed.html": {
+      "error": "Unclosed tag on line 2: 'finally_suppresses_raise'. Looking for one of: endfinally_suppresses_raise.",
+      "result": "failed"
     },
     "firstof_missing.html": {
       "error": "'firstof' statement requires at least one argument",
@@ -146,6 +191,9 @@
     "helper_valid.html": {
       "result": "compiled"
     },
+    "implicit_exception_finally_return.html": {
+      "result": "compiled"
+    },
     "include_missing_assignment.html": {
       "error": "\"with\" in 'include' tag needs at least one keyword argument.",
       "result": "failed"
@@ -159,6 +207,13 @@
     },
     "inclusion_func_is_ignored_valid.html": {
       "result": "compiled"
+    },
+    "lorem_count.html": {
+      "result": "compiled"
+    },
+    "lorem_extra_after_random.html": {
+      "error": "Incorrect format for 'lorem' tag",
+      "result": "failed"
     },
     "lorem_extra_arguments.html": {
       "error": "Incorrect format for 'lorem' tag",
@@ -187,6 +242,27 @@
     "none_name_uses_function_name_valid.html": {
       "result": "compiled"
     },
+    "optional_pop_empty.html": {
+      "result": "compiled"
+    },
+    "optional_pop_extra.html": {
+      "error": "'optional_pop' accepts only a tail marker",
+      "result": "failed"
+    },
+    "optional_pop_tail.html": {
+      "result": "compiled"
+    },
+    "pre_try_finally_extra.html": {
+      "error": "'pre_try_finally' requires zero or one argument",
+      "result": "failed"
+    },
+    "pre_try_return_skips_finally.html": {
+      "result": "compiled"
+    },
+    "restored_exception_state_missing.html": {
+      "error": "'restored_exception_state' expected the failure after one pop",
+      "result": "failed"
+    },
     "simple_block_missing.html": {
       "error": "'authored_panel' did not receive value(s) for the argument(s): 'title'",
       "result": "failed"
@@ -214,6 +290,24 @@
     },
     "templatetag_valid.html": {
       "result": "compiled"
+    },
+    "terminal_form_return.html": {
+      "result": "compiled"
+    },
+    "terminal_forms_missing.html": {
+      "error": "'terminal_forms' requires one argument",
+      "result": "failed"
+    },
+    "truthiness_guard_empty.html": {
+      "error": "'truthiness_guard' requires at least one argument",
+      "result": "failed"
+    },
+    "truthiness_guard_valid.html": {
+      "result": "compiled"
+    },
+    "unhandled_exception_finally_missing.html": {
+      "error": "'unhandled_exception_finally' expected the failure after one pop",
+      "result": "failed"
     },
     "with_invalid_assignment.html": {
       "error": "'with' expected at least one variable assignment",
