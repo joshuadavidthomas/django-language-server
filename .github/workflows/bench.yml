@@ -51,6 +51,10 @@ jobs:
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8
+        env:
+          # Use the same glibc memcmp path on Intel and AMD simulation runners.
+          # https://codspeed.io/blog/why-glibc-faster-github-actions
+          GLIBC_TUNABLES: glibc.cpu.hwcaps=-AVX2
         with:
           mode: simulation
           run: cargo codspeed run -p djls-bench
