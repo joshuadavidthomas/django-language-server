@@ -1,3 +1,5 @@
+use std::fs;
+
 use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
 use djls_project::ArgumentFormCoverage;
@@ -23,6 +25,7 @@ use djls_source::ChangeEvent;
 use djls_source::File;
 use djls_source::SourceChanges;
 use djls_source::Span;
+use djls_testing::Corpus;
 use djls_testing::ExtractionBundle;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
@@ -1750,6 +1753,78 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
     );
 }
 
+#[test]
+fn locked_sentry_asset_helpers_resolve_through_project_backed_imports() {
+    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
+    let sentry_root = corpus.root().join("repos/sentry/src/sentry");
+    let registration_source = fs::read_to_string(
+        sentry_root
+            .join("templatetags/sentry_assets.py")
+            .as_std_path(),
+    )
+    .expect("locked Sentry Template Library source should be readable");
+    let helper_source = fs::read_to_string(sentry_root.join("utils/assets.py").as_std_path())
+        .expect("locked Sentry asset helper source should be readable");
+
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .file("/test/project/settings.py", "INSTALLED_APPS = []\n")
+        .file("/test/project/sentry/__init__.py", "")
+        .file("/test/project/sentry/templatetags/__init__.py", "")
+        .file(
+            "/test/project/sentry/templatetags/sentry_assets.py",
+            &registration_source,
+        )
+        .file("/test/project/sentry/utils/__init__.py", "")
+        .file("/test/project/sentry/utils/assets.py", &helper_source)
+        .install(&mut db)
+        .expect("locked Sentry source fixture should install");
+
+    let registration_file = db
+        .file(Utf8Path::new(
+            "/test/project/sentry/templatetags/sentry_assets.py",
+        ))
+        .expect("Sentry registration source should exist");
+    let library = TemplateLibraryId::new(
+        &db,
+        Some(registration_file),
+        PythonModuleName::parse("sentry.templatetags.sentry_assets")
+            .expect("Sentry Template Library module should be valid"),
+    );
+    let definitions = template_library_definition_facts(&db, library);
+    let tag_facts = template_library_tag_facts(&db, library);
+
+    for (name, function_name) in [
+        ("asset_url", "get_asset_url"),
+        ("frontend_app_asset_url", "get_frontend_app_asset_url"),
+    ] {
+        let symbol = definitions
+            .symbol(TemplateSymbolKind::Tag, name)
+            .unwrap_or_else(|| panic!("imported Sentry Tag `{name}` should be registered"));
+        let source = template_symbol_source(&db, symbol).unwrap_or_else(|| {
+            panic!("imported Sentry Tag `{name}` should retain source identity")
+        });
+        assert_eq!(
+            source.file().path(&db),
+            Utf8Path::new("/test/project/sentry/utils/assets.py")
+        );
+        assert_eq!(
+            &helper_source[source.name_span().start_usize()..source.name_span().end_usize()],
+            function_name
+        );
+        assert!(matches!(
+            tag_facts.tag_rules()[&SymbolKey::tag("sentry.templatetags.sentry_assets", name)]
+                .argument_syntax,
+            TagArgumentSyntax::Signature { ref parameters, .. }
+                if parameters.len() == 2
+                    && parameters.iter().all(|parameter| parameter.requirement.is_required())
+        ));
+    }
+}
+
+// This small in-memory fixture complements the locked Sentry case above. It isolates source
+// identity and invalidation behavior without depending on unrelated imports in the real project.
 fn imported_registration_fixture(
     package_init: &str,
     registration_source: &str,
@@ -2046,10 +2121,15 @@ fn imported_source_edits_invalidate_registration_products() {
     .expect("imported-edit fixture should install");
     {
         let key = TemplateLibraryId::new(&db, Some(file), module.clone());
-        assert!(
-            template_library_definition_facts(&db, key)
-                .symbol(TemplateSymbolKind::Tag, "before")
-                .is_some()
+        let symbol = template_library_definition_facts(&db, key)
+            .symbol(TemplateSymbolKind::Tag, "before")
+            .expect("the imported registration should use its initial name");
+        let source = template_symbol_source(&db, symbol)
+            .expect("the imported registration should retain callable identity");
+        assert_eq!(
+            source.file(),
+            db.file(Utf8Path::new("/test/project/pkg/implementation.py"))
+                .expect("imported implementation source should exist")
         );
     }
 
@@ -2071,10 +2151,15 @@ fn imported_source_edits_invalidate_registration_products() {
             .symbol(TemplateSymbolKind::Tag, "before")
             .is_none()
     );
-    assert!(
-        definitions
-            .symbol(TemplateSymbolKind::Tag, "after")
-            .is_some()
+    let after = definitions
+        .symbol(TemplateSymbolKind::Tag, "after")
+        .expect("the imported registration should use its updated name");
+    let source = template_symbol_source(&db, after)
+        .expect("the updated registration should retain callable identity");
+    assert_eq!(
+        source.file(),
+        db.file(implementation_path)
+            .expect("updated implementation source should exist")
     );
     assert_eq!(
         template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "after")]
