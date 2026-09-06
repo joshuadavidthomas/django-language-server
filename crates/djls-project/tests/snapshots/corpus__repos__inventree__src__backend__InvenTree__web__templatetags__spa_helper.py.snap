@@ -4,28 +4,32 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.backend.InvenTree.web.templatetags.spa_helper::tag::spa_bundle":
-    arg_constraints:
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: manifest_path
-          requirement: optional
-          kind: Variable
-        - name: app
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: manifest_path
+            requirement: optional
+            kind: Variable
+          - name: app
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.web.templatetags.spa_helper::tag::spa_settings":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

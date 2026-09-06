@@ -4,38 +4,43 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.sentry.templatetags.sentry_assets::tag::absolute_asset_url":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: module
-          requirement: required
-          kind: Variable
-        - name: path
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: module
+            requirement: required
+            kind: Variable
+          - name: path
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_assets::tag::crossorigin":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_assets::tag::injected_script_assets":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs:

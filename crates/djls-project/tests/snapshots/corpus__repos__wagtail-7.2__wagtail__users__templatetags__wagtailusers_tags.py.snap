@@ -4,17 +4,18 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "wagtail.users.templatetags.wagtailusers_tags::tag::format_permissions":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: permission_bound_field
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: permission_bound_field
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

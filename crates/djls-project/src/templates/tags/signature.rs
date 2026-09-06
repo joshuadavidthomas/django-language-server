@@ -2,7 +2,6 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::templates::RegistrationKind;
 use crate::templates::registrations::ContextProvision;
-use crate::templates::tags::types::ArgumentCountConstraint;
 use crate::templates::tags::types::AsVar;
 use crate::templates::tags::types::ParameterRequirement;
 use crate::templates::tags::types::TagArgument;
@@ -10,11 +9,10 @@ use crate::templates::tags::types::TagArgumentKind;
 use crate::templates::tags::types::TagArgumentSyntax;
 use crate::templates::tags::types::TagRule;
 
-/// Extract rules from a `simple_tag` or `inclusion_tag` function signature.
+/// Extract a trusted callable contract for a Django tag helper.
 ///
-/// These tags use Django's `parse_bits` for argument validation, so we derive
-/// constraints from the function signature (required params, optional params,
-/// `*args`, `**kwargs`).
+/// Django validates these helpers with `parse_bits()`. The signature variant
+/// retains that boundary instead of turning it into coarse count constraints.
 ///
 /// `as_var` controls whether Django's framework strips trailing
 /// `as <varname>` before argument validation.
@@ -55,32 +53,10 @@ pub(crate) fn extract_parse_bits_rule(
         .skip(required_framework_names.len())
         .collect();
 
-    let num_defaults = effective_params
-        .iter()
-        .filter(|p| p.default.is_some())
-        .count();
-    let num_required = effective_params.len().saturating_sub(num_defaults);
-
-    let has_varargs = params.vararg.is_some();
-    let has_kwargs = params.kwarg.is_some();
-
-    let mut arg_constraints = Vec::new();
-
-    if !has_varargs {
-        if num_required > 0 {
-            arg_constraints.push(ArgumentCountConstraint::Min(num_required + 1));
-        }
-        if !has_kwargs {
-            let max_positional = effective_params.len();
-            let kwonly_count = params.kwonlyargs.len();
-            arg_constraints.push(ArgumentCountConstraint::Max(
-                max_positional + kwonly_count + 1,
-            ));
-        }
-    } else if num_required > 0 {
-        arg_constraints.push(ArgumentCountConstraint::Min(num_required + 1));
-    }
-
+    let positional_only = params
+        .posonlyargs
+        .len()
+        .saturating_sub(required_framework_names.len());
     let mut extracted_args = Vec::new();
     for param in effective_params {
         let name = param.parameter.name.to_string();
@@ -96,7 +72,7 @@ pub(crate) fn extract_parse_bits_rule(
         });
     }
 
-    if has_varargs && let Some(vararg) = &params.vararg {
+    if let Some(vararg) = &params.vararg {
         extracted_args.push(TagArgument {
             name: vararg.name.to_string(),
             requirement: ParameterRequirement::Optional,
@@ -119,13 +95,13 @@ pub(crate) fn extract_parse_bits_rule(
     }
 
     Some(TagRule {
-        arg_constraints,
-        required_keywords: Vec::new(),
-        choice_at_constraints: Vec::new(),
-        known_options: None,
-        diagnostic_messages: None,
-        argument_syntax: TagArgumentSyntax::Parameters(extracted_args),
+        argument_syntax: TagArgumentSyntax::Signature {
+            parameters: extracted_args,
+            positional_only,
+            variadic_keyword: params.kwarg.as_ref().map(|kwarg| kwarg.name.to_string()),
+        },
         as_var,
+        ..TagRule::default()
     })
 }
 
@@ -148,10 +124,13 @@ mod tests {
             AsVar::Strip,
         )
         .expect("simple tag signature should be trusted");
-        assert!(
-            rule.arg_constraints
-                .iter()
-                .all(|c| matches!(c, ArgumentCountConstraint::Max(_)))
+        assert_eq!(
+            rule.argument_syntax,
+            TagArgumentSyntax::Signature {
+                parameters: Vec::new(),
+                positional_only: 0,
+                variadic_keyword: None,
+            }
         );
     }
 
@@ -171,9 +150,15 @@ mod tests {
             AsVar::Strip,
         )
         .expect("simple tag signature should be trusted");
+        let parameters = rule
+            .argument_syntax
+            .parameters()
+            .expect("simple tag should expose signature parameters");
+        assert_eq!(parameters.len(), 2);
         assert!(
-            rule.arg_constraints
-                .contains(&ArgumentCountConstraint::Min(3))
+            parameters
+                .iter()
+                .all(|parameter| parameter.requirement == ParameterRequirement::Required)
         );
     }
 
@@ -193,10 +178,6 @@ mod tests {
             AsVar::Strip,
         )
         .expect("simple tag signature should be trusted");
-        assert!(
-            rule.arg_constraints
-                .contains(&ArgumentCountConstraint::Min(2))
-        );
         let parameters = rule
             .argument_syntax
             .parameters()
@@ -223,12 +204,13 @@ def concat(*args):
             AsVar::Strip,
         )
         .expect("simple tag signature should be trusted");
-        assert!(
-            !rule
-                .arg_constraints
-                .iter()
-                .any(|c| matches!(c, ArgumentCountConstraint::Max(_)))
-        );
+        assert!(matches!(
+            rule.argument_syntax.parameters(),
+            Some([TagArgument {
+                kind: TagArgumentKind::VarArgs,
+                ..
+            }])
+        ));
     }
 
     #[test]
@@ -294,9 +276,72 @@ def panel(context, content, title='Title'):
             AsVar::Strip,
         )
         .expect("context simple tag signature should be trusted");
-        assert!(
-            rule.arg_constraints
-                .contains(&ArgumentCountConstraint::Min(2))
+        let parameters = rule
+            .argument_syntax
+            .parameters()
+            .expect("context tag should expose signature parameters");
+        assert_eq!(
+            parameters
+                .iter()
+                .map(|parameter| parameter.name.as_str())
+                .collect::<Vec<_>>(),
+            ["url", "popup", "to_field"]
+        );
+    }
+
+    #[test]
+    fn preserves_positional_only_keyword_only_and_variadic_keyword_shape() {
+        let source = "def shaped(first, /, second='x', *, required, optional=None, **extra): pass";
+        let func = find_function_in_source(source, "shaped").expect("function should exist");
+        let rule = extract_parse_bits_rule(
+            &func,
+            RegistrationKind::SimpleTag,
+            ContextProvision::None,
+            AsVar::Strip,
+        )
+        .expect("signature should be trusted");
+
+        let TagArgumentSyntax::Signature {
+            parameters,
+            positional_only,
+            variadic_keyword,
+        } = rule.argument_syntax
+        else {
+            panic!("expected trusted signature syntax");
+        };
+        assert_eq!(positional_only, 1);
+        assert_eq!(variadic_keyword.as_deref(), Some("extra"));
+        assert_eq!(
+            parameters
+                .iter()
+                .map(|parameter| (
+                    parameter.name.as_str(),
+                    parameter.requirement,
+                    &parameter.kind
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "first",
+                    ParameterRequirement::Required,
+                    &TagArgumentKind::Variable
+                ),
+                (
+                    "second",
+                    ParameterRequirement::Optional,
+                    &TagArgumentKind::Variable
+                ),
+                (
+                    "required",
+                    ParameterRequirement::Required,
+                    &TagArgumentKind::Keyword
+                ),
+                (
+                    "optional",
+                    ParameterRequirement::Optional,
+                    &TagArgumentKind::Keyword
+                ),
+            ]
         );
     }
 }

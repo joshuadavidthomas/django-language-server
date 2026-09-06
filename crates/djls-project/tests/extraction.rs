@@ -3,9 +3,11 @@ use djls_project::ArgumentCountConstraint;
 use djls_project::ArgumentFormCoverage;
 use djls_project::BodyAnalysisEvidence;
 use djls_project::FilterArity;
+use djls_project::ParameterRequirement;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
 use djls_project::TagArgumentKind;
+use djls_project::TagArgumentSyntax;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_library_definition_facts;
@@ -1061,8 +1063,8 @@ fn imported_module_attribute_mutation_invalidates_later_resolution() {
 fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() {
     let (db, file, module) = imported_registration_fixture(
         "",
-        "from django import template\nfrom . import implementation\nregister = template.Library()\n@register.simple_tag\ndef retained(): pass\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
-        "TAG = 'recovered'\ndef compile_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 1: raise ValueError()\ndef broken(\n",
+        "from django import template\nfrom . import implementation\nregister = template.Library()\n@register.simple_tag\ndef retained(): pass\nregister.tag(implementation.TAG, implementation.compile_tag)\nregister.simple_tag(implementation.simple, name='recovered_simple')\n",
+        "TAG = 'recovered'\ndef compile_tag(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 1: raise ValueError()\ndef simple(value): return value\ndef broken(\n",
     )
     .expect("recovered-import fixture should install");
     let key = TemplateLibraryId::new(&db, Some(file), module);
@@ -1073,13 +1075,57 @@ fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() 
     let retained = facts
         .symbol(TemplateSymbolKind::Tag, "retained")
         .expect("other exact registrations should survive");
+    assert!(
+        facts
+            .symbol(TemplateSymbolKind::Tag, "recovered_simple")
+            .is_some(),
+        "a recovered callable keeps its positive Tag Definition"
+    );
     assert_eq!(template_symbol_source(&db, imported), None);
     assert_eq!(template_symbol_source(&db, retained), None);
-    assert!(
-        template_library_tag_facts(&db, key)
-            .tag_rules()
-            .contains_key(&SymbolKey::tag("pkg.tags", "recovered"))
-    );
+    let tag_rules = template_library_tag_facts(&db, key).tag_rules();
+    assert!(tag_rules.contains_key(&SymbolKey::tag("pkg.tags", "recovered")));
+    assert!(matches!(
+        &tag_rules[&SymbolKey::tag("pkg.tags", "retained")].argument_syntax,
+        TagArgumentSyntax::Signature {
+            parameters,
+            variadic_keyword: None,
+            ..
+        } if parameters.is_empty()
+    ));
+    assert!(matches!(
+        &tag_rules[&SymbolKey::tag("pkg.tags", "recovered_simple")].argument_syntax,
+        TagArgumentSyntax::Parameters(parameters)
+            if parameters.len() == 1 && parameters[0].name == "value"
+    ));
+}
+
+#[test]
+fn recovered_registration_options_do_not_taint_independent_signatures() {
+    let (db, file, module) = imported_registration_fixture(
+        "",
+        "from django import template\nfrom . import implementation\nregister = template.Library()\n@register.simple_tag(takes_context=implementation.TAKES_CONTEXT, name='first')\ndef first(context, value): return value\n@register.simple_tag(takes_context=implementation.TAKES_CONTEXT, name='second')\ndef second(context, value): return value\n@register.simple_tag\ndef retained(value): return value\n",
+        "TAKES_CONTEXT = True\ndef broken(\n",
+    )
+    .expect("recovered registration-option fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
+    let rules = template_library_tag_facts(&db, key).tag_rules();
+
+    for name in ["first", "second"] {
+        assert!(matches!(
+            &rules[&SymbolKey::tag("pkg.tags", name)].argument_syntax,
+            TagArgumentSyntax::Parameters(parameters)
+                if parameters.len() == 1 && parameters[0].name == "value"
+        ));
+    }
+    assert!(matches!(
+        &rules[&SymbolKey::tag("pkg.tags", "retained")].argument_syntax,
+        TagArgumentSyntax::Signature {
+            parameters,
+            variadic_keyword: None,
+            ..
+        } if parameters.len() == 1 && parameters[0].name == "value"
+    ));
 }
 
 #[test]
@@ -1210,11 +1256,20 @@ def malformed(value): pass
     let tag_facts = template_library_tag_facts(&db, key);
     for name in ["imported_context", "imported_panel"] {
         assert_eq!(
-            tag_facts.tag_rules()[&SymbolKey::tag("pkg.tags", name)].arg_constraints,
-            vec![
-                ArgumentCountConstraint::Min(2),
-                ArgumentCountConstraint::Max(2),
-            ],
+            tag_facts.tag_rules()[&SymbolKey::tag("pkg.tags", name)].argument_syntax,
+            TagArgumentSyntax::Signature {
+                parameters: vec![djls_project::TagArgument {
+                    name: if name == "imported_context" {
+                        "value".to_string()
+                    } else {
+                        "title".to_string()
+                    },
+                    requirement: ParameterRequirement::Required,
+                    kind: TagArgumentKind::Variable,
+                }],
+                positional_only: 0,
+                variadic_keyword: None,
+            },
             "resolved takes_context must remove framework parameters for `{name}`"
         );
     }

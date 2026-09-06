@@ -4,89 +4,106 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "hc.front.templatetags.hc_extras::tag::absolute_site_logo_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::debug_warning":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::now_isoformat":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::site_hostname":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::site_name":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::site_root":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::site_version":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::sort_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: sort
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: sort
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hc.front.templatetags.hc_extras::tag::support_email":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "hc.front.templatetags.hc_extras::filter::add6days": no_argument

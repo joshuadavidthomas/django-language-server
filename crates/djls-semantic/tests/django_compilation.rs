@@ -19,12 +19,6 @@ const FALSE_POSITIVES: &[&str] = &[
 
 /// Django rejects these templates; DJLS reports nothing. Every entry is a bug.
 const MISSED_DIAGNOSTICS: &[&str] = &[
-    // parameter syntax is extracted but validation does not bind required keyword-only arguments
-    "authored_keyword_only_missing",
-    // parameter syntax is extracted but validation does not check argument ordering
-    "authored_positional_after_keyword",
-    // parameter syntax is extracted but validation does not reject repeated keywords
-    "authored_repeated_keyword",
     // class constructors are not resolved as parser functions for rule extraction
     "class_missing",
     // split-sequence truthiness guards do not produce argument-count constraints

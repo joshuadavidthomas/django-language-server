@@ -4,30 +4,32 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "blog.templatetags.blog_calendar::tag::render_calendar":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: date
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: date
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "blog.templatetags.blog_calendar::tag::render_calendar_month_only":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: date
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: date
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

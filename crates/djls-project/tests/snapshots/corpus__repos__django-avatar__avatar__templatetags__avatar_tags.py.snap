@@ -4,79 +4,84 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "avatar.templatetags.avatar_tags::tag::avatar":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: user
-          requirement: required
-          kind: Variable
-        - name: width
-          requirement: optional
-          kind: Variable
-        - name: height
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: user
+            requirement: required
+            kind: Variable
+          - name: width
+            requirement: optional
+            kind: Variable
+          - name: height
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "avatar.templatetags.avatar_tags::tag::avatar_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: user
-          requirement: required
-          kind: Variable
-        - name: width
-          requirement: optional
-          kind: Variable
-        - name: height
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: user
+            requirement: required
+            kind: Variable
+          - name: width
+            requirement: optional
+            kind: Variable
+          - name: height
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "avatar.templatetags.avatar_tags::tag::primary_avatar":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: user
-          requirement: required
-          kind: Variable
-        - name: width
-          requirement: optional
-          kind: Variable
-        - name: height
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: user
+            requirement: required
+            kind: Variable
+          - name: width
+            requirement: optional
+            kind: Variable
+          - name: height
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "avatar.templatetags.avatar_tags::tag::render_avatar":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: avatar
-          requirement: required
-          kind: Variable
-        - name: width
-          requirement: optional
-          kind: Variable
-        - name: height
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: avatar
+            requirement: required
+            kind: Variable
+          - name: width
+            requirement: optional
+            kind: Variable
+          - name: height
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "avatar.templatetags.avatar_tags::filter::has_avatar": no_argument

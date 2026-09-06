@@ -4,23 +4,24 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "geonode.groups.templatetags.groups_tags::tag::group_profile_image":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: group_profile
-          requirement: required
-          kind: Variable
-        - name: css_classes
-          requirement: optional
-          kind: Variable
-        - name: size
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: group_profile
+            requirement: required
+            kind: Variable
+          - name: css_classes
+            requirement: optional
+            kind: Variable
+          - name: size
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

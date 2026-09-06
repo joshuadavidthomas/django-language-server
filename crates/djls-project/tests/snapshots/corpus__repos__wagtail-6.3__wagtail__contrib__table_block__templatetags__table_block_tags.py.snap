@@ -4,61 +4,64 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_classname":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: row_index
-          requirement: required
-          kind: Variable
-        - name: col_index
-          requirement: required
-          kind: Variable
-        - name: table_header
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: row_index
+            requirement: required
+            kind: Variable
+          - name: col_index
+            requirement: required
+            kind: Variable
+          - name: table_header
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_hidden":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: row_index
-          requirement: required
-          kind: Variable
-        - name: col_index
-          requirement: required
-          kind: Variable
-        - name: table_header
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: row_index
+            requirement: required
+            kind: Variable
+          - name: col_index
+            requirement: required
+            kind: Variable
+          - name: table_header
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_span":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: row_index
-          requirement: required
-          kind: Variable
-        - name: col_index
-          requirement: required
-          kind: Variable
-        - name: table_header
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: row_index
+            requirement: required
+            kind: Variable
+          - name: col_index
+            requirement: required
+            kind: Variable
+          - name: table_header
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

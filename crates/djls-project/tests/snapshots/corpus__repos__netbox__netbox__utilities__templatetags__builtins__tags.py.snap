@@ -4,148 +4,160 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "netbox.utilities.templatetags.builtins.tags::tag::badge":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: value
-          requirement: required
-          kind: Variable
-        - name: bg_color
-          requirement: optional
-          kind: Variable
-        - name: show_empty
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: value
+            requirement: required
+            kind: Variable
+          - name: bg_color
+            requirement: optional
+            kind: Variable
+          - name: show_empty
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::checkmark":
-    arg_constraints:
-      - Min: 2
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: value
-          requirement: required
-          kind: Variable
-        - name: show_false
-          requirement: optional
-          kind: Variable
-        - name: "true"
-          requirement: optional
-          kind: Variable
-        - name: "false"
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: value
+            requirement: required
+            kind: Variable
+          - name: show_false
+            requirement: optional
+            kind: Variable
+          - name: "true"
+            requirement: optional
+            kind: Variable
+          - name: "false"
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::copy_content":
-    arg_constraints:
-      - Min: 2
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: target
-          requirement: required
-          kind: Variable
-        - name: prefix
-          requirement: optional
-          kind: Variable
-        - name: color
-          requirement: optional
-          kind: Variable
-        - name: classes
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: target
+            requirement: required
+            kind: Variable
+          - name: prefix
+            requirement: optional
+            kind: Variable
+          - name: color
+            requirement: optional
+            kind: Variable
+          - name: classes
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::customfield_value":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: customfield
-          requirement: required
-          kind: Variable
-        - name: value
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: customfield
+            requirement: required
+            kind: Variable
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::formaction":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::htmx_table":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: viewname
-          requirement: required
-          kind: Variable
-        - name: return_url
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: viewname
+            requirement: required
+            kind: Variable
+          - name: return_url
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::render":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: component
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: component
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::static_with_params":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: path
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: path
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: params
     as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::tag":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: value
-          requirement: required
-          kind: Variable
-        - name: viewname
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: value
+            requirement: required
+            kind: Variable
+          - name: viewname
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

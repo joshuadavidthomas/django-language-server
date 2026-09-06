@@ -4,119 +4,137 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "geonode.client.templatetags.client_lib_tags::tag::dataset_detail_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: layer
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: layer
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::dataset_list_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::dataset_upload_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::document_detail_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: document
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: document
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::document_list_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::geoapp_detail_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: geoapp
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: geoapp
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::geoapp_list_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::google_api_key":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::map_detail_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: map
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: map
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::map_list_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.client.templatetags.client_lib_tags::tag::mapbox_access_token":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -4,20 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "bookmarks.templatetags.bookmarks::tag::bookmark_search":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: search
-          requirement: required
-          kind: Variable
-        - name: mode
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: search
+            requirement: required
+            kind: Variable
+          - name: mode
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

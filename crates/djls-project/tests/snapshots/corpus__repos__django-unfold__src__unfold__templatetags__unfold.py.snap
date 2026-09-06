@@ -4,42 +4,46 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.unfold.templatetags.unfold::tag::action_item_classes":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: action
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: action
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::action_list":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::admin_object_app_url":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: object
-          requirement: required
-          kind: Variable
-        - name: arg
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: object
+            requirement: required
+            kind: Variable
+          - name: arg
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::capture":
     arg_constraints:
@@ -105,168 +109,186 @@ tag_rules:
           kind: Variable
     as_var: keep
   "src.unfold.templatetags.unfold::tag::element_classes":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: key
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: key
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::elided_page_range":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: paginator
-          requirement: required
-          kind: Variable
-        - name: number
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: paginator
+            requirement: required
+            kind: Variable
+          - name: number
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::fieldset_line_classes":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::fieldset_row_classes":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::fieldset_rows_classes":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::has_nav_item_active":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: items
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: items
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::header_title":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::infinite_paginator_url":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: cl
-          requirement: required
-          kind: Variable
-        - name: i
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: cl
+            requirement: required
+            kind: Variable
+          - name: i
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::preserve_filters":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "src.unfold.templatetags.unfold::tag::querystring_params":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: query_key
-          requirement: required
-          kind: Variable
-        - name: query_value
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: query_key
+            requirement: required
+            kind: Variable
+          - name: query_value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::render_section":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: section_class
-          requirement: required
-          kind: Variable
-        - name: instance
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: section_class
+            requirement: required
+            kind: Variable
+          - name: instance
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::tab_list":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: page
-          requirement: required
-          kind: Variable
-        - name: opts
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: page
+            requirement: required
+            kind: Variable
+          - name: opts
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::tabs_primary_active":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: inlines
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: inlines
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.unfold.templatetags.unfold::tag::unfold_querystring":
     arg_constraints: []
@@ -274,10 +296,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities:
   "src.unfold.templatetags.unfold::filter::add_css_class": required_argument

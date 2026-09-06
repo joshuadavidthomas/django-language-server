@@ -4,22 +4,24 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "wagtail.contrib.routable_page.templatetags.wagtailroutablepage_tags::tag::routablepageurl":
-    arg_constraints:
-      - Min: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: page
-          requirement: required
-          kind: Variable
-        - name: url_name
-          requirement: required
-          kind: Variable
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: page
+            requirement: required
+            kind: Variable
+          - name: url_name
+            requirement: required
+            kind: Variable
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -50,7 +50,8 @@ fn generate_snippet_from_args(args: &[TagArgument]) -> String {
 #[must_use]
 fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
     let arguments = match spec.argument_syntax() {
-        TagArgumentSyntax::Parameters(arguments) => Some(arguments.as_slice()),
+        TagArgumentSyntax::Signature { parameters, .. }
+        | TagArgumentSyntax::Parameters(parameters) => Some(parameters.as_slice()),
         TagArgumentSyntax::Forms {
             forms,
             coverage: ArgumentFormCoverage::Complete,
@@ -76,7 +77,8 @@ fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
 #[must_use]
 pub(crate) fn has_full_argument_snippet(spec: &TagSpec) -> bool {
     match spec.argument_syntax() {
-        TagArgumentSyntax::Parameters(arguments) => !arguments.is_empty(),
+        TagArgumentSyntax::Signature { parameters, .. }
+        | TagArgumentSyntax::Parameters(parameters) => !parameters.is_empty(),
         TagArgumentSyntax::Forms {
             forms,
             coverage: ArgumentFormCoverage::Complete,
@@ -121,7 +123,8 @@ pub(crate) fn compatible_arguments_at<'a>(
 ) -> Vec<&'a TagArgument> {
     let sequences: Vec<&[TagArgument]> = match spec.argument_syntax() {
         TagArgumentSyntax::Unknown => Vec::new(),
-        TagArgumentSyntax::Parameters(arguments) => vec![arguments],
+        TagArgumentSyntax::Signature { parameters, .. }
+        | TagArgumentSyntax::Parameters(parameters) => vec![parameters],
         TagArgumentSyntax::Forms { forms, .. } => {
             forms.iter().map(|form| form.arguments.as_slice()).collect()
         }
@@ -149,7 +152,8 @@ pub(crate) fn generate_partial_snippet(
 ) -> String {
     let sequence = match spec.argument_syntax() {
         TagArgumentSyntax::Unknown => None,
-        TagArgumentSyntax::Parameters(arguments) => Some(arguments.as_slice()),
+        TagArgumentSyntax::Signature { parameters, .. }
+        | TagArgumentSyntax::Parameters(parameters) => Some(parameters.as_slice()),
         TagArgumentSyntax::Forms { forms, .. } => forms
             .iter()
             .filter(|form| {

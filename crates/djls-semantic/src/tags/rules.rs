@@ -172,17 +172,15 @@ pub(crate) fn evaluate_tag_rules(
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
 
-    // Django's simple_tag supports `{% tag args... as varname %}` syntax.
-    // The framework strips `as varname` before validating arguments, so we
-    // do the same: if the last two bits are ["as", <something>], strip them.
-    let effective_bits =
-        if rules.as_var.strips_suffix() && bits.len() >= 2 && bits[bits.len() - 2] == "as" {
-            &bits[..bits.len() - 2]
-        } else {
-            bits
-        };
+    let effective_bits = effective_tag_bits(bits, rules.as_var.strips_suffix());
 
     let diagnostic_messages = rules.diagnostic_messages.as_deref().unwrap_or(&[]);
+
+    if let Some(error) =
+        validate_signature_syntax(tag_name, &rules.argument_syntax, effective_bits, span)
+    {
+        return vec![error];
+    }
 
     if let TagArgumentSyntax::Forms { forms, coverage } = &rules.argument_syntax
         && !forms.iter().any(|form| form_matches(form, effective_bits))
@@ -281,6 +279,148 @@ pub(crate) fn evaluate_tag_rules(
     }
 
     errors
+}
+
+fn effective_tag_bits(bits: &[String], strips_as_var: bool) -> &[String] {
+    if strips_as_var && bits.len() >= 2 && bits[bits.len() - 2] == "as" {
+        &bits[..bits.len() - 2]
+    } else {
+        bits
+    }
+}
+
+fn validate_signature_syntax(
+    tag_name: &str,
+    syntax: &TagArgumentSyntax,
+    bits: &[String],
+    span: Span,
+) -> Option<ValidationError> {
+    let TagArgumentSyntax::Signature {
+        parameters,
+        variadic_keyword,
+        ..
+    } = syntax
+    else {
+        return None;
+    };
+    validate_django_signature(
+        tag_name,
+        parameters,
+        variadic_keyword.as_deref(),
+        bits,
+        span,
+    )
+}
+
+fn validate_django_signature(
+    tag_name: &str,
+    parameters: &[djls_project::TagArgument],
+    variadic_keyword: Option<&str>,
+    bits: &[String],
+    span: Span,
+) -> Option<ValidationError> {
+    bind_django_signature(parameters, variadic_keyword, bits)
+        .err()
+        .map(|message| ValidationError::ExtractedRuleViolation {
+            tag: tag_name.to_string(),
+            message: format!("'{tag_name}' {message}"),
+            span,
+        })
+}
+
+fn bind_django_signature(
+    parameters: &[djls_project::TagArgument],
+    variadic_keyword: Option<&str>,
+    bits: &[String],
+) -> Result<(), String> {
+    let mut unhandled_positional = parameters
+        .iter()
+        .take_while(|parameter| matches!(parameter.kind, TagArgumentKind::Variable))
+        .map(|parameter| parameter.name.as_str())
+        .collect::<Vec<_>>();
+    let positional_names = unhandled_positional.clone();
+    let has_varargs = parameters
+        .iter()
+        .any(|parameter| matches!(parameter.kind, TagArgumentKind::VarArgs));
+    let keyword_only = parameters
+        .iter()
+        .filter(|parameter| matches!(parameter.kind, TagArgumentKind::Keyword))
+        .collect::<Vec<_>>();
+    let mut unhandled_keyword_only = keyword_only
+        .iter()
+        .filter(|parameter| parameter.requirement.is_required())
+        .map(|parameter| parameter.name.as_str())
+        .collect::<Vec<_>>();
+    let default_count = parameters
+        .iter()
+        .take_while(|parameter| matches!(parameter.kind, TagArgumentKind::Variable))
+        .filter(|parameter| !parameter.requirement.is_required())
+        .count();
+    let mut seen_keywords = Vec::new();
+
+    for bit in bits {
+        if let Some(name) = django_keyword_name(bit) {
+            let known = positional_names.contains(&name)
+                || keyword_only.iter().any(|parameter| parameter.name == name);
+            if !known && variadic_keyword.is_none() {
+                return Err(format!("received unexpected keyword argument '{name}'"));
+            }
+            if seen_keywords.contains(&name) {
+                return Err(format!(
+                    "received multiple values for keyword argument '{name}'"
+                ));
+            }
+            seen_keywords.push(name);
+            if let Some(index) = unhandled_positional
+                .iter()
+                .position(|parameter| *parameter == name)
+            {
+                unhandled_positional.remove(index);
+            } else if let Some(index) = unhandled_keyword_only
+                .iter()
+                .position(|parameter| *parameter == name)
+            {
+                unhandled_keyword_only.remove(index);
+            }
+        } else if !seen_keywords.is_empty() {
+            return Err(
+                "received some positional argument(s) after some keyword argument(s)".to_string(),
+            );
+        } else if unhandled_positional.is_empty() {
+            if !has_varargs {
+                return Err("received too many positional arguments".to_string());
+            }
+        } else {
+            unhandled_positional.remove(0);
+        }
+    }
+
+    if default_count > 0 {
+        unhandled_positional.truncate(unhandled_positional.len().saturating_sub(default_count));
+    }
+    if unhandled_positional.is_empty() && unhandled_keyword_only.is_empty() {
+        return Ok(());
+    }
+
+    let missing = unhandled_positional
+        .into_iter()
+        .chain(unhandled_keyword_only)
+        .map(|name| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "did not receive value(s) for the argument(s): {missing}"
+    ))
+}
+
+fn django_keyword_name(bit: &str) -> Option<&str> {
+    let (name, value) = bit.split_once('=')?;
+    (!name.is_empty()
+        && !value.is_empty()
+        && name
+            .chars()
+            .all(|character| character == '_' || character.is_alphanumeric()))
+    .then_some(name)
 }
 
 fn form_matches(form: &TagArgumentForm, bits: &[String]) -> bool {
@@ -586,6 +726,121 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn django_signature_binder_matches_parse_bits_order_and_default_quirks() {
+        let parameters = vec![
+            TagArgument {
+                name: "one".to_string(),
+                requirement: ParameterRequirement::Required,
+                kind: TagArgumentKind::Variable,
+            },
+            TagArgument {
+                name: "two".to_string(),
+                requirement: ParameterRequirement::Optional,
+                kind: TagArgumentKind::Variable,
+            },
+        ];
+
+        assert_eq!(
+            bind_django_signature(&parameters, None, &make_bits(&[])),
+            Err("did not receive value(s) for the argument(s): 'one'".to_string())
+        );
+        assert_eq!(
+            bind_django_signature(&parameters, None, &make_bits(&["two=value"])),
+            Ok(())
+        );
+        assert_eq!(
+            bind_django_signature(&parameters, None, &make_bits(&["first", "one=second"]),),
+            Ok(())
+        );
+        assert_eq!(
+            bind_django_signature(&parameters, None, &make_bits(&["one=first", "one=second"]),),
+            Err("received multiple values for keyword argument 'one'".to_string())
+        );
+        assert_eq!(
+            bind_django_signature(&parameters, None, &make_bits(&["one=first", "second"]),),
+            Err("received some positional argument(s) after some keyword argument(s)".to_string())
+        );
+        assert_eq!(
+            bind_django_signature(&parameters, None, &make_bits(&["unknown=value"])),
+            Err("received unexpected keyword argument 'unknown'".to_string())
+        );
+        assert_eq!(
+            bind_django_signature(&parameters, None, &make_bits(&["first", "second", "third"]),),
+            Err("received too many positional arguments".to_string())
+        );
+    }
+
+    #[test]
+    fn django_signature_binder_handles_keyword_only_varargs_and_kwargs_independently() {
+        let keyword_parameters = vec![
+            TagArgument {
+                name: "values".to_string(),
+                requirement: ParameterRequirement::Optional,
+                kind: TagArgumentKind::VarArgs,
+            },
+            TagArgument {
+                name: "required".to_string(),
+                requirement: ParameterRequirement::Required,
+                kind: TagArgumentKind::Keyword,
+            },
+            TagArgument {
+                name: "optional".to_string(),
+                requirement: ParameterRequirement::Optional,
+                kind: TagArgumentKind::Keyword,
+            },
+        ];
+        assert_eq!(
+            bind_django_signature(&keyword_parameters, None, &make_bits(&["first"])),
+            Err("did not receive value(s) for the argument(s): 'required'".to_string())
+        );
+        assert_eq!(
+            bind_django_signature(
+                &keyword_parameters,
+                None,
+                &make_bits(&["first", "second", "required=value"]),
+            ),
+            Ok(())
+        );
+
+        let kwargs_parameters = vec![TagArgument {
+            name: "one".to_string(),
+            requirement: ParameterRequirement::Required,
+            kind: TagArgumentKind::Variable,
+        }];
+        let variadic_keyword = Some("extra".to_string());
+        assert_eq!(
+            bind_django_signature(
+                &kwargs_parameters,
+                variadic_keyword.as_deref(),
+                &make_bits(&["one=value", "unknown=value"]),
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            bind_django_signature(
+                &kwargs_parameters,
+                variadic_keyword.as_deref(),
+                &make_bits(&["first", "second"]),
+            ),
+            Err("received too many positional arguments".to_string())
+        );
+    }
+
+    #[test]
+    fn manual_parameter_hints_are_not_bound() {
+        let rule = TagRule {
+            argument_syntax: TagArgumentSyntax::Parameters(vec![TagArgument {
+                name: "required_hint".to_string(),
+                requirement: ParameterRequirement::Required,
+                kind: TagArgumentKind::Keyword,
+            }]),
+            ..TagRule::default()
+        };
+
+        assert!(evaluate_tag_rules("manual", &[], &rule, Span::new(0, 1)).is_empty());
     }
 
     // --- ArgumentCountConstraint tests ---

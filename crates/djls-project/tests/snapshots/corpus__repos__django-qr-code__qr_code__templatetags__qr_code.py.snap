@@ -4,433 +4,529 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "qr_code.templatetags.qr_code::tag::qr_for_contact":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: contact_detail
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: contact_detail
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_email":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: email
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: email
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_epc":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: epc_data
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: epc_data
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_event":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: event
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: event
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
+    as_var: strip
+  "qr_code.templatetags.qr_code::tag::qr_for_geolocation":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: kwargs
+    as_var: strip
+  "qr_code.templatetags.qr_code::tag::qr_for_google_maps":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_google_play":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: package_id
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: package_id
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_mecard":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: mecard
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: mecard
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_sms":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: phone_number
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: phone_number
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_tel":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: phone_number
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: phone_number
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_vcard":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: vcard
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: vcard
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_wifi":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: wifi_config
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: wifi_config
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_youtube":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: video_id
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: video_id
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_from_data":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: data
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: data
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_from_text":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: text
-          requirement: required
-          kind: Variable
-        - name: use_data_uri_for_svg
-          requirement: optional
-          kind: Variable
-        - name: alt_text
-          requirement: optional
-          kind: Variable
-        - name: class_names
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: text
+            requirement: required
+            kind: Variable
+          - name: use_data_uri_for_svg
+            requirement: optional
+            kind: Variable
+          - name: alt_text
+            requirement: optional
+            kind: Variable
+          - name: class_names
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_contact":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: contact_detail
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: contact_detail
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_email":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: email
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: email
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_epc":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: epc_data
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: epc_data
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_event":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: event
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: event
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
+    as_var: strip
+  "qr_code.templatetags.qr_code::tag::qr_url_for_geolocation":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: kwargs
+    as_var: strip
+  "qr_code.templatetags.qr_code::tag::qr_url_for_google_maps":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_google_play":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: package_id
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: package_id
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_mecard":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: mecard
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: mecard
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_sms":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: phone_number
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: phone_number
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_tel":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: phone_number
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: phone_number
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_vcard":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: vcard
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: vcard
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_wifi":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: wifi_config
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: wifi_config
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_youtube":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: video_id
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: video_id
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_from_data":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: data
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: data
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_from_text":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: text
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: text
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities: {}
 block_specs: {}

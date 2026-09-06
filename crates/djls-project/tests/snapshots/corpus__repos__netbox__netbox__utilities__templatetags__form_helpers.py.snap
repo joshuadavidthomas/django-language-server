@@ -4,78 +4,83 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "netbox.utilities.templatetags.form_helpers::tag::render_custom_fields":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: form
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: form
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_errors":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: form
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: form
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_field":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: field
-          requirement: required
-          kind: Variable
-        - name: bulk_nullable
-          requirement: optional
-          kind: Variable
-        - name: label
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: field
+            requirement: required
+            kind: Variable
+          - name: bulk_nullable
+            requirement: optional
+            kind: Variable
+          - name: label
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_fieldset":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: form
-          requirement: required
-          kind: Variable
-        - name: fieldset
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: form
+            requirement: required
+            kind: Variable
+          - name: fieldset
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.form_helpers::tag::render_form":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: form
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: form
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities:
   "netbox.utilities.templatetags.form_helpers::filter::getfield": required_argument

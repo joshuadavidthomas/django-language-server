@@ -4,23 +4,24 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_alert":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: content
-          requirement: required
-          kind: Variable
-        - name: alert_type
-          requirement: optional
-          kind: Variable
-        - name: dismissable
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: content
+            requirement: required
+            kind: Variable
+          - name: alert_type
+            requirement: optional
+            kind: Variable
+          - name: dismissable
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_button":
     arg_constraints: []
@@ -28,28 +29,35 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_field":
     arg_constraints: []
@@ -57,10 +65,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form":
     arg_constraints: []
@@ -68,10 +79,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form_errors":
     arg_constraints: []
@@ -79,10 +93,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset":
     arg_constraints: []
@@ -90,10 +107,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset_errors":
     arg_constraints: []
@@ -101,52 +121,63 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_icon":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: icon
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: icon
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript":
-    arg_constraints:
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: jquery
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: jquery
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_jquery_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_label":
     arg_constraints: []
@@ -154,10 +185,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_messages":
     arg_constraints: []
@@ -165,50 +199,58 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_pagination":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: page
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: page
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: keep
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_theme_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_url_replace_param":
-    arg_constraints:
-      - Min: 4
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: url
-          requirement: required
-          kind: Variable
-        - name: name
-          requirement: required
-          kind: Variable
-        - name: value
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: url
+            requirement: required
+            kind: Variable
+          - name: name
+            requirement: required
+            kind: Variable
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes": no_argument

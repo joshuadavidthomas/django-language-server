@@ -4,33 +4,35 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.pretix.base.templatetags.safelink::tag::answer_token":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: request
-          requirement: required
-          kind: Variable
-        - name: answer
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: request
+            requirement: required
+            kind: Variable
+          - name: answer
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.pretix.base.templatetags.safelink::tag::safelink":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: url
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: url
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

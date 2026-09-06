@@ -4,16 +4,18 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "misago.core.templatetags.misago_pagetitle::tag::pagetitle":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: title
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: title
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities: {}
 block_specs: {}

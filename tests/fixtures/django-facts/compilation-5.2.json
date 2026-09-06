@@ -9,6 +9,13 @@
     "authored_default_valid.html": {
       "result": "compiled"
     },
+    "authored_empty_extra.html": {
+      "error": "'authored_empty' received too many positional arguments",
+      "result": "failed"
+    },
+    "authored_empty_valid.html": {
+      "result": "compiled"
+    },
     "authored_keyword_only_missing.html": {
       "error": "'authored_keyword_only' did not receive value(s) for the argument(s): 'required'",
       "result": "failed"
@@ -16,19 +23,43 @@
     "authored_keyword_only_valid.html": {
       "result": "compiled"
     },
+    "authored_kwargs_extra_positional.html": {
+      "error": "'authored_kwargs' received too many positional arguments",
+      "result": "failed"
+    },
+    "authored_kwargs_valid.html": {
+      "result": "compiled"
+    },
     "authored_positional_after_keyword.html": {
       "error": "'authored_default' received some positional argument(s) after some keyword argument(s)",
+      "result": "failed"
+    },
+    "authored_positional_only_keyword_valid.html": {
+      "result": "compiled"
+    },
+    "authored_positional_only_missing.html": {
+      "error": "'authored_positional_only' did not receive value(s) for the argument(s): 'value'",
       "result": "failed"
     },
     "authored_repeated_keyword.html": {
       "error": "'authored_default' received multiple values for keyword argument 'one'",
       "result": "failed"
     },
+    "authored_required_as_valid.html": {
+      "result": "compiled"
+    },
     "authored_required_missing.html": {
       "error": "'authored_required' did not receive value(s) for the argument(s): 'value'",
       "result": "failed"
     },
     "authored_required_valid.html": {
+      "result": "compiled"
+    },
+    "authored_varargs_unexpected_keyword.html": {
+      "error": "'authored_varargs' received unexpected keyword argument 'value'",
+      "result": "failed"
+    },
+    "authored_varargs_valid.html": {
       "result": "compiled"
     },
     "class_missing.html": {

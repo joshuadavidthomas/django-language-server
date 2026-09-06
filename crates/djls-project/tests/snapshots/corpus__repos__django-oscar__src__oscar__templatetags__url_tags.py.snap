@@ -4,20 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.oscar.templatetags.url_tags::tag::absolute_url":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: domain
-          requirement: required
-          kind: Variable
-        - name: path
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: domain
+            requirement: required
+            kind: Variable
+          - name: path
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

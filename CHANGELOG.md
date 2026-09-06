@@ -34,6 +34,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments to match Django's `parse_bits()` binding rules.
 - Fixed static validation for context-aware and curried tag registrations and for `simple_block_tag` block structure.
 - Fixed unloaded-tag diagnostics and load quick fixes disappearing when an unrelated template library has unknown registrations.
 - Fixed explicit `false` and empty LSP initialization options failing to override project configuration.

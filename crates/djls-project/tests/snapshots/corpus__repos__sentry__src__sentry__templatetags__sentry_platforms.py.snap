@@ -4,42 +4,44 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.sentry.templatetags.sentry_platforms::tag::letter_platform_svg":
-    arg_constraints:
-      - Min: 3
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: display_name
-          requirement: required
-          kind: Variable
-        - name: identifier
-          requirement: required
-          kind: Variable
-        - name: size
-          requirement: optional
-          kind: Variable
-        - name: rounded
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: display_name
+            requirement: required
+            kind: Variable
+          - name: identifier
+            requirement: required
+            kind: Variable
+          - name: size
+            requirement: optional
+            kind: Variable
+          - name: rounded
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_platforms::tag::platform_avatar":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: display_name
-          requirement: required
-          kind: Variable
-        - name: size
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: display_name
+            requirement: required
+            kind: Variable
+          - name: size
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -16,6 +16,11 @@ def authored_required(value):
 
 
 @register.simple_tag
+def authored_empty():
+    return ""
+
+
+@register.simple_tag
 def authored_keyword_only(*, required):
     return required
 
@@ -23,6 +28,21 @@ def authored_keyword_only(*, required):
 @register.simple_tag
 def authored_default(one, two="default"):
     return f"{one}:{two}"
+
+
+@register.simple_tag
+def authored_positional_only(value, /):
+    return value
+
+
+@register.simple_tag
+def authored_varargs(*values):
+    return values
+
+
+@register.simple_tag
+def authored_kwargs(one, **options):
+    return one, options
 
 
 @register.simple_tag(name=None)

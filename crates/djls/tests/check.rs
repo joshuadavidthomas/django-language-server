@@ -476,7 +476,8 @@ fn check_multi_backend_stdin_uses_inventory_while_concrete_path_uses_backend() {
     let concrete_stdout = String::from_utf8_lossy(&concrete.stdout);
     assert!(concrete_stdout.contains("error[S117]"), "{concrete_stdout}");
     assert!(
-        concrete_stdout.contains("Tag 'shared_tag' requires at least 1 argument"),
+        concrete_stdout
+            .contains("'shared_tag' did not receive value(s) for the argument(s): 'value'"),
         "{concrete_stdout}"
     );
 

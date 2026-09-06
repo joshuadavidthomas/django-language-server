@@ -4,34 +4,38 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.pretix.base.templatetags.eventsignal::tag::eventsignal":
-    arg_constraints:
-      - Min: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: event
-          requirement: required
-          kind: Variable
-        - name: signame
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: event
+            requirement: required
+            kind: Variable
+          - name: signame
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.pretix.base.templatetags.eventsignal::tag::signal":
-    arg_constraints:
-      - Min: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: signame
-          requirement: required
-          kind: Variable
-        - name: request
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: signame
+            requirement: required
+            kind: Variable
+          - name: request
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities: {}
 block_specs: {}

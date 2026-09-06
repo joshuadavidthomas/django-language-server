@@ -4,32 +4,35 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "django_tables2.templatetags.django_tables2::tag::export_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: export_format
-          requirement: required
-          kind: Variable
-        - name: export_trigger_param
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: export_format
+            requirement: required
+            kind: Variable
+          - name: export_trigger_param
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "django_tables2.templatetags.django_tables2::tag::render_attrs":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: attrs
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: attrs
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities:
   "django_tables2.templatetags.django_tables2::filter::table_page_range": required_argument

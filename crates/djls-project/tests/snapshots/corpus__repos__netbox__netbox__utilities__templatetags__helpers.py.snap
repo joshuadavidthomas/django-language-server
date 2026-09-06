@@ -19,70 +19,75 @@ tag_rules:
           kind: Variable
     as_var: strip
   "netbox.utilities.templatetags.helpers::tag::applied_filters":
-    arg_constraints:
-      - Min: 4
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: model
-          requirement: required
-          kind: Variable
-        - name: form
-          requirement: required
-          kind: Variable
-        - name: query_params
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: model
+            requirement: required
+            kind: Variable
+          - name: form
+            requirement: required
+            kind: Variable
+          - name: query_params
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.helpers::tag::querystring":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: request
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: request
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "netbox.utilities.templatetags.helpers::tag::table_config_form":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: table
-          requirement: required
-          kind: Variable
-        - name: table_name
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: table
+            requirement: required
+            kind: Variable
+          - name: table_name
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.helpers::tag::utilization_graph":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: utilization
-          requirement: required
-          kind: Variable
-        - name: warning_threshold
-          requirement: optional
-          kind: Variable
-        - name: danger_threshold
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: utilization
+            requirement: required
+            kind: Variable
+          - name: warning_threshold
+            requirement: optional
+            kind: Variable
+          - name: danger_threshold
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities:
   "netbox.utilities.templatetags.helpers::filter::as_range": no_argument

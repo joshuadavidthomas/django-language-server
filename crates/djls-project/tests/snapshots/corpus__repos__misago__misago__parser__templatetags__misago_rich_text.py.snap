@@ -4,23 +4,24 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "misago.parser.templatetags.misago_rich_text::tag::rich_text":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: html
-          requirement: required
-          kind: Variable
-        - name: data
-          requirement: optional
-          kind: Variable
-        - name: thread
-          requirement: optional
-          kind: Keyword
+      Signature:
+        parameters:
+          - name: html
+            requirement: required
+            kind: Variable
+          - name: data
+            requirement: optional
+            kind: Variable
+          - name: thread
+            requirement: optional
+            kind: Keyword
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

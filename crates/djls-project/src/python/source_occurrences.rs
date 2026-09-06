@@ -81,6 +81,14 @@ impl PythonFunctionDefinition {
     }
 
     #[must_use]
+    pub(crate) fn source_is_exact(&self, db: &dyn ProjectDb) -> bool {
+        RecoveredPythonModule::from_file(db, self.file)
+            .ok()
+            .flatten()
+            .is_some_and(|module| !module.has_ordinary_syntax_errors(db))
+    }
+
+    #[must_use]
     pub(crate) fn statement<'db>(&self, db: &'db dyn ProjectDb) -> Option<&'db StmtFunctionDef> {
         let module = RecoveredPythonModule::from_file(db, self.file)
             .ok()
@@ -118,7 +126,7 @@ pub(crate) struct PythonSourceLookup<'db> {
     module: Option<PythonSourceModule>,
     file: File,
     consulted_files: Vec<File>,
-    recovered_source: bool,
+    recovered_source_lookups: usize,
 }
 
 impl<'db> PythonSourceLookup<'db> {
@@ -129,7 +137,7 @@ impl<'db> PythonSourceLookup<'db> {
             module: None,
             file,
             consulted_files: Vec::new(),
-            recovered_source: false,
+            recovered_source_lookups: 0,
         }
     }
 
@@ -144,7 +152,7 @@ impl<'db> PythonSourceLookup<'db> {
             file: module.file(),
             module: Some(module),
             consulted_files: Vec::new(),
-            recovered_source: false,
+            recovered_source_lookups: 0,
         }
     }
 
@@ -188,7 +196,12 @@ impl<'db> PythonSourceLookup<'db> {
 
     #[must_use]
     pub(crate) fn has_recovered_source(&self) -> bool {
-        self.recovered_source
+        self.recovered_source_lookups != 0
+    }
+
+    #[must_use]
+    pub(crate) fn recovered_source_lookups(&self) -> usize {
+        self.recovered_source_lookups
     }
 
     fn lookup(&mut self, expression: &Expr) -> Option<PythonOccurrenceValue> {
@@ -199,7 +212,7 @@ impl<'db> PythonSourceLookup<'db> {
             self.file,
             expression.span(),
         );
-        self.recovered_source |= occurrence.recovered_source;
+        self.recovered_source_lookups += usize::from(occurrence.recovered_source);
         for file in &occurrence.consulted_files {
             if !self.consulted_files.contains(file) {
                 self.consulted_files.push(*file);

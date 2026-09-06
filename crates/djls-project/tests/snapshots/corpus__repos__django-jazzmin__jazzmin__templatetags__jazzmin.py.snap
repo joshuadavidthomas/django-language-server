@@ -4,224 +4,243 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "jazzmin.templatetags.jazzmin::tag::action_message_to_list":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: action
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: action
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::admin_extra_filters":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: cl
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: cl
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_changeform_template":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: adminform
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: adminform
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_jazzmin_settings":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: request
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: request
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_jazzmin_ui_tweaks":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_jazzmin_version":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_sections":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: admin_form
-          requirement: required
-          kind: Variable
-        - name: inline_admin_formsets
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: admin_form
+            requirement: required
+            kind: Variable
+          - name: inline_admin_formsets
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_side_menu":
-    arg_constraints:
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: using
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: using
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_top_menu":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: user
-          requirement: required
-          kind: Variable
-        - name: admin_site
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: user
+            requirement: required
+            kind: Variable
+          - name: admin_site
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_user_avatar":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: user
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: user
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::get_user_menu":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: user
-          requirement: required
-          kind: Variable
-        - name: admin_site
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: user
+            requirement: required
+            kind: Variable
+          - name: admin_site
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::header_class":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: header
-          requirement: required
-          kind: Variable
-        - name: forloop
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: header
+            requirement: required
+            kind: Variable
+          - name: forloop
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::jazzmin_list_filter":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: cl
-          requirement: required
-          kind: Variable
-        - name: spec
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: cl
+            requirement: required
+            kind: Variable
+          - name: spec
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::jazzmin_paginator_number":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: change_list
-          requirement: required
-          kind: Variable
-        - name: i
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: change_list
+            requirement: required
+            kind: Variable
+          - name: i
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::jazzy_admin_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: value
-          requirement: required
-          kind: Variable
-        - name: admin_site
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: value
+            requirement: required
+            kind: Variable
+          - name: admin_site
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "jazzmin.templatetags.jazzmin::tag::sidebar_status":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: request
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: request
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "jazzmin.templatetags.jazzmin::filter::app_is_installed": no_argument
