@@ -19,7 +19,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "actstream.templatetags.activity_tags::tag::follow_all_url":
     arg_constraints:
@@ -37,11 +36,9 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
       - name: arg2
         required: true
         kind: Variable
-        position: 1
     as_var: keep
   "actstream.templatetags.activity_tags::tag::follow_url":
     arg_constraints:
@@ -59,11 +56,9 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
       - name: arg2
         required: true
         kind: Variable
-        position: 1
     as_var: keep
 filter_arities:
   "actstream.templatetags.activity_tags::filter::activity_stream": required_argument

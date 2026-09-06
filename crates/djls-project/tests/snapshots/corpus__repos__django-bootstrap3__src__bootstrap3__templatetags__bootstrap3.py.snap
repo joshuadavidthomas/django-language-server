@@ -14,15 +14,12 @@ tag_rules:
       - name: content
         required: true
         kind: Variable
-        position: 0
       - name: alert_type
         required: false
         kind: Variable
-        position: 1
       - name: dismissable
         required: false
         kind: Variable
-        position: 2
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_button":
     arg_constraints: []
@@ -33,7 +30,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css":
     arg_constraints:
@@ -60,7 +56,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form":
     arg_constraints: []
@@ -71,7 +66,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form_errors":
     arg_constraints: []
@@ -82,7 +76,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset":
     arg_constraints: []
@@ -93,7 +86,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset_errors":
     arg_constraints: []
@@ -104,7 +96,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_icon":
     arg_constraints:
@@ -116,7 +107,6 @@ tag_rules:
       - name: icon
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript":
     arg_constraints:
@@ -128,7 +118,6 @@ tag_rules:
       - name: jquery
         required: false
         kind: Variable
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript_url":
     arg_constraints:
@@ -155,7 +144,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_messages":
     arg_constraints: []
@@ -166,7 +154,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_pagination":
     arg_constraints:
@@ -178,7 +165,6 @@ tag_rules:
       - name: page
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_theme_url":
     arg_constraints:
@@ -199,15 +185,12 @@ tag_rules:
       - name: url
         required: true
         kind: Variable
-        position: 0
       - name: name
         required: true
         kind: Variable
-        position: 1
       - name: value
         required: true
         kind: Variable
-        position: 2
     as_var: strip
 filter_arities:
   "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes": no_argument

@@ -14,7 +14,6 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "news.templatetags.news_extra::tag::more_link":
     arg_constraints:
@@ -34,7 +33,6 @@ tag_rules:
       - name: item
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "news.templatetags.news_extra::tag::user_arrows":
     arg_constraints:
@@ -47,11 +45,9 @@ tag_rules:
       - name: user
         required: true
         kind: Variable
-        position: 0
       - name: item
         required: true
         kind: Variable
-        position: 1
     as_var: strip
 filter_arities:
   "news.templatetags.news_extra::filter::comment_markdown": no_argument

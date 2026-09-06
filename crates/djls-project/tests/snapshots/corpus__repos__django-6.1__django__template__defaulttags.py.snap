@@ -33,7 +33,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "django.template.defaulttags::tag::csp_nonce_attr":
     arg_constraints:
@@ -45,7 +44,6 @@ tag_rules:
       - name: media
         required: false
         kind: Variable
-        position: 0
     as_var: strip
   "django.template.defaulttags::tag::cycle":
     arg_constraints:
@@ -74,7 +72,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "django.template.defaulttags::tag::for":
     arg_constraints:
@@ -86,15 +83,12 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
       - name: arg2
         required: true
         kind: Variable
-        position: 1
       - name: arg3
         required: true
         kind: Variable
-        position: 2
     as_var: keep
   "django.template.defaulttags::tag::lorem":
     arg_constraints:
@@ -116,15 +110,12 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
       - name: arg2
         required: true
         kind: Variable
-        position: 1
       - name: arg3
         required: true
         kind: Variable
-        position: 2
     as_var: keep
   "django.template.defaulttags::tag::now":
     arg_constraints:
@@ -142,7 +133,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "django.template.defaulttags::tag::partial":
     arg_constraints:
@@ -154,7 +144,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "django.template.defaulttags::tag::partialdef":
     arg_constraints:
@@ -171,12 +160,10 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
       - name: inline
         required: true
         kind:
           Literal: inline
-        position: 1
     as_var: keep
   "django.template.defaulttags::tag::querystring":
     arg_constraints: []
@@ -187,7 +174,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: strip
   "django.template.defaulttags::tag::regroup":
     arg_constraints:
@@ -225,25 +211,20 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
       - name: by
         required: true
         kind:
           Literal: by
-        position: 1
       - name: arg3
         required: true
         kind: Variable
-        position: 2
       - name: as
         required: true
         kind:
           Literal: as
-        position: 3
       - name: var_name
         required: true
         kind: Variable
-        position: 4
     as_var: keep
   "django.template.defaulttags::tag::resetcycle":
     arg_constraints:
@@ -265,7 +246,6 @@ tag_rules:
       - name: name
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "django.template.defaulttags::tag::templatetag":
     arg_constraints:
@@ -283,7 +263,6 @@ tag_rules:
       - name: tag
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "django.template.defaulttags::tag::url":
     arg_constraints:
@@ -305,7 +284,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "django.template.defaulttags::tag::widthratio":
     arg_constraints: []
@@ -327,24 +305,19 @@ tag_rules:
       - name: this_value_expr
         required: true
         kind: Variable
-        position: 0
       - name: max_value_expr
         required: true
         kind: Variable
-        position: 1
       - name: max_width
         required: true
         kind: Variable
-        position: 2
       - name: as
         required: true
         kind:
           Literal: as
-        position: 3
       - name: asvar
         required: true
         kind: Variable
-        position: 4
     as_var: keep
 filter_arities: {}
 block_specs:

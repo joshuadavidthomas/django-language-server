@@ -14,7 +14,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_explicit_no_context_from_template":
     arg_constraints:
@@ -27,7 +26,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_extends1":
     arg_constraints:
@@ -55,7 +53,6 @@ tag_rules:
       - name: kwarg
         required: false
         kind: Keyword
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params":
     arg_constraints:
@@ -100,11 +97,9 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_one_default_from_template":
     arg_constraints:
@@ -117,11 +112,9 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_one_param":
     arg_constraints:
@@ -134,7 +127,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_one_param_from_template":
     arg_constraints:
@@ -147,7 +139,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_only_unlimited_args":
     arg_constraints: []
@@ -158,7 +149,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_only_unlimited_args_from_template":
     arg_constraints: []
@@ -169,7 +159,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_params_and_context":
     arg_constraints:
@@ -182,7 +171,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_params_and_context_from_template":
     arg_constraints:
@@ -195,7 +183,6 @@ tag_rules:
       - name: arg
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_takes_context_without_params":
     arg_constraints:
@@ -232,11 +219,9 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: true
         kind: Variable
-        position: 1
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_two_params_from_template":
     arg_constraints:
@@ -249,11 +234,9 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: true
         kind: Variable
-        position: 1
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args":
     arg_constraints:
@@ -265,15 +248,12 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
       - name: args
         required: false
         kind: VarArgs
-        position: 2
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args_from_template":
     arg_constraints:
@@ -285,15 +265,12 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
       - name: args
         required: false
         kind: VarArgs
-        position: 2
     as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args_kwargs":
     arg_constraints:
@@ -305,15 +282,12 @@ tag_rules:
       - name: one
         required: true
         kind: Variable
-        position: 0
       - name: two
         required: false
         kind: Variable
-        position: 1
       - name: args
         required: false
         kind: VarArgs
-        position: 2
     as_var: keep
 filter_arities: {}
 block_specs: {}

@@ -14,11 +14,9 @@ tag_rules:
       - name: value1
         required: true
         kind: Variable
-        position: 0
       - name: value2
         required: true
         kind: Variable
-        position: 1
     as_var: strip
 filter_arities: {}
 block_specs: {}

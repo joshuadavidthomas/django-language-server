@@ -86,6 +86,7 @@ pub struct TagRule {
     pub known_options: Option<KnownOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_messages: Option<Vec<ExtractedDiagnosticMessage>>,
+    /// Arguments in template source order.
     pub extracted_args: Vec<TagArgument>,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
@@ -276,8 +277,6 @@ pub struct TagArgument {
     pub required: bool,
     /// The kind of argument
     pub kind: TagArgumentKind,
-    /// Zero-based position index in the argument list (excluding tag name)
-    pub position: usize,
 }
 
 /// The kind of an extracted argument.

@@ -22,7 +22,6 @@ tag_rules:
       - name: cms_page
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "cms.templatetags.cms_admin::tag::render_filter_field":
     arg_constraints:
@@ -35,11 +34,9 @@ tag_rules:
       - name: request
         required: true
         kind: Variable
-        position: 0
       - name: field
         required: true
         kind: Variable
-        position: 1
     as_var: keep
   "cms.templatetags.cms_admin::tag::show_admin_menu_for_pages":
     arg_constraints:
@@ -52,11 +49,9 @@ tag_rules:
       - name: descendants
         required: true
         kind: Variable
-        position: 0
       - name: depth
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "cms.templatetags.cms_admin::tag::submit_row_plugin":
     arg_constraints:

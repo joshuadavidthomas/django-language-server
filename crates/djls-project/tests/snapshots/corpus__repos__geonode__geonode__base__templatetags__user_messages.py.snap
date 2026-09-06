@@ -14,11 +14,9 @@ tag_rules:
       - name: thread
         required: true
         kind: Variable
-        position: 0
       - name: current_user
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::get_item":
     arg_constraints:
@@ -31,11 +29,9 @@ tag_rules:
       - name: dictionary
         required: true
         kind: Variable
-        position: 0
       - name: key
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::is_unread":
     arg_constraints:
@@ -48,11 +44,9 @@ tag_rules:
       - name: thread
         required: true
         kind: Variable
-        position: 0
       - name: user
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::random_uuid":
     arg_constraints:
@@ -73,11 +67,9 @@ tag_rules:
       - name: notice_type_label
         required: true
         kind: Variable
-        position: 0
       - name: current_user
         required: true
         kind: Variable
-        position: 1
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -13,11 +13,9 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
       - name: arg2
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "netbox.utilities.templatetags.helpers::tag::applied_filters":
     arg_constraints:
@@ -30,15 +28,12 @@ tag_rules:
       - name: model
         required: true
         kind: Variable
-        position: 0
       - name: form
         required: true
         kind: Variable
-        position: 1
       - name: query_params
         required: true
         kind: Variable
-        position: 2
     as_var: keep
   "netbox.utilities.templatetags.helpers::tag::querystring":
     arg_constraints:
@@ -50,7 +45,6 @@ tag_rules:
       - name: request
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "netbox.utilities.templatetags.helpers::tag::table_config_form":
     arg_constraints:
@@ -63,11 +57,9 @@ tag_rules:
       - name: table
         required: true
         kind: Variable
-        position: 0
       - name: table_name
         required: false
         kind: Variable
-        position: 1
     as_var: keep
   "netbox.utilities.templatetags.helpers::tag::utilization_graph":
     arg_constraints:
@@ -80,15 +72,12 @@ tag_rules:
       - name: utilization
         required: true
         kind: Variable
-        position: 0
       - name: warning_threshold
         required: false
         kind: Variable
-        position: 1
       - name: danger_threshold
         required: false
         kind: Variable
-        position: 2
     as_var: keep
 filter_arities:
   "netbox.utilities.templatetags.helpers::filter::as_range": no_argument

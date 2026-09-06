@@ -264,7 +264,6 @@ impl TagSpecs {
                             name: arg.name.clone(),
                             required: arg.required,
                             kind: kind.clone(),
-                            position: pos,
                         });
 
                         if arg.required {
@@ -414,10 +413,10 @@ impl TagSpec {
     }
 
     #[must_use]
-    pub fn arguments(&self) -> Vec<TagArgument> {
+    pub fn arguments(&self) -> &[TagArgument] {
         self.extracted_rules
-            .as_ref()
-            .map_or_else(Vec::new, |rules| rules.extracted_args.clone())
+            .as_deref()
+            .map_or(&[], |rules| rules.extracted_args.as_slice())
     }
 
     #[must_use]
@@ -1022,19 +1021,16 @@ mod tests {
                         name: "item".to_string(),
                         required: true,
                         kind: TagArgumentKind::Variable,
-                        position: 0,
                     },
                     TagArgument {
                         name: "in".to_string(),
                         required: true,
                         kind: TagArgumentKind::Literal("in".to_string()),
-                        position: 1,
                     },
                     TagArgument {
                         name: "iterable".to_string(),
                         required: true,
                         kind: TagArgumentKind::Variable,
-                        position: 2,
                     },
                 ],
                 ..Default::default()

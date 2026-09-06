@@ -14,15 +14,12 @@ tag_rules:
       - name: field
         required: true
         kind: Variable
-        position: 0
       - name: label_class
         required: false
         kind: Variable
-        position: 1
       - name: field_class
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_dimensions_row":
     arg_constraints:
@@ -35,19 +32,15 @@ tag_rules:
       - name: field_width
         required: true
         kind: Variable
-        position: 0
       - name: field_height
         required: true
         kind: Variable
-        position: 1
       - name: label_class
         required: false
         kind: Variable
-        position: 2
       - name: field_class
         required: false
         kind: Variable
-        position: 3
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_image_row":
     arg_constraints:
@@ -60,31 +53,24 @@ tag_rules:
       - name: field
         required: true
         kind: Variable
-        position: 0
       - name: label_class
         required: false
         kind: Variable
-        position: 1
       - name: field_class
         required: false
         kind: Variable
-        position: 2
       - name: image_class
         required: false
         kind: Variable
-        position: 3
       - name: delete_field
         required: false
         kind: Variable
-        position: 4
       - name: size
         required: false
         kind: Variable
-        position: 5
       - name: dimensions
         required: false
         kind: Variable
-        position: 6
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_input":
     arg_constraints:
@@ -97,7 +83,6 @@ tag_rules:
       - name: field
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_row":
     arg_constraints:
@@ -110,15 +95,12 @@ tag_rules:
       - name: field
         required: true
         kind: Variable
-        position: 0
       - name: label_class
         required: false
         kind: Variable
-        position: 1
       - name: field_class
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::render_attrs":
     arg_constraints:
@@ -131,11 +113,9 @@ tag_rules:
       - name: attrs
         required: true
         kind: Variable
-        position: 0
       - name: class_name
         required: false
         kind: Variable
-        position: 1
     as_var: strip
   "misago.admin.templatetags.misago_admin_form::tag::render_bool_attrs":
     arg_constraints:
@@ -148,7 +128,6 @@ tag_rules:
       - name: attrs
         required: true
         kind: Variable
-        position: 0
     as_var: strip
 filter_arities:
   "misago.admin.templatetags.misago_admin_form::filter::get_options": no_argument

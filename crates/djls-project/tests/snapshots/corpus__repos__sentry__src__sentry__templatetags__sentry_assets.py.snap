@@ -14,11 +14,9 @@ tag_rules:
       - name: module
         required: true
         kind: Variable
-        position: 0
       - name: path
         required: true
         kind: Variable
-        position: 1
     as_var: strip
   "src.sentry.templatetags.sentry_assets::tag::crossorigin":
     arg_constraints:

@@ -122,7 +122,6 @@ fn captured_closer_does_not_offer_colliding_standalone_arguments() {
                 name: "collision".to_string(),
                 kind: TagArgumentKind::Choice(vec!["standalone-choice".to_string()]),
                 required: true,
-                position: 0,
             },
         ]),
     );

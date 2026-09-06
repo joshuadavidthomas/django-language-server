@@ -12,11 +12,9 @@ tag_rules:
       - name: repo
         required: true
         kind: Variable
-        position: 0
       - name: participant
         required: true
         kind: Variable
-        position: 1
     as_var: keep
 filter_arities:
   "package.templatetags.package_tags::filter::emojify": no_argument

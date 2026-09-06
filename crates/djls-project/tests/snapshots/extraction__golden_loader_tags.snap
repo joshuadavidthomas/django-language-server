@@ -23,7 +23,6 @@ tag_rules:
       - name: block_name
         required: true
         kind: Variable
-        position: 0
     as_var: keep
   "django.template.loader_tags::tag::include":
     arg_constraints:
@@ -50,7 +49,6 @@ tag_rules:
       - name: arg1
         required: true
         kind: Variable
-        position: 0
     as_var: keep
 filter_arities: {}
 block_specs:

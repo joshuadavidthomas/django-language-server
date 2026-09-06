@@ -14,15 +14,12 @@ tag_rules:
       - name: value
         required: true
         kind: Variable
-        position: 0
       - name: bg_color
         required: false
         kind: Variable
-        position: 1
       - name: show_empty
         required: false
         kind: Variable
-        position: 2
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::checkmark":
     arg_constraints:
@@ -35,19 +32,15 @@ tag_rules:
       - name: value
         required: true
         kind: Variable
-        position: 0
       - name: show_false
         required: false
         kind: Variable
-        position: 1
       - name: "true"
         required: false
         kind: Variable
-        position: 2
       - name: "false"
         required: false
         kind: Variable
-        position: 3
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::copy_content":
     arg_constraints:
@@ -60,19 +53,15 @@ tag_rules:
       - name: target
         required: true
         kind: Variable
-        position: 0
       - name: prefix
         required: false
         kind: Variable
-        position: 1
       - name: color
         required: false
         kind: Variable
-        position: 2
       - name: classes
         required: false
         kind: Variable
-        position: 3
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::customfield_value":
     arg_constraints:
@@ -85,11 +74,9 @@ tag_rules:
       - name: customfield
         required: true
         kind: Variable
-        position: 0
       - name: value
         required: true
         kind: Variable
-        position: 1
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::formaction":
     arg_constraints:
@@ -109,11 +96,9 @@ tag_rules:
       - name: viewname
         required: true
         kind: Variable
-        position: 0
       - name: return_url
         required: false
         kind: Variable
-        position: 1
     as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::render":
     arg_constraints:
@@ -126,7 +111,6 @@ tag_rules:
       - name: component
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::static_with_params":
     arg_constraints:
@@ -138,7 +122,6 @@ tag_rules:
       - name: path
         required: true
         kind: Variable
-        position: 0
     as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::tag":
     arg_constraints:
@@ -151,11 +134,9 @@ tag_rules:
       - name: value
         required: true
         kind: Variable
-        position: 0
       - name: viewname
         required: false
         kind: Variable
-        position: 1
     as_var: keep
 filter_arities: {}
 block_specs: {}

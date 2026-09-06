@@ -12,7 +12,6 @@ tag_rules:
       - name: args
         required: false
         kind: VarArgs
-        position: 0
     as_var: keep
 filter_arities: {}
 block_specs: {}
