@@ -1,4 +1,5 @@
 pub(crate) mod calls;
+pub(crate) mod constants;
 pub(crate) mod constraints;
 pub(crate) mod exceptions;
 pub(crate) mod expressions;
@@ -152,7 +153,16 @@ impl<'a> CompileFunction<'a> {
 /// (no database), helper calls evaluate to `Unknown`.
 #[must_use]
 pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
-    analyze_compile_function_with_context(func, None, None)
+    analyze_compile_function_with_context(func, None, None, None)
+}
+
+#[cfg(test)]
+pub(crate) fn analyze_compile_function_in_module(
+    module: &[Stmt],
+    func: &StmtFunctionDef,
+) -> TagRule {
+    let bindings = constants::StaticBindings::from_module(module);
+    analyze_compile_function_with_context(func, None, None, Some(&bindings))
 }
 
 pub(crate) fn analyze_compile_function_in_file(
@@ -160,19 +170,28 @@ pub(crate) fn analyze_compile_function_in_file(
     file: File,
     func: &StmtFunctionDef,
 ) -> TagRule {
-    analyze_compile_function_with_context(func, Some(db), Some(file))
+    analyze_compile_function_with_context(
+        func,
+        Some(db),
+        Some(file),
+        Some(constants::module_static_bindings(db, file)),
+    )
 }
 
 fn analyze_compile_function_with_context(
     func: &StmtFunctionDef,
     db: Option<&dyn djls_source::Db>,
     file: Option<File>,
+    static_bindings: Option<&constants::StaticBindings>,
 ) -> TagRule {
     let Some(compile_fn) = CompileFunction::from_ast(func) else {
         return TagRule::default();
     };
 
     let mut env = state::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
+    if let Some(static_bindings) = static_bindings {
+        constants::seed_static_bindings(static_bindings, func, &mut env);
+    }
     let mut ctx = CallContext { db, file };
 
     let (result, _) = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
@@ -467,16 +486,16 @@ mod tests {
         let module = parsed.into_syntax();
         let func = module
             .body
-            .into_iter()
-            .find_map(|s| {
-                if let Stmt::FunctionDef(f) = s {
-                    Some(f)
+            .iter()
+            .find_map(|statement| {
+                if let Stmt::FunctionDef(function) = statement {
+                    Some(function)
                 } else {
                     None
                 }
             })
             .expect("no function found");
-        analyze_compile_function(&func)
+        analyze_compile_function_in_module(&module.body, func)
     }
 
     #[test]

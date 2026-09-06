@@ -4,10 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "package.templatetags.package_tags::tag::participant_url":
-    arg_constraints: []
+    arg_constraints:
+      - Exact: 3
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 3
+        message:
+          PercentFormat:
+            template: "%r tag requires exactly two arguments"
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: repo

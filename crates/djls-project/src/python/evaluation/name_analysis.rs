@@ -4,7 +4,7 @@ use rustc_hash::FxHashSet;
 use crate::ast::ExprExt;
 use crate::python::evaluation::truthiness::Truthiness;
 
-pub(super) fn target_write_names(target: &ast::Expr) -> Vec<&str> {
+pub(crate) fn target_write_names(target: &ast::Expr) -> Vec<&str> {
     let mut names = Vec::new();
     collect_target_write_names(target, &mut names);
     names
@@ -280,7 +280,7 @@ impl<'a> ReadNameCollector<'a> {
     }
 }
 
-pub(super) fn pattern_bound_names(pattern: &ast::Pattern) -> Vec<&str> {
+pub(crate) fn pattern_bound_names(pattern: &ast::Pattern) -> Vec<&str> {
     let mut names = Vec::new();
     collect_pattern_bound_names(pattern, &mut names);
     names

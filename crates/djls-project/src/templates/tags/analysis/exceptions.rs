@@ -37,6 +37,9 @@ pub(super) fn extract_exception_message(
     if let Some(message) = first_arg.string_literal() {
         return Some(ExtractedMessageTemplate::Static(message.to_string()));
     }
+    if let AbstractValue::Str(message) = eval_expr(first_arg, &mut env.clone()) {
+        return Some(ExtractedMessageTemplate::Static(message));
+    }
 
     let Expr::BinOp(ExprBinOp {
         left,
@@ -48,7 +51,12 @@ pub(super) fn extract_exception_message(
         return None;
     };
 
-    let template = left.string_literal()?.to_string();
+    let template = left.string_literal().map(str::to_string).or_else(|| {
+        let AbstractValue::Str(value) = eval_expr(left, &mut env.clone()) else {
+            return None;
+        };
+        Some(value)
+    })?;
     let args = match right.as_ref() {
         Expr::Tuple(tuple) => tuple
             .elts
@@ -102,6 +110,7 @@ fn extract_message_arg(expr: &Expr, env: &Env) -> Option<ExtractedMessageArg> {
         | AbstractValue::Parser
         | AbstractValue::SplitResult(_)
         | AbstractValue::SplitLength(_)
+        | AbstractValue::SplitPredicate(_)
         | AbstractValue::Tuple(_) => None,
     }
 }

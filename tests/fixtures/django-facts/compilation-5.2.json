@@ -3,6 +3,30 @@
     "and_false_side_is_disjunction.html": {
       "result": "compiled"
     },
+    "authored_compress_default.html": {
+      "result": "compiled"
+    },
+    "authored_compress_empty.html": {
+      "error": "compress expects one to three arguments",
+      "result": "failed"
+    },
+    "authored_compress_extra.html": {
+      "error": "compress expects one to three arguments",
+      "result": "failed"
+    },
+    "authored_compress_file.html": {
+      "result": "compiled"
+    },
+    "authored_compress_inline.html": {
+      "result": "compiled"
+    },
+    "authored_compress_invalid_mode.html": {
+      "error": "compress mode is invalid",
+      "result": "failed"
+    },
+    "authored_compress_preload_name.html": {
+      "result": "compiled"
+    },
     "authored_default_duplicate_binding.html": {
       "result": "compiled"
     },
@@ -17,6 +41,17 @@
       "result": "failed"
     },
     "authored_empty_valid.html": {
+      "result": "compiled"
+    },
+    "authored_javascript_empty.html": {
+      "error": "'javascript' requires exactly one argument",
+      "result": "failed"
+    },
+    "authored_javascript_extra.html": {
+      "error": "'javascript' requires exactly one argument",
+      "result": "failed"
+    },
+    "authored_javascript_valid.html": {
       "result": "compiled"
     },
     "authored_keyword_only_missing.html": {
@@ -56,6 +91,45 @@
       "result": "failed"
     },
     "authored_required_valid.html": {
+      "result": "compiled"
+    },
+    "authored_stylesheet_empty.html": {
+      "error": "'stylesheet' requires exactly one argument",
+      "result": "failed"
+    },
+    "authored_stylesheet_extra.html": {
+      "error": "'stylesheet' requires exactly one argument",
+      "result": "failed"
+    },
+    "authored_stylesheet_valid.html": {
+      "result": "compiled"
+    },
+    "authored_templatetag_closeblock.html": {
+      "result": "compiled"
+    },
+    "authored_templatetag_closebrace.html": {
+      "result": "compiled"
+    },
+    "authored_templatetag_closecomment.html": {
+      "result": "compiled"
+    },
+    "authored_templatetag_closevariable.html": {
+      "result": "compiled"
+    },
+    "authored_templatetag_invalid.html": {
+      "error": "templatetag argument is invalid",
+      "result": "failed"
+    },
+    "authored_templatetag_openblock.html": {
+      "result": "compiled"
+    },
+    "authored_templatetag_openbrace.html": {
+      "result": "compiled"
+    },
+    "authored_templatetag_opencomment.html": {
+      "result": "compiled"
+    },
+    "authored_templatetag_openvariable.html": {
       "result": "compiled"
     },
     "authored_varargs_unexpected_keyword.html": {
@@ -228,6 +302,13 @@
     "lorem_words.html": {
       "result": "compiled"
     },
+    "mutated_choice_appended_value.html": {
+      "result": "compiled"
+    },
+    "mutated_choice_invalid_value.html": {
+      "error": "mutated_choice argument is invalid",
+      "result": "failed"
+    },
     "none_end_name_uses_default_missing.html": {
       "error": "'default_panel' did not receive value(s) for the argument(s): 'title'",
       "result": "failed"
@@ -284,9 +365,30 @@
     "stdlib_wrapped_valid.html": {
       "result": "compiled"
     },
+    "templatetag_closeblock.html": {
+      "result": "compiled"
+    },
+    "templatetag_closebrace.html": {
+      "result": "compiled"
+    },
+    "templatetag_closecomment.html": {
+      "result": "compiled"
+    },
+    "templatetag_closevariable.html": {
+      "result": "compiled"
+    },
     "templatetag_invalid_choice.html": {
       "error": "Invalid templatetag argument: 'foo'. Must be one of: ['openblock', 'closeblock', 'openvariable', 'closevariable', 'openbrace', 'closebrace', 'opencomment', 'closecomment']",
       "result": "failed"
+    },
+    "templatetag_openbrace.html": {
+      "result": "compiled"
+    },
+    "templatetag_opencomment.html": {
+      "result": "compiled"
+    },
+    "templatetag_openvariable.html": {
+      "result": "compiled"
     },
     "templatetag_valid.html": {
       "result": "compiled"

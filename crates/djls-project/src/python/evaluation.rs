@@ -12,7 +12,7 @@ mod evaluator;
 mod mapping;
 mod module_object;
 mod mutation;
-mod name_analysis;
+pub(crate) mod name_analysis;
 mod query;
 mod result;
 mod sequence;

@@ -9,6 +9,12 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "hasplugins tag syntax is \"hasplugins OUTLET_NAME\""
     argument_syntax:
       Parameters:
         - name: arg1
@@ -21,6 +27,12 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "pluginoutlet tag syntax is \"pluginoutlet OUTLET_NAME\""
     argument_syntax:
       Parameters:
         - name: arg1

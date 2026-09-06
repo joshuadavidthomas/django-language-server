@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -118,6 +119,8 @@ pub(crate) enum AbstractValue {
     Int(i64),
     /// String constant
     Str(String),
+    /// A comparison over the original `split_contents()` result.
+    SplitPredicate(SplitPredicate),
     /// Tuple of tracked values (for function return/destructuring)
     Tuple(Vec<AbstractValue>),
 }
@@ -137,15 +140,30 @@ impl AbstractValue {
             | Self::SplitElement { .. }
             | Self::SplitLength(_)
             | Self::Int(_)
-            | Self::Str(_) => {}
+            | Self::Str(_)
+            | Self::SplitPredicate(_) => {}
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) enum SplitPredicate {
+    LengthEquals(usize),
+    LengthAtLeast(usize),
+    ElementEquals {
+        position: SplitPosition,
+        value: String,
+    },
 }
 
 /// The abstract environment: maps variable names to their abstract values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Env {
-    bindings: HashMap<String, AbstractValue>,
+    bindings: Arc<HashMap<String, AbstractValue>>,
+    static_bindings: Arc<HashMap<String, AbstractValue>>,
+    /// `None` means module name resolution is open. A closed set records names
+    /// that shadow their Python builtins in this function.
+    shadowed_builtin_names: Option<Arc<std::collections::HashSet<String>>>,
 }
 
 impl Env {
@@ -157,18 +175,67 @@ impl Env {
         let mut bindings = HashMap::new();
         bindings.insert(parser_param.to_string(), AbstractValue::Parser);
         bindings.insert(token_param.to_string(), AbstractValue::Token);
-        Self { bindings }
+        Self {
+            bindings: Arc::new(bindings),
+            static_bindings: Arc::new(HashMap::new()),
+            shadowed_builtin_names: None,
+        }
     }
 
-    /// Look up a variable's abstract value. Returns `Unknown` if not bound.
+    /// Look up a variable's abstract value. A local binding, including
+    /// `Unknown`, shadows a module constant.
     #[must_use]
     pub(crate) fn get(&self, name: &str) -> &AbstractValue {
-        self.bindings.get(name).unwrap_or(&AbstractValue::Unknown)
+        self.bindings
+            .get(name)
+            .or_else(|| self.static_bindings.get(name))
+            .unwrap_or(&AbstractValue::Unknown)
+    }
+
+    /// Look up a statically resolved dotted path unless its root is shadowed
+    /// by a function-local binding.
+    #[must_use]
+    pub(crate) fn get_static_path(&self, path: &[String]) -> Option<&AbstractValue> {
+        let [root, ..] = path else {
+            return None;
+        };
+        if self.bindings.contains_key(root) {
+            return None;
+        }
+        self.static_bindings.get(&path.join("."))
     }
 
     /// Bind a variable to an abstract value.
     pub(crate) fn set(&mut self, name: String, value: AbstractValue) {
-        self.bindings.insert(name, value);
+        Arc::make_mut(&mut self.bindings).insert(name, value);
+    }
+
+    /// Add a closed module or class constant. Local writes remain separate so
+    /// they cannot accidentally reveal the static value after control flow.
+    pub(crate) fn set_static(&mut self, name: String, value: AbstractValue) {
+        Arc::make_mut(&mut self.static_bindings).insert(name, value);
+    }
+
+    /// Block static fallback for a local name without replacing a value already
+    /// known at function entry, such as the parser or token parameter.
+    pub(crate) fn shadow_static(&mut self, name: String) {
+        Arc::make_mut(&mut self.bindings)
+            .entry(name)
+            .or_insert(AbstractValue::Unknown);
+    }
+
+    pub(crate) fn set_builtin_name_scope(
+        &mut self,
+        shadowed_names: std::collections::HashSet<String>,
+    ) {
+        self.shadowed_builtin_names = Some(Arc::new(shadowed_names));
+    }
+
+    #[must_use]
+    pub(crate) fn builtin_name_visible(&self, name: &str) -> bool {
+        self.shadowed_builtin_names
+            .as_ref()
+            .is_some_and(|shadowed| !shadowed.contains(name))
     }
 
     /// Mutate a variable's value in place (e.g., for `bits.pop(0)`).
@@ -177,17 +244,22 @@ impl Env {
     where
         F: FnOnce(&mut AbstractValue),
     {
-        if let Some(val) = self.bindings.get_mut(name) {
-            f(val);
-            true
-        } else {
-            false
+        if !self.bindings.contains_key(name) {
+            return false;
         }
+        let Some(value) = Arc::make_mut(&mut self.bindings).get_mut(name) else {
+            return false;
+        };
+        f(value);
+        true
     }
 
     /// Forget every binding that aliases a mutable abstract value.
     pub(crate) fn forget_aliases(&mut self, aliased: &AbstractValue) {
-        for value in self.bindings.values_mut() {
+        if !self.bindings.values().any(|value| value == aliased) {
+            return;
+        }
+        for value in Arc::make_mut(&mut self.bindings).values_mut() {
             if value == aliased {
                 *value = AbstractValue::Unknown;
             }
@@ -203,26 +275,73 @@ impl Env {
         };
         let mut joined = first.clone();
         for branch in branches {
-            joined
-                .bindings
-                .retain(|name, value| branch.bindings.get(name) == Some(value));
+            if !Arc::ptr_eq(&joined.bindings, &branch.bindings)
+                && joined
+                    .bindings
+                    .iter()
+                    .any(|(name, value)| branch.bindings.get(name) != Some(value))
+            {
+                Arc::make_mut(&mut joined.bindings)
+                    .retain(|name, value| branch.bindings.get(name) == Some(value));
+            }
+            if !joined.static_bindings.is_empty()
+                && branch.static_bindings != joined.static_bindings
+            {
+                joined.static_bindings = Arc::new(HashMap::new());
+            }
         }
         joined
     }
 
     /// Forget a binding that may have changed before an implicit exception.
     pub(crate) fn forget(&mut self, name: &str) {
-        if let Some(value) = self.bindings.get_mut(name) {
+        if !self.bindings.contains_key(name) {
+            return;
+        }
+        if let Some(value) = Arc::make_mut(&mut self.bindings).get_mut(name) {
             *value = AbstractValue::Unknown;
         }
     }
 
-    /// Forget every mutable token-derived sequence, including aliases.
-    pub(crate) fn forget_split_results(&mut self) {
-        for value in self.bindings.values_mut() {
-            if matches!(value, AbstractValue::SplitResult(_)) {
+    /// Forget every binding that identifies the source token.
+    pub(crate) fn forget_tokens(&mut self) {
+        if !self
+            .bindings
+            .values()
+            .any(|value| matches!(value, AbstractValue::Token))
+        {
+            return;
+        }
+        for value in Arc::make_mut(&mut self.bindings).values_mut() {
+            if matches!(value, AbstractValue::Token) {
                 *value = AbstractValue::Unknown;
             }
+        }
+    }
+
+    /// Forget every mutable token-derived sequence, including aliases nested
+    /// in a tuple or mutable literal container.
+    pub(crate) fn forget_split_results(&mut self) {
+        fn contains_split_result(value: &AbstractValue) -> bool {
+            match value {
+                AbstractValue::SplitResult(_) => true,
+                AbstractValue::Tuple(values) => values.iter().any(contains_split_result),
+                AbstractValue::Unknown
+                | AbstractValue::Token
+                | AbstractValue::Parser
+                | AbstractValue::SplitElement { .. }
+                | AbstractValue::SplitLength(_)
+                | AbstractValue::Int(_)
+                | AbstractValue::Str(_)
+                | AbstractValue::SplitPredicate(_) => false,
+            }
+        }
+
+        if !self.bindings.values().any(contains_split_result) {
+            return;
+        }
+        for value in Arc::make_mut(&mut self.bindings).values_mut() {
+            value.forget_mutable();
         }
     }
 
@@ -249,6 +368,18 @@ mod tests {
         let mut env = Env::default();
         env.set("x".to_string(), AbstractValue::Int(42));
         assert_eq!(env.get("x"), &AbstractValue::Int(42));
+    }
+
+    #[test]
+    fn env_clone_isolated_on_write() {
+        let mut original = Env::default();
+        original.set("x".to_string(), AbstractValue::Int(1));
+        let mut branch = original.clone();
+
+        branch.set("x".to_string(), AbstractValue::Int(2));
+
+        assert_eq!(original.get("x"), &AbstractValue::Int(1));
+        assert_eq!(branch.get("x"), &AbstractValue::Int(2));
     }
 
     #[test]

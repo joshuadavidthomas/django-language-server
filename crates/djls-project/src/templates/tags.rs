@@ -87,6 +87,11 @@ pub(crate) fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> 
     };
 
     let mut callee_env = Env::default();
+    analysis::constants::seed_static_bindings(
+        analysis::constants::module_static_bindings(db, call.file(db)),
+        callee,
+        &mut callee_env,
+    );
     for (i, param) in callee.parameters.args.iter().enumerate() {
         let value = args
             .get(i)

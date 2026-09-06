@@ -26,6 +26,12 @@ pub(super) struct PopInfo {
     position: PopPosition,
 }
 
+impl PopInfo {
+    pub(super) fn is_untracked(&self) -> bool {
+        self.position == PopPosition::Untracked
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum PopPosition {
     Front,

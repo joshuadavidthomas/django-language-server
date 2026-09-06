@@ -235,7 +235,18 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
-    choice_at_constraints: []
+    choice_at_constraints:
+      - position:
+          Forward: 1
+        values:
+          - openblock
+          - closeblock
+          - openvariable
+          - closevariable
+          - openbrace
+          - closebrace
+          - opencomment
+          - closecomment
     known_options: ~
     diagnostic_messages:
       - constraint:

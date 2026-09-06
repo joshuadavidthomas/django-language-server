@@ -25,14 +25,14 @@ const MISSED_DIAGNOSTICS: &[&str] = &[
     "for_wrong_separator",
     // option extraction records names but not the assignments required after with
     "include_missing_assignment",
+    // the static choice list is mutated after assignment, so its value becomes Unknown
+    "mutated_choice_invalid_value",
     // unpropagated helper raises admit the later split reassignment while caught-exception fallback widens bits to unknown
     "restored_exception_state_missing",
     // registration is curried through functools.partial; there is no standard-library search root and no model of partial, so the library is open
     "stdlib_partial_context_invalid",
     // callable is wrapped by a functools.wraps decorator; the wrapper is unresolvable and the library is open
     "stdlib_wrapped_invalid",
-    // class-dictionary membership is not extracted as a set of allowed choices
-    "templatetag_invalid_choice",
     // implicit-exception fallback enters finally with unknown bits and its return makes that path accepting
     "unhandled_exception_finally_missing",
     // token_kwargs invalidates the remaining bits without modeling assignment parsing

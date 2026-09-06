@@ -18,7 +18,8 @@ tag_rules:
         variadic_keyword: kwargs
     as_var: strip
   "bookmarks.templatetags.shared::tag::formhelp":
-    arg_constraints: []
+    arg_constraints:
+      - Exact: 2
     required_keywords: []
     choice_at_constraints: []
     known_options: ~

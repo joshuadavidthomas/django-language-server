@@ -3233,13 +3233,40 @@ fn corpus_stylesheet_requires_one_argument() {
             .expect("template validation should run"),
         []
     );
-    // Missed diagnostic: caught tuple-unpack errors do not constrain arity.
-    // pipeline.py raises "requires exactly one argument: the name of a group".
-    assert_eq!(
-        collect_errors(&db, "/invalid.html", "{% stylesheet %}")
-            .expect("template validation should run"),
-        []
+    let errors = collect_errors(&db, "/invalid.html", "{% stylesheet %}")
+        .expect("template validation should run");
+    assert!(
+        matches!(
+            errors.as_slice(),
+            [ValidationError::ExtractedRuleViolation { tag, message, .. }]
+                if tag == "stylesheet" && message.contains("requires exactly one argument")
+        ),
+        "{errors:?}"
     );
+}
+
+#[test]
+fn corpus_javascript_requires_one_argument() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let (specs, _) =
+        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-pipeline"))
+            .expect("corpus specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    let errors = collect_errors(&db, "/valid.html", "{% javascript 'main' %}")
+        .expect("template validation should run");
+    assert!(errors.is_empty(), "{errors:?}");
+    for template in ["{% javascript %}", "{% javascript 'main' extra %}"] {
+        let errors =
+            collect_errors(&db, "/invalid.html", template).expect("template validation should run");
+        assert!(
+            matches!(
+                errors.as_slice(),
+                [ValidationError::ExtractedRuleViolation { tag, message, .. }]
+                    if tag == "javascript" && message.contains("requires exactly one argument")
+            ),
+            "{errors:?}"
+        );
+    }
 }
 
 #[test]
@@ -3258,16 +3285,19 @@ fn corpus_compress_requires_a_known_output_mode() {
         .expect("template validation should run"),
         []
     );
-    // Missed diagnostic: module constants are not extracted as choices.
-    // compress.py raises "second argument must be 'file' or 'inline'".
-    assert_eq!(
-        collect_errors(
-            &db,
-            "/invalid.html",
-            "{% compress css bogus %}x{% endcompress %}"
-        )
-        .expect("template validation should run"),
-        []
+    let errors = collect_errors(
+        &db,
+        "/invalid.html",
+        "{% compress css bogus %}x{% endcompress %}",
+    )
+    .expect("template validation should run");
+    assert!(
+        matches!(
+            errors.as_slice(),
+            [ValidationError::ExtractedRuleViolation { tag, message, .. }]
+                if tag == "compress" && message.contains("second argument must be 'file' or 'inline'")
+        ),
+        "{errors:?}"
     );
 }
 

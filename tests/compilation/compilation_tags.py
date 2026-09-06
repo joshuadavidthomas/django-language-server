@@ -343,3 +343,76 @@ def unhandled_exception_finally(parser, token):
 
 
 register.tag("unhandled_exception_finally", unhandled_exception_finally)
+
+
+@register.tag
+def stylesheet(parser, token):
+    try:
+        tag_name, name = token.split_contents()
+    except ValueError:
+        message = "%r requires exactly one argument"
+        raise template.TemplateSyntaxError(message % token.split_contents()[0])
+    return template.Node()
+
+
+@register.tag
+def javascript(parser, token):
+    try:
+        tag_name, name = token.split_contents()
+    except ValueError:
+        message = "%r requires exactly one argument"
+        raise template.TemplateSyntaxError(message % token.split_contents()[0])
+    return template.Node()
+
+
+@register.tag
+def mutated_choice(parser, token):
+    bits = token.split_contents()
+    choices = ["old"]
+    choices.append("new")
+    if len(bits) != 2 or bits[1] not in choices:
+        raise template.TemplateSyntaxError("mutated_choice argument is invalid")
+    return template.Node()
+
+
+OUTPUT_FILE = "file"
+OUTPUT_INLINE = "inline"
+OUTPUT_PRELOAD = "preload"
+OUTPUT_MODES = (OUTPUT_FILE, OUTPUT_INLINE, OUTPUT_PRELOAD)
+
+
+@register.tag
+def compress(parser, token):
+    parser.parse(("endcompress",))
+    parser.delete_first_token()
+    args = token.split_contents()
+    if not len(args) in (2, 3, 4):
+        raise template.TemplateSyntaxError("compress expects one to three arguments")
+    if len(args) >= 3:
+        if args[2] not in OUTPUT_MODES:
+            raise template.TemplateSyntaxError("compress mode is invalid")
+    return template.Node()
+
+
+class DjangoTemplateTagNode(template.Node):
+    mapping = {
+        "openblock": "{%",
+        "closeblock": "%}",
+        "openvariable": "{{",
+        "closevariable": "}}",
+        "openbrace": "{",
+        "closebrace": "}",
+        "opencomment": "{#",
+        "closecomment": "#}",
+    }
+
+
+@register.tag
+def templatetag(parser, token):
+    bits = token.contents.split()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("templatetag expects one argument")
+    tag = bits[1]
+    if tag not in DjangoTemplateTagNode.mapping:
+        raise template.TemplateSyntaxError("templatetag argument is invalid")
+    return DjangoTemplateTagNode()

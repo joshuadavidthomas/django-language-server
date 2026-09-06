@@ -18,10 +18,21 @@ tag_rules:
         variadic_keyword: ~
     as_var: strip
   "src.oscar.templatetags.display_tags::tag::iffeature":
-    arg_constraints: []
+    arg_constraints:
+      - Exact: 2
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          PercentFormat:
+            template: "%r tag requires a single argument"
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: app_name

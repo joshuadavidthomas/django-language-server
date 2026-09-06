@@ -128,11 +128,6 @@ pub(crate) trait ExprExt {
 
     /// Extract the magnitude from a negative integer literal.
     fn negative_integer(&self) -> Option<usize>;
-
-    /// Map elements of a collection expression (tuple, list, or set) through
-    /// a fallible function. Returns `None` if the expression is not a
-    /// collection or if any element mapping fails.
-    fn collection_map<T>(&self, f: impl Fn(&Expr) -> Option<T>) -> Option<Vec<T>>;
 }
 
 impl ExprExt for Expr {
@@ -203,23 +198,6 @@ impl ExprExt for Expr {
             return None;
         };
         operand.non_negative_integer()
-    }
-
-    fn collection_map<T>(&self, f: impl Fn(&Expr) -> Option<T>) -> Option<Vec<T>> {
-        let elements = if let Expr::Tuple(tuple) = self {
-            &tuple.elts
-        } else if let Expr::List(list) = self {
-            &list.elts
-        } else if let Expr::Set(set) = self {
-            &set.elts
-        } else {
-            return None;
-        };
-        let mut values = Vec::new();
-        for elt in elements {
-            values.push(f(elt)?);
-        }
-        Some(values)
     }
 }
 
@@ -328,29 +306,5 @@ mod tests {
     #[test]
     fn negative_integer_rejects_non_unary_expression() {
         assert_eq!(parse_expr("3").negative_integer(), None);
-    }
-
-    #[test]
-    fn collection_map_maps_set_elements() {
-        assert_eq!(
-            parse_expr("{1, 2}").collection_map(super::ExprExt::non_negative_integer),
-            Some(vec![1, 2])
-        );
-    }
-
-    #[test]
-    fn collection_map_accepts_empty_collections() {
-        assert_eq!(
-            parse_expr("()").collection_map(super::ExprExt::non_negative_integer),
-            Some(Vec::new())
-        );
-    }
-
-    #[test]
-    fn collection_map_rejects_mixed_collections() {
-        assert_eq!(
-            parse_expr("(1, 'two')").collection_map(super::ExprExt::non_negative_integer),
-            None
-        );
     }
 }
