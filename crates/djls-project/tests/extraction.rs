@@ -1086,7 +1086,7 @@ fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() 
 fn literal_names_survive_unresolved_callables_across_call_shapes() {
     let (db, file, module) = imported_registration_fixture(
         "",
-        "from django import template\nfrom missing import implementation\nregister = template.Library()\nregister.tag('literal_tag', implementation.compile_tag)\nregister.filter('literal_filter', implementation.filter)\nregister.simple_tag(implementation.simple, name='literal_simple')\nregister.inclusion_tag('partial.html', func=implementation.inclusion, name='literal_inclusion')\nregister.simple_block_tag(name='literal_block', func=implementation.block)\n",
+        "from django import template\nfrom missing import implementation\nregister = template.Library()\nregister.tag('literal_tag', implementation.compile_tag)\nregister.filter('literal_filter', implementation.filter)\nregister.simple_tag(implementation.simple, name='literal_simple')\nregister.inclusion_tag('partial.html', name='literal_inclusion')(implementation.inclusion)\nregister.simple_block_tag(name='literal_block', func=implementation.block)\nregister.inclusion_tag('unused.html', name='unused_inclusion')\n",
         "",
     )
     .expect("unresolved-callable fixture should install");
@@ -1104,6 +1104,12 @@ fn literal_names_survive_unresolved_callables_across_call_shapes() {
             .unwrap_or_else(|| panic!("known Tag name `{name}` should survive"));
         assert_eq!(template_symbol_source(&db, symbol), None);
     }
+    assert!(
+        facts
+            .symbol(TemplateSymbolKind::Tag, "unused_inclusion")
+            .is_none(),
+        "an unused inclusion_tag decorator must not register a Tag"
+    );
     let filter = facts
         .symbol(TemplateSymbolKind::Filter, "literal_filter")
         .expect("known Filter name should survive");
@@ -1120,25 +1126,116 @@ fn literal_names_survive_unresolved_callables_across_call_shapes() {
 fn imported_callable_only_registrations_use_resolved_function_names() {
     let (db, file, module) = imported_registration_fixture(
         "",
-        "from django import template\nfrom .implementation import compile_tag as tag_callable, imported_filter as filter_callable, keyword_tag, keyword_filter, simple, inclusion, block\nregister = template.Library()\nregister.tag(tag_callable)\nregister.filter(filter_callable)\nregister.tag(compile_function=keyword_tag)\nregister.filter(filter_func=keyword_filter)\nregister.simple_tag(func=simple)\nregister.inclusion_tag('partial.html', func=inclusion)\nregister.simple_block_tag(func=block)\n",
+        "from django import template\nfrom .implementation import compile_tag as tag_callable, imported_filter as filter_callable, keyword_tag, keyword_filter, simple, inclusion, block\nregister = template.Library()\nregister.tag(tag_callable)\nregister.filter(filter_callable)\nregister.tag(compile_function=keyword_tag)\nregister.filter(filter_func=keyword_filter)\nregister.simple_tag(func=simple)\nregister.inclusion_tag('partial.html')(inclusion)\nregister.simple_block_tag(func=block)\nregister.inclusion_tag('unused.html', name='unused_inclusion')\n",
         "def compile_tag(parser, token): pass\ndef imported_filter(value): return value\ndef keyword_tag(parser, token): pass\ndef keyword_filter(value): return value\ndef simple(): pass\ndef inclusion(): pass\ndef block(): pass\n",
     )
     .expect("callable-only fixture should install");
     let key = TemplateLibraryId::new(&db, Some(file), module);
     let facts = template_library_definition_facts(&db, key);
 
-    for name in ["compile_tag", "keyword_tag", "simple", "inclusion", "block"] {
+    for name in ["compile_tag", "simple", "inclusion", "block"] {
         assert!(
             facts.symbol(TemplateSymbolKind::Tag, name).is_some(),
             "resolved callable-only Tag `{name}` should use its function name"
         );
     }
-    for name in ["imported_filter", "keyword_filter"] {
+    assert!(
+        facts
+            .symbol(TemplateSymbolKind::Filter, "imported_filter")
+            .is_some()
+    );
+    assert!(
+        facts
+            .symbol(TemplateSymbolKind::Tag, "keyword_tag")
+            .is_none()
+    );
+    assert!(
+        facts
+            .symbol(TemplateSymbolKind::Filter, "keyword_filter")
+            .is_none()
+    );
+    assert!(
+        facts
+            .symbol(TemplateSymbolKind::Tag, "unused_inclusion")
+            .is_none(),
+        "an unused inclusion_tag decorator must not register a Tag"
+    );
+}
+
+#[test]
+fn project_backed_registration_options_resolve_without_inventing_count_facts() {
+    let (db, file, module) = imported_registration_fixture(
+        "",
+        r#"from django import template
+from . import implementation
+register = template.Library()
+
+register.simple_tag(
+    implementation.context_tag,
+    takes_context=implementation.TAKES_CONTEXT,
+    name="imported_context",
+)
+
+@register.simple_block_tag(
+    takes_context=implementation.TAKES_CONTEXT,
+    name=implementation.PANEL_NAME,
+    end_name=implementation.END_NAME,
+)
+def panel(context, content, title): pass
+
+@register.simple_tag(takes_context=UNKNOWN, name="unknown_context")
+def unknown_context(context, value): pass
+
+@register.simple_tag(name="malformed", unsupported=True)
+def malformed(value): pass
+"#,
+        "TAKES_CONTEXT = True\nPANEL_NAME = 'imported_panel'\nEND_NAME = 'finish_panel'\ndef context_tag(context, value): pass\n",
+    )
+    .expect("registration-option fixture should install");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
+    let definitions = template_library_definition_facts(&db, key);
+    for name in ["imported_context", "imported_panel", "unknown_context"] {
         assert!(
-            facts.symbol(TemplateSymbolKind::Filter, name).is_some(),
-            "resolved callable-only Filter `{name}` should use its function name"
+            definitions.symbol(TemplateSymbolKind::Tag, name).is_some(),
+            "known registration `{name}` should survive"
         );
     }
+    assert!(
+        definitions
+            .symbol(TemplateSymbolKind::Tag, "malformed")
+            .is_none(),
+        "an unsupported decorator must not invent a registration"
+    );
+
+    let tag_facts = template_library_tag_facts(&db, key);
+    for name in ["imported_context", "imported_panel"] {
+        assert_eq!(
+            tag_facts.tag_rules()[&SymbolKey::tag("pkg.tags", name)].arg_constraints,
+            vec![
+                ArgumentCountConstraint::Min(2),
+                ArgumentCountConstraint::Max(2),
+            ],
+            "resolved takes_context must remove framework parameters for `{name}`"
+        );
+    }
+    assert_eq!(
+        tag_facts.block_specs().as_map()[&SymbolKey::tag("pkg.tags", "imported_panel")]
+            .end_tag
+            .as_deref(),
+        Some("finish_panel")
+    );
+    assert!(
+        !tag_facts
+            .tag_rules()
+            .contains_key(&SymbolKey::tag("pkg.tags", "unknown_context")),
+        "unknown options must not produce definite count facts"
+    );
+    assert!(
+        !tag_facts
+            .tag_rules()
+            .contains_key(&SymbolKey::tag("pkg.tags", "malformed")),
+        "malformed decorators must not produce count facts"
+    );
 }
 
 // The fixture deliberately keeps all released django-bird registration shapes together so the

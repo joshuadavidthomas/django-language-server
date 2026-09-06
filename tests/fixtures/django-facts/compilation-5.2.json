@@ -38,11 +38,25 @@
     "class_valid.html": {
       "result": "compiled"
     },
+    "context_simple_block_missing.html": {
+      "error": "'context_panel' did not receive value(s) for the argument(s): 'title'",
+      "result": "failed"
+    },
+    "context_simple_block_valid.html": {
+      "result": "compiled"
+    },
     "curried_context_missing.html": {
       "error": "'curried_context' did not receive value(s) for the argument(s): 'value'",
       "result": "failed"
     },
     "curried_context_valid.html": {
+      "result": "compiled"
+    },
+    "curried_inclusion_missing.html": {
+      "error": "'curried_inclusion' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "curried_inclusion_valid.html": {
       "result": "compiled"
     },
     "decorator_context_missing.html": {
@@ -57,6 +71,27 @@
       "result": "failed"
     },
     "direct_context_valid.html": {
+      "result": "compiled"
+    },
+    "empty_block_name_uses_function_name_missing.html": {
+      "error": "'empty_named_panel' did not receive value(s) for the argument(s): 'title'",
+      "result": "failed"
+    },
+    "empty_block_name_uses_function_name_valid.html": {
+      "result": "compiled"
+    },
+    "empty_inclusion_name_uses_function_name_missing.html": {
+      "error": "'empty_named_inclusion' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "empty_inclusion_name_uses_function_name_valid.html": {
+      "result": "compiled"
+    },
+    "empty_simple_name_uses_function_name_missing.html": {
+      "error": "'empty_named_simple' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "empty_simple_name_uses_function_name_valid.html": {
       "result": "compiled"
     },
     "firstof_missing.html": {
@@ -87,6 +122,13 @@
     "include_valid.html": {
       "result": "compiled"
     },
+    "inclusion_func_is_ignored_missing.html": {
+      "error": "'inclusion_func_is_ignored' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "inclusion_func_is_ignored_valid.html": {
+      "result": "compiled"
+    },
     "lorem_extra_arguments.html": {
       "error": "Incorrect format for 'lorem' tag",
       "result": "failed"
@@ -98,6 +140,20 @@
       "result": "compiled"
     },
     "lorem_words.html": {
+      "result": "compiled"
+    },
+    "none_end_name_uses_default_missing.html": {
+      "error": "'default_panel' did not receive value(s) for the argument(s): 'title'",
+      "result": "failed"
+    },
+    "none_end_name_uses_default_valid.html": {
+      "result": "compiled"
+    },
+    "none_name_uses_function_name_missing.html": {
+      "error": "'none_named_simple' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "none_name_uses_function_name_valid.html": {
       "result": "compiled"
     },
     "simple_block_missing.html": {

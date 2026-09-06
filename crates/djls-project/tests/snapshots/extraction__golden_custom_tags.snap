@@ -3,6 +3,18 @@ source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"custom-tag extraction snapshot should serialize\")"
 ---
 tag_rules:
+  "tests.template_tests.templatetags.custom::tag::div":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: id
+          requirement: optional
+          kind: Variable
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::no_params":
     arg_constraints:
       - Max: 1
@@ -67,4 +79,8 @@ tag_rules:
           kind: Variable
     as_var: strip
 filter_arities: {}
-block_specs: {}
+block_specs:
+  "tests.template_tests.templatetags.custom::tag::div":
+    body_analysis_evidence: not_detected
+    end_tag: enddiv
+    intermediates: []

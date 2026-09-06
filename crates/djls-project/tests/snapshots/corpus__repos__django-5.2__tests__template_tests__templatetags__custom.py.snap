@@ -21,7 +21,37 @@ tag_rules:
     argument_syntax:
       Parameters: []
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::div":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: id
+          requirement: optional
+          kind: Variable
+    as_var: strip
+  "tests.template_tests.templatetags.custom::tag::div_custom_end":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters: []
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::escape_explicit":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters: []
+    as_var: strip
+  "tests.template_tests.templatetags.custom::tag::escape_explicit_block":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -39,6 +69,15 @@ tag_rules:
     argument_syntax:
       Parameters: []
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::escape_format_html_block":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters: []
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::escape_naive":
     arg_constraints:
       - Max: 1
@@ -48,7 +87,29 @@ tag_rules:
     argument_syntax:
       Parameters: []
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::escape_naive_block":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters: []
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::explicit_no_context":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
+    as_var: strip
+  "tests.template_tests.templatetags.custom::tag::explicit_no_context_block":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -92,7 +153,29 @@ tag_rules:
     argument_syntax:
       Parameters: []
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::no_params_with_context_block":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters: []
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::one_param":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
+    as_var: strip
+  "tests.template_tests.templatetags.custom::tag::one_param_block":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -118,6 +201,19 @@ tag_rules:
           requirement: required
           kind: Variable
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::params_and_context_block":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_keyword_only_default":
     arg_constraints:
       - Max: 2
@@ -130,7 +226,31 @@ tag_rules:
           requirement: optional
           kind: Keyword
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::simple_keyword_only_default_block":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: kwarg
+          requirement: optional
+          kind: Keyword
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_keyword_only_param":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: kwarg
+          requirement: required
+          kind: Keyword
+    as_var: strip
+  "tests.template_tests.templatetags.custom::tag::simple_keyword_only_param_block":
     arg_constraints:
       - Max: 2
     required_keywords: []
@@ -158,6 +278,22 @@ tag_rules:
           requirement: optional
           kind: Variable
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::simple_one_default_block":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_only_unlimited_args":
     arg_constraints: []
     required_keywords: []
@@ -169,23 +305,16 @@ tag_rules:
           requirement: optional
           kind: VarArgs
     as_var: strip
-  "tests.template_tests.templatetags.custom::tag::simple_tag_takes_context_without_params":
-    arg_constraints:
-      - Max: 1
+  "tests.template_tests.templatetags.custom::tag::simple_only_unlimited_args_block":
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
-    as_var: strip
-  "tests.template_tests.templatetags.custom::tag::simple_tag_without_context_parameter":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    argument_syntax:
-      Parameters: []
+      Parameters:
+        - name: args
+          requirement: optional
+          kind: VarArgs
     as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_two_params":
     arg_constraints:
@@ -203,7 +332,41 @@ tag_rules:
           requirement: required
           kind: Variable
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::simple_two_params_block":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: required
+          kind: Variable
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::simple_unlimited_args":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
+    as_var: strip
+  "tests.template_tests.templatetags.custom::tag::simple_unlimited_args_block":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -239,6 +402,24 @@ tag_rules:
           requirement: optional
           kind: VarArgs
     as_var: strip
+  "tests.template_tests.templatetags.custom::tag::simple_unlimited_args_kwargs_block":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: one
+          requirement: required
+          kind: Variable
+        - name: two
+          requirement: optional
+          kind: Variable
+        - name: args
+          requirement: optional
+          kind: VarArgs
+    as_var: strip
   "tests.template_tests.templatetags.custom::tag::use_l10n":
     arg_constraints:
       - Max: 1
@@ -252,4 +433,92 @@ filter_arities:
   "tests.template_tests.templatetags.custom::filter::make_data_div": no_argument
   "tests.template_tests.templatetags.custom::filter::noop": optional_argument
   "tests.template_tests.templatetags.custom::filter::trim": required_argument
-block_specs: {}
+block_specs:
+  "tests.template_tests.templatetags.custom::tag::div":
+    body_analysis_evidence: not_detected
+    end_tag: enddiv
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::div_custom_end":
+    body_analysis_evidence: not_detected
+    end_tag: divend
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::escape_explicit_block":
+    body_analysis_evidence: not_detected
+    end_tag: endescape_explicit_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::escape_format_html_block":
+    body_analysis_evidence: not_detected
+    end_tag: endescape_format_html_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::escape_naive_block":
+    body_analysis_evidence: not_detected
+    end_tag: endescape_naive_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::explicit_no_context_block":
+    body_analysis_evidence: not_detected
+    end_tag: endexplicit_no_context_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::no_params_with_context_block":
+    body_analysis_evidence: not_detected
+    end_tag: endno_params_with_context_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::one_param_block":
+    body_analysis_evidence: not_detected
+    end_tag: endone_param_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::params_and_context_block":
+    body_analysis_evidence: not_detected
+    end_tag: endparams_and_context_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_block_tag_with_context_without_content":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_block_tag_with_context_without_content
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_block_tag_without_content":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_block_tag_without_content
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_block_tag_without_context_parameter":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_block_tag_without_context_parameter
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_keyword_only_default_block":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_keyword_only_default_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_keyword_only_param_block":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_keyword_only_param_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_one_default_block":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_one_default_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_only_unlimited_args_block":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_only_unlimited_args_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_tag_takes_context_without_params_block":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_tag_takes_context_without_params_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_tag_with_context_without_content_parameter":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_tag_with_context_without_content_parameter
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_tag_without_content_parameter":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_tag_without_content_parameter
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_two_params_block":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_two_params_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_unlimited_args_block":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_unlimited_args_block
+    intermediates: []
+  "tests.template_tests.templatetags.custom::tag::simple_unlimited_args_kwargs_block":
+    body_analysis_evidence: not_detected
+    end_tag: endsimple_unlimited_args_kwargs_block
+    intermediates: []

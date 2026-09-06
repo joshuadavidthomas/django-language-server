@@ -3096,18 +3096,10 @@ fn corpus_show_placeholder_gets_context_from_django() {
         .expect("template validation should run"),
         []
     );
-    // False positive: direct registration loses takes_context=True. Django
-    // supplies context to _show_placeholder_by_id, so this has no compile error.
+    // Django supplies context to _show_placeholder_by_id.
     let errors = collect_errors(&db, "/valid.html", "{% show_placeholder 'slot' page_id %}")
         .expect("template validation should run");
-    let [ValidationError::ExtractedRuleViolation { tag, message, .. }] = errors.as_slice() else {
-        panic!("expected the context-count gap, got {errors:?}");
-    };
-    assert_eq!(tag, "show_placeholder");
-    assert_eq!(
-        message,
-        "Tag 'show_placeholder' requires at least 3 arguments"
-    );
+    assert!(errors.is_empty(), "{errors:?}");
     let errors = collect_errors(&db, "/invalid.html", "{% show_placeholder %}")
         .expect("template validation should run");
     assert!(matches!(
@@ -3162,22 +3154,24 @@ fn corpus_activity_stream_curried_registration() {
     assert!(
         djls_project::template_library_definition_facts(&extraction_db, library)
             .symbol(TemplateSymbolKind::Tag, "activity_stream")
-            .is_none()
+            .is_some()
     );
     let (specs, _) =
         build_specs_from_extraction(&corpus, &root).expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
-    // False positive on the valid control: curried registration is absent.
-    // The invalid call should instead get Django parse_bits' missing
-    // 'stream_type' argument error, not an unknown-tag diagnostic.
-    for template in ["{% activity_stream 'actor' %}", "{% activity_stream %}"] {
-        let errors =
-            collect_errors(&db, "/case.html", template).expect("template validation should run");
-        let [ValidationError::UnknownTag { tag, .. }] = errors.as_slice() else {
-            panic!("expected the curried registration gap, got {errors:?}");
-        };
-        assert_eq!(tag, "activity_stream");
-    }
+    let errors = collect_errors(&db, "/valid.html", "{% activity_stream 'actor' %}")
+        .expect("template validation should run");
+    assert!(errors.is_empty(), "{errors:?}");
+    // Django's parse_bits rejects the missing stream_type argument.
+    let errors = collect_errors(&db, "/invalid.html", "{% activity_stream %}")
+        .expect("template validation should run");
+    assert!(
+        matches!(
+            errors.as_slice(),
+            [ValidationError::ExtractedRuleViolation { tag, .. }] if tag == "activity_stream"
+        ),
+        "{errors:?}"
+    );
 }
 
 #[test]

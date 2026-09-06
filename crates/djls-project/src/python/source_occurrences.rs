@@ -37,6 +37,7 @@ enum Binding {
     ModuleMember(PythonModule, Box<Binding>),
     LazyFromImport(LazyFromImport),
     String(String),
+    Boolean(bool),
     Function(PythonFunctionDefinition),
     Unknown,
 }
@@ -45,6 +46,7 @@ enum Binding {
 enum ResolvedValue {
     Module(PythonModule),
     String(String),
+    Boolean(bool),
     Function(PythonFunctionDefinition),
 }
 
@@ -95,6 +97,7 @@ impl PythonFunctionDefinition {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PythonOccurrenceValue {
     String(String),
+    Boolean(bool),
     Function(PythonFunctionDefinition),
 }
 
@@ -151,14 +154,30 @@ impl<'db> PythonSourceLookup<'db> {
         }
         match self.lookup(expression) {
             Some(PythonOccurrenceValue::String(value)) => Some(value),
-            Some(PythonOccurrenceValue::Function(_)) | None => None,
+            Some(PythonOccurrenceValue::Boolean(_) | PythonOccurrenceValue::Function(_)) | None => {
+                None
+            }
+        }
+    }
+
+    pub(crate) fn exact_bool(&mut self, expression: &Expr) -> Option<bool> {
+        if let Some(value) = expression.bool_literal() {
+            return Some(value);
+        }
+        match self.lookup(expression) {
+            Some(PythonOccurrenceValue::Boolean(value)) => Some(value),
+            Some(PythonOccurrenceValue::String(_) | PythonOccurrenceValue::Function(_)) | None => {
+                None
+            }
         }
     }
 
     pub(crate) fn function(&mut self, expression: &Expr) -> Option<PythonFunctionDefinition> {
         match self.lookup(expression) {
             Some(PythonOccurrenceValue::Function(definition)) => Some(definition),
-            Some(PythonOccurrenceValue::String(_)) | None => None,
+            Some(PythonOccurrenceValue::String(_) | PythonOccurrenceValue::Boolean(_)) | None => {
+                None
+            }
         }
     }
 
@@ -394,7 +413,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                     }
                 }
             }
-            Binding::String(_) | Binding::Function(_) | Binding::Unknown => {}
+            Binding::String(_) | Binding::Boolean(_) | Binding::Function(_) | Binding::Unknown => {}
         }
     }
 
@@ -411,6 +430,9 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
         if let Some(value) = expression.string_literal() {
             return Some(Binding::String(value.to_string()));
         }
+        if let Some(value) = expression.bool_literal() {
+            return Some(Binding::Boolean(value));
+        }
         if let Some(name) = expression.name_target() {
             return self.bindings.get(name).cloned();
         }
@@ -422,6 +444,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             Binding::ModuleMember(_, _)
             | Binding::LazyFromImport(_)
             | Binding::String(_)
+            | Binding::Boolean(_)
             | Binding::Function(_)
             | Binding::Unknown => return None,
         };
@@ -438,6 +461,9 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
         }
         if let Some(value) = expression.string_literal() {
             return Some(ResolvedValue::String(value.to_string()));
+        }
+        if let Some(value) = expression.bool_literal() {
+            return Some(ResolvedValue::Boolean(value));
         }
         let path = expression.path_segments()?;
         let (root, tail) = path.split_first()?;
@@ -461,11 +487,13 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             }
             Binding::ModuleMember(_, value) => self.resolve_binding(*value, tail, depth),
             Binding::String(value) if tail.is_empty() => Some(ResolvedValue::String(value)),
+            Binding::Boolean(value) if tail.is_empty() => Some(ResolvedValue::Boolean(value)),
             Binding::Function(function) if tail.is_empty() => {
                 Some(ResolvedValue::Function(function))
             }
             Binding::LazyFromImport(_)
             | Binding::String(_)
+            | Binding::Boolean(_)
             | Binding::Function(_)
             | Binding::Unknown => None,
         }
@@ -615,6 +643,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                                 .value
                                 .string_literal()
                                 .map(|value| ResolvedValue::String(value.to_string()))
+                                .or_else(|| assign.value.bool_literal().map(ResolvedValue::Boolean))
                         } else {
                             None
                         };
@@ -626,11 +655,12 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                     }
                     if assign.target.name_target() == Some(root) {
                         value = if path.len() == 1 {
-                            assign
-                                .value
-                                .as_deref()
-                                .and_then(ExprExt::string_literal)
-                                .map(|value| ResolvedValue::String(value.to_string()))
+                            assign.value.as_deref().and_then(|value| {
+                                value
+                                    .string_literal()
+                                    .map(|value| ResolvedValue::String(value.to_string()))
+                                    .or_else(|| value.bool_literal().map(ResolvedValue::Boolean))
+                            })
                         } else {
                             None
                         };
@@ -697,7 +727,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             ResolvedValue::Module(module) if path.len() > 1 => {
                 self.resolve_module_path(&module, &path[1..], depth + 1)
             }
-            resolved @ ResolvedValue::String(_) => Some(resolved),
+            resolved @ (ResolvedValue::String(_) | ResolvedValue::Boolean(_)) => Some(resolved),
             resolved @ (ResolvedValue::Module(_) | ResolvedValue::Function(_))
                 if path.len() == 1 =>
             {
@@ -870,6 +900,7 @@ fn span_contains(outer: Span, inner: Span) -> bool {
 fn occurrence_value(value: ResolvedValue) -> Option<PythonOccurrenceValue> {
     match value {
         ResolvedValue::String(value) => Some(PythonOccurrenceValue::String(value)),
+        ResolvedValue::Boolean(value) => Some(PythonOccurrenceValue::Boolean(value)),
         ResolvedValue::Function(function) => Some(PythonOccurrenceValue::Function(function)),
         ResolvedValue::Module(_) => None,
     }
@@ -899,6 +930,7 @@ fn binding_from_value(value: ResolvedValue) -> Binding {
     match value {
         ResolvedValue::Module(module) => Binding::Module(module),
         ResolvedValue::String(value) => Binding::String(value),
+        ResolvedValue::Boolean(value) => Binding::Boolean(value),
         ResolvedValue::Function(function) => Binding::Function(function),
     }
 }

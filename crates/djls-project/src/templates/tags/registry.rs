@@ -5,10 +5,13 @@ use crate::templates::FilterArity;
 use crate::templates::RegistrationKind;
 use crate::templates::TemplateSymbolKind;
 use crate::templates::filters;
+use crate::templates::registrations::RegisteredEnd;
+use crate::templates::registrations::RegistrationOptions;
 use crate::templates::tags::analysis;
 use crate::templates::tags::blocks;
 use crate::templates::tags::signature;
 use crate::templates::tags::types::AsVar;
+use crate::templates::tags::types::BodyAnalysisEvidence;
 use crate::templates::tags::types::TagRule;
 
 impl RegistrationKind {
@@ -40,14 +43,20 @@ impl RegistrationKind {
         db: &dyn djls_source::Db,
         implementation_file: Option<File>,
         func: &StmtFunctionDef,
+        options: &RegistrationOptions,
     ) -> Option<Box<TagRule>> {
         match self {
             Self::Filter => None,
-            Self::SimpleTag | Self::InclusionTag => {
-                let rule = signature::extract_parse_bits_rule(func, self.var_assignment());
+            Self::SimpleTag | Self::InclusionTag | Self::SimpleBlockTag => {
+                let rule = signature::extract_parse_bits_rule(
+                    func,
+                    self,
+                    options.context,
+                    self.var_assignment(),
+                )?;
                 rule.has_content().then(|| Box::new(rule))
             }
-            Self::Tag | Self::SimpleBlockTag => {
+            Self::Tag => {
                 let mut rule = implementation_file.map_or_else(
                     || analysis::analyze_compile_function(func),
                     |file| analysis::analyze_compile_function_in_file(db, file, func),
@@ -63,12 +72,20 @@ impl RegistrationKind {
     pub(crate) fn extract_block_spec(
         self,
         func: &StmtFunctionDef,
+        options: &RegistrationOptions,
     ) -> Option<blocks::ExtractedBlockSpec> {
         match self {
             Self::Filter => None,
-            Self::Tag | Self::SimpleTag | Self::InclusionTag | Self::SimpleBlockTag => {
-                blocks::extract_block_spec(func)
-            }
+            Self::SimpleBlockTag => Some(blocks::ExtractedBlockSpec {
+                end_tag: match options.block_end.as_ref()? {
+                    RegisteredEnd::Default => blocks::EndTagEvidence::SelfNamed,
+                    RegisteredEnd::Named(name) => blocks::EndTagEvidence::Literal(name.clone()),
+                    RegisteredEnd::Unknown => blocks::EndTagEvidence::Unknown,
+                },
+                intermediates: Vec::new(),
+                body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+            }),
+            Self::Tag | Self::SimpleTag | Self::InclusionTag => blocks::extract_block_spec(func),
         }
     }
 }
